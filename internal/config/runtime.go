@@ -4,11 +4,11 @@ import "time"
 
 // DefaultPlatformConfig contains default settings for newly created platforms.
 type DefaultPlatformConfig struct {
-	StickyTTL            Duration `json:"sticky_ttl"`
-	RegexFilters         []string `json:"regex_filters"`
-	RegionFilters        []string `json:"region_filters"`
-	ReverseProxyMissAction string `json:"reverse_proxy_miss_action"`
-	AllocationPolicy     string   `json:"allocation_policy"`
+	StickyTTL              Duration `json:"sticky_ttl"`
+	RegexFilters           []string `json:"regex_filters"`
+	RegionFilters          []string `json:"region_filters"`
+	ReverseProxyMissAction string   `json:"reverse_proxy_miss_action"`
+	AllocationPolicy       string   `json:"allocation_policy"`
 }
 
 // RuntimeConfig holds all hot-updatable global settings.
@@ -18,21 +18,21 @@ type RuntimeConfig struct {
 	UserAgent string `json:"user_agent"`
 
 	// Request log
-	RequestLogEnabled                 bool `json:"request_log_enabled"`
-	ReverseProxyLogDetailEnabled      bool `json:"reverse_proxy_log_detail_enabled"`
-	ReverseProxyLogReqHeadersMaxBytes int  `json:"reverse_proxy_log_req_headers_max_bytes"`
-	ReverseProxyLogReqBodyMaxBytes    int  `json:"reverse_proxy_log_req_body_max_bytes"`
-	ReverseProxyLogRespHeadersMaxBytes int `json:"reverse_proxy_log_resp_headers_max_bytes"`
-	ReverseProxyLogRespBodyMaxBytes   int  `json:"reverse_proxy_log_resp_body_max_bytes"`
+	RequestLogEnabled                  bool `json:"request_log_enabled"`
+	ReverseProxyLogDetailEnabled       bool `json:"reverse_proxy_log_detail_enabled"`
+	ReverseProxyLogReqHeadersMaxBytes  int  `json:"reverse_proxy_log_req_headers_max_bytes"`
+	ReverseProxyLogReqBodyMaxBytes     int  `json:"reverse_proxy_log_req_body_max_bytes"`
+	ReverseProxyLogRespHeadersMaxBytes int  `json:"reverse_proxy_log_resp_headers_max_bytes"`
+	ReverseProxyLogRespBodyMaxBytes    int  `json:"reverse_proxy_log_resp_body_max_bytes"`
 
 	// Default platform
 	DefaultPlatformConfig DefaultPlatformConfig `json:"default_platform_config"`
 
 	// Health check
-	MaxConsecutiveFailures         int      `json:"max_consecutive_failures"`
-	MaxLatencyTestInterval         Duration `json:"max_latency_test_interval"`
+	MaxConsecutiveFailures          int      `json:"max_consecutive_failures"`
+	MaxLatencyTestInterval          Duration `json:"max_latency_test_interval"`
 	MaxAuthorityLatencyTestInterval Duration `json:"max_authority_latency_test_interval"`
-	MaxEgressTestInterval          Duration `json:"max_egress_test_interval"`
+	MaxEgressTestInterval           Duration `json:"max_egress_test_interval"`
 
 	// GeoIP
 	GeoIPUpdateSchedule string `json:"geoip_update_schedule"`
@@ -48,9 +48,9 @@ type RuntimeConfig struct {
 	LatencyDecayWindow Duration `json:"latency_decay_window"`
 
 	// Persistence
-	CacheFlushInterval        Duration `json:"cache_flush_interval"`
-	CacheFlushDirtyThreshold  int      `json:"cache_flush_dirty_threshold"`
-	EphemeralNodeEvictDelay   Duration `json:"ephemeral_node_evict_delay"`
+	CacheFlushInterval       Duration `json:"cache_flush_interval"`
+	CacheFlushDirtyThreshold int      `json:"cache_flush_dirty_threshold"`
+	EphemeralNodeEvictDelay  Duration `json:"ephemeral_node_evict_delay"`
 }
 
 // NewDefaultRuntimeConfig returns a RuntimeConfig populated with the default
@@ -67,11 +67,11 @@ func NewDefaultRuntimeConfig() *RuntimeConfig {
 		ReverseProxyLogRespBodyMaxBytes:    1024,
 
 		DefaultPlatformConfig: DefaultPlatformConfig{
-			StickyTTL:            Duration(7 * 24 * time.Hour), // 168h
-			RegexFilters:         []string{},
-			RegionFilters:        []string{},
+			StickyTTL:              Duration(7 * 24 * time.Hour), // 168h
+			RegexFilters:           []string{},
+			RegionFilters:          []string{},
 			ReverseProxyMissAction: "RANDOM",
-			AllocationPolicy:     "BALANCED",
+			AllocationPolicy:       "BALANCED",
 		},
 
 		MaxConsecutiveFailures:          3,

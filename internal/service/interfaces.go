@@ -26,7 +26,7 @@ type SystemService interface {
 
 // MemorySystemService is a minimal SystemService backed by in-memory state.
 type MemorySystemService struct {
-	info      SystemInfo
+	info       SystemInfo
 	runtimeCfg *config.RuntimeConfig
 }
 
