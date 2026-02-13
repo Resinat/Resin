@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sync"
+	"time"
 
 	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/model"
@@ -70,6 +72,23 @@ func (r *StateRepo) SaveSystemConfig(cfg *config.RuntimeConfig, version int, upd
 // If the name collides with a different platform's name, the UNIQUE constraint
 // error is returned to the caller.
 func (r *StateRepo) UpsertPlatform(p model.Platform) error {
+	// Validate regex_filters_json.
+	var regexes []string
+	if err := json.Unmarshal([]byte(p.RegexFiltersJSON), &regexes); err != nil {
+		return fmt.Errorf("regex_filters_json: must be a JSON []string: %w", err)
+	}
+	for i, re := range regexes {
+		if _, err := regexp.Compile(re); err != nil {
+			return fmt.Errorf("regex_filters_json[%d]: invalid regex %q: %w", i, re, err)
+		}
+	}
+
+	// Validate region_filters_json.
+	var regions []string
+	if err := json.Unmarshal([]byte(p.RegionFiltersJSON), &regions); err != nil {
+		return fmt.Errorf("region_filters_json: must be a JSON []string: %w", err)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -124,25 +143,28 @@ func (r *StateRepo) ListPlatforms() ([]model.Platform, error) {
 // UpsertSubscription inserts or updates a subscription by ID.
 // On update, created_at_ns is preserved (not overwritten).
 func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
+	// Validate minimum update interval (30 seconds).
+	const minInterval = int64(30 * time.Second)
+	if s.UpdateIntervalNs < minInterval {
+		return fmt.Errorf("update_interval_ns: must be >= %d (30s), got %d", minInterval, s.UpdateIntervalNs)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	_, err := r.db.Exec(`
-		INSERT INTO subscriptions (id, name, url, update_interval_ns, enabled, last_updated_ns,
-		                           last_checked_ns, ephemeral, last_error, created_at_ns, updated_at_ns)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO subscriptions (id, name, url, update_interval_ns, enabled,
+		                           ephemeral, created_at_ns, updated_at_ns)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name               = excluded.name,
 			url                = excluded.url,
 			update_interval_ns = excluded.update_interval_ns,
 			enabled            = excluded.enabled,
-			last_updated_ns    = excluded.last_updated_ns,
-			last_checked_ns    = excluded.last_checked_ns,
 			ephemeral          = excluded.ephemeral,
-			last_error         = excluded.last_error,
 			updated_at_ns      = excluded.updated_at_ns
-	`, s.ID, s.Name, s.URL, s.UpdateIntervalNs, s.Enabled, s.LastUpdatedNs,
-		s.LastCheckedNs, s.Ephemeral, s.LastError, s.CreatedAtNs, s.UpdatedAtNs)
+	`, s.ID, s.Name, s.URL, s.UpdateIntervalNs, s.Enabled,
+		s.Ephemeral, s.CreatedAtNs, s.UpdatedAtNs)
 	return err
 }
 
@@ -157,8 +179,8 @@ func (r *StateRepo) DeleteSubscription(id string) error {
 
 // ListSubscriptions returns all subscriptions.
 func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
-	rows, err := r.db.Query(`SELECT id, name, url, update_interval_ns, enabled, last_updated_ns,
-		last_checked_ns, ephemeral, last_error, created_at_ns, updated_at_ns FROM subscriptions`)
+	rows, err := r.db.Query(`SELECT id, name, url, update_interval_ns, enabled,
+		ephemeral, created_at_ns, updated_at_ns FROM subscriptions`)
 	if err != nil {
 		return nil, err
 	}
@@ -168,8 +190,7 @@ func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 	for rows.Next() {
 		var s model.Subscription
 		if err := rows.Scan(&s.ID, &s.Name, &s.URL, &s.UpdateIntervalNs, &s.Enabled,
-			&s.LastUpdatedNs, &s.LastCheckedNs, &s.Ephemeral, &s.LastError,
-			&s.CreatedAtNs, &s.UpdatedAtNs); err != nil {
+			&s.Ephemeral, &s.CreatedAtNs, &s.UpdatedAtNs); err != nil {
 			return nil, err
 		}
 		result = append(result, s)

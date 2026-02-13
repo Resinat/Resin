@@ -105,6 +105,7 @@
 4. 实现下载重试抽象（先直连失败后尝试代理重试）。
 5. 实现 GeoIP 下载更新、原子替换、Lookup 接口。
 6. 把探测结果正确反馈到 RecordResult/RecordLatency/UpdateNodeEgressIP。
+7. （承接阶段 3 Review）：修复 Ephemeral 清理与健康恢复的 TOCTOU 竞态：清理线程判定“熔断超时”到执行移除之间，Probe 可能已 `RecordResult(true)` 使节点恢复；此时必须二次校验或原子判定，避免误驱逐。补充并发回归测试（恢复与清理并发、边界时刻）。
 
 约束：
 - 熔断状态只能由健康管理接口改写。

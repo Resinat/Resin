@@ -204,8 +204,6 @@ Platform 应该向外提供一个脏更新的接口，用来通知脏节点。�
 	* 熔断触发 / 恢复：属于脏更新。	
 	* Platform 过滤器配置变更：全量重建。
 
-> 节点池新增节点并不触发动态更新，因此新增的节点必然还没有延迟信息。等主动出口 IP 探测给它加上延迟信息后，由“出口 IP 变更”事件负责触发动态更新。
-
 ### 订阅
 Resin 从订阅中获取节点配置。
 
@@ -471,8 +469,10 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 #### state.db
 * system_config(config_json, version, updated_at_ns)
 * platforms(id PK, name UNIQUE, sticky_ttl_ns, regex_filters_json, region_filters_json, reverse_proxy_miss_action, allocation_policy, updated_at_ns)
-* subscriptions(id PK, name, url, update_interval_ns, enabled, last_updated_ns, last_checked_ns, ephemeral, last_error, created_at_ns, updated_at_ns)
+* subscriptions(id PK, name, url, update_interval_ns, enabled, ephemeral, created_at_ns, updated_at_ns)
 * account_header_rules(url_prefix PK, headers_json, updated_at_ns)
+
+> 订阅的 LastCheck、LastError、LastUpdate 不进行持久化。因为启动时总是会更新一次。
 
 #### cache.db
 * nodes_static(hash PK, raw_options_json, created_at_ns)

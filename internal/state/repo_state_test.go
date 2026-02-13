@@ -152,6 +152,52 @@ func TestStateRepo_Platform_NameUniqueViolation(t *testing.T) {
 	}
 }
 
+func TestStateRepo_Platform_ValidationRejectsInvalidRegex(t *testing.T) {
+	repo := newTestStateRepo(t)
+	now := time.Now().UnixNano()
+
+	base := model.Platform{
+		ID: "plat-1", Name: "Test", StickyTTLNs: 1000,
+		RegexFiltersJSON: "[]", RegionFiltersJSON: "[]",
+		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
+		UpdatedAtNs: now,
+	}
+
+	// Non-array regex_filters_json.
+	bad := base
+	bad.RegexFiltersJSON = `"not-an-array"`
+	if err := repo.UpsertPlatform(bad); err == nil {
+		t.Fatal("expected error for non-array regex_filters_json")
+	}
+
+	// Uncompilable regex.
+	bad = base
+	bad.RegexFiltersJSON = `["(unclosed"]`
+	if err := repo.UpsertPlatform(bad); err == nil {
+		t.Fatal("expected error for uncompilable regex")
+	}
+
+	// Non-array region_filters_json.
+	bad = base
+	bad.RegionFiltersJSON = `123`
+	if err := repo.UpsertPlatform(bad); err == nil {
+		t.Fatal("expected error for non-array region_filters_json")
+	}
+
+	// Valid config should still succeed.
+	base.RegexFiltersJSON = `["^ss$","vmess"]`
+	base.RegionFiltersJSON = `["us","jp"]`
+	if err := repo.UpsertPlatform(base); err != nil {
+		t.Fatalf("valid platform rejected: %v", err)
+	}
+
+	// DB should have exactly 1 platform.
+	list, _ := repo.ListPlatforms()
+	if len(list) != 1 {
+		t.Fatalf("expected 1 platform, got %d", len(list))
+	}
+}
+
 // --- subscriptions ---
 
 func TestStateRepo_Subscriptions_CRUD(t *testing.T) {
@@ -161,7 +207,7 @@ func TestStateRepo_Subscriptions_CRUD(t *testing.T) {
 	s := model.Subscription{
 		ID: "sub-1", Name: "MySub", URL: "https://example.com/sub",
 		UpdateIntervalNs: int64(30 * time.Second), Enabled: true,
-		Ephemeral: false, LastError: "", CreatedAtNs: now, UpdatedAtNs: now,
+		Ephemeral: false, CreatedAtNs: now, UpdatedAtNs: now,
 	}
 	if err := repo.UpsertSubscription(s); err != nil {
 		t.Fatal(err)

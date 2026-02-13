@@ -20,10 +20,7 @@ type Subscription struct {
 	URL              string `json:"url"`
 	UpdateIntervalNs int64  `json:"update_interval_ns"`
 	Enabled          bool   `json:"enabled"`
-	LastUpdatedNs    int64  `json:"last_updated_ns"`
-	LastCheckedNs    int64  `json:"last_checked_ns"`
 	Ephemeral        bool   `json:"ephemeral"`
-	LastError        string `json:"last_error"`
 	CreatedAtNs      int64  `json:"created_at_ns"`
 	UpdatedAtNs      int64  `json:"updated_at_ns"`
 }

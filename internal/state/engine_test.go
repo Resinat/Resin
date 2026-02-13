@@ -109,7 +109,7 @@ func TestEngine_WeakPersist_CacheDataSurvivesRestart(t *testing.T) {
 	// Create required state references for consistency repair to keep our data.
 	engine1.UpsertSubscription(model.Subscription{
 		ID: "s1", Name: "Sub1", URL: "https://example.com",
-		UpdateIntervalNs: 1000, Enabled: true, CreatedAtNs: 1, UpdatedAtNs: 1,
+		UpdateIntervalNs: 30_000_000_000, Enabled: true, CreatedAtNs: 1, UpdatedAtNs: 1,
 	})
 	engine1.UpsertPlatform(model.Platform{
 		ID: "p1", Name: "P1", StickyTTLNs: 1000,

@@ -35,10 +35,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 	url               TEXT NOT NULL,
 	update_interval_ns INTEGER NOT NULL,
 	enabled           INTEGER NOT NULL DEFAULT 1,
-	last_updated_ns   INTEGER NOT NULL DEFAULT 0,
-	last_checked_ns   INTEGER NOT NULL DEFAULT 0,
 	ephemeral         INTEGER NOT NULL DEFAULT 0,
-	last_error        TEXT NOT NULL DEFAULT '',
 	created_at_ns     INTEGER NOT NULL,
 	updated_at_ns     INTEGER NOT NULL
 );

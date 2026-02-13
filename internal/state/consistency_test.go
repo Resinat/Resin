@@ -31,7 +31,7 @@ func TestRepairConsistency_RemovesOrphans(t *testing.T) {
 	})
 	stateRepo.UpsertSubscription(model.Subscription{
 		ID: "s1", Name: "S1", URL: "https://example.com",
-		UpdateIntervalNs: 1000, Enabled: true, CreatedAtNs: 1, UpdatedAtNs: 1,
+		UpdateIntervalNs: 30_000_000_000, Enabled: true, CreatedAtNs: 1, UpdatedAtNs: 1,
 	})
 
 	// Set up cache.db with valid + orphan records.
@@ -127,7 +127,7 @@ func TestRepairConsistency_ValidRecordsSurvive(t *testing.T) {
 	})
 	stateRepo.UpsertSubscription(model.Subscription{
 		ID: "s1", Name: "S1", URL: "https://example.com",
-		UpdateIntervalNs: 1000, Enabled: true, CreatedAtNs: 1, UpdatedAtNs: 1,
+		UpdateIntervalNs: 30_000_000_000, Enabled: true, CreatedAtNs: 1, UpdatedAtNs: 1,
 	})
 
 	cdb, _ := OpenDB(cacheDBPath)
