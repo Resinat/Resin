@@ -1,0 +1,234 @@
+package topology
+
+import (
+	"net/netip"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/puzpuzpuz/xsync/v4"
+	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/platform"
+	"github.com/resin-proxy/resin/internal/subscription"
+)
+
+func newHealthTestPool(maxFailures int) (*GlobalNodePool, *SubscriptionManager) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "url", true, false)
+	subMgr.Register(sub)
+
+	pool := NewGlobalNodePool(PoolConfig{
+		SubLookup:              subMgr.Lookup,
+		GeoLookup:              func(addr netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: maxFailures,
+	})
+	return pool, subMgr
+}
+
+func addTestNode(pool *GlobalNodePool, sub *subscription.Subscription, raw string) node.Hash {
+	h := node.HashFromRawOptions([]byte(raw))
+	mn := xsync.NewMap[node.Hash, []string]()
+	mn.Store(h, []string{"node"})
+	sub.SwapManagedNodes(mn)
+	pool.AddNodeFromSub(h, []byte(raw), "s1")
+	return h
+}
+
+// --- RecordResult tests ---
+
+func TestRecordResult_CircuitBreak(t *testing.T) {
+	pool, subMgr := newHealthTestPool(3) // break after 3 failures
+	sub := subMgr.Lookup("s1")
+	h := addTestNode(pool, sub, `{"type":"ss","n":"1"}`)
+
+	// 2 failures — not yet broken.
+	pool.RecordResult(h, false)
+	pool.RecordResult(h, false)
+	entry, _ := pool.GetEntry(h)
+	if entry.IsCircuitOpen() {
+		t.Fatal("should not be circuit-open after 2 failures")
+	}
+
+	// 3rd failure → circuit opens.
+	pool.RecordResult(h, false)
+	if !entry.IsCircuitOpen() {
+		t.Fatal("should be circuit-open after 3 failures")
+	}
+	if entry.FailureCount.Load() != 3 {
+		t.Fatalf("expected FailureCount=3, got %d", entry.FailureCount.Load())
+	}
+}
+
+func TestRecordResult_Recovery(t *testing.T) {
+	pool, subMgr := newHealthTestPool(2)
+	sub := subMgr.Lookup("s1")
+	h := addTestNode(pool, sub, `{"type":"ss","n":"2"}`)
+
+	pool.RecordResult(h, false)
+	pool.RecordResult(h, false)
+	entry, _ := pool.GetEntry(h)
+	if !entry.IsCircuitOpen() {
+		t.Fatal("should be circuit open")
+	}
+
+	// Success → resets.
+	pool.RecordResult(h, true)
+	if entry.IsCircuitOpen() {
+		t.Fatal("should not be circuit-open after success")
+	}
+	if entry.FailureCount.Load() != 0 {
+		t.Fatalf("expected FailureCount=0, got %d", entry.FailureCount.Load())
+	}
+}
+
+func TestRecordResult_DynamicCallback_OnActualChange(t *testing.T) {
+	var count atomic.Int32
+	pool := NewGlobalNodePool(PoolConfig{
+		SubLookup:              NewSubscriptionManager().Lookup,
+		GeoLookup:              func(addr netip.Addr) string { return "" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: 5,
+		OnNodeDynamicChanged:   func(hash node.Hash) { count.Add(1) },
+	})
+
+	raw := `{"type":"ss","n":"cb"}`
+	h := node.HashFromRawOptions([]byte(raw))
+	pool.AddNodeFromSub(h, []byte(raw), "s1")
+
+	pool.RecordResult(h, true)
+	pool.RecordResult(h, false)
+	pool.RecordResult(h, true)
+
+	// First success is a no-op (already healthy), then failure and recovery mutate state.
+	if count.Load() != 2 {
+		t.Fatalf("expected 2 callbacks, got %d", count.Load())
+	}
+}
+
+func TestRecordResult_CircuitBreak_RemovesFromView(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "url", true, false)
+	subMgr.Register(sub)
+
+	pool := NewGlobalNodePool(PoolConfig{
+		SubLookup:              subMgr.Lookup,
+		GeoLookup:              func(addr netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: 2,
+	})
+	plat := platform.NewPlatform("p1", "Test", nil, nil)
+	pool.RegisterPlatform(plat)
+
+	h := addTestNode(pool, sub, `{"type":"ss","n":"view"}`)
+
+	// Make entry fully routable.
+	entry, _ := pool.GetEntry(h)
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        100 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	var ob any = "mock"
+	entry.Outbound.Store(&ob)
+	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RebuildAllPlatforms()
+
+	if plat.View().Size() != 1 {
+		t.Fatal("node should be in view initially")
+	}
+
+	// Circuit break → remove from view.
+	pool.RecordResult(h, false)
+	pool.RecordResult(h, false)
+	if plat.View().Size() != 0 {
+		t.Fatal("circuit-broken node should be removed from view")
+	}
+
+	// Recover → back in view.
+	pool.RecordResult(h, true)
+	if plat.View().Size() != 1 {
+		t.Fatal("recovered node should be back in view")
+	}
+}
+
+// --- RecordLatency tests ---
+
+func TestRecordLatency_NormalizesDomain(t *testing.T) {
+	pool, subMgr := newHealthTestPool(5)
+	sub := subMgr.Lookup("s1")
+	h := addTestNode(pool, sub, `{"type":"ss","n":"lat"}`)
+
+	// Pass raw target with subdomain+port — should normalize to eTLD+1.
+	pool.RecordLatency(h, "www.example.com:443", 100*time.Millisecond)
+
+	entry, _ := pool.GetEntry(h)
+	stats, ok := entry.LatencyTable.GetDomainStats("example.com")
+	if !ok {
+		t.Fatal("should find stats for normalized domain 'example.com'")
+	}
+	if stats.Ewma != 100*time.Millisecond {
+		t.Fatalf("expected 100ms, got %v", stats.Ewma)
+	}
+}
+
+func TestRecordLatency_FirstRecord_PlatformDirty(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "url", true, false)
+	subMgr.Register(sub)
+
+	var latencyCBCount atomic.Int32
+	pool := NewGlobalNodePool(PoolConfig{
+		SubLookup:              subMgr.Lookup,
+		GeoLookup:              func(addr netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
+		OnNodeLatencyChanged:   func(hash node.Hash, domain string) { latencyCBCount.Add(1) },
+	})
+
+	h := addTestNode(pool, sub, `{"type":"ss","n":"first"}`)
+
+	// First record → wasEmpty=true → platform dirty.
+	pool.RecordLatency(h, "example.com", 50*time.Millisecond)
+	if latencyCBCount.Load() != 1 {
+		t.Fatalf("expected 1 latency callback, got %d", latencyCBCount.Load())
+	}
+}
+
+// --- UpdateNodeEgressIP tests ---
+
+func TestUpdateNodeEgressIP_Change(t *testing.T) {
+	var dynamicCount atomic.Int32
+	pool := NewGlobalNodePool(PoolConfig{
+		SubLookup:              NewSubscriptionManager().Lookup,
+		GeoLookup:              func(addr netip.Addr) string { return "" },
+		MaxLatencyTableEntries: 16,
+		OnNodeDynamicChanged:   func(hash node.Hash) { dynamicCount.Add(1) },
+	})
+
+	raw := `{"type":"ss","n":"egress"}`
+	h := node.HashFromRawOptions([]byte(raw))
+	pool.AddNodeFromSub(h, []byte(raw), "s1")
+
+	ip1 := netip.MustParseAddr("1.2.3.4")
+	pool.UpdateNodeEgressIP(h, ip1)
+	if dynamicCount.Load() != 1 {
+		t.Fatalf("expected 1 callback on first IP set, got %d", dynamicCount.Load())
+	}
+
+	entry, _ := pool.GetEntry(h)
+	if entry.GetEgressIP() != ip1 {
+		t.Fatalf("expected %v, got %v", ip1, entry.GetEgressIP())
+	}
+
+	// Same IP → no callback.
+	pool.UpdateNodeEgressIP(h, ip1)
+	if dynamicCount.Load() != 1 {
+		t.Fatalf("expected no callback on same IP, got %d", dynamicCount.Load())
+	}
+
+	// Different IP → callback.
+	ip2 := netip.MustParseAddr("5.6.7.8")
+	pool.UpdateNodeEgressIP(h, ip2)
+	if dynamicCount.Load() != 2 {
+		t.Fatalf("expected 2 callbacks after IP change, got %d", dynamicCount.Load())
+	}
+}

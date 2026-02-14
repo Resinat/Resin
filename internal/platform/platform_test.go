@@ -11,12 +11,15 @@ import (
 
 // makeFullyRoutableEntry creates a NodeEntry that passes all 5 filter conditions.
 func makeFullyRoutableEntry(hash node.Hash, subIDs ...string) *node.NodeEntry {
-	e := node.NewNodeEntry(hash, nil, time.Now())
+	e := node.NewNodeEntry(hash, nil, time.Now(), 16)
 	for _, id := range subIDs {
 		e.AddSubscriptionID(id)
 	}
 	// Set all conditions to pass.
-	e.LatencyCount.Add(1)
+	e.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        100 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
 	var ob any = "mock-outbound"
 	e.Outbound.Store(&ob)
 	e.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
@@ -61,8 +64,12 @@ func TestPlatform_EvaluateNode_CircuitOpen(t *testing.T) {
 func TestPlatform_EvaluateNode_NoLatency(t *testing.T) {
 	p := NewPlatform("p1", "Test", nil, nil)
 	h := makeHash(`{"type":"ss"}`)
-	entry := makeFullyRoutableEntry(h, "sub1")
-	entry.LatencyCount.Store(0) // no latency
+	// Create entry without latency table (maxLatencyTableEntries=0).
+	entry := node.NewNodeEntry(h, nil, time.Now(), 0)
+	entry.AddSubscriptionID("sub1")
+	var ob any = "mock-outbound"
+	entry.Outbound.Store(&ob)
+	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
 
 	p.FullRebuild(func(fn func(node.Hash, *node.NodeEntry) bool) {
 		fn(h, entry)

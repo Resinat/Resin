@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/netip"
 	"os"
 	"os/signal"
 	"regexp"
@@ -16,56 +15,181 @@ import (
 	"github.com/resin-proxy/resin/internal/api"
 	"github.com/resin-proxy/resin/internal/buildinfo"
 	"github.com/resin-proxy/resin/internal/config"
+	"github.com/resin-proxy/resin/internal/geoip"
 	"github.com/resin-proxy/resin/internal/model"
+	"github.com/resin-proxy/resin/internal/netutil"
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/platform"
+	"github.com/resin-proxy/resin/internal/probe"
 	"github.com/resin-proxy/resin/internal/service"
 	"github.com/resin-proxy/resin/internal/state"
 	"github.com/resin-proxy/resin/internal/subscription"
 	"github.com/resin-proxy/resin/internal/topology"
 )
 
+type topologyRuntime struct {
+	subManager       *topology.SubscriptionManager
+	pool             *topology.GlobalNodePool
+	probeMgr         *probe.ProbeManager
+	scheduler        *topology.SubscriptionScheduler
+	ephemeralCleaner *topology.EphemeralCleaner
+}
+
 func main() {
-	// 1. Load and validate environment config
 	envCfg, err := config.LoadEnvConfig()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
-		os.Exit(1)
+		fatalf("%v", err)
 	}
 
-	// 2. Initialize persistence (state.db + cache.db)
 	engine, dbCloser, err := state.PersistenceBootstrap(envCfg.StateDir, envCfg.CacheDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: persistence bootstrap: %v\n", err)
-		os.Exit(1)
+		fatalf("persistence bootstrap: %v", err)
 	}
 	defer dbCloser.Close()
 	log.Println("Persistence bootstrap complete")
 
-	// 3. Load runtime config from state.db; fall back to defaults if empty
-	runtimeCfg, ver, err := engine.GetSystemConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: load system config: %v\n", err)
-		os.Exit(1)
-	}
-	if runtimeCfg == nil {
-		runtimeCfg = config.NewDefaultRuntimeConfig()
-		log.Println("No persisted runtime config found, using defaults")
-	} else {
-		log.Printf("Loaded persisted runtime config (version %d)", ver)
+	runtimeCfg := loadRuntimeConfig(engine)
+	sharedDownloader := newSharedDownloader(runtimeCfg)
+	geoSvc := startGeoIPService(envCfg.CacheDir, runtimeCfg, sharedDownloader)
+	topoRuntime := newTopologyRuntime(engine, envCfg, runtimeCfg, geoSvc, sharedDownloader)
+
+	if err := bootstrapTopology(engine, topoRuntime.subManager, topoRuntime.pool); err != nil {
+		fatalf("%v", err)
 	}
 
-	// 4. Initialize Stage 3 topology components
+	flushReaders := newFlushReaders(topoRuntime.pool, topoRuntime.subManager)
+	flushWorker := state.NewCacheFlushWorker(
+		engine, flushReaders,
+		runtimeCfg.CacheFlushDirtyThreshold,
+		time.Duration(runtimeCfg.CacheFlushInterval),
+		5*time.Second, // check tick
+	)
+	flushWorker.Start()
+	log.Println("Cache flush worker started")
+
+	topoRuntime.probeMgr.Start()
+	log.Println("Probe manager started")
+
+	topoRuntime.scheduler.Start()
+	log.Println("Subscription scheduler started")
+
+	topoRuntime.ephemeralCleaner.Start()
+	log.Println("Ephemeral cleaner started")
+
+	startedAt := time.Now().UTC()
+	systemSvc := service.NewMemorySystemService(
+		service.SystemInfo{
+			Version:   buildinfo.Version,
+			GitCommit: buildinfo.GitCommit,
+			BuildTime: buildinfo.BuildTime,
+			StartedAt: startedAt,
+		},
+		runtimeCfg,
+	)
+
+	srv := api.NewServer(envCfg.APIPort, envCfg.AdminToken, systemSvc)
+
+	go func() {
+		log.Printf("Resin API server starting on :%d", envCfg.APIPort)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("API server error: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-quit
+	log.Printf("Received signal %s, shutting down...", sig)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+
+	// Stop in reverse order: ephemeral cleaner -> scheduler -> probe manager -> geoip -> flush worker.
+	// scheduler must stop before probe manager to avoid post-stop triggers.
+	topoRuntime.ephemeralCleaner.Stop()
+	log.Println("Ephemeral cleaner stopped")
+
+	topoRuntime.scheduler.Stop()
+	log.Println("Subscription scheduler stopped")
+
+	topoRuntime.probeMgr.Stop()
+	log.Println("Probe manager stopped")
+
+	geoSvc.Stop()
+	log.Println("GeoIP service stopped")
+
+	flushWorker.Stop() // final flush before DB close
+	log.Println("Server stopped")
+}
+
+func fatalf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "fatal: "+format+"\n", args...)
+	os.Exit(1)
+}
+
+func loadRuntimeConfig(engine *state.StateEngine) *config.RuntimeConfig {
+	runtimeCfg, ver, err := engine.GetSystemConfig()
+	if err != nil {
+		fatalf("load system config: %v", err)
+	}
+	if runtimeCfg == nil {
+		log.Println("No persisted runtime config found, using defaults")
+		return config.NewDefaultRuntimeConfig()
+	}
+	log.Printf("Loaded persisted runtime config (version %d)", ver)
+	return runtimeCfg
+}
+
+func newSharedDownloader(runtimeCfg *config.RuntimeConfig) *netutil.DirectDownloader {
+	downloader := netutil.NewDirectDownloader(time.Duration(runtimeCfg.SubscriptionFetchTimeout))
+	ua := runtimeCfg.UserAgent
+	if ua == "" {
+		ua = "Resin/" + buildinfo.Version
+	}
+	downloader.UserAgent = ua
+	return downloader
+}
+
+func startGeoIPService(
+	cacheDir string,
+	runtimeCfg *config.RuntimeConfig,
+	downloader netutil.Downloader,
+) *geoip.Service {
+	geoSvc := geoip.NewService(geoip.ServiceConfig{
+		CacheDir:       cacheDir,
+		UpdateSchedule: runtimeCfg.GeoIPUpdateSchedule,
+		Downloader:     downloader,
+		OpenDB:         geoip.SingBoxOpen,
+	})
+	if err := geoSvc.Start(); err != nil {
+		log.Printf("GeoIP service start (non-fatal): %v", err)
+	}
+	log.Println("GeoIP service initialized")
+	return geoSvc
+}
+
+func newTopologyRuntime(
+	engine *state.StateEngine,
+	envCfg *config.EnvConfig,
+	runtimeCfg *config.RuntimeConfig,
+	geoSvc *geoip.Service,
+	downloader netutil.Downloader,
+) *topologyRuntime {
 	subManager := topology.NewSubscriptionManager()
+	var probeMgr *probe.ProbeManager
 
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		SubLookup: subManager.Lookup,
-		GeoLookup: func(addr netip.Addr) string {
-			// Stub GeoIP — returns empty string until Stage 4 integration.
-			return ""
-		},
+		GeoLookup: geoSvc.Lookup,
 		OnNodeAdded: func(hash node.Hash) {
 			engine.MarkNodeStatic(hash.Hex())
+			if probeMgr != nil {
+				probeMgr.TriggerImmediateEgressProbe(hash)
+			}
 		},
 		OnNodeRemoved: func(hash node.Hash) {
 			engine.MarkNodeStaticDelete(hash.Hex())
@@ -77,34 +201,78 @@ func main() {
 				engine.MarkSubscriptionNodeDelete(subID, hash.Hex())
 			}
 		},
+		OnNodeDynamicChanged: func(hash node.Hash) {
+			engine.MarkNodeDynamic(hash.Hex())
+		},
+		OnNodeLatencyChanged: func(hash node.Hash, domain string) {
+			engine.MarkNodeLatency(hash.Hex(), domain)
+		},
+		MaxLatencyTableEntries: envCfg.MaxLatencyTableEntries,
+		MaxConsecutiveFailures: runtimeCfg.MaxConsecutiveFailures,
+		LatencyDecayWindow: func() time.Duration {
+			return time.Duration(runtimeCfg.LatencyDecayWindow)
+		},
 	})
 	log.Println("Topology: GlobalNodePool initialized")
 
-	scheduler := topology.NewSubscriptionScheduler(topology.SchedulerConfig{
-		SubManager:  subManager,
+	probeMgr = probe.NewProbeManager(probe.ProbeConfig{
 		Pool:        pool,
-		HTTPTimeout: 30 * time.Second,
-		UserAgent:   "Resin/" + buildinfo.Version,
-		// OnSubUpdated persistence callback — will wire to engine.UpsertSubscription
-		// once subscription runtime model exposes model.Subscription conversion.
+		Concurrency: envCfg.ProbeConcurrency,
+		Fetcher: probe.DirectFetcher(func() time.Duration {
+			return time.Duration(runtimeCfg.ProbeTimeout)
+		}),
+		MaxEgressTestInterval: func() time.Duration {
+			return time.Duration(runtimeCfg.MaxEgressTestInterval)
+		},
+		MaxLatencyTestInterval: func() time.Duration {
+			return time.Duration(runtimeCfg.MaxLatencyTestInterval)
+		},
+		MaxAuthorityLatencyTestInterval: func() time.Duration {
+			return time.Duration(runtimeCfg.MaxAuthorityLatencyTestInterval)
+		},
+		LatencyTestURL: func() string {
+			return runtimeCfg.LatencyTestURL
+		},
+		LatencyAuthorities: func() []string {
+			return runtimeCfg.LatencyAuthorities
+		},
 	})
+	log.Println("ProbeManager initialized")
 
+	scheduler := topology.NewSubscriptionScheduler(topology.SchedulerConfig{
+		SubManager: subManager,
+		Pool:       pool,
+		Downloader: downloader,
+		FetchTimeout: func() time.Duration {
+			return time.Duration(runtimeCfg.SubscriptionFetchTimeout)
+		},
+	})
 	ephemeralCleaner := topology.NewEphemeralCleaner(
 		subManager,
 		pool,
 		time.Duration(runtimeCfg.EphemeralNodeEvictDelay),
 	)
 
-	// 4b. Bootstrap: load subscriptions + platforms from state.db
+	return &topologyRuntime{
+		subManager:       subManager,
+		pool:             pool,
+		probeMgr:         probeMgr,
+		scheduler:        scheduler,
+		ephemeralCleaner: ephemeralCleaner,
+	}
+}
+
+func bootstrapTopology(
+	engine *state.StateEngine,
+	subManager *topology.SubscriptionManager,
+	pool *topology.GlobalNodePool,
+) error {
 	dbSubs, err := engine.ListSubscriptions()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: load subscriptions: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("load subscriptions: %w", err)
 	}
 	for _, ms := range dbSubs {
-		sub := subscription.NewSubscription(
-			ms.ID, ms.Name, ms.URL, ms.Enabled, ms.Ephemeral,
-		)
+		sub := subscription.NewSubscription(ms.ID, ms.Name, ms.URL, ms.Enabled, ms.Ephemeral)
 		sub.UpdateIntervalNs = ms.UpdateIntervalNs
 		sub.CreatedAtNs = ms.CreatedAtNs
 		sub.UpdatedAtNs = ms.UpdatedAtNs
@@ -114,8 +282,7 @@ func main() {
 
 	dbPlats, err := engine.ListPlatforms()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: load platforms: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("load platforms: %w", err)
 	}
 	for _, mp := range dbPlats {
 		var regexStrs []string
@@ -135,9 +302,14 @@ func main() {
 		pool.RegisterPlatform(plat)
 	}
 	log.Printf("Loaded %d platforms from state.db", len(dbPlats))
+	return nil
+}
 
-	// 5. Start cache flush worker with topology-aware readers
-	flushReaders := state.CacheReaders{
+func newFlushReaders(
+	pool *topology.GlobalNodePool,
+	subManager *topology.SubscriptionManager,
+) state.CacheReaders {
+	return state.CacheReaders{
 		ReadNodeStatic: func(hash string) *model.NodeStatic {
 			h, err := node.ParseHex(hash)
 			if err != nil {
@@ -176,8 +348,24 @@ func main() {
 			}
 		},
 		ReadNodeLatency: func(key model.NodeLatencyKey) *model.NodeLatency {
-			// Latency records not yet managed in Stage 3.
-			return nil
+			h, err := node.ParseHex(key.NodeHash)
+			if err != nil {
+				return nil
+			}
+			entry, ok := pool.GetEntry(h)
+			if !ok || entry.LatencyTable == nil {
+				return nil
+			}
+			stats, ok := entry.LatencyTable.GetDomainStats(key.Domain)
+			if !ok {
+				return nil
+			}
+			return &model.NodeLatency{
+				NodeHash:      key.NodeHash,
+				Domain:        key.Domain,
+				EwmaNs:        int64(stats.Ewma),
+				LastUpdatedNs: stats.LastUpdated.UnixNano(),
+			}
 		},
 		ReadLease: func(key model.LeaseKey) *model.Lease {
 			// Leases not yet managed in Stage 3.
@@ -197,73 +385,11 @@ func main() {
 				return nil
 			}
 			tagsJSONBytes, _ := json.Marshal(tags)
-			tagsJSON := string(tagsJSONBytes)
 			return &model.SubscriptionNode{
 				SubscriptionID: key.SubscriptionID,
 				NodeHash:       key.NodeHash,
-				TagsJSON:       tagsJSON,
+				TagsJSON:       string(tagsJSONBytes),
 			}
 		},
 	}
-	flushWorker := state.NewCacheFlushWorker(
-		engine, flushReaders,
-		runtimeCfg.CacheFlushDirtyThreshold,
-		time.Duration(runtimeCfg.CacheFlushInterval),
-		5*time.Second, // check tick
-	)
-	flushWorker.Start()
-	log.Println("Cache flush worker started")
-
-	// 6. Start topology background workers
-	scheduler.Start()
-	log.Println("Subscription scheduler started")
-
-	ephemeralCleaner.Start()
-	log.Println("Ephemeral cleaner started")
-
-	// 7. Wire services
-	startedAt := time.Now().UTC()
-	systemSvc := service.NewMemorySystemService(
-		service.SystemInfo{
-			Version:   buildinfo.Version,
-			GitCommit: buildinfo.GitCommit,
-			BuildTime: buildinfo.BuildTime,
-			StartedAt: startedAt,
-		},
-		runtimeCfg,
-	)
-
-	// 8. Create and start API server
-	srv := api.NewServer(envCfg.APIPort, envCfg.AdminToken, systemSvc)
-
-	go func() {
-		log.Printf("Resin API server starting on :%d", envCfg.APIPort)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("API server error: %v", err)
-		}
-	}()
-
-	// 9. Graceful shutdown
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	log.Printf("Received signal %s, shutting down...", sig)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
-	}
-
-	// Stop in reverse order: ephemeral cleaner → scheduler → flush worker.
-	ephemeralCleaner.Stop()
-	log.Println("Ephemeral cleaner stopped")
-
-	scheduler.Stop()
-	log.Println("Subscription scheduler stopped")
-
-	flushWorker.Stop() // final flush before DB close
-	log.Println("Server stopped")
 }
-

@@ -304,9 +304,9 @@ Resin 使用计数器熔断机制保护系统稳定性。
 	* 一个节点的延迟表没有任何 MaxLatencyTestInterval 时间内的记录
 	* 一个节点的延迟表没有任何权威网站（全局配置 LatencyAuthorities 定义）有 MaxAuthorityLatencyTestInterval 时间内的记录
 * 调度策略：每隔 13～17 秒全局扫描一次，对未来 15 秒内将会或者已经满足探测时机的节点进行探测。
-* 探测动作：对全局配置的延迟探测站点发起 HTTP GET 请求，测量 **TLS Handshake** 耗时。
+* 探测动作：对全局配置的延迟探测站点发起 HTTP GET 请求，优先测量 **TLS Handshake** 耗时；若未产生 TLS 握手事件（如连接复用或明文 HTTP），回退为请求级 RTT（请求发起到首字节/请求完成）。
 * 结果处理：
-    * 成功：`RecordLatency`，并调用 `RecordResult(true)`。
+    * 成功：先调用 `RecordResult(true)`；仅当采样延迟 `> 0` 时调用 `RecordLatency`。
     * 失败：调用 `RecordResult(false)`。连续失败将导致节点熔断。
 
 #### 主动探测的并发控制
@@ -338,6 +338,7 @@ ProbeManager 采用 **SPSC (Single Producer Single Consumer)** 变体模型进�
     3. 异步调用 `RecordResult` 与 `RecordLatency`。
     4. 全局节点池更新节点的 `FailureCount`、`CircuitOpenSince` 状态及 `LatencyTable`。
 
+另外，如果节点的 Outbound 为空，跳过对其的探测，而不是记做失败。不能因为 Outbound 为空而把一个节点熔断。
 
 ## GeoIP 服务
 
@@ -2181,6 +2182,8 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 ## GeoIP 查询参考
 
 ```go
+import "github.com/sagernet/sing-box/common/geoip"
+
 // 查询 IP 地区：直接调用 sing-box 的 geoip.Reader
 func lookupRegion(dbPath string, ip netip.Addr) string {
 	reader, _, _ := geoip.Open(dbPath)

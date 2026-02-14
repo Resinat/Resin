@@ -7,6 +7,7 @@ import (
 
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/scanloop"
 	"github.com/resin-proxy/resin/internal/subscription"
 )
 
@@ -39,7 +40,7 @@ func (c *EphemeralCleaner) Start() {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		runLoop(c.stopCh, c.sweep)
+		scanloop.Run(c.stopCh, scanloop.DefaultMinInterval, scanloop.DefaultJitterRange, c.sweep)
 	}()
 }
 
@@ -50,6 +51,14 @@ func (c *EphemeralCleaner) Stop() {
 }
 
 func (c *EphemeralCleaner) sweep() {
+	c.sweepWithHook(nil)
+}
+
+// sweepWithHook runs the sweep. If betweenScans is non-nil, it is called
+// after the candidate set (evictSet) is built but before the second
+// verification check. This allows tests to inject state changes at the
+// exact TOCTOU window.
+func (c *EphemeralCleaner) sweepWithHook(betweenScans func()) {
 	now := time.Now().UnixNano()
 
 	c.subManager.Range(func(id string, sub *subscription.Subscription) bool {
@@ -79,21 +88,44 @@ func (c *EphemeralCleaner) sweep() {
 				return
 			}
 
-			// Build new map without evicted hashes.
+			// --- TOCTOU window: test hook ---
+			if betweenScans != nil {
+				betweenScans()
+			}
+
+			// Second check: re-verify each candidate. A node may have
+			// recovered between the initial scan and now.
+			confirmedEvict := make(map[node.Hash]struct{})
+			for h := range evictSet {
+				entry, ok := c.pool.GetEntry(h)
+				if !ok {
+					continue
+				}
+				cs := entry.CircuitOpenSince.Load()
+				if cs > 0 && (now-cs) > c.evictDelay.Nanoseconds() {
+					confirmedEvict[h] = struct{}{}
+				}
+			}
+
+			if len(confirmedEvict) == 0 {
+				return
+			}
+
+			// Build new map without confirmed-evict hashes.
 			current := sub.ManagedNodes()
 			newMap := xsync.NewMap[node.Hash, []string]()
 			current.Range(func(h node.Hash, tags []string) bool {
-				if _, evict := evictSet[h]; !evict {
+				if _, evict := confirmedEvict[h]; !evict {
 					newMap.Store(h, tags)
 				}
 				return true
 			})
 			sub.SwapManagedNodes(newMap)
 
-			for h := range evictSet {
+			for h := range confirmedEvict {
 				c.pool.RemoveNodeFromSub(h, sub.ID)
 			}
-			evictCount = len(evictSet)
+			evictCount = len(confirmedEvict)
 		})
 
 		if evictCount > 0 {

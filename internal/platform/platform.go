@@ -3,6 +3,7 @@ package platform
 import (
 	"net/netip"
 	"regexp"
+	"slices"
 	"sync"
 
 	"github.com/resin-proxy/resin/internal/node"
@@ -141,10 +142,5 @@ func (p *Platform) evaluateNode(
 
 // matchRegion checks if the region is in the allowed list.
 func matchRegion(region string, allowed []string) bool {
-	for _, r := range allowed {
-		if r == region {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(allowed, region)
 }

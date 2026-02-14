@@ -31,20 +31,26 @@ type NodeEntry struct {
 	FailureCount     atomic.Int32
 	CircuitOpenSince atomic.Int64         // unix-nano; 0 = not open
 	egressIP         atomic.Pointer[netip.Addr] // nil before first store
-	LastEgressUpdate atomic.Int64
-	LatencyCount     atomic.Int32 // incremented when latency records are added
+	LastEgressUpdate atomic.Int64         // unix-nano of last successful egress-IP sample
+	LatencyTable     *LatencyTable // per-domain latency stats; nil if not initialized
 
 	// Outbound placeholder — typed as any for Stage 3 (no sing-box dep).
 	Outbound atomic.Pointer[any]
 }
 
 // NewNodeEntry creates a NodeEntry with the given static fields.
-func NewNodeEntry(hash Hash, rawOptions json.RawMessage, createdAt time.Time) *NodeEntry {
-	return &NodeEntry{
+// maxLatencyTableEntries controls the bounded size of the per-domain latency table.
+// Pass 0 to skip latency table initialization (e.g. in tests that don't need it).
+func NewNodeEntry(hash Hash, rawOptions json.RawMessage, createdAt time.Time, maxLatencyTableEntries int) *NodeEntry {
+	e := &NodeEntry{
 		Hash:       hash,
 		RawOptions: rawOptions,
 		CreatedAt:  createdAt,
 	}
+	if maxLatencyTableEntries > 0 {
+		e.LatencyTable = NewLatencyTable(maxLatencyTableEntries)
+	}
+	return e
 }
 
 // SubscriptionIDs returns a copy of the subscription ID slice (thread-safe).
@@ -139,7 +145,7 @@ func (e *NodeEntry) IsCircuitOpen() bool {
 
 // HasLatency returns true if the node has at least one latency record.
 func (e *NodeEntry) HasLatency() bool {
-	return e.LatencyCount.Load() > 0
+	return e.LatencyTable != nil && e.LatencyTable.Size() > 0
 }
 
 // HasOutbound returns true if the node has a valid outbound instance.

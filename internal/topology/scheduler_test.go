@@ -532,7 +532,10 @@ func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews(t *testing.T) {
 
 	pool.AddNodeFromSub(h, raw, "s1")
 	entry, _ := pool.GetEntry(h)
-	entry.LatencyCount.Add(1)
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        100 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
 	var ob any = "mock"
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))

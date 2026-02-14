@@ -5,10 +5,12 @@ package topology
 
 import (
 	"encoding/json"
+	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/puzpuzpuz/xsync/v4"
+	"github.com/resin-proxy/resin/internal/netutil"
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/subscription"
@@ -34,26 +36,45 @@ type GlobalNodePool struct {
 	onNodeAdded      func(hash node.Hash) // called after a new node is created
 	onNodeRemoved    func(hash node.Hash) // called after a node is deleted from pool
 	onSubNodeChanged func(subID string, hash node.Hash, added bool)
+
+	// Health callbacks (optional).
+	onNodeDynamicChanged func(hash node.Hash)                // fired on circuit/failure/egress changes
+	onNodeLatencyChanged func(hash node.Hash, domain string) // fired on latency record updates
+
+	// Health config
+	maxLatencyTableEntries int
+	maxConsecutiveFailures int
+	latencyDecayWindow     func() time.Duration
 }
 
 // PoolConfig configures the GlobalNodePool.
 type PoolConfig struct {
-	SubLookup        func(subID string) *subscription.Subscription
-	GeoLookup        platform.GeoLookupFunc
-	OnNodeAdded      func(hash node.Hash)
-	OnNodeRemoved    func(hash node.Hash)
-	OnSubNodeChanged func(subID string, hash node.Hash, added bool)
+	SubLookup              func(subID string) *subscription.Subscription
+	GeoLookup              platform.GeoLookupFunc
+	OnNodeAdded            func(hash node.Hash)
+	OnNodeRemoved          func(hash node.Hash)
+	OnSubNodeChanged       func(subID string, hash node.Hash, added bool)
+	OnNodeDynamicChanged   func(hash node.Hash)
+	OnNodeLatencyChanged   func(hash node.Hash, domain string)
+	MaxLatencyTableEntries int
+	MaxConsecutiveFailures int
+	LatencyDecayWindow     func() time.Duration
 }
 
 // NewGlobalNodePool creates a new GlobalNodePool.
 func NewGlobalNodePool(cfg PoolConfig) *GlobalNodePool {
 	return &GlobalNodePool{
-		nodes:            xsync.NewMap[node.Hash, *node.NodeEntry](),
-		subLookup:        cfg.SubLookup,
-		geoLookup:        cfg.GeoLookup,
-		onNodeAdded:      cfg.OnNodeAdded,
-		onNodeRemoved:    cfg.OnNodeRemoved,
-		onSubNodeChanged: cfg.OnSubNodeChanged,
+		nodes:                  xsync.NewMap[node.Hash, *node.NodeEntry](),
+		subLookup:              cfg.SubLookup,
+		geoLookup:              cfg.GeoLookup,
+		onNodeAdded:            cfg.OnNodeAdded,
+		onNodeRemoved:          cfg.OnNodeRemoved,
+		onSubNodeChanged:       cfg.OnSubNodeChanged,
+		onNodeDynamicChanged:   cfg.OnNodeDynamicChanged,
+		onNodeLatencyChanged:   cfg.OnNodeLatencyChanged,
+		maxLatencyTableEntries: cfg.MaxLatencyTableEntries,
+		maxConsecutiveFailures: cfg.MaxConsecutiveFailures,
+		latencyDecayWindow:     cfg.LatencyDecayWindow,
 	}
 }
 
@@ -65,7 +86,7 @@ func (p *GlobalNodePool) AddNodeFromSub(hash node.Hash, rawOpts json.RawMessage,
 	isNew := false
 	p.nodes.Compute(hash, func(entry *node.NodeEntry, loaded bool) (*node.NodeEntry, xsync.ComputeOp) {
 		if !loaded {
-			entry = node.NewNodeEntry(hash, rawOpts, time.Now())
+			entry = node.NewNodeEntry(hash, rawOpts, time.Now(), p.maxLatencyTableEntries)
 			isNew = true
 		}
 		entry.AddSubscriptionID(subID)
@@ -199,4 +220,108 @@ func (p *GlobalNodePool) RebuildPlatform(plat *platform.Platform) {
 		p.nodes.Range(fn)
 	}
 	plat.FullRebuild(poolRange, subLookup, p.geoLookup)
+}
+
+// --- Health Management ---
+
+// SetOnNodeAdded sets the callback fired when a new node is added.
+// Must be called before any background workers are started.
+func (p *GlobalNodePool) SetOnNodeAdded(fn func(hash node.Hash)) {
+	p.onNodeAdded = fn
+}
+
+// RecordResult records a probe or passive health-check result.
+// On success, resets FailureCount and clears circuit-breaker.
+// On failure, increments FailureCount and opens circuit-breaker if threshold is reached.
+// Notifies platforms only when circuit state changes (open/recover).
+// Fires OnNodeDynamicChanged only when dynamic fields actually change.
+func (p *GlobalNodePool) RecordResult(hash node.Hash, success bool) {
+	entry, ok := p.nodes.Load(hash)
+	if !ok {
+		return
+	}
+
+	dynamicChanged := false
+	circuitStateChanged := false
+
+	if success {
+		if entry.FailureCount.Swap(0) != 0 {
+			dynamicChanged = true
+		}
+		if entry.CircuitOpenSince.Swap(0) != 0 {
+			dynamicChanged = true
+			circuitStateChanged = true
+		}
+	} else {
+		newCount := entry.FailureCount.Add(1)
+		dynamicChanged = true
+		if p.maxConsecutiveFailures > 0 && int(newCount) >= p.maxConsecutiveFailures {
+			// Open circuit if not already open.
+			if entry.CircuitOpenSince.CompareAndSwap(0, time.Now().UnixNano()) {
+				circuitStateChanged = true
+			}
+		}
+	}
+
+	if circuitStateChanged {
+		p.notifyAllPlatformsDirty(hash)
+	}
+	if dynamicChanged && p.onNodeDynamicChanged != nil {
+		p.onNodeDynamicChanged(hash)
+	}
+}
+
+// RecordLatency records a latency observation for the given node and raw target.
+// rawTarget is passed through ExtractDomain internally for eTLD+1 normalization.
+func (p *GlobalNodePool) RecordLatency(hash node.Hash, rawTarget string, latency time.Duration) {
+	entry, ok := p.nodes.Load(hash)
+	if !ok || entry.LatencyTable == nil {
+		return
+	}
+
+	domain := netutil.ExtractDomain(rawTarget)
+	var decayWindow time.Duration
+	if p.latencyDecayWindow != nil {
+		decayWindow = p.latencyDecayWindow()
+	}
+	if decayWindow <= 0 {
+		decayWindow = 30 * time.Second // default
+	}
+
+	wasEmpty := entry.LatencyTable.Update(domain, latency, decayWindow)
+
+	// If the table transitioned from empty to non-empty, the node might
+	// now satisfy the HasLatency filter — notify platforms.
+	if wasEmpty {
+		p.notifyAllPlatformsDirty(hash)
+	}
+
+	if p.onNodeLatencyChanged != nil {
+		p.onNodeLatencyChanged(hash, domain)
+	}
+}
+
+// UpdateNodeEgressIP updates the node's egress IP if it changed.
+// Always updates LastEgressUpdate to record a successful egress-IP sample time.
+// Fires OnNodeDynamicChanged and notifies platforms only on actual IP change.
+func (p *GlobalNodePool) UpdateNodeEgressIP(hash node.Hash, ip netip.Addr) {
+	entry, ok := p.nodes.Load(hash)
+	if !ok {
+		return
+	}
+
+	// Record successful egress-IP sample timestamp.
+	entry.LastEgressUpdate.Store(time.Now().UnixNano())
+
+	old := entry.GetEgressIP()
+	if old == ip {
+		return // no IP change — skip notifications
+	}
+
+	entry.SetEgressIP(ip)
+
+	p.notifyAllPlatformsDirty(hash)
+	if p.onNodeDynamicChanged != nil {
+		p.onNodeDynamicChanged(hash)
+	}
 }

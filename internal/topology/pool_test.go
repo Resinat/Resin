@@ -17,8 +17,9 @@ import (
 
 func newTestPool(subMgr *SubscriptionManager) *GlobalNodePool {
 	return NewGlobalNodePool(PoolConfig{
-		SubLookup: subMgr.Lookup,
-		GeoLookup: func(addr netip.Addr) string { return "us" },
+		SubLookup:              subMgr.Lookup,
+		GeoLookup:              func(addr netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
 	})
 }
 
@@ -190,7 +191,10 @@ func TestPool_PlatformNotifyOnAddRemove(t *testing.T) {
 
 	// Set latency+outbound on entry, then re-trigger dirty.
 	entry, _ := pool.GetEntry(h)
-	entry.LatencyCount.Add(1)
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        100 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
 	var ob any = "mock"
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
@@ -232,7 +236,10 @@ func TestPool_RegexFilteredPlatform(t *testing.T) {
 	for _, h := range []node.Hash{h1, h2} {
 		pool.AddNodeFromSub(h, nil, "s1")
 		entry, _ := pool.GetEntry(h)
-		entry.LatencyCount.Add(1)
+		entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+			Ewma:        100 * time.Millisecond,
+			LastUpdated: time.Now(),
+		})
 		var ob any = "mock"
 		entry.Outbound.Store(&ob)
 		entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))

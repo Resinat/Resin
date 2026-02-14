@@ -8,7 +8,7 @@ import (
 )
 
 func TestNodeEntry_SubscriptionIDs(t *testing.T) {
-	e := NewNodeEntry(Hash{}, nil, time.Now())
+	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)
 
 	e.AddSubscriptionID("s1")
 	e.AddSubscriptionID("s2")
@@ -40,7 +40,7 @@ func TestNodeEntry_SubscriptionIDs(t *testing.T) {
 }
 
 func TestNodeEntry_MatchRegexs_EmptyRegex(t *testing.T) {
-	e := NewNodeEntry(Hash{}, nil, time.Now())
+	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)
 	if !e.MatchRegexs(nil, nil) {
 		t.Fatal("empty regex list should match")
 	}
@@ -51,7 +51,7 @@ func TestNodeEntry_MatchRegexs_EmptyRegex(t *testing.T) {
 
 func TestNodeEntry_MatchRegexs_Basic(t *testing.T) {
 	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
-	e := NewNodeEntry(h, nil, time.Now())
+	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
 	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
@@ -76,7 +76,7 @@ func TestNodeEntry_MatchRegexs_Basic(t *testing.T) {
 
 func TestNodeEntry_MatchRegexs_AllRegexesMustMatch(t *testing.T) {
 	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
-	e := NewNodeEntry(h, nil, time.Now())
+	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
 	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
@@ -104,7 +104,7 @@ func TestNodeEntry_MatchRegexs_AllRegexesMustMatch(t *testing.T) {
 
 func TestNodeEntry_MatchRegexs_DisabledSubSkipped(t *testing.T) {
 	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
-	e := NewNodeEntry(h, nil, time.Now())
+	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
 	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
@@ -119,7 +119,7 @@ func TestNodeEntry_MatchRegexs_DisabledSubSkipped(t *testing.T) {
 
 func TestNodeEntry_MatchRegexs_MultiSub(t *testing.T) {
 	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
-	e := NewNodeEntry(h, nil, time.Now())
+	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 	e.AddSubscriptionID("sub-2")
 
@@ -141,7 +141,7 @@ func TestNodeEntry_MatchRegexs_MultiSub(t *testing.T) {
 }
 
 func TestNodeEntry_CircuitBreaker(t *testing.T) {
-	e := NewNodeEntry(Hash{}, nil, time.Now())
+	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)
 	if e.IsCircuitOpen() {
 		t.Fatal("should not be circuit-open by default")
 	}
@@ -158,19 +158,22 @@ func TestNodeEntry_CircuitBreaker(t *testing.T) {
 }
 
 func TestNodeEntry_LatencyCount(t *testing.T) {
-	e := NewNodeEntry(Hash{}, nil, time.Now())
+	e := NewNodeEntry(Hash{}, nil, time.Now(), 16)
 	if e.HasLatency() {
 		t.Fatal("should not have latency by default")
 	}
 
-	e.LatencyCount.Add(1)
+	e.LatencyTable.LoadEntry("example.com", DomainLatencyStats{
+		Ewma:        100 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
 	if !e.HasLatency() {
-		t.Fatal("should have latency after increment")
+		t.Fatal("should have latency after adding an entry")
 	}
 }
 
 func TestNodeEntry_Outbound(t *testing.T) {
-	e := NewNodeEntry(Hash{}, nil, time.Now())
+	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)
 	if e.HasOutbound() {
 		t.Fatal("should not have outbound by default")
 	}
@@ -183,7 +186,7 @@ func TestNodeEntry_Outbound(t *testing.T) {
 }
 
 func TestNodeEntry_EgressIP(t *testing.T) {
-	e := NewNodeEntry(Hash{}, nil, time.Now())
+	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)
 
 	// Before any store, should return zero addr.
 	addr := e.GetEgressIP()
