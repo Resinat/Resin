@@ -132,7 +132,7 @@ func TestRuntimeConfig_JSONFieldNames(t *testing.T) {
 		"latency_test_url",
 		"latency_authorities",
 		"probe_timeout",
-		"subscription_fetch_timeout",
+		"resource_fetch_timeout",
 		"p2c_latency_window",
 		"latency_decay_window",
 		"cache_flush_interval",

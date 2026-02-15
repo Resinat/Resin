@@ -13,6 +13,7 @@ import (
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/subscription"
+	"github.com/resin-proxy/resin/internal/testutil"
 )
 
 func newTestPool(subMgr *SubscriptionManager) *GlobalNodePool {
@@ -195,7 +196,7 @@ func TestPool_PlatformNotifyOnAddRemove(t *testing.T) {
 		Ewma:        100 * time.Millisecond,
 		LastUpdated: time.Now(),
 	})
-	var ob any = "mock"
+	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
 
@@ -240,7 +241,7 @@ func TestPool_RegexFilteredPlatform(t *testing.T) {
 			Ewma:        100 * time.Millisecond,
 			LastUpdated: time.Now(),
 		})
-		var ob any = "mock"
+		ob := testutil.NewNoopOutbound()
 		entry.Outbound.Store(&ob)
 		entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
 		// Re-trigger dirty to pick up latency/outbound.
@@ -256,6 +257,55 @@ func TestPool_RegexFilteredPlatform(t *testing.T) {
 	}
 	if plat.View().Contains(h2) {
 		t.Fatal("jp-node should NOT be in view")
+	}
+}
+
+func TestPool_PlatformLookupByIDAndName(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := newTestPool(subMgr)
+
+	plat := platform.NewPlatform("p-lookup", "LookupPlat", nil, nil)
+	pool.RegisterPlatform(plat)
+
+	gotByID, ok := pool.GetPlatform("p-lookup")
+	if !ok || gotByID != plat {
+		t.Fatal("GetPlatform should return registered platform by ID")
+	}
+
+	gotByName, ok := pool.GetPlatformByName("LookupPlat")
+	if !ok || gotByName != plat {
+		t.Fatal("GetPlatformByName should return registered platform by name")
+	}
+}
+
+func TestPool_RangePlatforms_UsesSnapshotAndDoesNotDeadlock(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := newTestPool(subMgr)
+
+	plat1 := platform.NewPlatform("p-range-1", "Range-1", nil, nil)
+	plat2 := platform.NewPlatform("p-range-2", "Range-2", nil, nil)
+	pool.RegisterPlatform(plat1)
+	pool.RegisterPlatform(plat2)
+
+	done := make(chan struct{})
+	go func() {
+		pool.RangePlatforms(func(_ *platform.Platform) bool {
+			// Mutating during range should not deadlock because RangePlatforms
+			// iterates on a snapshot.
+			pool.UnregisterPlatform("p-range-2")
+			return true
+		})
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("RangePlatforms deadlocked while unregistering during callback")
+	}
+
+	if _, ok := pool.GetPlatform("p-range-2"); ok {
+		t.Fatal("platform should be removed after unregister")
 	}
 }
 

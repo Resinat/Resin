@@ -10,6 +10,7 @@ import (
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/subscription"
+	"github.com/resin-proxy/resin/internal/testutil"
 )
 
 func newHealthTestPool(maxFailures int) (*GlobalNodePool, *SubscriptionManager) {
@@ -128,7 +129,7 @@ func TestRecordResult_CircuitBreak_RemovesFromView(t *testing.T) {
 		Ewma:        100 * time.Millisecond,
 		LastUpdated: time.Now(),
 	})
-	var ob any = "mock"
+	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
 	pool.RebuildAllPlatforms()

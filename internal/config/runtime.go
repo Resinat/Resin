@@ -38,10 +38,10 @@ type RuntimeConfig struct {
 	GeoIPUpdateSchedule string `json:"geoip_update_schedule"`
 
 	// Probe
-	LatencyTestURL           string   `json:"latency_test_url"`
-	LatencyAuthorities       []string `json:"latency_authorities"`
-	ProbeTimeout             Duration `json:"probe_timeout"`
-	SubscriptionFetchTimeout Duration `json:"subscription_fetch_timeout"`
+	LatencyTestURL       string   `json:"latency_test_url"`
+	LatencyAuthorities   []string `json:"latency_authorities"`
+	ProbeTimeout         Duration `json:"probe_timeout"`
+	ResourceFetchTimeout Duration `json:"resource_fetch_timeout"`
 
 	// P2C
 	P2CLatencyWindow   Duration `json:"p2c_latency_window"`
@@ -81,10 +81,10 @@ func NewDefaultRuntimeConfig() *RuntimeConfig {
 
 		GeoIPUpdateSchedule: "0 5 12 * *",
 
-		LatencyTestURL:           "https://www.gstatic.com/generate_204",
-		LatencyAuthorities:       []string{"gstatic.com", "google.com", "cloudflare.com", "github.com"},
-		ProbeTimeout:             Duration(15 * time.Second),
-		SubscriptionFetchTimeout: Duration(30 * time.Second),
+		LatencyTestURL:       "https://www.gstatic.com/generate_204",
+		LatencyAuthorities:   []string{"gstatic.com", "google.com", "cloudflare.com", "github.com"},
+		ProbeTimeout:         Duration(15 * time.Second),
+		ResourceFetchTimeout: Duration(30 * time.Second),
 
 		P2CLatencyWindow:   Duration(10 * time.Minute),
 		LatencyDecayWindow: Duration(10 * time.Minute),

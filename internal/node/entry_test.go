@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"testing"
 	"time"
+
+	"github.com/resin-proxy/resin/internal/testutil"
 )
 
 func TestNodeEntry_SubscriptionIDs(t *testing.T) {
@@ -178,7 +180,7 @@ func TestNodeEntry_Outbound(t *testing.T) {
 		t.Fatal("should not have outbound by default")
 	}
 
-	var ob any = "placeholder"
+	ob := testutil.NewNoopOutbound()
 	e.Outbound.Store(&ob)
 	if !e.HasOutbound() {
 		t.Fatal("should have outbound after store")

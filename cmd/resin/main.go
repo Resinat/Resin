@@ -19,8 +19,10 @@ import (
 	"github.com/resin-proxy/resin/internal/model"
 	"github.com/resin-proxy/resin/internal/netutil"
 	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/outbound"
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/probe"
+	"github.com/resin-proxy/resin/internal/routing"
 	"github.com/resin-proxy/resin/internal/service"
 	"github.com/resin-proxy/resin/internal/state"
 	"github.com/resin-proxy/resin/internal/subscription"
@@ -33,6 +35,10 @@ type topologyRuntime struct {
 	probeMgr         *probe.ProbeManager
 	scheduler        *topology.SubscriptionScheduler
 	ephemeralCleaner *topology.EphemeralCleaner
+	router           *routing.Router
+	leaseCleaner     *routing.LeaseCleaner
+	outboundMgr      *outbound.OutboundManager
+	singboxBuilder   *outbound.SingboxBuilder // for Close on shutdown
 }
 
 func main() {
@@ -49,15 +55,103 @@ func main() {
 	log.Println("Persistence bootstrap complete")
 
 	runtimeCfg := loadRuntimeConfig(engine)
-	sharedDownloader := newSharedDownloader(runtimeCfg)
-	geoSvc := startGeoIPService(envCfg.CacheDir, runtimeCfg, sharedDownloader)
-	topoRuntime := newTopologyRuntime(engine, envCfg, runtimeCfg, geoSvc, sharedDownloader)
 
-	if err := bootstrapTopology(engine, topoRuntime.subManager, topoRuntime.pool); err != nil {
+	// Phase 1: Create DirectDownloader and RetryDownloader shell.
+	// NodePicker/ProxyFetch are nil initially; set after Pool + OutboundManager creation.
+	direct := newDirectDownloader(runtimeCfg)
+	retryDL := &netutil.RetryDownloader{
+		Direct:              direct,
+		ProxyAttemptTimeout: direct.Timeout,
+	}
+
+	// Phase 2: Construct GeoIP service (start after retry downloader wiring).
+	geoSvc := newGeoIPService(envCfg.CacheDir, runtimeCfg, retryDL)
+
+	// Phase 3: Topology (pool, probe, scheduler).
+	topoRuntime, err := newTopologyRuntime(engine, envCfg, runtimeCfg, geoSvc, retryDL)
+	if err != nil {
+		fatalf("topology runtime: %v", err)
+	}
+
+	// Phase 4: OutboundManager and Router (now that pool exists).
+
+	// Override node lifecycle callbacks to include outbound management.
+	// Pool was constructed with persistence-only callbacks; now extend them.
+	topoRuntime.pool.SetOnNodeAdded(func(hash node.Hash) {
+		engine.MarkNodeStatic(hash.Hex())
+		topoRuntime.outboundMgr.EnsureNodeOutbound(hash)
+		// No NotifyNodeDirty here — AddNodeFromSub already notifies all platforms.
+		if topoRuntime.probeMgr != nil {
+			topoRuntime.probeMgr.TriggerImmediateEgressProbe(hash)
+		}
+	})
+	topoRuntime.pool.SetOnNodeRemoved(func(hash node.Hash, entry *node.NodeEntry) {
+		engine.MarkNodeStaticDelete(hash.Hex())
+		topoRuntime.outboundMgr.RemoveNodeOutbound(entry)
+	})
+	log.Println("OutboundManager initialized with lifecycle callbacks")
+
+	topoRuntime.router = routing.NewRouter(routing.RouterConfig{
+		Pool: topoRuntime.pool,
+		Authorities: func() []string {
+			return runtimeCfg.LatencyAuthorities
+		},
+		P2CWindow: func() time.Duration {
+			return time.Duration(runtimeCfg.P2CLatencyWindow)
+		},
+		// Lease events are emitted synchronously on routing paths.
+		// Keep this callback lightweight and non-blocking.
+		OnLeaseEvent: func(e routing.LeaseEvent) {
+			switch e.Type {
+			case routing.LeaseCreate, routing.LeaseTouch, routing.LeaseReplace:
+				engine.MarkLease(e.PlatformID, e.Account)
+			case routing.LeaseRemove, routing.LeaseExpire:
+				engine.MarkLeaseDelete(e.PlatformID, e.Account)
+			}
+		},
+	})
+	topoRuntime.leaseCleaner = routing.NewLeaseCleaner(topoRuntime.router)
+	log.Println("Router and LeaseCleaner initialized")
+
+	// Phase 5: Complete RetryDownloader wiring (now that Pool + OutboundManager exist).
+	retryDL.NodePicker = func(target string) (node.Hash, error) {
+		res, err := topoRuntime.router.RouteRequest("", "", target)
+		if err != nil {
+			return node.Zero, err
+		}
+		return res.NodeHash, nil
+	}
+	retryUA := direct.UserAgent
+	retryDL.ProxyFetch = func(ctx context.Context, hash node.Hash, url string) ([]byte, error) {
+		body, _, err := topoRuntime.outboundMgr.FetchWithUserAgent(ctx, hash, url, retryUA)
+		return body, err
+	}
+	log.Println("RetryDownloader wiring complete")
+
+	// Phase 6: Bootstrap topology data from persistence.
+	if err := bootstrapTopology(engine, topoRuntime.subManager, topoRuntime.pool, runtimeCfg); err != nil {
 		fatalf("%v", err)
 	}
 
-	flushReaders := newFlushReaders(topoRuntime.pool, topoRuntime.subManager)
+	// Phase 6.5: Start GeoIP after platforms are loaded so proxy retry can
+	// route through the restored Default platform immediately.
+	startGeoIPService(geoSvc)
+
+	// Phase 7: Restore leases.
+	leases, err := engine.LoadAllLeases()
+	if err != nil {
+		log.Printf("Warning: load leases: %v", err)
+	} else if len(leases) > 0 {
+		topoRuntime.router.RestoreLeases(leases)
+		log.Printf("Restored %d leases from cache.db", len(leases))
+	}
+
+	// Phase 8: Outbound warmup — create outbounds for all bootstrapped nodes.
+	topoRuntime.outboundMgr.WarmupAll()
+	topoRuntime.pool.RebuildAllPlatforms()
+	log.Println("Outbound warmup complete")
+
+	flushReaders := newFlushReaders(topoRuntime.pool, topoRuntime.subManager, topoRuntime.router)
 	flushWorker := state.NewCacheFlushWorker(
 		engine, flushReaders,
 		runtimeCfg.CacheFlushDirtyThreshold,
@@ -75,6 +169,9 @@ func main() {
 
 	topoRuntime.ephemeralCleaner.Start()
 	log.Println("Ephemeral cleaner started")
+
+	topoRuntime.leaseCleaner.Start()
+	log.Println("Lease cleaner started")
 
 	startedAt := time.Now().UTC()
 	systemSvc := service.NewMemorySystemService(
@@ -108,8 +205,11 @@ func main() {
 		log.Printf("Server shutdown error: %v", err)
 	}
 
-	// Stop in reverse order: ephemeral cleaner -> scheduler -> probe manager -> geoip -> flush worker.
+	// Stop in reverse order: lease cleaner -> ephemeral cleaner -> scheduler -> probe manager -> geoip -> flush worker.
 	// scheduler must stop before probe manager to avoid post-stop triggers.
+	topoRuntime.leaseCleaner.Stop()
+	log.Println("Lease cleaner stopped")
+
 	topoRuntime.ephemeralCleaner.Stop()
 	log.Println("Ephemeral cleaner stopped")
 
@@ -121,6 +221,13 @@ func main() {
 
 	geoSvc.Stop()
 	log.Println("GeoIP service stopped")
+
+	if topoRuntime.singboxBuilder != nil {
+		if err := topoRuntime.singboxBuilder.Close(); err != nil {
+			log.Printf("SingboxBuilder close error: %v", err)
+		}
+		log.Println("SingboxBuilder stopped")
+	}
 
 	flushWorker.Stop() // final flush before DB close
 	log.Println("Server stopped")
@@ -144,8 +251,8 @@ func loadRuntimeConfig(engine *state.StateEngine) *config.RuntimeConfig {
 	return runtimeCfg
 }
 
-func newSharedDownloader(runtimeCfg *config.RuntimeConfig) *netutil.DirectDownloader {
-	downloader := netutil.NewDirectDownloader(time.Duration(runtimeCfg.SubscriptionFetchTimeout))
+func newDirectDownloader(runtimeCfg *config.RuntimeConfig) *netutil.DirectDownloader {
+	downloader := netutil.NewDirectDownloader(time.Duration(runtimeCfg.ResourceFetchTimeout))
 	ua := runtimeCfg.UserAgent
 	if ua == "" {
 		ua = "Resin/" + buildinfo.Version
@@ -154,7 +261,7 @@ func newSharedDownloader(runtimeCfg *config.RuntimeConfig) *netutil.DirectDownlo
 	return downloader
 }
 
-func startGeoIPService(
+func newGeoIPService(
 	cacheDir string,
 	runtimeCfg *config.RuntimeConfig,
 	downloader netutil.Downloader,
@@ -165,11 +272,14 @@ func startGeoIPService(
 		Downloader:     downloader,
 		OpenDB:         geoip.SingBoxOpen,
 	})
+	return geoSvc
+}
+
+func startGeoIPService(geoSvc *geoip.Service) {
 	if err := geoSvc.Start(); err != nil {
 		log.Printf("GeoIP service start (non-fatal): %v", err)
 	}
 	log.Println("GeoIP service initialized")
-	return geoSvc
 }
 
 func newTopologyRuntime(
@@ -178,7 +288,7 @@ func newTopologyRuntime(
 	runtimeCfg *config.RuntimeConfig,
 	geoSvc *geoip.Service,
 	downloader netutil.Downloader,
-) *topologyRuntime {
+) (*topologyRuntime, error) {
 	subManager := topology.NewSubscriptionManager()
 	var probeMgr *probe.ProbeManager
 
@@ -191,7 +301,7 @@ func newTopologyRuntime(
 				probeMgr.TriggerImmediateEgressProbe(hash)
 			}
 		},
-		OnNodeRemoved: func(hash node.Hash) {
+		OnNodeRemoved: func(hash node.Hash, _ *node.NodeEntry) {
 			engine.MarkNodeStaticDelete(hash.Hex())
 		},
 		OnSubNodeChanged: func(subID string, hash node.Hash, added bool) {
@@ -215,10 +325,16 @@ func newTopologyRuntime(
 	})
 	log.Println("Topology: GlobalNodePool initialized")
 
+	singboxBuilder, err := outbound.NewSingboxBuilder()
+	if err != nil {
+		return nil, fmt.Errorf("singbox builder: %w", err)
+	}
+	outboundMgr := outbound.NewOutboundManager(pool, singboxBuilder)
+
 	probeMgr = probe.NewProbeManager(probe.ProbeConfig{
 		Pool:        pool,
 		Concurrency: envCfg.ProbeConcurrency,
-		Fetcher: probe.DirectFetcher(func() time.Duration {
+		Fetcher: outboundMgr.AsFetcher(func() time.Duration {
 			return time.Duration(runtimeCfg.ProbeTimeout)
 		}),
 		MaxEgressTestInterval: func() time.Duration {
@@ -243,9 +359,6 @@ func newTopologyRuntime(
 		SubManager: subManager,
 		Pool:       pool,
 		Downloader: downloader,
-		FetchTimeout: func() time.Duration {
-			return time.Duration(runtimeCfg.SubscriptionFetchTimeout)
-		},
 	})
 	ephemeralCleaner := topology.NewEphemeralCleaner(
 		subManager,
@@ -259,13 +372,16 @@ func newTopologyRuntime(
 		probeMgr:         probeMgr,
 		scheduler:        scheduler,
 		ephemeralCleaner: ephemeralCleaner,
-	}
+		outboundMgr:      outboundMgr,
+		singboxBuilder:   singboxBuilder,
+	}, nil
 }
 
 func bootstrapTopology(
 	engine *state.StateEngine,
 	subManager *topology.SubscriptionManager,
 	pool *topology.GlobalNodePool,
+	runtimeCfg *config.RuntimeConfig,
 ) error {
 	dbSubs, err := engine.ListSubscriptions()
 	if err != nil {
@@ -284,6 +400,13 @@ func bootstrapTopology(
 	if err != nil {
 		return fmt.Errorf("load platforms: %w", err)
 	}
+	if err := ensureDefaultPlatform(engine, runtimeCfg, dbPlats); err != nil {
+		return fmt.Errorf("ensure default platform: %w", err)
+	}
+	dbPlats, err = engine.ListPlatforms()
+	if err != nil {
+		return fmt.Errorf("reload platforms: %w", err)
+	}
 	for _, mp := range dbPlats {
 		var regexStrs []string
 		_ = json.Unmarshal([]byte(mp.RegexFiltersJSON), &regexStrs)
@@ -298,16 +421,68 @@ func bootstrapTopology(
 		plat := platform.NewPlatform(mp.ID, mp.Name, compiled, regionFilters)
 		plat.StickyTTLNs = mp.StickyTTLNs
 		plat.ReverseProxyMissAction = mp.ReverseProxyMissAction
-		plat.AllocationPolicy = mp.AllocationPolicy
+		plat.AllocationPolicy = platform.ParseAllocationPolicy(mp.AllocationPolicy)
 		pool.RegisterPlatform(plat)
 	}
 	log.Printf("Loaded %d platforms from state.db", len(dbPlats))
 	return nil
 }
 
+func ensureDefaultPlatform(
+	engine *state.StateEngine,
+	runtimeCfg *config.RuntimeConfig,
+	platformsInDB []model.Platform,
+) error {
+	hasDefaultID := false
+	hasDefaultName := false
+	for _, p := range platformsInDB {
+		if p.ID == platform.DefaultPlatformID {
+			hasDefaultID = true
+		}
+		if p.Name == platform.DefaultPlatformName {
+			hasDefaultName = true
+		}
+	}
+	if hasDefaultID || hasDefaultName {
+		return nil
+	}
+
+	regexJSON, err := json.Marshal(runtimeCfg.DefaultPlatformConfig.RegexFilters)
+	if err != nil {
+		return fmt.Errorf("marshal default regex_filters: %w", err)
+	}
+	regionJSON, err := json.Marshal(runtimeCfg.DefaultPlatformConfig.RegionFilters)
+	if err != nil {
+		return fmt.Errorf("marshal default region_filters: %w", err)
+	}
+
+	missAction := runtimeCfg.DefaultPlatformConfig.ReverseProxyMissAction
+	if missAction == "" {
+		missAction = "RANDOM"
+	}
+	allocationPolicy := string(platform.ParseAllocationPolicy(runtimeCfg.DefaultPlatformConfig.AllocationPolicy))
+
+	defaultPlatform := model.Platform{
+		ID:                     platform.DefaultPlatformID,
+		Name:                   platform.DefaultPlatformName,
+		StickyTTLNs:            int64(time.Duration(runtimeCfg.DefaultPlatformConfig.StickyTTL)),
+		RegexFiltersJSON:       string(regexJSON),
+		RegionFiltersJSON:      string(regionJSON),
+		ReverseProxyMissAction: missAction,
+		AllocationPolicy:       allocationPolicy,
+		UpdatedAtNs:            time.Now().UnixNano(),
+	}
+	if err := engine.UpsertPlatform(defaultPlatform); err != nil {
+		return err
+	}
+	log.Println("Created built-in Default platform")
+	return nil
+}
+
 func newFlushReaders(
 	pool *topology.GlobalNodePool,
 	subManager *topology.SubscriptionManager,
+	router *routing.Router,
 ) state.CacheReaders {
 	return state.CacheReaders{
 		ReadNodeStatic: func(hash string) *model.NodeStatic {
@@ -368,8 +543,7 @@ func newFlushReaders(
 			}
 		},
 		ReadLease: func(key model.LeaseKey) *model.Lease {
-			// Leases not yet managed in Stage 3.
-			return nil
+			return router.ReadLease(key)
 		},
 		ReadSubscriptionNode: func(key model.SubscriptionNodeKey) *model.SubscriptionNode {
 			h, err := node.ParseHex(key.NodeHash)

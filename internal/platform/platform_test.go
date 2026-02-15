@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/testutil"
 )
 
 // makeFullyRoutableEntry creates a NodeEntry that passes all 5 filter conditions.
@@ -20,7 +21,7 @@ func makeFullyRoutableEntry(hash node.Hash, subIDs ...string) *node.NodeEntry {
 		Ewma:        100 * time.Millisecond,
 		LastUpdated: time.Now(),
 	})
-	var ob any = "mock-outbound"
+	ob := testutil.NewNoopOutbound()
 	e.Outbound.Store(&ob)
 	e.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
 	return e
@@ -67,7 +68,7 @@ func TestPlatform_EvaluateNode_NoLatency(t *testing.T) {
 	// Create entry without latency table (maxLatencyTableEntries=0).
 	entry := node.NewNodeEntry(h, nil, time.Now(), 0)
 	entry.AddSubscriptionID("sub1")
-	var ob any = "mock-outbound"
+	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
 
@@ -92,6 +93,21 @@ func TestPlatform_EvaluateNode_NoOutbound(t *testing.T) {
 
 	if p.View().Size() != 0 {
 		t.Fatal("node without outbound should not be routable")
+	}
+}
+
+func TestPlatform_EvaluateNode_NoEgressIP(t *testing.T) {
+	p := NewPlatform("p1", "Test", nil, nil) // no region filters
+	h := makeHash(`{"type":"ss"}`)
+	entry := makeFullyRoutableEntry(h, "sub1")
+	entry.SetEgressIP(netip.Addr{}) // egress unknown
+
+	p.FullRebuild(func(fn func(node.Hash, *node.NodeEntry) bool) {
+		fn(h, entry)
+	}, alwaysLookup, usGeoLookup)
+
+	if p.View().Size() != 0 {
+		t.Fatal("node without egress IP should not be routable")
 	}
 }
 
@@ -157,7 +173,7 @@ func TestPlatform_EvaluateNode_RegionFilter_NoEgressIP(t *testing.T) {
 	}, alwaysLookup, usGeoLookup)
 
 	if p.View().Size() != 0 {
-		t.Fatal("node without egress IP should not be routable when region filters are set")
+		t.Fatal("node without egress IP should not be routable")
 	}
 }
 

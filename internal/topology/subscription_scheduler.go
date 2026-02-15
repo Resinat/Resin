@@ -25,9 +25,6 @@ type SubscriptionScheduler struct {
 	// Defaults to downloader.Download; injectable for testing.
 	Fetcher func(url string) ([]byte, error)
 
-	// FetchTimeout returns the current fetch timeout from runtime config.
-	fetchTimeout func() time.Duration
-
 	// For persistence.
 	onSubUpdated func(sub *subscription.Subscription)
 
@@ -41,7 +38,6 @@ type SchedulerConfig struct {
 	Pool         *GlobalNodePool
 	Downloader   netutil.Downloader               // shared downloader
 	Fetcher      func(url string) ([]byte, error) // optional, defaults to Downloader.Download
-	FetchTimeout func() time.Duration             // returns current fetch timeout; defaults to 30s
 	OnSubUpdated func(sub *subscription.Subscription)
 }
 
@@ -58,11 +54,6 @@ func NewSubscriptionScheduler(cfg SchedulerConfig) *SubscriptionScheduler {
 		sched.Fetcher = cfg.Fetcher
 	} else {
 		sched.Fetcher = sched.fetchViaDownloader
-	}
-	if cfg.FetchTimeout != nil {
-		sched.fetchTimeout = cfg.FetchTimeout
-	} else {
-		sched.fetchTimeout = func() time.Duration { return 30 * time.Second }
 	}
 	return sched
 }
@@ -130,7 +121,14 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 	}
 
 	// 4. Diff, swap, add/remove — under lock.
+	applied := false
 	s.subManager.WithSubLock(sub.ID, func() {
+		// Stale success guard: if a newer successful update has already landed,
+		// discard this older attempt to avoid rolling state backward.
+		if sub.LastUpdatedNs.Load() > attemptStartedNs {
+			return
+		}
+
 		old := sub.ManagedNodes()
 		added, kept, removed := subscription.DiffHashes(old, newManagedNodes)
 
@@ -151,7 +149,12 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 		sub.LastCheckedNs.Store(now)
 		sub.LastUpdatedNs.Store(now)
 		sub.SetLastError("")
+		applied = true
 	})
+	if !applied {
+		log.Printf("[scheduler] stale success ignored for %s", sub.ID)
+		return
+	}
 
 	if s.onSubUpdated != nil {
 		s.onSubUpdated(sub)
@@ -218,11 +221,5 @@ func (s *SubscriptionScheduler) RenameSubscription(sub *subscription.Subscriptio
 }
 
 func (s *SubscriptionScheduler) fetchViaDownloader(url string) ([]byte, error) {
-	t := s.fetchTimeout()
-	if t <= 0 {
-		t = 30 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), t)
-	defer cancel()
-	return s.downloader.Download(ctx, url)
+	return s.downloader.Download(context.Background(), url)
 }

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"time"
+
+	"github.com/sagernet/sing-box/adapter"
 )
 
 // DirectFetcher creates a Fetcher that performs direct HTTP requests (not
@@ -24,7 +26,7 @@ func DirectFetcher(timeout func() time.Duration) Fetcher {
 		// Disable redirect following for trace endpoint handled below.
 	}
 
-	return func(_ any, url string) ([]byte, time.Duration, error) {
+	return func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 		t := timeout()
 		if t <= 0 {
 			t = 15 * time.Second // safe default

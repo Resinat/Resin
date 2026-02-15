@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // mockReader is a test GeoReader that returns a fixed country.
@@ -187,8 +188,8 @@ func TestUpdateNow_DownloadVerifyReload(t *testing.T) {
 
 	dl := &mockDownloader{
 		responses: map[string][]byte{
-			ReleaseAPIURL:                          releaseJSON,
-			"https://example.com/geoip.db":         dbContent,
+			ReleaseAPIURL:                            releaseJSON,
+			"https://example.com/geoip.db":           dbContent,
 			"https://example.com/geoip.db.sha256sum": []byte(hashHex + "  geoip.db\n"),
 		},
 	}
@@ -253,8 +254,8 @@ func TestUpdateNow_SHA256Mismatch_NoReplace(t *testing.T) {
 
 	dl := &mockDownloader{
 		responses: map[string][]byte{
-			ReleaseAPIURL:                          releaseJSON,
-			"https://example.com/geoip.db":         newContent,
+			ReleaseAPIURL:                            releaseJSON,
+			"https://example.com/geoip.db":           newContent,
 			"https://example.com/geoip.db.sha256sum": []byte("0000000000000000000000000000000000000000000000000000000000000000  geoip.db\n"),
 		},
 	}
@@ -355,6 +356,56 @@ func TestUpdateNow_MissingSHA256Asset(t *testing.T) {
 	}
 }
 
+type notifyDownloader struct {
+	called chan struct{}
+}
+
+func (d *notifyDownloader) Download(_ context.Context, _ string) ([]byte, error) {
+	select {
+	case d.called <- struct{}{}:
+	default:
+	}
+	return nil, fmt.Errorf("mock download failure")
+}
+
+func TestGeoIPStart_StatUnexpectedError(t *testing.T) {
+	s := NewService(ServiceConfig{
+		CacheDir:   t.TempDir(),
+		DBFilename: "bad\x00name",
+		OpenDB:     NoOpOpen,
+	})
+	defer s.Stop()
+
+	err := s.Start()
+	if err == nil {
+		t.Fatal("expected Start to fail on unexpected stat error")
+	}
+	if !strings.Contains(err.Error(), "stat db") {
+		t.Fatalf("expected stat error context, got: %v", err)
+	}
+}
+
+func TestGeoIPStart_MissingDBTriggersBackgroundUpdate(t *testing.T) {
+	dl := &notifyDownloader{called: make(chan struct{}, 1)}
+	s := NewService(ServiceConfig{
+		CacheDir:   t.TempDir(),
+		DBFilename: "geoip.db",
+		OpenDB:     NoOpOpen,
+		Downloader: dl,
+	})
+	defer s.Stop()
+
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	select {
+	case <-dl.called:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected background update attempt when db is missing")
+	}
+}
+
 func TestParseSHA256Sum(t *testing.T) {
 	tests := []struct {
 		input string
@@ -362,8 +413,8 @@ func TestParseSHA256Sum(t *testing.T) {
 	}{
 		{"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9  geoip.db\n", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"},
 		{"B94D27B9934D3E08A52E52D7DA7DABFAC484EFE37A5380EE9088F7ACE2EFCDE9  file.db", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"},
-		{"abc", ""},   // too short
-		{"", ""},       // empty
+		{"abc", ""}, // too short
+		{"", ""},    // empty
 	}
 	for _, tt := range tests {
 		got := parseSHA256Sum(tt.input)

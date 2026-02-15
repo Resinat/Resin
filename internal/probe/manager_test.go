@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/testutil"
 	"github.com/resin-proxy/resin/internal/topology"
+	"github.com/sagernet/sing-box/adapter"
 )
 
 // storeOutbound sets a non-nil outbound on the entry.
 func storeOutbound(entry *node.NodeEntry) {
-	var ob any = "dummy-outbound"
+	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 }
 
@@ -38,7 +40,7 @@ func TestProbeEgress_Success(t *testing.T) {
 	traceBody := []byte("fl=123\nip=203.0.113.1\nts=1234567890")
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ any, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 			return traceBody, 42 * time.Millisecond, nil
 		},
 	})
@@ -92,7 +94,7 @@ func TestProbeEgress_Failure(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ any, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 			return nil, 0, errors.New("connection refused")
 		},
 	})
@@ -127,7 +129,7 @@ func TestProbeEgress_CircuitBreak(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ any, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 			return nil, 0, errors.New("timeout")
 		},
 	})
@@ -158,7 +160,7 @@ func TestProbeLatency_Success(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ any, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 			return []byte("OK"), 50 * time.Millisecond, nil
 		},
 	})
@@ -193,7 +195,7 @@ func TestProbeLatency_Failure(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ any, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 			return nil, 0, errors.New("tls handshake failed")
 		},
 	})
@@ -225,7 +227,7 @@ func TestProbeEgress_ZeroLatencyIgnored(t *testing.T) {
 	traceBody := []byte("fl=123\nip=203.0.113.1\nts=1234567890")
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ any, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 			return traceBody, 0, nil
 		},
 	})
@@ -262,7 +264,7 @@ func TestProbeLatency_ZeroLatencyIgnored(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ any, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 			return []byte("ok"), 0, nil
 		},
 	})
@@ -317,7 +319,7 @@ func TestTriggerImmediateEgressProbe_WithFetcher(t *testing.T) {
 	mgr := NewProbeManager(ProbeConfig{
 		Pool:        pool,
 		Concurrency: 1,
-		Fetcher: func(_ any, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 			defer called.Done()
 			return []byte("ip=198.51.100.1"), 10 * time.Millisecond, nil
 		},
@@ -356,7 +358,7 @@ func TestProbeManager_StopWaitsImmediateProbe(t *testing.T) {
 	mgr := NewProbeManager(ProbeConfig{
 		Pool:        pool,
 		Concurrency: 1,
-		Fetcher: func(_ any, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
 			if calls.Add(1) == 1 {
 				close(started)
 				<-release

@@ -9,6 +9,12 @@ import (
 	"github.com/resin-proxy/resin/internal/node"
 )
 
+// DefaultPlatformID is the well-known UUID of the built-in Default platform.
+const DefaultPlatformID = "00000000-0000-0000-0000-000000000000"
+
+// DefaultPlatformName is the built-in platform name used for fallback lookup.
+const DefaultPlatformName = "Default"
+
 // GeoLookupFunc resolves an IP address to a lowercase ISO country code.
 type GeoLookupFunc func(netip.Addr) string
 
@@ -30,7 +36,7 @@ type Platform struct {
 	// Other config fields.
 	StickyTTLNs            int64
 	ReverseProxyMissAction string
-	AllocationPolicy       string
+	AllocationPolicy       AllocationPolicy
 
 	// Routable view & its lock.
 	// viewMu serializes both FullRebuild and NotifyDirty.
@@ -99,7 +105,7 @@ func (p *Platform) NotifyDirty(
 	}
 }
 
-// evaluateNode checks all 5 filter conditions (DESIGN.md lines 186-191).
+// evaluateNode checks all filter conditions for platform routability.
 func (p *Platform) evaluateNode(
 	entry *node.NodeEntry,
 	subLookup node.SubLookupFunc,
@@ -115,24 +121,26 @@ func (p *Platform) evaluateNode(
 		return false
 	}
 
-	// 3. Region filter.
+	// 3. Egress IP must be known.
+	egressIP := entry.GetEgressIP()
+	if !egressIP.IsValid() {
+		return false
+	}
+
+	// 4. Region filter (when configured).
 	if len(p.RegionFilters) > 0 {
-		egressIP := entry.GetEgressIP()
-		if !egressIP.IsValid() {
-			return false // no egress IP + non-empty region filters = fail
-		}
 		region := geoLookup(egressIP)
 		if !matchRegion(region, p.RegionFilters) {
 			return false
 		}
 	}
 
-	// 4. Has at least one latency record.
+	// 5. Has at least one latency record.
 	if !entry.HasLatency() {
 		return false
 	}
 
-	// 5. Outbound is not nil.
+	// 6. Outbound is not nil.
 	if !entry.HasOutbound() {
 		return false
 	}

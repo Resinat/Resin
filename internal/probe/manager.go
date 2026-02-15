@@ -8,11 +8,12 @@ import (
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/scanloop"
 	"github.com/resin-proxy/resin/internal/topology"
+	"github.com/sagernet/sing-box/adapter"
 )
 
 // Fetcher executes an HTTP request through a node's outbound, returning the
 // response body and TLS handshake latency. This is injectable for testing.
-type Fetcher func(outbound any, url string) (body []byte, latency time.Duration, err error)
+type Fetcher func(outbound adapter.Outbound, url string) (body []byte, latency time.Duration, err error)
 
 // ProbeConfig configures the ProbeManager.
 // Field names align 1:1 with RuntimeConfig to prevent mis-wiring.
@@ -104,6 +105,10 @@ func (m *ProbeManager) Stop() {
 //     immediate probe goroutine.
 //   - Stop-trigger ordering is a caller contract; this method does not enforce
 //     a "reject after stop" policy with additional manager-global state.
+//   - Tradeoff: we spawn first, then acquire sem in the goroutine. This keeps
+//     callers non-blocking and preserves "never drop" semantics. Under bursty
+//     triggers, waiting goroutine count may rise, but actual outbound probe
+//     concurrency is still hard-limited by sem capacity.
 func (m *ProbeManager) TriggerImmediateEgressProbe(hash node.Hash) {
 	m.wg.Add(1)
 
@@ -282,12 +287,12 @@ func (m *ProbeManager) probeEgress(hash node.Hash, entry *node.NodeEntry) {
 		return
 	}
 
-	outbound := entry.Outbound.Load()
-	if outbound == nil {
+	outboundPtr := entry.Outbound.Load()
+	if outboundPtr == nil {
 		return
 	}
 
-	body, latency, err := m.fetcher(outbound, "https://cloudflare.com/cdn-cgi/trace")
+	body, latency, err := m.fetcher(*outboundPtr, "https://cloudflare.com/cdn-cgi/trace")
 	if err != nil {
 		m.pool.RecordResult(hash, false)
 		log.Printf("[probe] egress probe failed for %s: %v", hash.Hex(), err)
@@ -321,12 +326,12 @@ func (m *ProbeManager) probeLatency(hash node.Hash, entry *node.NodeEntry, testU
 		return
 	}
 
-	outbound := entry.Outbound.Load()
-	if outbound == nil {
+	outboundPtr := entry.Outbound.Load()
+	if outboundPtr == nil {
 		return
 	}
 
-	_, latency, err := m.fetcher(outbound, testURL)
+	_, latency, err := m.fetcher(*outboundPtr, testURL)
 	if err != nil {
 		m.pool.RecordResult(hash, false)
 		log.Printf("[probe] latency probe failed for %s: %v", hash.Hex(), err)

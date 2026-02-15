@@ -15,6 +15,7 @@ import (
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/subscription"
+	"github.com/resin-proxy/resin/internal/testutil"
 )
 
 // makeMockFetcher returns a Fetcher that serves the given response.
@@ -329,6 +330,77 @@ func TestScheduler_StaleFailureDoesNotOverrideNewerSuccess(t *testing.T) {
 	}
 }
 
+func TestScheduler_StaleSuccessDoesNotOverrideNewerSuccess(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "http://example.com", true, false)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	oldBody := makeSubscriptionJSON(
+		`{"type":"shadowsocks","tag":"old-node","server":"1.1.1.1","server_port":443}`,
+	)
+	newBody := makeSubscriptionJSON(
+		`{"type":"vmess","tag":"new-node","server":"2.2.2.2","server_port":443}`,
+	)
+
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var calls atomic.Int32
+	fetcher := func(url string) ([]byte, error) {
+		if calls.Add(1) == 1 {
+			close(firstStarted)
+			<-releaseFirst
+			return oldBody, nil // older attempt returns stale success
+		}
+		return newBody, nil // newer attempt succeeds first
+	}
+	sched := newTestScheduler(subMgr, pool, fetcher)
+
+	done1 := make(chan struct{})
+	go func() {
+		defer close(done1)
+		sched.UpdateSubscription(sub) // older attempt: blocked in fetcher, then stale success
+	}()
+
+	<-firstStarted
+
+	done2 := make(chan struct{})
+	go func() {
+		defer close(done2)
+		sched.UpdateSubscription(sub) // newer attempt: success lands first
+	}()
+	<-done2
+
+	close(releaseFirst)
+	<-done1
+
+	if calls.Load() != 2 {
+		t.Fatalf("expected 2 fetch calls, got %d", calls.Load())
+	}
+	if sub.GetLastError() != "" {
+		t.Fatalf("expected empty last error, got %q", sub.GetLastError())
+	}
+
+	// Newer success should win; stale old success must be ignored.
+	if pool.Size() != 1 {
+		t.Fatalf("expected exactly 1 node in pool, got %d", pool.Size())
+	}
+	oldHash := node.HashFromRawOptions([]byte(`{"type":"shadowsocks","tag":"old-node","server":"1.1.1.1","server_port":443}`))
+	newHash := node.HashFromRawOptions([]byte(`{"type":"vmess","tag":"new-node","server":"2.2.2.2","server_port":443}`))
+	if _, ok := pool.GetEntry(newHash); !ok {
+		t.Fatal("expected new node to remain after stale-success race")
+	}
+	if _, ok := pool.GetEntry(oldHash); ok {
+		t.Fatal("stale old success should not overwrite newer subscription state")
+	}
+	if _, ok := sub.ManagedNodes().Load(newHash); !ok {
+		t.Fatal("managed nodes should contain new hash")
+	}
+	if _, ok := sub.ManagedNodes().Load(oldHash); ok {
+		t.Fatal("managed nodes should not contain old hash after stale-success race")
+	}
+}
+
 // --- Test: Concurrent update + rename serialization ---
 
 func TestScheduler_ConcurrentUpdateAndRename(t *testing.T) {
@@ -536,7 +608,7 @@ func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews(t *testing.T) {
 		Ewma:        100 * time.Millisecond,
 		LastUpdated: time.Now(),
 	})
-	var ob any = "mock"
+	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
 

@@ -23,8 +23,9 @@ type GlobalNodePool struct {
 	nodes *xsync.Map[node.Hash, *node.NodeEntry]
 
 	// Platform references for dirty-notify.
-	platMu    sync.RWMutex
-	platforms []*platform.Platform
+	platMu         sync.RWMutex
+	platformByID   map[string]*platform.Platform // id -> platform
+	platformByName map[string]*platform.Platform // name -> platform
 
 	// Subscription lookup — injected by SubscriptionManager.
 	subLookup func(subID string) *subscription.Subscription
@@ -33,8 +34,8 @@ type GlobalNodePool struct {
 	geoLookup platform.GeoLookupFunc
 
 	// Persistence callbacks (optional, nil in tests without persistence).
-	onNodeAdded      func(hash node.Hash) // called after a new node is created
-	onNodeRemoved    func(hash node.Hash) // called after a node is deleted from pool
+	onNodeAdded      func(hash node.Hash)                        // called after a new node is created
+	onNodeRemoved    func(hash node.Hash, entry *node.NodeEntry) // called after a node is deleted from pool
 	onSubNodeChanged func(subID string, hash node.Hash, added bool)
 
 	// Health callbacks (optional).
@@ -52,7 +53,7 @@ type PoolConfig struct {
 	SubLookup              func(subID string) *subscription.Subscription
 	GeoLookup              platform.GeoLookupFunc
 	OnNodeAdded            func(hash node.Hash)
-	OnNodeRemoved          func(hash node.Hash)
+	OnNodeRemoved          func(hash node.Hash, entry *node.NodeEntry)
 	OnSubNodeChanged       func(subID string, hash node.Hash, added bool)
 	OnNodeDynamicChanged   func(hash node.Hash)
 	OnNodeLatencyChanged   func(hash node.Hash, domain string)
@@ -75,6 +76,8 @@ func NewGlobalNodePool(cfg PoolConfig) *GlobalNodePool {
 		maxLatencyTableEntries: cfg.MaxLatencyTableEntries,
 		maxConsecutiveFailures: cfg.MaxConsecutiveFailures,
 		latencyDecayWindow:     cfg.LatencyDecayWindow,
+		platformByID:           make(map[string]*platform.Platform),
+		platformByName:         make(map[string]*platform.Platform),
 	}
 }
 
@@ -109,6 +112,7 @@ func (p *GlobalNodePool) AddNodeFromSub(hash node.Hash, rawOpts json.RawMessage,
 // Idempotent: removing a nonexistent (hash, subID) pair is safe.
 func (p *GlobalNodePool) RemoveNodeFromSub(hash node.Hash, subID string) {
 	wasDeleted := false
+	var deletedEntry *node.NodeEntry // capture entry before map deletion
 	p.nodes.Compute(hash, func(entry *node.NodeEntry, loaded bool) (*node.NodeEntry, xsync.ComputeOp) {
 		if !loaded {
 			return entry, xsync.CancelOp // idempotent no-op
@@ -116,6 +120,7 @@ func (p *GlobalNodePool) RemoveNodeFromSub(hash node.Hash, subID string) {
 		empty := entry.RemoveSubscriptionID(subID)
 		if empty {
 			wasDeleted = true
+			deletedEntry = entry
 			return nil, xsync.DeleteOp
 		}
 		return entry, xsync.UpdateOp
@@ -125,7 +130,7 @@ func (p *GlobalNodePool) RemoveNodeFromSub(hash node.Hash, subID string) {
 		p.onSubNodeChanged(subID, hash, false)
 	}
 	if wasDeleted && p.onNodeRemoved != nil {
-		p.onNodeRemoved(hash)
+		p.onNodeRemoved(hash, deletedEntry)
 	}
 
 	p.notifyAllPlatformsDirty(hash)
@@ -156,19 +161,67 @@ func (p *GlobalNodePool) LoadNodeFromBootstrap(entry *node.NodeEntry) {
 func (p *GlobalNodePool) RegisterPlatform(plat *platform.Platform) {
 	p.platMu.Lock()
 	defer p.platMu.Unlock()
-	p.platforms = append(p.platforms, plat)
+	// Check for existing ID to avoid duplicates.
+	if _, exists := p.platformByID[plat.ID]; exists {
+		return
+	}
+	p.platformByID[plat.ID] = plat
+	if plat.Name != "" {
+		p.platformByName[plat.Name] = plat
+	}
 }
 
 // UnregisterPlatform removes a platform from dirty notifications.
 func (p *GlobalNodePool) UnregisterPlatform(id string) {
 	p.platMu.Lock()
 	defer p.platMu.Unlock()
-	for i, plat := range p.platforms {
-		if plat.ID == id {
-			p.platforms = append(p.platforms[:i], p.platforms[i+1:]...)
+	plat, ok := p.platformByID[id]
+	if !ok {
+		return
+	}
+	delete(p.platformByID, id)
+	if plat.Name != "" {
+		// Only delete when name still points at this platform.
+		if current, ok := p.platformByName[plat.Name]; ok && current == plat {
+			delete(p.platformByName, plat.Name)
+		}
+	}
+}
+
+// GetPlatform retrieves a platform by ID.
+func (p *GlobalNodePool) GetPlatform(id string) (*platform.Platform, bool) {
+	p.platMu.RLock()
+	defer p.platMu.RUnlock()
+	plat, ok := p.platformByID[id]
+	return plat, ok
+}
+
+// GetPlatformByName retrieves a platform by Name.
+func (p *GlobalNodePool) GetPlatformByName(name string) (*platform.Platform, bool) {
+	p.platMu.RLock()
+	defer p.platMu.RUnlock()
+	plat, ok := p.platformByName[name]
+	return plat, ok
+}
+
+// RangePlatforms iterates all registered platforms.
+func (p *GlobalNodePool) RangePlatforms(fn func(*platform.Platform) bool) {
+	for _, plat := range p.platformSnapshot() {
+		if !fn(plat) {
 			return
 		}
 	}
+}
+
+func (p *GlobalNodePool) platformSnapshot() []*platform.Platform {
+	p.platMu.RLock()
+	defer p.platMu.RUnlock()
+
+	platforms := make([]*platform.Platform, 0, len(p.platformByID))
+	for _, plat := range p.platformByID {
+		platforms = append(platforms, plat)
+	}
+	return platforms
 }
 
 // makeSubLookup builds the SubLookupFunc closure for MatchRegexs.
@@ -185,30 +238,26 @@ func (p *GlobalNodePool) makeSubLookup() node.SubLookupFunc {
 
 // notifyAllPlatformsDirty tells every registered platform to re-evaluate a node.
 func (p *GlobalNodePool) notifyAllPlatformsDirty(hash node.Hash) {
-	p.platMu.RLock()
-	defer p.platMu.RUnlock()
-
+	platforms := p.platformSnapshot()
 	subLookup := p.makeSubLookup()
 	getEntry := func(h node.Hash) (*node.NodeEntry, bool) {
 		return p.nodes.Load(h)
 	}
 
-	for _, plat := range p.platforms {
+	for _, plat := range platforms {
 		plat.NotifyDirty(hash, getEntry, subLookup, p.geoLookup)
 	}
 }
 
 // RebuildAllPlatforms triggers a full rebuild on all registered platforms.
 func (p *GlobalNodePool) RebuildAllPlatforms() {
-	p.platMu.RLock()
-	defer p.platMu.RUnlock()
-
+	platforms := p.platformSnapshot()
 	subLookup := p.makeSubLookup()
 	poolRange := func(fn func(node.Hash, *node.NodeEntry) bool) {
 		p.nodes.Range(fn)
 	}
 
-	for _, plat := range p.platforms {
+	for _, plat := range platforms {
 		plat.FullRebuild(poolRange, subLookup, p.geoLookup)
 	}
 }
@@ -228,6 +277,24 @@ func (p *GlobalNodePool) RebuildPlatform(plat *platform.Platform) {
 // Must be called before any background workers are started.
 func (p *GlobalNodePool) SetOnNodeAdded(fn func(hash node.Hash)) {
 	p.onNodeAdded = fn
+}
+
+// SetOnNodeRemoved sets the callback fired when a node is removed from the pool.
+// Must be called before any background workers are started.
+func (p *GlobalNodePool) SetOnNodeRemoved(fn func(hash node.Hash, entry *node.NodeEntry)) {
+	p.onNodeRemoved = fn
+}
+
+// NotifyNodeDirty triggers platform re-evaluation for a single node.
+// Used by OutboundManager after outbound creation to update routable views.
+func (p *GlobalNodePool) NotifyNodeDirty(hash node.Hash) {
+	p.notifyAllPlatformsDirty(hash)
+}
+
+// RangeNodes iterates over all nodes in the pool.
+// The callback receives each node's hash and entry. Return false to stop.
+func (p *GlobalNodePool) RangeNodes(fn func(node.Hash, *node.NodeEntry) bool) {
+	p.nodes.Range(fn)
 }
 
 // RecordResult records a probe or passive health-check result.

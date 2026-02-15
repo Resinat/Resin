@@ -136,7 +136,7 @@ func (s *Service) Start() error {
 				}
 			}()
 		}
-	} else {
+	} else if os.IsNotExist(err) {
 		// No local database at all — download immediately in background.
 		log.Println("[geoip] no local database found, triggering background download")
 		go func() {
@@ -144,6 +144,8 @@ func (s *Service) Start() error {
 				log.Printf("[geoip] initial download failed: %v", err)
 			}
 		}()
+	} else {
+		return fmt.Errorf("geoip: stat db %s: %w", dbPath, err)
 	}
 	s.cron.Start()
 	return nil
@@ -226,8 +228,7 @@ func (s *Service) UpdateNow() error {
 	if s.lifeCtx != nil {
 		parent = s.lifeCtx
 	}
-	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
-	defer cancel()
+	ctx := parent
 
 	// 1. Fetch latest release metadata.
 	releaseBody, err := s.downloader.Download(ctx, ReleaseAPIURL)

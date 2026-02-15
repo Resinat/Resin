@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/sagernet/sing-box/adapter"
 )
 
 // SubLookupFunc resolves a subscription ID + node hash to the subscription's
@@ -29,13 +31,13 @@ type NodeEntry struct {
 
 	// Atomic dynamic fields for concurrent hot-path reads.
 	FailureCount     atomic.Int32
-	CircuitOpenSince atomic.Int64         // unix-nano; 0 = not open
+	CircuitOpenSince atomic.Int64               // unix-nano; 0 = not open
 	egressIP         atomic.Pointer[netip.Addr] // nil before first store
-	LastEgressUpdate atomic.Int64         // unix-nano of last successful egress-IP sample
-	LatencyTable     *LatencyTable // per-domain latency stats; nil if not initialized
+	LastEgressUpdate atomic.Int64               // unix-nano of last successful egress-IP sample
+	LatencyTable     *LatencyTable              // per-domain latency stats; nil if not initialized
 
-	// Outbound placeholder — typed as any for Stage 3 (no sing-box dep).
-	Outbound atomic.Pointer[any]
+	// Outbound instance for this node.
+	Outbound atomic.Pointer[adapter.Outbound]
 }
 
 // NewNodeEntry creates a NodeEntry with the given static fields.
@@ -165,4 +167,18 @@ func (e *NodeEntry) GetEgressIP() netip.Addr {
 // SetEgressIP stores the node's egress IP.
 func (e *NodeEntry) SetEgressIP(ip netip.Addr) {
 	e.egressIP.Store(&ip)
+}
+
+// SetLastError sets the node's error string (thread-safe).
+func (e *NodeEntry) SetLastError(msg string) {
+	e.mu.Lock()
+	e.LastError = msg
+	e.mu.Unlock()
+}
+
+// GetLastError returns the node's error string (thread-safe).
+func (e *NodeEntry) GetLastError() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.LastError
 }

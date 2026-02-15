@@ -186,9 +186,10 @@ No available proxy nodes
 * 过滤条件：
     1. 节点状态正常（非 Circuit Break）。
     2. 调用 `NodeEntry.MatchRegexs(Platform.RegexFilters)` 判断 Tag 是否匹配。
-    3. 节点的出口 IP 地区符合 Platform 定义的 `RegionFilters`。节点没有出口 IP 且 RegionFilters 不为空算作不通过。
-    4. 有至少一条延迟信息。
-    5. Outbound 不为空
+    3. 节点必须有出口 IP（无论 Platform 是否配置 `RegionFilters`）。
+    4. 若 `RegionFilters` 非空，则节点出口 IP 地区必须符合 `RegionFilters`。
+    5. 有至少一条延迟信息。
+    6. Outbound 不为空
 * 过滤源：遍历全局节点池中的所有 `NodeEntry`。
 
 ##### Platform 节点视图动态更新
@@ -946,7 +947,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
   "latency_test_url": "https://www.gstatic.com/generate_204",
   "latency_authorities": ["gstatic.com", "google.com", "cloudflare.com", "github.com"],
   "probe_timeout": "15s",
-  "subscription_fetch_timeout": "30s",
+  "resource_fetch_timeout": "30s",
   "p2c_latency_window": "10m",
   "latency_decay_window": "10m",
   "cache_flush_interval": "5m",
@@ -2006,7 +2007,7 @@ Resin 支持通过 API (`PATCH /system/config`) 动态调整大部分全局运�
 * `LatencyTestURL`: 主动延迟探测的目标 URL。默认 `https://www.gstatic.com/generate_204`。一定属于 LatencyAuthorities 之一。如果不属于就加入。
 * `LatencyAuthorities`: 权威域名列表。默认 `["gstatic.com", "google.com", "cloudflare.com", "github.com"]`。
 * `ProbeTimeout`: 单次探测请求的超时时间。默认 15s。
-* `SubscriptionFetchTimeout`: 订阅下载的超时时间。默认 30s。
+* `ResourceFetchTimeout`: 资源下载（订阅/GeoIP）每次尝试的超时时间。默认 30s。
 
 #### P2C 选路设置
 * `P2CLatencyWindow`: 在 P2C 选路时，仅考虑该时间窗口内更新过的延迟数据。默认 10 分钟。
