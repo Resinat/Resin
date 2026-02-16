@@ -36,9 +36,6 @@ func TestNewDefaultRuntimeConfig(t *testing.T) {
 	if len(cfg.LatencyAuthorities) != 4 {
 		t.Errorf("LatencyAuthorities: got %d items, want 4", len(cfg.LatencyAuthorities))
 	}
-	if cfg.GeoIPUpdateSchedule != "0 5 12 * *" {
-		t.Errorf("GeoIPUpdateSchedule: got %q, want %q", cfg.GeoIPUpdateSchedule, "0 5 12 * *")
-	}
 }
 
 func TestRuntimeConfig_JSONRoundTrip(t *testing.T) {
@@ -128,7 +125,6 @@ func TestRuntimeConfig_JSONFieldNames(t *testing.T) {
 		"max_latency_test_interval",
 		"max_authority_latency_test_interval",
 		"max_egress_test_interval",
-		"geoip_update_schedule",
 		"latency_test_url",
 		"latency_authorities",
 		"probe_timeout",

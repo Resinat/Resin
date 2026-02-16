@@ -65,7 +65,7 @@ func main() {
 	}
 
 	// Phase 2: Construct GeoIP service (start after retry downloader wiring).
-	geoSvc := newGeoIPService(envCfg.CacheDir, runtimeCfg, retryDL)
+	geoSvc := newGeoIPService(envCfg.CacheDir, envCfg.GeoIPUpdateSchedule, retryDL)
 
 	// Phase 3: Topology (pool, probe, scheduler).
 	topoRuntime, err := newTopologyRuntime(engine, envCfg, runtimeCfg, geoSvc, retryDL)
@@ -307,12 +307,12 @@ func currentDownloadUserAgent(runtimeCfg *config.RuntimeConfig) string {
 
 func newGeoIPService(
 	cacheDir string,
-	runtimeCfg *config.RuntimeConfig,
+	updateSchedule string,
 	downloader netutil.Downloader,
 ) *geoip.Service {
 	geoSvc := geoip.NewService(geoip.ServiceConfig{
 		CacheDir:       cacheDir,
-		UpdateSchedule: runtimeCfg.GeoIPUpdateSchedule,
+		UpdateSchedule: updateSchedule,
 		Downloader:     downloader,
 		OpenDB:         geoip.SingBoxOpen,
 	})

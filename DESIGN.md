@@ -1972,6 +1972,9 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * `RESIN_METRIC_LATENCY_BIN_WIDTH_MS`：延迟统计桶大小，默认 100ms。
 * `RESIN_METRIC_LATENCY_BIN_OVERFLOW_MS`：延迟统计溢出值，默认 3000ms。
 
+GeoIP 配置
+* `RESIN_GEO_IP_UPDATE_SCAHEDULE`: GeoIP 数据库自动更新的 Cron 表达式。默认 "0 5 12 * *"。
+
 ### 运行时全局设置项（支持热更新）
 Resin 支持通过 API (`PATCH /system/config`) 动态调整大部分全局运行参数。配置文件存储于数据库。
 以下所有配置项支持热更新。
@@ -2001,9 +2004,6 @@ Resin 支持通过 API (`PATCH /system/config`) 动态调整大部分全局运�
 * `MaxLatencyTestInterval`: 节点最大延迟探测间隔。最小 30 秒。默认 5 分钟。
 * `MaxAuthorityLatencyTestInterval`: 权威域名（如 cloudflare.com）的最大延迟探测间隔。最小 30 秒。默认 1 小时。
 * `MaxEgressTestInterval`: 节点出口 IP 探测的最大间隔。最小 30 秒。默认 1 天。
-
-#### GeoIP 设置
-* `GeoIPUpdateSchedule`: GeoIP 数据库自动更新的 Cron 表达式。默认 "0 5 12 * *"。
 
 #### 探测设置
 * `LatencyTestURL`: 主动延迟探测的目标 URL。默认 `https://www.gstatic.com/generate_204`。一定属于 LatencyAuthorities 之一。如果不属于就加入。

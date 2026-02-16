@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 // EnvConfig holds all environment-variable-driven settings (not hot-updatable).
@@ -24,6 +26,7 @@ type EnvConfig struct {
 	// Core
 	MaxLatencyTableEntries int
 	ProbeConcurrency       int
+	GeoIPUpdateSchedule    string
 
 	// Request log
 	RequestLogQueueSize           int
@@ -67,6 +70,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	// --- Core ---
 	cfg.MaxLatencyTableEntries = envInt("RESIN_MAX_LATENCY_TABLE_ENTRIES", 128, &errs)
 	cfg.ProbeConcurrency = envInt("RESIN_PROBE_CONCURRENCY", 1000, &errs)
+	cfg.GeoIPUpdateSchedule = envStr("RESIN_GEOIP_UPDATE_SCHEDULE", "0 5 12 * *")
 
 	// --- Request log ---
 	cfg.RequestLogQueueSize = envInt("RESIN_REQUEST_LOG_QUEUE_SIZE", 8192, &errs)
@@ -108,6 +112,9 @@ func LoadEnvConfig() (*EnvConfig, error) {
 
 	validatePositive("RESIN_MAX_LATENCY_TABLE_ENTRIES", cfg.MaxLatencyTableEntries, &errs)
 	validatePositive("RESIN_PROBE_CONCURRENCY", cfg.ProbeConcurrency, &errs)
+	if _, err := cron.ParseStandard(cfg.GeoIPUpdateSchedule); err != nil {
+		errs = append(errs, fmt.Sprintf("RESIN_GEOIP_UPDATE_SCHEDULE: invalid cron expression %q: %v", cfg.GeoIPUpdateSchedule, err))
+	}
 	validatePositive("RESIN_REQUEST_LOG_QUEUE_SIZE", cfg.RequestLogQueueSize, &errs)
 	validatePositive("RESIN_REQUEST_LOG_QUEUE_FLUSH_BATCH_SIZE", cfg.RequestLogQueueFlushBatchSize, &errs)
 	validatePositive("RESIN_REQUEST_LOG_DB_MAX_MB", cfg.RequestLogDBMaxMB, &errs)

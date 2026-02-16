@@ -43,6 +43,7 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	// Core
 	assertEqual(t, "MaxLatencyTableEntries", cfg.MaxLatencyTableEntries, 128)
 	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 1000)
+	assertEqual(t, "GeoIPUpdateSchedule", cfg.GeoIPUpdateSchedule, "0 5 12 * *")
 
 	// Request log
 	assertEqual(t, "RequestLogQueueSize", cfg.RequestLogQueueSize, 8192)
@@ -67,6 +68,7 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	envs["RESIN_CACHE_DIR"] = "/tmp/cache"
 	envs["RESIN_API_PORT"] = "8080"
 	envs["RESIN_PROBE_CONCURRENCY"] = "500"
+	envs["RESIN_GEOIP_UPDATE_SCHEDULE"] = "0 0 * * *"
 	envs["RESIN_REQUEST_LOG_QUEUE_FLUSH_INTERVAL"] = "10m"
 	setEnvs(t, envs)
 
@@ -78,6 +80,7 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	assertEqual(t, "CacheDir", cfg.CacheDir, "/tmp/cache")
 	assertEqual(t, "APIPort", cfg.APIPort, 8080)
 	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 500)
+	assertEqual(t, "GeoIPUpdateSchedule", cfg.GeoIPUpdateSchedule, "0 0 * * *")
 	if cfg.RequestLogQueueFlushInterval.String() != "10m0s" {
 		t.Errorf("RequestLogQueueFlushInterval: got %v, want 10m", cfg.RequestLogQueueFlushInterval)
 	}
@@ -199,6 +202,18 @@ func TestLoadEnvConfig_NegativeValue(t *testing.T) {
 		t.Fatal("expected error for negative value")
 	}
 	assertContains(t, err.Error(), "RESIN_PROBE_CONCURRENCY")
+}
+
+func TestLoadEnvConfig_InvalidGeoIPSchedule(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_GEOIP_UPDATE_SCHEDULE"] = "not-a-cron"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid geoip schedule")
+	}
+	assertContains(t, err.Error(), "RESIN_GEOIP_UPDATE_SCHEDULE")
 }
 
 // --- test helpers ---

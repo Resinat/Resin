@@ -34,9 +34,6 @@ type RuntimeConfig struct {
 	MaxAuthorityLatencyTestInterval Duration `json:"max_authority_latency_test_interval"`
 	MaxEgressTestInterval           Duration `json:"max_egress_test_interval"`
 
-	// GeoIP
-	GeoIPUpdateSchedule string `json:"geoip_update_schedule"`
-
 	// Probe
 	LatencyTestURL       string   `json:"latency_test_url"`
 	LatencyAuthorities   []string `json:"latency_authorities"`
@@ -78,8 +75,6 @@ func NewDefaultRuntimeConfig() *RuntimeConfig {
 		MaxLatencyTestInterval:          Duration(5 * time.Minute),
 		MaxAuthorityLatencyTestInterval: Duration(1 * time.Hour),
 		MaxEgressTestInterval:           Duration(24 * time.Hour),
-
-		GeoIPUpdateSchedule: "0 5 12 * *",
 
 		LatencyTestURL:       "https://www.gstatic.com/generate_204",
 		LatencyAuthorities:   []string{"gstatic.com", "google.com", "cloudflare.com", "github.com"},
