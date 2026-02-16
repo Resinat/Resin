@@ -128,16 +128,14 @@ func TestSystemConfig_OK(t *testing.T) {
 		t.Errorf("max_consecutive_failures: got %v, want 3", body["max_consecutive_failures"])
 	}
 
-	// Check nested default_platform_config
-	dpc, ok := body["default_platform_config"].(map[string]any)
-	if !ok {
-		t.Fatal("missing or invalid default_platform_config")
+	if _, ok := body["default_platform_config"]; ok {
+		t.Error("default_platform_config should not be exposed in /system/config")
 	}
-	if dpc["allocation_policy"] != "BALANCED" {
-		t.Errorf("allocation_policy: got %q, want %q", dpc["allocation_policy"], "BALANCED")
+	if _, ok := body["probe_timeout"]; ok {
+		t.Error("probe_timeout should not be exposed in /system/config")
 	}
-	if dpc["reverse_proxy_miss_action"] != "RANDOM" {
-		t.Errorf("reverse_proxy_miss_action: got %q, want %q", dpc["reverse_proxy_miss_action"], "RANDOM")
+	if _, ok := body["resource_fetch_timeout"]; ok {
+		t.Error("resource_fetch_timeout should not be exposed in /system/config")
 	}
 }
 

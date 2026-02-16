@@ -2,8 +2,10 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,9 +26,16 @@ type EnvConfig struct {
 	ReverseProxyPort int
 
 	// Core
-	MaxLatencyTableEntries int
-	ProbeConcurrency       int
-	GeoIPUpdateSchedule    string
+	MaxLatencyTableEntries                int
+	ProbeConcurrency                      int
+	GeoIPUpdateSchedule                   string
+	DefaultPlatformStickyTTL              time.Duration
+	DefaultPlatformRegexFilters           []string
+	DefaultPlatformRegionFilters          []string
+	DefaultPlatformReverseProxyMissAction string
+	DefaultPlatformAllocationPolicy       string
+	ProbeTimeout                          time.Duration
+	ResourceFetchTimeout                  time.Duration
 
 	// Request log
 	RequestLogQueueSize           int
@@ -71,6 +80,13 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.MaxLatencyTableEntries = envInt("RESIN_MAX_LATENCY_TABLE_ENTRIES", 128, &errs)
 	cfg.ProbeConcurrency = envInt("RESIN_PROBE_CONCURRENCY", 1000, &errs)
 	cfg.GeoIPUpdateSchedule = envStr("RESIN_GEOIP_UPDATE_SCHEDULE", "0 5 12 * *")
+	cfg.DefaultPlatformStickyTTL = envDuration("RESIN_DEFAULT_PLATFORM_STICKY_TTL", 7*24*time.Hour, &errs)
+	cfg.DefaultPlatformRegexFilters = envStringSlice("RESIN_DEFAULT_PLATFORM_REGEX_FILTERS", []string{}, &errs)
+	cfg.DefaultPlatformRegionFilters = envStringSlice("RESIN_DEFAULT_PLATFORM_REGION_FILTERS", []string{}, &errs)
+	cfg.DefaultPlatformReverseProxyMissAction = envStr("RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION", "RANDOM")
+	cfg.DefaultPlatformAllocationPolicy = envStr("RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY", "BALANCED")
+	cfg.ProbeTimeout = envDuration("RESIN_PROBE_TIMEOUT", 15*time.Second, &errs)
+	cfg.ResourceFetchTimeout = envDuration("RESIN_RESOURCE_FETCH_TIMEOUT", 30*time.Second, &errs)
 
 	// --- Request log ---
 	cfg.RequestLogQueueSize = envInt("RESIN_REQUEST_LOG_QUEUE_SIZE", 8192, &errs)
@@ -114,6 +130,35 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	validatePositive("RESIN_PROBE_CONCURRENCY", cfg.ProbeConcurrency, &errs)
 	if _, err := cron.ParseStandard(cfg.GeoIPUpdateSchedule); err != nil {
 		errs = append(errs, fmt.Sprintf("RESIN_GEOIP_UPDATE_SCHEDULE: invalid cron expression %q: %v", cfg.GeoIPUpdateSchedule, err))
+	}
+	if cfg.DefaultPlatformStickyTTL <= 0 {
+		errs = append(errs, "RESIN_DEFAULT_PLATFORM_STICKY_TTL must be positive")
+	}
+	for _, pattern := range cfg.DefaultPlatformRegexFilters {
+		if _, err := regexp.Compile(pattern); err != nil {
+			errs = append(errs, fmt.Sprintf("RESIN_DEFAULT_PLATFORM_REGEX_FILTERS: invalid regex %q: %v", pattern, err))
+		}
+	}
+	for _, region := range cfg.DefaultPlatformRegionFilters {
+		if !isLowerAlpha2(region) {
+			errs = append(errs, fmt.Sprintf("RESIN_DEFAULT_PLATFORM_REGION_FILTERS: invalid region %q (must be lowercase ISO 3166-1 alpha-2)", region))
+		}
+	}
+	switch cfg.DefaultPlatformReverseProxyMissAction {
+	case "RANDOM", "REJECT":
+	default:
+		errs = append(errs, fmt.Sprintf("RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION: invalid value %q (allowed: RANDOM, REJECT)", cfg.DefaultPlatformReverseProxyMissAction))
+	}
+	switch cfg.DefaultPlatformAllocationPolicy {
+	case "BALANCED", "PREFER_LOW_LATENCY", "PREFER_IDLE_IP":
+	default:
+		errs = append(errs, fmt.Sprintf("RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY: invalid value %q (allowed: BALANCED, PREFER_LOW_LATENCY, PREFER_IDLE_IP)", cfg.DefaultPlatformAllocationPolicy))
+	}
+	if cfg.ProbeTimeout <= 0 {
+		errs = append(errs, "RESIN_PROBE_TIMEOUT must be positive")
+	}
+	if cfg.ResourceFetchTimeout <= 0 {
+		errs = append(errs, "RESIN_RESOURCE_FETCH_TIMEOUT must be positive")
 	}
 	validatePositive("RESIN_REQUEST_LOG_QUEUE_SIZE", cfg.RequestLogQueueSize, &errs)
 	validatePositive("RESIN_REQUEST_LOG_QUEUE_FLUSH_BATCH_SIZE", cfg.RequestLogQueueFlushBatchSize, &errs)
@@ -180,6 +225,22 @@ func envDuration(key string, defaultVal time.Duration, errs *[]string) time.Dura
 	return d
 }
 
+func envStringSlice(key string, defaultVal []string, errs *[]string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultVal
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(v), &out); err != nil {
+		*errs = append(*errs, fmt.Sprintf("%s: invalid JSON string array %q", key, v))
+		return defaultVal
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
 func validatePort(name string, value int, errs *[]string) {
 	if value < 1 || value > 65535 {
 		*errs = append(*errs, fmt.Sprintf("%s: port must be 1-65535, got %d", name, value))
@@ -190,4 +251,16 @@ func validatePositive(name string, value int, errs *[]string) {
 	if value <= 0 {
 		*errs = append(*errs, fmt.Sprintf("%s: must be positive, got %d", name, value))
 	}
+}
+
+func isLowerAlpha2(s string) bool {
+	if len(s) != 2 {
+		return false
+	}
+	for _, c := range s {
+		if c < 'a' || c > 'z' {
+			return false
+		}
+	}
+	return true
 }

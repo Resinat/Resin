@@ -16,9 +16,7 @@ import (
 // (not through a node outbound). This is mostly useful for tests or
 // fallback wiring.
 //
-// timeout is a closure that returns the current ProbeTimeout from RuntimeConfig.
-// The timeout is read per-request, supporting hot-reload.
-//
+// timeout is a closure that returns the current probe timeout.
 func DirectFetcher(timeout func() time.Duration) Fetcher {
 	transport := &http.Transport{
 		// Disable redirect following for trace endpoint handled below.
@@ -27,7 +25,7 @@ func DirectFetcher(timeout func() time.Duration) Fetcher {
 	return func(_ node.Hash, url string) ([]byte, time.Duration, error) {
 		t := timeout()
 		if t <= 0 {
-			t = 15 * time.Second // safe default
+			return nil, 0, fmt.Errorf("probe: invalid timeout %v", t)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), t)

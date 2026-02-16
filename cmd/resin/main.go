@@ -59,7 +59,7 @@ func main() {
 
 	// Phase 1: Create DirectDownloader and RetryDownloader shell.
 	// NodePicker/ProxyFetch are nil initially; set after Pool + OutboundManager creation.
-	direct := newDirectDownloader(runtimeCfg)
+	direct := newDirectDownloader(envCfg, runtimeCfg)
 	retryDL := &netutil.RetryDownloader{
 		Direct: direct,
 	}
@@ -113,7 +113,7 @@ func main() {
 	log.Println("RetryDownloader wiring complete")
 
 	// Phase 6: Bootstrap topology data from persistence.
-	if err := bootstrapTopology(engine, topoRuntime.subManager, topoRuntime.pool, runtimeCfg); err != nil {
+	if err := bootstrapTopology(engine, topoRuntime.subManager, topoRuntime.pool, envCfg); err != nil {
 		fatalf("%v", err)
 	}
 
@@ -286,10 +286,10 @@ func loadRuntimeConfig(engine *state.StateEngine) *config.RuntimeConfig {
 	return runtimeCfg
 }
 
-func newDirectDownloader(runtimeCfg *config.RuntimeConfig) *netutil.DirectDownloader {
+func newDirectDownloader(envCfg *config.EnvConfig, runtimeCfg *config.RuntimeConfig) *netutil.DirectDownloader {
 	return netutil.NewDirectDownloader(
 		func() time.Duration {
-			return time.Duration(runtimeCfg.ResourceFetchTimeout)
+			return envCfg.ResourceFetchTimeout
 		},
 		func() string {
 			return currentDownloadUserAgent(runtimeCfg)
@@ -371,11 +371,7 @@ func newTopologyRuntime(
 		Pool:        pool,
 		Concurrency: envCfg.ProbeConcurrency,
 		Fetcher: func(hash node.Hash, url string) ([]byte, time.Duration, error) {
-			timeout := time.Duration(runtimeCfg.ProbeTimeout)
-			if timeout <= 0 {
-				timeout = 15 * time.Second
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := context.WithTimeout(context.Background(), envCfg.ProbeTimeout)
 			defer cancel()
 			entry, ok := pool.GetEntry(hash)
 			if !ok {
@@ -446,7 +442,7 @@ func bootstrapTopology(
 	engine *state.StateEngine,
 	subManager *topology.SubscriptionManager,
 	pool *topology.GlobalNodePool,
-	runtimeCfg *config.RuntimeConfig,
+	envCfg *config.EnvConfig,
 ) error {
 	dbSubs, err := engine.ListSubscriptions()
 	if err != nil {
@@ -465,7 +461,7 @@ func bootstrapTopology(
 	if err != nil {
 		return fmt.Errorf("load platforms: %w", err)
 	}
-	if err := ensureDefaultPlatform(engine, runtimeCfg, dbPlats); err != nil {
+	if err := ensureDefaultPlatform(engine, envCfg, dbPlats); err != nil {
 		return fmt.Errorf("ensure default platform: %w", err)
 	}
 	dbPlats, err = engine.ListPlatforms()
@@ -495,7 +491,7 @@ func bootstrapTopology(
 
 func ensureDefaultPlatform(
 	engine *state.StateEngine,
-	runtimeCfg *config.RuntimeConfig,
+	envCfg *config.EnvConfig,
 	platformsInDB []model.Platform,
 ) error {
 	hasDefaultID := false
@@ -512,29 +508,23 @@ func ensureDefaultPlatform(
 		return nil
 	}
 
-	regexJSON, err := json.Marshal(runtimeCfg.DefaultPlatformConfig.RegexFilters)
+	regexJSON, err := json.Marshal(envCfg.DefaultPlatformRegexFilters)
 	if err != nil {
 		return fmt.Errorf("marshal default regex_filters: %w", err)
 	}
-	regionJSON, err := json.Marshal(runtimeCfg.DefaultPlatformConfig.RegionFilters)
+	regionJSON, err := json.Marshal(envCfg.DefaultPlatformRegionFilters)
 	if err != nil {
 		return fmt.Errorf("marshal default region_filters: %w", err)
 	}
 
-	missAction := runtimeCfg.DefaultPlatformConfig.ReverseProxyMissAction
-	if missAction == "" {
-		missAction = "RANDOM"
-	}
-	allocationPolicy := string(platform.ParseAllocationPolicy(runtimeCfg.DefaultPlatformConfig.AllocationPolicy))
-
 	defaultPlatform := model.Platform{
 		ID:                     platform.DefaultPlatformID,
 		Name:                   platform.DefaultPlatformName,
-		StickyTTLNs:            int64(time.Duration(runtimeCfg.DefaultPlatformConfig.StickyTTL)),
+		StickyTTLNs:            int64(envCfg.DefaultPlatformStickyTTL),
 		RegexFiltersJSON:       string(regexJSON),
 		RegionFiltersJSON:      string(regionJSON),
-		ReverseProxyMissAction: missAction,
-		AllocationPolicy:       allocationPolicy,
+		ReverseProxyMissAction: envCfg.DefaultPlatformReverseProxyMissAction,
+		AllocationPolicy:       envCfg.DefaultPlatformAllocationPolicy,
 		UpdatedAtNs:            time.Now().UnixNano(),
 	}
 	if err := engine.UpsertPlatform(defaultPlatform); err != nil {

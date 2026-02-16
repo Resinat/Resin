@@ -2,15 +2,6 @@ package config
 
 import "time"
 
-// DefaultPlatformConfig contains default settings for newly created platforms.
-type DefaultPlatformConfig struct {
-	StickyTTL              Duration `json:"sticky_ttl"`
-	RegexFilters           []string `json:"regex_filters"`
-	RegionFilters          []string `json:"region_filters"`
-	ReverseProxyMissAction string   `json:"reverse_proxy_miss_action"`
-	AllocationPolicy       string   `json:"allocation_policy"`
-}
-
 // RuntimeConfig holds all hot-updatable global settings.
 // These are persisted in the database and served via GET /system/config.
 type RuntimeConfig struct {
@@ -25,9 +16,6 @@ type RuntimeConfig struct {
 	ReverseProxyLogRespHeadersMaxBytes int  `json:"reverse_proxy_log_resp_headers_max_bytes"`
 	ReverseProxyLogRespBodyMaxBytes    int  `json:"reverse_proxy_log_resp_body_max_bytes"`
 
-	// Default platform
-	DefaultPlatformConfig DefaultPlatformConfig `json:"default_platform_config"`
-
 	// Health check
 	MaxConsecutiveFailures          int      `json:"max_consecutive_failures"`
 	MaxLatencyTestInterval          Duration `json:"max_latency_test_interval"`
@@ -35,10 +23,8 @@ type RuntimeConfig struct {
 	MaxEgressTestInterval           Duration `json:"max_egress_test_interval"`
 
 	// Probe
-	LatencyTestURL       string   `json:"latency_test_url"`
-	LatencyAuthorities   []string `json:"latency_authorities"`
-	ProbeTimeout         Duration `json:"probe_timeout"`
-	ResourceFetchTimeout Duration `json:"resource_fetch_timeout"`
+	LatencyTestURL     string   `json:"latency_test_url"`
+	LatencyAuthorities []string `json:"latency_authorities"`
 
 	// P2C
 	P2CLatencyWindow   Duration `json:"p2c_latency_window"`
@@ -63,23 +49,13 @@ func NewDefaultRuntimeConfig() *RuntimeConfig {
 		ReverseProxyLogRespHeadersMaxBytes: 1024,
 		ReverseProxyLogRespBodyMaxBytes:    1024,
 
-		DefaultPlatformConfig: DefaultPlatformConfig{
-			StickyTTL:              Duration(7 * 24 * time.Hour), // 168h
-			RegexFilters:           []string{},
-			RegionFilters:          []string{},
-			ReverseProxyMissAction: "RANDOM",
-			AllocationPolicy:       "BALANCED",
-		},
-
 		MaxConsecutiveFailures:          3,
 		MaxLatencyTestInterval:          Duration(5 * time.Minute),
 		MaxAuthorityLatencyTestInterval: Duration(1 * time.Hour),
 		MaxEgressTestInterval:           Duration(24 * time.Hour),
 
-		LatencyTestURL:       "https://www.gstatic.com/generate_204",
-		LatencyAuthorities:   []string{"gstatic.com", "google.com", "cloudflare.com", "github.com"},
-		ProbeTimeout:         Duration(15 * time.Second),
-		ResourceFetchTimeout: Duration(30 * time.Second),
+		LatencyTestURL:     "https://www.gstatic.com/generate_204",
+		LatencyAuthorities: []string{"gstatic.com", "google.com", "cloudflare.com", "github.com"},
 
 		P2CLatencyWindow:   Duration(10 * time.Minute),
 		LatencyDecayWindow: Duration(10 * time.Minute),

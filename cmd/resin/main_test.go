@@ -27,6 +27,16 @@ func newBootstrapTestRuntime(runtimeCfg *config.RuntimeConfig) (*topology.Subscr
 	return subManager, pool
 }
 
+func newDefaultPlatformEnvConfig() *config.EnvConfig {
+	return &config.EnvConfig{
+		DefaultPlatformStickyTTL:              7 * 24 * time.Hour,
+		DefaultPlatformRegexFilters:           []string{},
+		DefaultPlatformRegionFilters:          []string{},
+		DefaultPlatformReverseProxyMissAction: "RANDOM",
+		DefaultPlatformAllocationPolicy:       "BALANCED",
+	}
+}
+
 func TestBootstrapTopology_CreatesDefaultPlatformWhenMissing(t *testing.T) {
 	engine, closer, err := state.PersistenceBootstrap(t.TempDir(), t.TempDir())
 	if err != nil {
@@ -35,14 +45,15 @@ func TestBootstrapTopology_CreatesDefaultPlatformWhenMissing(t *testing.T) {
 	t.Cleanup(func() { _ = closer.Close() })
 
 	runtimeCfg := config.NewDefaultRuntimeConfig()
-	runtimeCfg.DefaultPlatformConfig.StickyTTL = config.Duration(2 * time.Hour)
-	runtimeCfg.DefaultPlatformConfig.RegexFilters = []string{`^Provider/.*`}
-	runtimeCfg.DefaultPlatformConfig.RegionFilters = []string{"us", "hk"}
-	runtimeCfg.DefaultPlatformConfig.ReverseProxyMissAction = "REJECT"
-	runtimeCfg.DefaultPlatformConfig.AllocationPolicy = "PREFER_LOW_LATENCY"
+	envCfg := newDefaultPlatformEnvConfig()
+	envCfg.DefaultPlatformStickyTTL = 2 * time.Hour
+	envCfg.DefaultPlatformRegexFilters = []string{`^Provider/.*`}
+	envCfg.DefaultPlatformRegionFilters = []string{"us", "hk"}
+	envCfg.DefaultPlatformReverseProxyMissAction = "REJECT"
+	envCfg.DefaultPlatformAllocationPolicy = "PREFER_LOW_LATENCY"
 
 	subManager, pool := newBootstrapTestRuntime(runtimeCfg)
-	if err := bootstrapTopology(engine, subManager, pool, runtimeCfg); err != nil {
+	if err := bootstrapTopology(engine, subManager, pool, envCfg); err != nil {
 		t.Fatalf("bootstrapTopology: %v", err)
 	}
 
@@ -103,12 +114,13 @@ func TestBootstrapTopology_DefaultPlatformCreationIsIdempotent(t *testing.T) {
 	t.Cleanup(func() { _ = closer.Close() })
 
 	runtimeCfg := config.NewDefaultRuntimeConfig()
+	envCfg := newDefaultPlatformEnvConfig()
 	subManager, pool := newBootstrapTestRuntime(runtimeCfg)
 
-	if err := bootstrapTopology(engine, subManager, pool, runtimeCfg); err != nil {
+	if err := bootstrapTopology(engine, subManager, pool, envCfg); err != nil {
 		t.Fatalf("first bootstrapTopology: %v", err)
 	}
-	if err := bootstrapTopology(engine, subManager, pool, runtimeCfg); err != nil {
+	if err := bootstrapTopology(engine, subManager, pool, envCfg); err != nil {
 		t.Fatalf("second bootstrapTopology: %v", err)
 	}
 

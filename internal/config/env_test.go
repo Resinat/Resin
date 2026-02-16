@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // setEnvs sets multiple env vars and returns a cleanup function.
@@ -44,6 +45,13 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	assertEqual(t, "MaxLatencyTableEntries", cfg.MaxLatencyTableEntries, 128)
 	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 1000)
 	assertEqual(t, "GeoIPUpdateSchedule", cfg.GeoIPUpdateSchedule, "0 5 12 * *")
+	assertEqual(t, "DefaultPlatformStickyTTL", cfg.DefaultPlatformStickyTTL, 7*24*time.Hour)
+	assertEqual(t, "DefaultPlatformRegexFiltersLength", len(cfg.DefaultPlatformRegexFilters), 0)
+	assertEqual(t, "DefaultPlatformRegionFiltersLength", len(cfg.DefaultPlatformRegionFilters), 0)
+	assertEqual(t, "DefaultPlatformReverseProxyMissAction", cfg.DefaultPlatformReverseProxyMissAction, "RANDOM")
+	assertEqual(t, "DefaultPlatformAllocationPolicy", cfg.DefaultPlatformAllocationPolicy, "BALANCED")
+	assertEqual(t, "ProbeTimeout", cfg.ProbeTimeout, 15*time.Second)
+	assertEqual(t, "ResourceFetchTimeout", cfg.ResourceFetchTimeout, 30*time.Second)
 
 	// Request log
 	assertEqual(t, "RequestLogQueueSize", cfg.RequestLogQueueSize, 8192)
@@ -69,6 +77,13 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	envs["RESIN_API_PORT"] = "8080"
 	envs["RESIN_PROBE_CONCURRENCY"] = "500"
 	envs["RESIN_GEOIP_UPDATE_SCHEDULE"] = "0 0 * * *"
+	envs["RESIN_DEFAULT_PLATFORM_STICKY_TTL"] = "2h"
+	envs["RESIN_DEFAULT_PLATFORM_REGEX_FILTERS"] = `["^Provider/.*"]`
+	envs["RESIN_DEFAULT_PLATFORM_REGION_FILTERS"] = `["us","hk"]`
+	envs["RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION"] = "REJECT"
+	envs["RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY"] = "PREFER_LOW_LATENCY"
+	envs["RESIN_PROBE_TIMEOUT"] = "20s"
+	envs["RESIN_RESOURCE_FETCH_TIMEOUT"] = "45s"
 	envs["RESIN_REQUEST_LOG_QUEUE_FLUSH_INTERVAL"] = "10m"
 	setEnvs(t, envs)
 
@@ -81,6 +96,16 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	assertEqual(t, "APIPort", cfg.APIPort, 8080)
 	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 500)
 	assertEqual(t, "GeoIPUpdateSchedule", cfg.GeoIPUpdateSchedule, "0 0 * * *")
+	assertEqual(t, "DefaultPlatformStickyTTL", cfg.DefaultPlatformStickyTTL, 2*time.Hour)
+	assertEqual(t, "DefaultPlatformRegexFiltersLength", len(cfg.DefaultPlatformRegexFilters), 1)
+	assertEqual(t, "DefaultPlatformRegexFilters[0]", cfg.DefaultPlatformRegexFilters[0], "^Provider/.*")
+	assertEqual(t, "DefaultPlatformRegionFiltersLength", len(cfg.DefaultPlatformRegionFilters), 2)
+	assertEqual(t, "DefaultPlatformRegionFilters[0]", cfg.DefaultPlatformRegionFilters[0], "us")
+	assertEqual(t, "DefaultPlatformRegionFilters[1]", cfg.DefaultPlatformRegionFilters[1], "hk")
+	assertEqual(t, "DefaultPlatformReverseProxyMissAction", cfg.DefaultPlatformReverseProxyMissAction, "REJECT")
+	assertEqual(t, "DefaultPlatformAllocationPolicy", cfg.DefaultPlatformAllocationPolicy, "PREFER_LOW_LATENCY")
+	assertEqual(t, "ProbeTimeout", cfg.ProbeTimeout, 20*time.Second)
+	assertEqual(t, "ResourceFetchTimeout", cfg.ResourceFetchTimeout, 45*time.Second)
 	if cfg.RequestLogQueueFlushInterval.String() != "10m0s" {
 		t.Errorf("RequestLogQueueFlushInterval: got %v, want 10m", cfg.RequestLogQueueFlushInterval)
 	}
@@ -214,6 +239,42 @@ func TestLoadEnvConfig_InvalidGeoIPSchedule(t *testing.T) {
 		t.Fatal("expected error for invalid geoip schedule")
 	}
 	assertContains(t, err.Error(), "RESIN_GEOIP_UPDATE_SCHEDULE")
+}
+
+func TestLoadEnvConfig_InvalidDefaultPlatformAllocationPolicy(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY"] = "UNKNOWN"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid default platform allocation policy")
+	}
+	assertContains(t, err.Error(), "RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY")
+}
+
+func TestLoadEnvConfig_InvalidDefaultPlatformRegex(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_DEFAULT_PLATFORM_REGEX_FILTERS"] = `["("]`
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid default platform regex")
+	}
+	assertContains(t, err.Error(), "RESIN_DEFAULT_PLATFORM_REGEX_FILTERS")
+}
+
+func TestLoadEnvConfig_InvalidProbeTimeout(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_PROBE_TIMEOUT"] = "0s"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid probe timeout")
+	}
+	assertContains(t, err.Error(), "RESIN_PROBE_TIMEOUT")
 }
 
 // --- test helpers ---

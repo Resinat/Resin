@@ -934,22 +934,12 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
   "reverse_proxy_log_req_body_max_bytes": 1024,
   "reverse_proxy_log_resp_headers_max_bytes": 1024,
   "reverse_proxy_log_resp_body_max_bytes": 1024,
-  "default_platform_config": {
-    "sticky_ttl": "168h",
-    "regex_filters": [],
-    "region_filters": [],
-    "reverse_proxy_miss_action": "RANDOM",
-    "allocation_policy": "BALANCED"
-  },
   "max_consecutive_failures": 3,
   "max_latency_test_interval": "5m",
   "max_authority_latency_test_interval": "1h",
   "max_egress_test_interval": "24h",
-  "geoip_update_schedule": "0 5 12 * *",
   "latency_test_url": "https://www.gstatic.com/generate_204",
   "latency_authorities": ["gstatic.com", "google.com", "cloudflare.com", "github.com"],
-  "probe_timeout": "15s",
-  "resource_fetch_timeout": "30s",
   "p2c_latency_window": "10m",
   "latency_decay_window": "10m",
   "cache_flush_interval": "5m",
@@ -965,23 +955,20 @@ Body（JSON Merge Patch 示例）：
 
 ```json
 {
-  "probe_timeout": "20s",
-  "request_log_enabled": false
+  "request_log_enabled": true,
+  "cache_flush_dirty_threshold": 2000
 }
 ```
 
 字段要求：
 
 * 必填字段：无
-* 可改字段：仅允许 `GET /system/config` 返回的全部顶层字段，以及 `default_platform_config` 下的 5 个子字段。
+* 可改字段：仅允许 `GET /system/config` 返回的全部顶层字段。
 * 不可改字段：未在配置对象中声明的任意字段。
 
 关键校验（最小集）：
 
 * duration 字段必须可解析。
-* `default_platform_config.reverse_proxy_miss_action` 只能是 `RANDOM|REJECT`。
-* `default_platform_config.allocation_policy` 只能是 `BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。
-* `geoip_update_schedule` 必须是合法 cron 表达式。
 * `latency_test_url` 必须是 `http/https` 绝对 URL。
 
 错误码映射（最小集）：
@@ -1033,7 +1020,7 @@ Body：
 * 必填字段：`name`
 * 可选字段：`sticky_ttl`、`regex_filters`、`region_filters`、`reverse_proxy_miss_action`、`allocation_policy`
 * 不可传字段：`id`、`updated_at`
-* 省略可选字段时，使用当前 `default_platform_config` 的对应值
+* 省略可选字段时，使用当前环境变量默认平台设置（`RESIN_DEFAULT_PLATFORM_*`）对应值
 
 关键校验：
 
@@ -1100,7 +1087,7 @@ Body（JSON Merge Patch 示例）：
 **POST** `/platforms/{platform_id}/actions/reset-to-default`
 
 行为：
-* 将目标平台的可配置字段重置为当前全局 `DefaultPlatformConfig`。
+* 将目标平台的可配置字段重置为当前环境变量默认平台设置（`RESIN_DEFAULT_PLATFORM_*`）。
 * 重置后立即触发该平台可路由视图全量重建。
 * 不删除该平台已有租约。
 
@@ -1949,6 +1936,14 @@ GeoIP 与订阅的下载都有错误重试的需求。
 核心设置：
 * `RESIN_MAX_LATENCY_TABLE_ENTRIES`：每个节点的延迟表的最大表项数。默认 128。
 * `RESIN_PROBE_CONCURRENCY`：节点探测的最大并发数量，默认 1000。
+* `RESIN_GEOIP_UPDATE_SCHEDULE`：GeoIP 数据库自动更新的 Cron 表达式。默认 "0 5 12 * *"。
+* `RESIN_DEFAULT_PLATFORM_STICKY_TTL`：默认平台粘性会话时长。默认 "168h"。
+* `RESIN_DEFAULT_PLATFORM_REGEX_FILTERS`：默认平台正则过滤器（JSON 字符串数组）。默认 `[]`。
+* `RESIN_DEFAULT_PLATFORM_REGION_FILTERS`：默认平台地区过滤器（JSON 字符串数组，小写 ISO 3166-1 alpha-2）。默认 `[]`。
+* `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION`：默认平台反代 miss 行为。枚举：`RANDOM|REJECT`。默认 `RANDOM`。
+* `RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY`：默认平台分配策略。枚举：`BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。默认 `BALANCED`。
+* `RESIN_PROBE_TIMEOUT`：单次探测请求超时。默认 "15s"。
+* `RESIN_RESOURCE_FETCH_TIMEOUT`：资源下载（订阅/GeoIP）单次尝试超时。默认 "30s"。
 
 日志相关配置：
 * RESIN_REQUEST_LOG_QUEUE_SIZE：日志写入队列大小。至少是 RESIN_REQUEST_LOG_QUEUE_FLUSH_BATCH_SIZE 的两倍。默认 8192。
@@ -1972,9 +1967,6 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * `RESIN_METRIC_LATENCY_BIN_WIDTH_MS`：延迟统计桶大小，默认 100ms。
 * `RESIN_METRIC_LATENCY_BIN_OVERFLOW_MS`：延迟统计溢出值，默认 3000ms。
 
-GeoIP 配置
-* `RESIN_GEO_IP_UPDATE_SCAHEDULE`: GeoIP 数据库自动更新的 Cron 表达式。默认 "0 5 12 * *"。
-
 ### 运行时全局设置项（支持热更新）
 Resin 支持通过 API (`PATCH /system/config`) 动态调整大部分全局运行参数。配置文件存储于数据库。
 以下所有配置项支持热更新。
@@ -1990,15 +1982,6 @@ Resin 支持通过 API (`PATCH /system/config`) 动态调整大部分全局运�
 * `ReverseProxyLogRespHeadersMaxBytes`: 记录响应头的最大字节数。默认 1KB。
 * `ReverseProxyLogRespBodyMaxBytes`: 记录响应体的最大字节数。默认 1KB。
 
-#### 默认平台出厂设置
-此处配置用于初始化默认平台（"Default"），或当数据库重建时的一般设定。
-* `DefaultPlatformConfig.StickyTTL`: 默认平台的粘性会话时长。默认 7 天。
-* `DefaultPlatformConfig.RegexFilters`: 默认平台的正则标签过滤器。默认空。
-* `DefaultPlatformConfig.RegionFilters`: 默认平台的地区过滤器。默认空。
-* `DefaultPlatformConfig.ReverseProxyMissAction`: 反向代理匹配 Account 失败时的行为。枚举：`RANDOM` / `REJECT`。默认 `RANDOM`。
-* `DefaultPlatformConfig.AllocationPolicy`: 分配新节点的策略。枚举：`BALANCED` / `PREFER_LOW_LATENCY` / `PREFER_IDLE_IP`。默认 `BALANCED`。
-
-
 #### 健康检查参数
 * `MaxConsecutiveFailures`: 触发熔断的连续失败次数阈值。默认 3。
 * `MaxLatencyTestInterval`: 节点最大延迟探测间隔。最小 30 秒。默认 5 分钟。
@@ -2008,8 +1991,6 @@ Resin 支持通过 API (`PATCH /system/config`) 动态调整大部分全局运�
 #### 探测设置
 * `LatencyTestURL`: 主动延迟探测的目标 URL。默认 `https://www.gstatic.com/generate_204`。一定属于 LatencyAuthorities 之一。如果不属于就加入。
 * `LatencyAuthorities`: 权威域名列表。默认 `["gstatic.com", "google.com", "cloudflare.com", "github.com"]`。
-* `ProbeTimeout`: 单次探测请求的超时时间。默认 15s。
-* `ResourceFetchTimeout`: 资源下载（订阅/GeoIP）每次尝试的超时时间。默认 30s。
 
 #### P2C 选路设置
 * `P2CLatencyWindow`: 在 P2C 选路时，仅考虑该时间窗口内更新过的延迟数据。默认 10 分钟。

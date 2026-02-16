@@ -217,7 +217,7 @@
 3. 实现模块端点：system、platform、subscription、account header rules、nodes、leases、geoip。
 4. 实现 action 端点：重建视图、刷新订阅、触发探测、释放租约、GeoIP 立即更新等。
 5. 实现 `PATCH /system/config` 完整热更新链路：JSON Merge Patch -> 字段/枚举/类型校验 -> 通过 StateEngine 强持久化 -> 运行时原子替换。
-6. 实现运行时配置分发：维护线程安全配置快照，依赖模块读取最新配置（至少覆盖 probe、geoip 调度、平台默认配置、请求日志开关与截断阈值）。
+6. 实现运行时配置分发：维护线程安全配置快照，依赖模块读取最新配置（至少覆盖请求日志开关与截断阈值、路由/延迟参数、缓存刷盘参数）。
 7. 实现字段校验、枚举校验、只读字段保护、冲突处理。
 8. 编写 API 契约测试（重点：错误码、状态码、返回体结构、PATCH 语义）。
 9. 编写热更新行为测试：更新后无需重启即可生效，非法 patch 不得产生部分生效。
@@ -231,7 +231,7 @@
 - 关键端点契约测试通过。
 - 文档定义的最小错误码映射覆盖到位。
 - `PATCH /system/config` 支持 DESIGN.md 允许的可改字段，且拒绝未声明字段与 `null` 值。
-- 热更新生效可验证：至少覆盖 `probe_timeout`、`geoip_update_schedule`、`request_log_enabled`、`default_platform_config`。
+- 热更新生效可验证：至少覆盖 `request_log_enabled`、`reverse_proxy_log_req_headers_max_bytes`、`p2c_latency_window`、`cache_flush_interval`。
 - 热更新后重启，配置仍保持为更新后的值。
 - 输出 API 覆盖率与未覆盖项清单（仅核心资源）。
 

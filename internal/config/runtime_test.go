@@ -18,15 +18,6 @@ func TestNewDefaultRuntimeConfig(t *testing.T) {
 	if cfg.MaxConsecutiveFailures != 3 {
 		t.Errorf("MaxConsecutiveFailures: got %d, want 3", cfg.MaxConsecutiveFailures)
 	}
-	if cfg.DefaultPlatformConfig.AllocationPolicy != "BALANCED" {
-		t.Errorf("AllocationPolicy: got %q, want %q", cfg.DefaultPlatformConfig.AllocationPolicy, "BALANCED")
-	}
-	if cfg.DefaultPlatformConfig.ReverseProxyMissAction != "RANDOM" {
-		t.Errorf("ReverseProxyMissAction: got %q, want %q", cfg.DefaultPlatformConfig.ReverseProxyMissAction, "RANDOM")
-	}
-	if time.Duration(cfg.DefaultPlatformConfig.StickyTTL) != 7*24*time.Hour {
-		t.Errorf("StickyTTL: got %v, want 168h", time.Duration(cfg.DefaultPlatformConfig.StickyTTL))
-	}
 	if cfg.CacheFlushDirtyThreshold != 1000 {
 		t.Errorf("CacheFlushDirtyThreshold: got %d, want 1000", cfg.CacheFlushDirtyThreshold)
 	}
@@ -55,14 +46,8 @@ func TestRuntimeConfig_JSONRoundTrip(t *testing.T) {
 	if decoded.UserAgent != original.UserAgent {
 		t.Errorf("UserAgent: got %q, want %q", decoded.UserAgent, original.UserAgent)
 	}
-	if time.Duration(decoded.ProbeTimeout) != time.Duration(original.ProbeTimeout) {
-		t.Errorf("ProbeTimeout: got %v, want %v", decoded.ProbeTimeout, original.ProbeTimeout)
-	}
 	if decoded.MaxConsecutiveFailures != original.MaxConsecutiveFailures {
 		t.Errorf("MaxConsecutiveFailures: got %d, want %d", decoded.MaxConsecutiveFailures, original.MaxConsecutiveFailures)
-	}
-	if decoded.DefaultPlatformConfig.AllocationPolicy != original.DefaultPlatformConfig.AllocationPolicy {
-		t.Errorf("AllocationPolicy: got %q, want %q", decoded.DefaultPlatformConfig.AllocationPolicy, original.DefaultPlatformConfig.AllocationPolicy)
 	}
 }
 
@@ -120,15 +105,12 @@ func TestRuntimeConfig_JSONFieldNames(t *testing.T) {
 		"reverse_proxy_log_req_body_max_bytes",
 		"reverse_proxy_log_resp_headers_max_bytes",
 		"reverse_proxy_log_resp_body_max_bytes",
-		"default_platform_config",
 		"max_consecutive_failures",
 		"max_latency_test_interval",
 		"max_authority_latency_test_interval",
 		"max_egress_test_interval",
 		"latency_test_url",
 		"latency_authorities",
-		"probe_timeout",
-		"resource_fetch_timeout",
 		"p2c_latency_window",
 		"latency_decay_window",
 		"cache_flush_interval",
