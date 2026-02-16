@@ -19,7 +19,7 @@ func newBootstrapTestRuntime(runtimeCfg *config.RuntimeConfig) (*topology.Subscr
 		SubLookup:              subManager.Lookup,
 		GeoLookup:              func(netip.Addr) string { return "" },
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: runtimeCfg.MaxConsecutiveFailures,
+		MaxConsecutiveFailures: func() int { return runtimeCfg.MaxConsecutiveFailures },
 		LatencyDecayWindow: func() time.Duration {
 			return time.Duration(runtimeCfg.LatencyDecayWindow)
 		},

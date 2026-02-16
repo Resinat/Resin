@@ -13,27 +13,44 @@ import (
 //
 // On Stop(), a final flush is performed before returning.
 type CacheFlushWorker struct {
-	engine    *StateEngine
-	readers   CacheReaders
-	threshold int
-	interval  time.Duration
-	checkTick time.Duration // how often to check conditions
+	engine      *StateEngine
+	readers     CacheReaders
+	thresholdFn func() int
+	intervalFn  func() time.Duration
+	checkTick   time.Duration // how often to check conditions
 
 	stopCh   chan struct{}
 	wg       sync.WaitGroup
 	stopOnce sync.Once
 }
 
-// NewCacheFlushWorker creates a flush worker.
+// NewCacheFlushWorker creates a flush worker that pulls threshold/interval
+// from callbacks on each check cycle.
 // checkTick controls how often flush conditions are evaluated (e.g. 5s).
-func NewCacheFlushWorker(engine *StateEngine, readers CacheReaders, threshold int, interval time.Duration, checkTick time.Duration) *CacheFlushWorker {
+func NewCacheFlushWorker(
+	engine *StateEngine,
+	readers CacheReaders,
+	thresholdFn func() int,
+	intervalFn func() time.Duration,
+	checkTick time.Duration,
+) *CacheFlushWorker {
+	if thresholdFn == nil {
+		panic("state: NewCacheFlushWorker requires non-nil thresholdFn")
+	}
+	if intervalFn == nil {
+		panic("state: NewCacheFlushWorker requires non-nil intervalFn")
+	}
+	if checkTick <= 0 {
+		panic("state: NewCacheFlushWorker requires positive checkTick")
+	}
+
 	return &CacheFlushWorker{
-		engine:    engine,
-		readers:   readers,
-		threshold: threshold,
-		interval:  interval,
-		checkTick: checkTick,
-		stopCh:    make(chan struct{}),
+		engine:      engine,
+		readers:     readers,
+		thresholdFn: thresholdFn,
+		intervalFn:  intervalFn,
+		checkTick:   checkTick,
+		stopCh:      make(chan struct{}),
 	}
 }
 
@@ -70,7 +87,9 @@ func (w *CacheFlushWorker) run() {
 				continue // Skip empty flush.
 			}
 
-			if dirty >= w.threshold || time.Since(lastFlush) >= w.interval {
+			threshold := w.thresholdFn()
+			interval := w.intervalFn()
+			if dirty >= threshold || time.Since(lastFlush) >= interval {
 				w.doFlush()
 				lastFlush = time.Now()
 			}

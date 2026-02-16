@@ -12,7 +12,7 @@ import (
 type RetryDownloader struct {
 	Direct Downloader
 	// ProxyAttemptTimeout caps each proxy retry attempt duration.
-	// If <= 0, it falls back to DirectDownloader.Timeout when available,
+	// If <= 0, it falls back to DirectDownloader's dynamic timeout when available,
 	// otherwise 30s.
 	ProxyAttemptTimeout time.Duration
 	NodePicker          func(target string) (node.Hash, error)
@@ -92,8 +92,11 @@ func (r *RetryDownloader) proxyAttemptTimeout() time.Duration {
 	if r.ProxyAttemptTimeout > 0 {
 		return r.ProxyAttemptTimeout
 	}
-	if direct, ok := r.Direct.(*DirectDownloader); ok && direct != nil && direct.Timeout > 0 {
-		return direct.Timeout
+	if direct, ok := r.Direct.(*DirectDownloader); ok && direct != nil {
+		timeout := direct.currentTimeout()
+		if timeout > 0 {
+			return timeout
+		}
 	}
 	return 30 * time.Second
 }

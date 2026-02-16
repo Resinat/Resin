@@ -15,22 +15,26 @@ import (
 type EphemeralCleaner struct {
 	subManager *SubscriptionManager
 	pool       *GlobalNodePool
-	evictDelay time.Duration // EphemeralNodeEvictDelay
+	evictDelay func() time.Duration // EphemeralNodeEvictDelay
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 }
 
-// NewEphemeralCleaner creates a new EphemeralCleaner.
+// NewEphemeralCleaner creates an EphemeralCleaner that pulls
+// evictDelay from callback on each sweep.
 func NewEphemeralCleaner(
 	subManager *SubscriptionManager,
 	pool *GlobalNodePool,
-	evictDelay time.Duration,
+	evictDelayFn func() time.Duration,
 ) *EphemeralCleaner {
+	if evictDelayFn == nil {
+		panic("topology: NewEphemeralCleaner requires non-nil evictDelayFn")
+	}
 	return &EphemeralCleaner{
 		subManager: subManager,
 		pool:       pool,
-		evictDelay: evictDelay,
+		evictDelay: evictDelayFn,
 		stopCh:     make(chan struct{}),
 	}
 }
@@ -60,6 +64,7 @@ func (c *EphemeralCleaner) sweep() {
 // exact TOCTOU window.
 func (c *EphemeralCleaner) sweepWithHook(betweenScans func()) {
 	now := time.Now().UnixNano()
+	evictDelayNs := c.evictDelay().Nanoseconds()
 
 	c.subManager.Range(func(id string, sub *subscription.Subscription) bool {
 		if !sub.Ephemeral() {
@@ -78,7 +83,7 @@ func (c *EphemeralCleaner) sweepWithHook(betweenScans func()) {
 					return true
 				}
 				circuitSince := entry.CircuitOpenSince.Load()
-				if circuitSince > 0 && (now-circuitSince) > c.evictDelay.Nanoseconds() {
+				if circuitSince > 0 && (now-circuitSince) > evictDelayNs {
 					evictSet[h] = struct{}{}
 				}
 				return true
@@ -102,7 +107,7 @@ func (c *EphemeralCleaner) sweepWithHook(betweenScans func()) {
 					continue
 				}
 				cs := entry.CircuitOpenSince.Load()
-				if cs > 0 && (now-cs) > c.evictDelay.Nanoseconds() {
+				if cs > 0 && (now-cs) > evictDelayNs {
 					confirmedEvict[h] = struct{}{}
 				}
 			}

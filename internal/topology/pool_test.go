@@ -21,6 +21,7 @@ func newTestPool(subMgr *SubscriptionManager) *GlobalNodePool {
 		SubLookup:              subMgr.Lookup,
 		GeoLookup:              func(addr netip.Addr) string { return "us" },
 		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 }
 
@@ -357,7 +358,7 @@ func TestEphemeralCleaner_EvictsCircuitBroken(t *testing.T) {
 	entry, _ := pool.GetEntry(h)
 	entry.CircuitOpenSince.Store(time.Now().Add(-2 * time.Minute).UnixNano())
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, 1*time.Minute)
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 1 * time.Minute })
 	cleaner.sweep()
 
 	// Node should be evicted.
@@ -394,7 +395,7 @@ func TestEphemeralCleaner_SkipsNonEphemeral(t *testing.T) {
 	entry, _ := pool.GetEntry(h)
 	entry.CircuitOpenSince.Store(time.Now().Add(-2 * time.Minute).UnixNano())
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, 1*time.Minute)
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 1 * time.Minute })
 	cleaner.sweep()
 
 	// Node should NOT be evicted since sub is not ephemeral.
@@ -422,7 +423,7 @@ func TestEphemeralCleaner_SkipsRecentCircuitBreak(t *testing.T) {
 	entry, _ := pool.GetEntry(h)
 	entry.CircuitOpenSince.Store(time.Now().Add(-10 * time.Second).UnixNano())
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, 1*time.Minute)
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 1 * time.Minute })
 	cleaner.sweep()
 
 	// Should NOT be evicted yet.

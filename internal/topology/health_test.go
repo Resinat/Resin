@@ -22,7 +22,7 @@ func newHealthTestPool(maxFailures int) (*GlobalNodePool, *SubscriptionManager) 
 		SubLookup:              subMgr.Lookup,
 		GeoLookup:              func(addr netip.Addr) string { return "us" },
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: maxFailures,
+		MaxConsecutiveFailures: func() int { return maxFailures },
 	})
 	return pool, subMgr
 }
@@ -83,13 +83,44 @@ func TestRecordResult_Recovery(t *testing.T) {
 	}
 }
 
+func TestRecordResult_MaxConsecutiveFailuresPulled(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "url", true, false)
+	subMgr.Register(sub)
+
+	var maxFailures atomic.Int64
+	maxFailures.Store(3)
+
+	pool := NewGlobalNodePool(PoolConfig{
+		SubLookup:              subMgr.Lookup,
+		GeoLookup:              func(addr netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return int(maxFailures.Load()) },
+	})
+
+	h := addTestNode(pool, sub, `{"type":"ss","n":"pull-threshold"}`)
+	entry, _ := pool.GetEntry(h)
+
+	pool.RecordResult(h, false)
+	if entry.IsCircuitOpen() {
+		t.Fatal("should not be circuit-open after first failure")
+	}
+
+	// Lower threshold dynamically. Next failure should open circuit.
+	maxFailures.Store(2)
+	pool.RecordResult(h, false)
+	if !entry.IsCircuitOpen() {
+		t.Fatal("should be circuit-open after threshold shrinks")
+	}
+}
+
 func TestRecordResult_DynamicCallback_OnActualChange(t *testing.T) {
 	var count atomic.Int32
 	pool := NewGlobalNodePool(PoolConfig{
 		SubLookup:              NewSubscriptionManager().Lookup,
 		GeoLookup:              func(addr netip.Addr) string { return "" },
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 5,
+		MaxConsecutiveFailures: func() int { return 5 },
 		OnNodeDynamicChanged:   func(hash node.Hash) { count.Add(1) },
 	})
 
@@ -116,7 +147,7 @@ func TestRecordResult_CircuitBreak_RemovesFromView(t *testing.T) {
 		SubLookup:              subMgr.Lookup,
 		GeoLookup:              func(addr netip.Addr) string { return "us" },
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 2,
+		MaxConsecutiveFailures: func() int { return 2 },
 	})
 	plat := platform.NewPlatform("p1", "Test", nil, nil)
 	pool.RegisterPlatform(plat)
@@ -182,6 +213,7 @@ func TestRecordLatency_FirstRecord_PlatformDirty(t *testing.T) {
 		SubLookup:              subMgr.Lookup,
 		GeoLookup:              func(addr netip.Addr) string { return "us" },
 		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
 		OnNodeLatencyChanged:   func(hash node.Hash, domain string) { latencyCBCount.Add(1) },
 	})
 
@@ -202,6 +234,7 @@ func TestUpdateNodeEgressIP_Change(t *testing.T) {
 		SubLookup:              NewSubscriptionManager().Lookup,
 		GeoLookup:              func(addr netip.Addr) string { return "" },
 		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
 		OnNodeDynamicChanged:   func(hash node.Hash) { dynamicCount.Add(1) },
 	})
 

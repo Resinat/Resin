@@ -41,16 +41,24 @@ type Downloader interface {
 
 // DirectDownloader downloads via a standard HTTP client (no proxy).
 type DirectDownloader struct {
-	Client    *http.Client
-	Timeout   time.Duration
-	UserAgent string
+	Client      *http.Client
+	TimeoutFn   func() time.Duration
+	UserAgentFn func() string
 }
 
-// NewDirectDownloader creates a downloader with the given timeout.
-func NewDirectDownloader(timeout time.Duration) *DirectDownloader {
+// NewDirectDownloader creates a downloader that pulls timeout/user-agent
+// from callbacks on each request.
+func NewDirectDownloader(timeoutFn func() time.Duration, userAgentFn func() string) *DirectDownloader {
+	if timeoutFn == nil {
+		panic("netutil: NewDirectDownloader requires non-nil timeoutFn")
+	}
+	if userAgentFn == nil {
+		panic("netutil: NewDirectDownloader requires non-nil userAgentFn")
+	}
 	return &DirectDownloader{
-		Client:  &http.Client{},
-		Timeout: timeout,
+		Client:      &http.Client{},
+		TimeoutFn:   timeoutFn,
+		UserAgentFn: userAgentFn,
 	}
 }
 
@@ -59,9 +67,10 @@ func (d *DirectDownloader) Download(ctx context.Context, url string) ([]byte, er
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline && d.Timeout > 0 {
+	timeout := d.currentTimeout()
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && timeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, d.Timeout)
+		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 
@@ -69,8 +78,9 @@ func (d *DirectDownloader) Download(ctx context.Context, url string) ([]byte, er
 	if err != nil {
 		return nil, &NonRetryableError{Err: err}
 	}
-	if d.UserAgent != "" {
-		req.Header.Set("User-Agent", d.UserAgent)
+	userAgent := d.currentUserAgent()
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
 	}
 
 	client := d.Client
@@ -92,4 +102,12 @@ func (d *DirectDownloader) Download(ctx context.Context, url string) ([]byte, er
 		return nil, fmt.Errorf("downloader: %w", err)
 	}
 	return body, nil
+}
+
+func (d *DirectDownloader) currentTimeout() time.Duration {
+	return d.TimeoutFn()
+}
+
+func (d *DirectDownloader) currentUserAgent() string {
+	return d.UserAgentFn()
 }

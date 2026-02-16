@@ -544,7 +544,7 @@ func TestEphemeralCleaner_DisabledEphemeralStillEvicted(t *testing.T) {
 	entry, _ := pool.GetEntry(h)
 	entry.CircuitOpenSince.Store(time.Now().Add(-2 * time.Minute).UnixNano())
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, 1*time.Minute)
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 1 * time.Minute })
 	cleaner.sweep()
 
 	// Disabled ephemeral sub should still be cleaned.

@@ -24,7 +24,7 @@ func storeOutbound(entry *node.NodeEntry) {
 func TestProbeEgress_Success(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 3,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"egress-ok"}`))
@@ -79,7 +79,7 @@ func TestProbeEgress_Success(t *testing.T) {
 func TestProbeEgress_Failure(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 3,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"egress-fail"}`))
@@ -114,7 +114,7 @@ func TestProbeEgress_Failure(t *testing.T) {
 func TestProbeEgress_CircuitBreak(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 2,
+		MaxConsecutiveFailures: func() int { return 2 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"egress-circuit"}`))
@@ -145,7 +145,7 @@ func TestProbeEgress_CircuitBreak(t *testing.T) {
 func TestProbeLatency_Success(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 3,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"latency-ok"}`))
@@ -180,7 +180,7 @@ func TestProbeLatency_Success(t *testing.T) {
 func TestProbeLatency_Failure(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 3,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"latency-fail"}`))
@@ -211,7 +211,7 @@ func TestProbeLatency_Failure(t *testing.T) {
 func TestProbeEgress_ZeroLatencyIgnored(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 3,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"egress-zero-latency"}`))
@@ -249,7 +249,7 @@ func TestProbeEgress_ZeroLatencyIgnored(t *testing.T) {
 func TestProbeLatency_ZeroLatencyIgnored(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 3,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"latency-zero"}`))
@@ -282,6 +282,7 @@ func TestProbeLatency_ZeroLatencyIgnored(t *testing.T) {
 func TestProbeEgress_NilFetcher(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"nil-fetcher"}`))
@@ -301,7 +302,7 @@ func TestProbeEgress_NilFetcher(t *testing.T) {
 func TestTriggerImmediateEgressProbe_WithFetcher(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 3,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"trigger-egress"}`))
@@ -339,7 +340,7 @@ func TestTriggerImmediateEgressProbe_WithFetcher(t *testing.T) {
 func TestProbeManager_StopWaitsImmediateProbe(t *testing.T) {
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 3,
+		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"stop-immediate"}`))

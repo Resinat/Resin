@@ -61,8 +61,7 @@ func main() {
 	// NodePicker/ProxyFetch are nil initially; set after Pool + OutboundManager creation.
 	direct := newDirectDownloader(runtimeCfg)
 	retryDL := &netutil.RetryDownloader{
-		Direct:              direct,
-		ProxyAttemptTimeout: direct.Timeout,
+		Direct: direct,
 	}
 
 	// Phase 2: Construct GeoIP service (start after retry downloader wiring).
@@ -107,9 +106,8 @@ func main() {
 		}
 		return res.NodeHash, nil
 	}
-	retryUA := direct.UserAgent
 	retryDL.ProxyFetch = func(ctx context.Context, hash node.Hash, url string) ([]byte, error) {
-		body, _, err := topoRuntime.outboundMgr.FetchWithUserAgent(ctx, hash, url, retryUA)
+		body, _, err := topoRuntime.outboundMgr.FetchWithUserAgent(ctx, hash, url, currentDownloadUserAgent(runtimeCfg))
 		return body, err
 	}
 	log.Println("RetryDownloader wiring complete")
@@ -140,8 +138,8 @@ func main() {
 	flushReaders := newFlushReaders(topoRuntime.pool, topoRuntime.subManager, topoRuntime.router)
 	flushWorker := state.NewCacheFlushWorker(
 		engine, flushReaders,
-		runtimeCfg.CacheFlushDirtyThreshold,
-		time.Duration(runtimeCfg.CacheFlushInterval),
+		func() int { return runtimeCfg.CacheFlushDirtyThreshold },
+		func() time.Duration { return time.Duration(runtimeCfg.CacheFlushInterval) },
 		5*time.Second, // check tick
 	)
 	flushWorker.Start()
@@ -289,13 +287,22 @@ func loadRuntimeConfig(engine *state.StateEngine) *config.RuntimeConfig {
 }
 
 func newDirectDownloader(runtimeCfg *config.RuntimeConfig) *netutil.DirectDownloader {
-	downloader := netutil.NewDirectDownloader(time.Duration(runtimeCfg.ResourceFetchTimeout))
+	return netutil.NewDirectDownloader(
+		func() time.Duration {
+			return time.Duration(runtimeCfg.ResourceFetchTimeout)
+		},
+		func() string {
+			return currentDownloadUserAgent(runtimeCfg)
+		},
+	)
+}
+
+func currentDownloadUserAgent(runtimeCfg *config.RuntimeConfig) string {
 	ua := runtimeCfg.UserAgent
 	if ua == "" {
 		ua = "Resin/" + buildinfo.Version
 	}
-	downloader.UserAgent = ua
-	return downloader
+	return ua
 }
 
 func newGeoIPService(
@@ -345,7 +352,9 @@ func newTopologyRuntime(
 			engine.MarkNodeLatency(hash.Hex(), domain)
 		},
 		MaxLatencyTableEntries: envCfg.MaxLatencyTableEntries,
-		MaxConsecutiveFailures: runtimeCfg.MaxConsecutiveFailures,
+		MaxConsecutiveFailures: func() int {
+			return runtimeCfg.MaxConsecutiveFailures
+		},
 		LatencyDecayWindow: func() time.Duration {
 			return time.Duration(runtimeCfg.LatencyDecayWindow)
 		},
@@ -417,7 +426,9 @@ func newTopologyRuntime(
 	ephemeralCleaner := topology.NewEphemeralCleaner(
 		subManager,
 		pool,
-		time.Duration(runtimeCfg.EphemeralNodeEvictDelay),
+		func() time.Duration {
+			return time.Duration(runtimeCfg.EphemeralNodeEvictDelay)
+		},
 	)
 
 	return &topologyRuntime{

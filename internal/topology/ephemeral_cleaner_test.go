@@ -1,6 +1,7 @@
 package topology
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestEphemeralCleaner_TOCTOU_RecoveryBetweenScans(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	pool := NewGlobalNodePool(PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 2,
+		MaxConsecutiveFailures: func() int { return 2 },
 	})
 
 	sub := subscription.NewSubscription("sub-toctou", "ephemeral-sub", "http://example.com", true, true)
@@ -42,7 +43,7 @@ func TestEphemeralCleaner_TOCTOU_RecoveryBetweenScans(t *testing.T) {
 	pastTime := time.Now().Add(-1 * time.Hour).UnixNano()
 	entry.CircuitOpenSince.Store(pastTime)
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, 30*time.Second)
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
 
 	// The hook fires between first scan and second check, simulating
 	// a recovery that happens in the TOCTOU window.
@@ -77,7 +78,7 @@ func TestEphemeralCleaner_ConfirmedEviction(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	pool := NewGlobalNodePool(PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 2,
+		MaxConsecutiveFailures: func() int { return 2 },
 	})
 
 	sub := subscription.NewSubscription("sub-evict", "ephemeral-sub", "http://example.com", true, true)
@@ -95,7 +96,7 @@ func TestEphemeralCleaner_ConfirmedEviction(t *testing.T) {
 	pastTime := time.Now().Add(-1 * time.Hour).UnixNano()
 	entry.CircuitOpenSince.Store(pastTime)
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, 30*time.Second)
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
 	cleaner.sweep()
 
 	_, still := sub.ManagedNodes().Load(hash)
@@ -109,7 +110,7 @@ func TestEphemeralCleaner_NonEphemeralSkipped(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	pool := NewGlobalNodePool(PoolConfig{
 		MaxLatencyTableEntries: 16,
-		MaxConsecutiveFailures: 2,
+		MaxConsecutiveFailures: func() int { return 2 },
 	})
 
 	sub := subscription.NewSubscription("sub-persist", "persistent-sub", "http://example.com", true, false) // NOT ephemeral
@@ -127,11 +128,54 @@ func TestEphemeralCleaner_NonEphemeralSkipped(t *testing.T) {
 	pastTime := time.Now().Add(-1 * time.Hour).UnixNano()
 	entry.CircuitOpenSince.Store(pastTime)
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, 30*time.Second)
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
 	cleaner.sweep()
 
 	_, still := sub.ManagedNodes().Load(hash)
 	if !still {
 		t.Fatal("non-ephemeral sub should not have nodes evicted")
+	}
+}
+
+func TestEphemeralCleaner_DynamicEvictDelayPulled(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := NewGlobalNodePool(PoolConfig{
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 2 },
+	})
+
+	sub := subscription.NewSubscription("sub-dynamic", "ephemeral-sub", "http://example.com", true, true)
+	subMgr.Register(sub)
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"dynamic-node"}`))
+	pool.AddNodeFromSub(hash, []byte(`{"type":"dynamic-node"}`), sub.ID)
+	sub.ManagedNodes().Store(hash, []string{"tag1"})
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	entry.CircuitOpenSince.Store(time.Now().Add(-2 * time.Minute).UnixNano())
+
+	var evictDelayNs atomic.Int64
+	evictDelayNs.Store(int64(10 * time.Minute))
+
+	cleaner := NewEphemeralCleaner(
+		subMgr,
+		pool,
+		func() time.Duration { return time.Duration(evictDelayNs.Load()) },
+	)
+
+	// Delay too long: should not evict.
+	cleaner.sweep()
+	if _, still := sub.ManagedNodes().Load(hash); !still {
+		t.Fatal("node should not be evicted with long evict delay")
+	}
+
+	// Shrink delay dynamically: next sweep should evict.
+	evictDelayNs.Store(int64(30 * time.Second))
+	cleaner.sweep()
+	if _, still := sub.ManagedNodes().Load(hash); still {
+		t.Fatal("node should be evicted after evict delay shrinks")
 	}
 }

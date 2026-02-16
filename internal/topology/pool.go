@@ -44,7 +44,7 @@ type GlobalNodePool struct {
 
 	// Health config
 	maxLatencyTableEntries int
-	maxConsecutiveFailures int
+	maxConsecutiveFailures func() int
 	latencyDecayWindow     func() time.Duration
 }
 
@@ -58,12 +58,17 @@ type PoolConfig struct {
 	OnNodeDynamicChanged   func(hash node.Hash)
 	OnNodeLatencyChanged   func(hash node.Hash, domain string)
 	MaxLatencyTableEntries int
-	MaxConsecutiveFailures int
+	MaxConsecutiveFailures func() int
 	LatencyDecayWindow     func() time.Duration
 }
 
 // NewGlobalNodePool creates a new GlobalNodePool.
 func NewGlobalNodePool(cfg PoolConfig) *GlobalNodePool {
+	maxConsecutiveFailuresFn := cfg.MaxConsecutiveFailures
+	if maxConsecutiveFailuresFn == nil {
+		panic("topology: NewGlobalNodePool requires non-nil MaxConsecutiveFailures")
+	}
+
 	return &GlobalNodePool{
 		nodes:                  xsync.NewMap[node.Hash, *node.NodeEntry](),
 		subLookup:              cfg.SubLookup,
@@ -74,7 +79,7 @@ func NewGlobalNodePool(cfg PoolConfig) *GlobalNodePool {
 		onNodeDynamicChanged:   cfg.OnNodeDynamicChanged,
 		onNodeLatencyChanged:   cfg.OnNodeLatencyChanged,
 		maxLatencyTableEntries: cfg.MaxLatencyTableEntries,
-		maxConsecutiveFailures: cfg.MaxConsecutiveFailures,
+		maxConsecutiveFailures: maxConsecutiveFailuresFn,
 		latencyDecayWindow:     cfg.LatencyDecayWindow,
 		platformByID:           make(map[string]*platform.Platform),
 		platformByName:         make(map[string]*platform.Platform),
@@ -322,7 +327,8 @@ func (p *GlobalNodePool) RecordResult(hash node.Hash, success bool) {
 	} else {
 		newCount := entry.FailureCount.Add(1)
 		dynamicChanged = true
-		if p.maxConsecutiveFailures > 0 && int(newCount) >= p.maxConsecutiveFailures {
+		maxConsecutiveFailures := p.currentMaxConsecutiveFailures()
+		if maxConsecutiveFailures > 0 && int(newCount) >= maxConsecutiveFailures {
 			// Open circuit if not already open.
 			if entry.CircuitOpenSince.CompareAndSwap(0, time.Now().UnixNano()) {
 				circuitStateChanged = true
@@ -336,6 +342,10 @@ func (p *GlobalNodePool) RecordResult(hash node.Hash, success bool) {
 	if dynamicChanged && p.onNodeDynamicChanged != nil {
 		p.onNodeDynamicChanged(hash)
 	}
+}
+
+func (p *GlobalNodePool) currentMaxConsecutiveFailures() int {
+	return p.maxConsecutiveFailures()
 }
 
 // RecordLatency records a latency observation for the given node and raw target.
