@@ -2,24 +2,16 @@ package outbound
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
-	"net"
-	"net/http"
-	"net/http/httptrace"
 	"time"
 
+	"github.com/resin-proxy/resin/internal/netutil"
 	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/probe"
 	"github.com/sagernet/sing-box/adapter"
-	M "github.com/sagernet/sing/common/metadata"
 )
 
 var ErrOutboundNotReady = errors.New("outbound not ready")
-
-const defaultUserAgent = "Resin/1.0"
 
 // PoolAccessor provides read-only access to the node pool.
 type PoolAccessor interface {
@@ -135,86 +127,8 @@ func (m *OutboundManager) FetchWithUserAgent(
 	if outboundPtr == nil {
 		return nil, 0, ErrOutboundNotReady
 	}
-	return m.execHTTP(ctx, *outboundPtr, url, true, userAgent)
-}
-
-// AsFetcher returns a closure adapting to probe.Fetcher signature.
-// timeout is read per-request, supporting hot-reload from RuntimeConfig.
-func (m *OutboundManager) AsFetcher(timeout func() time.Duration) probe.Fetcher {
-	return func(outbound adapter.Outbound, url string) ([]byte, time.Duration, error) {
-		t := timeout()
-		if t <= 0 {
-			t = 15 * time.Second
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), t)
-		defer cancel()
-		// Probe fetch accepts non-200 statuses (for example, generate_204).
-		return m.execHTTP(ctx, outbound, url, false, "")
-	}
-}
-
-// execHTTP performs the actual HTTP request through the outbound adapter.
-// Timeout is solely controlled by ctx (no hardcoded client.Timeout).
-// If requireStatusOK is true, non-200 responses are treated as errors.
-func (m *OutboundManager) execHTTP(
-	ctx context.Context,
-	outbound adapter.Outbound,
-	url string,
-	requireStatusOK bool,
-	userAgent string,
-) ([]byte, time.Duration, error) {
-	if outbound == nil {
-		return nil, 0, ErrOutboundNotReady
-	}
-
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return outbound.DialContext(ctx, network, M.ParseSocksaddr(addr))
-		},
-		DisableKeepAlives: true,
-		ForceAttemptHTTP2: true,
-	}
-
-	client := &http.Client{
-		Transport: transport,
-		// No client.Timeout — deadline comes from ctx.
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-	if userAgent == "" {
-		userAgent = defaultUserAgent
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	var start time.Time
-	var latency time.Duration
-	trace := &httptrace.ClientTrace{
-		TLSHandshakeStart: func() { start = time.Now() },
-		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
-			if err == nil {
-				latency = time.Since(start)
-			}
-		},
-	}
-	req = req.WithContext(httptrace.WithClientTrace(ctx, trace))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-
-	if requireStatusOK && resp.StatusCode != http.StatusOK {
-		return nil, latency, fmt.Errorf("outbound fetch: unexpected status %d from %s", resp.StatusCode, url)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, latency, err
-	}
-
-	return body, latency, nil
+	return netutil.HTTPGetViaOutbound(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
+		RequireStatusOK: true,
+		UserAgent:       userAgent,
+	})
 }

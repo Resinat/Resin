@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -71,18 +72,14 @@ func TestGeoIP_ReloadReader(t *testing.T) {
 
 func TestGeoIP_Stop_ClosesReader(t *testing.T) {
 	r := &mockReader{country: "cn"}
+	lifeCtx, lifeCancel := context.WithCancel(context.Background())
 	s := &Service{
-		reader: r,
-		cron:   nil, // no cron for this test
+		reader:     r,
+		cron:       nil, // no cron for this test
+		lifeCtx:    lifeCtx,
+		lifeCancel: lifeCancel,
 	}
-	// Manually close.
-	s.mu.Lock()
-	reader := s.reader
-	s.reader = nil
-	s.mu.Unlock()
-	if reader != nil {
-		reader.Close()
-	}
+	s.Stop()
 
 	if !r.isClosed() {
 		t.Fatal("reader should be closed after stop")
@@ -368,6 +365,20 @@ func (d *notifyDownloader) Download(_ context.Context, _ string) ([]byte, error)
 	return nil, fmt.Errorf("mock download failure")
 }
 
+type blockingDownloader struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (d *blockingDownloader) Download(_ context.Context, _ string) ([]byte, error) {
+	select {
+	case d.started <- struct{}{}:
+	default:
+	}
+	<-d.release
+	return nil, fmt.Errorf("blocked download failure")
+}
+
 func TestGeoIPStart_StatUnexpectedError(t *testing.T) {
 	s := NewService(ServiceConfig{
 		CacheDir:   t.TempDir(),
@@ -403,6 +414,91 @@ func TestGeoIPStart_MissingDBTriggersBackgroundUpdate(t *testing.T) {
 	case <-dl.called:
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("expected background update attempt when db is missing")
+	}
+}
+
+func TestGeoIPStop_WaitsInFlightUpdateAndClearsReader(t *testing.T) {
+	old := &mockReader{country: "us"}
+	lifeCtx, lifeCancel := context.WithCancel(context.Background())
+	downloader := &blockingDownloader{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	s := &Service{
+		reader:     old,
+		cron:       nil,
+		downloader: downloader,
+		lifeCtx:    lifeCtx,
+		lifeCancel: lifeCancel,
+	}
+
+	updateDone := make(chan error, 1)
+	go func() {
+		updateDone <- s.UpdateNow()
+	}()
+
+	select {
+	case <-downloader.started:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("UpdateNow did not start download in time")
+	}
+
+	stopDone := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(stopDone)
+	}()
+
+	select {
+	case <-stopDone:
+		t.Fatal("Stop returned before in-flight UpdateNow completed")
+	case <-time.After(100 * time.Millisecond):
+		// expected: Stop is waiting for UpdateNow/updateMu
+	}
+
+	close(downloader.release)
+	if err := <-updateDone; err == nil {
+		t.Fatal("expected UpdateNow to fail from blocked downloader")
+	}
+
+	select {
+	case <-stopDone:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Stop did not return after in-flight UpdateNow finished")
+	}
+
+	if got := s.Lookup(netip.MustParseAddr("1.2.3.4")); got != "" {
+		t.Fatalf("expected empty lookup after Stop, got %q", got)
+	}
+	if !old.isClosed() {
+		t.Fatal("reader should be closed after Stop")
+	}
+}
+
+func TestUpdateNow_AfterStopReturnsCanceled(t *testing.T) {
+	lifeCtx, lifeCancel := context.WithCancel(context.Background())
+	downloader := &notifyDownloader{called: make(chan struct{}, 1)}
+	s := &Service{
+		cacheDir:   t.TempDir(),
+		dbFilename: "geoip.db",
+		cron:       nil,
+		downloader: downloader,
+		openDB:     NoOpOpen,
+		lifeCtx:    lifeCtx,
+		lifeCancel: lifeCancel,
+	}
+
+	s.Stop()
+
+	err := s.UpdateNow()
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+
+	select {
+	case <-downloader.called:
+		t.Fatal("downloader should not be called after Stop")
+	default:
 	}
 }
 

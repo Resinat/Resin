@@ -8,12 +8,11 @@ import (
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/scanloop"
 	"github.com/resin-proxy/resin/internal/topology"
-	"github.com/sagernet/sing-box/adapter"
 )
 
-// Fetcher executes an HTTP request through a node's outbound, returning the
+// Fetcher executes an HTTP request through the given node, returning
 // response body and TLS handshake latency. This is injectable for testing.
-type Fetcher func(outbound adapter.Outbound, url string) (body []byte, latency time.Duration, err error)
+type Fetcher func(hash node.Hash, url string) (body []byte, latency time.Duration, err error)
 
 // ProbeConfig configures the ProbeManager.
 // Field names align 1:1 with RuntimeConfig to prevent mis-wiring.
@@ -21,7 +20,7 @@ type ProbeConfig struct {
 	Pool        *topology.GlobalNodePool
 	Concurrency int // max concurrent probes
 
-	// Fetcher executes HTTP via outbound. Injectable for testing.
+	// Fetcher executes HTTP via node hash. Injectable for testing.
 	Fetcher Fetcher
 
 	// Interval thresholds — closures for hot-reload from RuntimeConfig.
@@ -287,12 +286,11 @@ func (m *ProbeManager) probeEgress(hash node.Hash, entry *node.NodeEntry) {
 		return
 	}
 
-	outboundPtr := entry.Outbound.Load()
-	if outboundPtr == nil {
+	if entry.Outbound.Load() == nil {
 		return
 	}
 
-	body, latency, err := m.fetcher(*outboundPtr, "https://cloudflare.com/cdn-cgi/trace")
+	body, latency, err := m.fetcher(hash, "https://cloudflare.com/cdn-cgi/trace")
 	if err != nil {
 		m.pool.RecordResult(hash, false)
 		log.Printf("[probe] egress probe failed for %s: %v", hash.Hex(), err)
@@ -326,12 +324,11 @@ func (m *ProbeManager) probeLatency(hash node.Hash, entry *node.NodeEntry, testU
 		return
 	}
 
-	outboundPtr := entry.Outbound.Load()
-	if outboundPtr == nil {
+	if entry.Outbound.Load() == nil {
 		return
 	}
 
-	_, latency, err := m.fetcher(*outboundPtr, testURL)
+	_, latency, err := m.fetcher(hash, testURL)
 	if err != nil {
 		m.pool.RecordResult(hash, false)
 		log.Printf("[probe] latency probe failed for %s: %v", hash.Hex(), err)

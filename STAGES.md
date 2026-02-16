@@ -126,7 +126,7 @@
 - GeoIP 原子替换完成后，`Lookup` 立即可用且能返回新库结果。
 - GeoIP 与订阅下载复用同一下载器抽象（单实现），阶段 4 仅验证直连下载路径。
 - Probe 对执行层依赖接口化，不引入与阶段 5/6 重复的 Outbound 创建与生命周期管理实现。
-- 阶段 4 不验收“节点级真实链路探测准确性”（包括按节点出口 IP 真实性）；该能力在阶段 5 统一 OutboundManager 落地后验收。
+- 阶段 4 不验收“节点级真实链路探测准确性”（包括按节点出口 IP 真实性）；该能力在阶段 5 统一节点出站执行能力落地后验收（可由 OutboundManager 生命周期管理 + 共享执行抽象实现）。
 
 
 
@@ -148,7 +148,7 @@
 5. 实现粘性路由：命中时更新 `LastAccessed`；`Expiry` 固定不续期；过期即删除并重建租约。
 6. 实现租约失效处理：节点不可路由或出口 IP 变化时先走同 IP 轮换，失败则释放旧租约并随机新分配（新 `Expiry`）。
 7. 实现租约后台过期清理（13-17 秒周期）并同步回收 IPLoadStats。
-8. 实现统一 OutboundManager 与内部下载传输通道（不依赖 Forward/Reverse 代理服务）：支持“选中节点 -> 发起 HTTP 下载请求”的最小能力，并作为 Probe/GeoIP/订阅下载/阶段 6 数据面的统一节点执行基础；同时承接阶段 4 的占位探测执行，落地“按节点真实出网”探测。
+8. 实现统一节点 Outbound 生命周期管理（OutboundManager）与内部下载/探测传输通道（不依赖 Forward/Reverse 代理服务）：支持“选中节点 -> 发起 HTTP 下载请求”的最小能力，并作为 Probe/GeoIP/订阅下载/阶段 6 数据面的统一节点执行能力基础；同时承接阶段 4 的占位探测执行，落地“按节点真实出网”探测。
 9. 在阶段 4 下载器抽象基础上补齐 GeoIP/订阅下载代理重试闭环：先直连，失败后经 Default 平台随机节点立刻重试 2 次（无退避）。
 10. 提供 lease 事件接口（lease create/replace/remove/expire）。
 
@@ -157,7 +157,7 @@
 - 视图为空时明确失败，不额外做可用性扫描。
 - 同 IP 轮换属于“就地更新租约”时不得改写 `Expiry`。
 - 下载代理重试属于系统内部流量，不创建租约，不影响业务粘性状态。
-- 不得为 Probe/下载/数据面分别实现不同的节点 Outbound 创建与执行逻辑，统一收敛到同一 OutboundManager。
+- 不得为 Probe/下载/数据面分别实现不同的节点 Outbound 创建/生命周期系统；执行路径可在不同模块调用同一批共享执行抽象（如统一 Dial/HTTP 执行库），不强制所有请求都经 OutboundManager 暴露专用接口。
 
 交付与验收：
 - 同账号在 TTL 内出口 IP 粘性稳定。
@@ -181,9 +181,9 @@
 
 任务：
 1. 实现正向代理认证与身份解析：`Proxy-Authorization: Basic PROXY_TOKEN:Platform:Account`，严格按“第一个冒号切分”规则处理 `Platform/Account`。
-2. 实现反向代理路径解析：`/PROXY_TOKEN/Platform:Account/protocol/host/path?query`，并处理 URL 解析失败分支。
+2. 实现反向代理路径解析：`/PROXY_TOKEN/Platform:Account/protocol/host/path?query`，并处理 URL 解析失败分支。对 `Account` 含 `/` 等导致的路径分段错位，不强制特定错误码，能明确返回解析类错误即可（如 `URL_PARSE_ERROR` / `INVALID_PROTOCOL` / `INVALID_HOST`）。
 3. 实现 Account Header Rules 最长前缀匹配（domain 大小写不敏感、按路径段匹配、`*` 兜底）与 `ReverseProxyMissAction`（RANDOM/REJECT）。
-4. 接入阶段 5 路由与统一 OutboundManager，覆盖正向 HTTP、正向 CONNECT、反向代理三种数据面路径。
+4. 接入阶段 5 路由与统一节点出站执行能力（OutboundManager 生命周期管理 + 共享执行抽象），覆盖正向 HTTP、正向 CONNECT、反向代理三种数据面路径。
 5. 实现统一代理错误响应：HTTP 状态码 + `X-Resin-Error` + `text/plain`；正向鉴权失败补 `Proxy-Authenticate`。
 6. 实现 CONNECT 成功后隧道语义：返回 `200 Connection Established` 后不再返回 HTTP 语义错误。
 7. 实现被动反馈并异步上报：连通性 `RecordResult` 与 TLS 延迟（CONNECT 用 `tlsLatencyConn`，反向代理用 `httptrace`）。
@@ -193,7 +193,7 @@
 - API 层与代理层不直接写领域状态，必须调用 service/manager。
 - 错误码命名与行为必须对齐 DESIGN.md。
 - 被动反馈与埋点不可阻塞请求主链路。
-- 不得新建第二套 Outbound 创建/生命周期系统；阶段 6 仅在阶段 5 统一 OutboundManager 上扩展数据面能力。
+- 不得新建第二套 Outbound 创建/生命周期系统；阶段 6 仅在阶段 5 的统一节点出站执行能力上扩展数据面能力，不强制通过 OutboundManager 暴露数据面专用请求接口。
 
 交付与验收：
 - 文档列出的错误场景全部可复现并返回正确响应。

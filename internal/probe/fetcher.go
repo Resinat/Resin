@@ -9,24 +9,22 @@ import (
 	"net/http/httptrace"
 	"time"
 
-	"github.com/sagernet/sing-box/adapter"
+	"github.com/resin-proxy/resin/internal/node"
 )
 
-// DirectFetcher creates a Fetcher that performs direct HTTP requests (not
-// through the node's outbound). This provides a working baseline for the
-// probe loop until outbound-aware transport is integrated.
+// DirectFetcher creates a Fetcher that performs direct HTTP requests
+// (not through a node outbound). This is mostly useful for tests or
+// fallback wiring.
 //
 // timeout is a closure that returns the current ProbeTimeout from RuntimeConfig.
 // The timeout is read per-request, supporting hot-reload.
 //
-// When outbound transport is available, replace with an OutboundFetcher that
-// routes the request through the node's outbound adapter.
 func DirectFetcher(timeout func() time.Duration) Fetcher {
 	transport := &http.Transport{
 		// Disable redirect following for trace endpoint handled below.
 	}
 
-	return func(_ adapter.Outbound, url string) ([]byte, time.Duration, error) {
+	return func(_ node.Hash, url string) ([]byte, time.Duration, error) {
 		t := timeout()
 		if t <= 0 {
 			t = 15 * time.Second // safe default

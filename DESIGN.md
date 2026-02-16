@@ -31,7 +31,7 @@
 系统把路由输入统一为 `(platformID, account, targetDomain)`：  
 注意：外部接口（HTTP 头、反向代理路径）通常使用 Platform Name 作为输入，但在入口处应立即通过 Name -> ID 映射转换为 ID。后续逻辑只认 ID，不认 Name。
 1. 正向代理通过 `Proxy-Authorization: Basic PROXY_TOKEN:Platform:Account` 同时做代理认证与业务身份解析。PROXY_TOKEN 字段用于代理认证。Platform:Account 提供业务身份。PROXY_TOKEN 映射到 Basic 认证的 user 字段，Platform:Account 映射到 pass 字段。解析 pass 时按**第一个** `:` 切分为 `Platform` 与 `Account`。PROXY_TOKEN 与 Platform 不能包含 : @ 符号。Account 不限制符号。
-2. 反向代理通过路径 `/PROXY_TOKEN/Platform:Account/protocol/host/path?query` 解析；其中 `Platform:Account` 必须是单个路径段。当 `Account` 为空时，从请求头提取。protocol 可选 `http/https`；host 可以是域名，可以是 IP，可以加端口。若 `Account` 含 `/` 导致路径分段变化，按反向代理 URL 解析失败处理。
+2. 反向代理通过路径 `/PROXY_TOKEN/Platform:Account/protocol/host/path?query` 解析；其中 `Platform:Account` 必须是单个路径段。当 `Account` 为空时，从请求头提取。protocol 可选 `http/https`；host 可以是域名，可以是 IP，可以加端口。若 `Account` 含 `/` 导致路径分段变化，按反向代理 URL 解析失败处理；该类 malformed 输入不要求固定到某一个错误码，只要返回明确的解析类错误即可（如 `URL_PARSE_ERROR` / `INVALID_PROTOCOL` / `INVALID_HOST`）。
 3. 当 Platform 未提供，默认使用 Default 平台。当正向代理的 Account 未提供，默认使用平台内的随机路由。
 
 正向代理例子：
@@ -54,7 +54,7 @@
 
 为了提升匹配性能，使用前缀哈希表进行匹配。
 
-"" 就是最后的兜底。一个条目可以包含多个请求头，意味着可以进行猜测。依次查询请求头的值，第一个存在且非空的被采用。
+"*" 就是最后的兜底。一个条目可以包含多个请求头，意味着可以进行猜测。依次查询请求头的值，第一个存在且非空的被采用。
 当匹配失败，根据 Platform 的配置，决定是做随机路由还是拒绝本次代理。
 
 URL 不允许包含查询部分与 ? 字符。
@@ -91,6 +91,8 @@ URL 不允许包含查询部分与 ? 字符。
 | 路径段不足 | 400 Bad Request | `URL_PARSE_ERROR` | 路径至少需要 `protocol/host` 两段；缺少任一段则拒绝。 |
 | protocol 无效 | 400 Bad Request | `INVALID_PROTOCOL` | protocol 必须为 `http` 或 `https`。 |
 | host 无效 | 400 Bad Request | `INVALID_HOST` | host 字段为空或包含非法字符。 |
+
+说明：当输入本身已发生路径分段错位（例如 `Account` 含 `/`）时，实现可在不同校验阶段失败，因此不强制返回某一个固定错误码；返回上述任一解析类错误都视为符合要求。
 
 ### 路由阶段错误
 

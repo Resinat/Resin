@@ -53,6 +53,8 @@ func NewRouter(cfg RouterConfig) *Router {
 }
 
 type RouteResult struct {
+	PlatformID   string
+	PlatformName string
 	NodeHash     node.Hash
 	EgressIP     netip.Addr
 	LeaseCreated bool
@@ -76,10 +78,22 @@ func (r *Router) RouteRequest(platName, account, target string) (RouteResult, er
 
 	targetDomain := netutil.ExtractDomain(target)
 	state := r.ensurePlatformState(plat.ID)
+	var result RouteResult
 	if account == "" {
-		return r.routeRandom(plat, state, targetDomain)
+		result, err = r.routeRandom(plat, state, targetDomain)
+	} else {
+		result, err = r.routeSticky(plat, state, account, targetDomain, time.Now())
 	}
-	return r.routeSticky(plat, state, account, targetDomain, time.Now())
+	if err != nil {
+		return RouteResult{}, err
+	}
+	return withPlatformContext(plat, result), nil
+}
+
+func withPlatformContext(plat *platform.Platform, res RouteResult) RouteResult {
+	res.PlatformID = plat.ID
+	res.PlatformName = plat.Name
+	return res
 }
 
 func (r *Router) resolvePlatform(platName string) (*platform.Platform, error) {

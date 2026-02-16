@@ -370,31 +370,6 @@ func TestFetch_HTTPStatusNon200(t *testing.T) {
 	}
 }
 
-func TestAsFetcher_AllowsHTTPNon200(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("probe-body"))
-	}))
-	defer srv.Close()
-
-	entry := newTestEntry(`{"type":"probe-non-200"}`)
-	pool := &mockPool{}
-	pool.addEntry(entry)
-
-	mgr := NewOutboundManager(pool, &testutil.StubOutboundBuilder{})
-	mgr.EnsureNodeOutbound(entry.Hash)
-
-	fetcher := mgr.AsFetcher(func() time.Duration { return 5 * time.Second })
-	outbound := entry.Outbound.Load()
-	body, _, err := fetcher(*outbound, srv.URL)
-	if err != nil {
-		t.Fatalf("expected non-200 probe response to pass through, got: %v", err)
-	}
-	if string(body) != "probe-body" {
-		t.Fatalf("unexpected body %q", string(body))
-	}
-}
-
 func TestFetch_HTTPSCertValidationEnabled(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

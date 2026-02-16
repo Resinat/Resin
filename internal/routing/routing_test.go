@@ -121,6 +121,9 @@ func TestRandomRoute_SingleNode(t *testing.T) {
 	if res.NodeHash != h1 {
 		t.Fatalf("expected hash %s, got %s", h1.Hex(), res.NodeHash.Hex())
 	}
+	if res.PlatformID != platID || res.PlatformName != platName {
+		t.Fatalf("expected platform metadata id=%q name=%q, got id=%q name=%q", platID, platName, res.PlatformID, res.PlatformName)
+	}
 }
 
 func TestRandomRoute_MultipleNodes(t *testing.T) {
@@ -346,6 +349,9 @@ func TestRouteRequest_DefaultPlatform(t *testing.T) {
 	}
 	if res.NodeHash.IsZero() {
 		t.Fatal("expected non-zero hash from default platform")
+	}
+	if res.PlatformID != platform.DefaultPlatformID || res.PlatformName != platform.DefaultPlatformName {
+		t.Fatalf("expected default platform metadata id=%q name=%q, got id=%q name=%q", platform.DefaultPlatformID, platform.DefaultPlatformName, res.PlatformID, res.PlatformName)
 	}
 }
 

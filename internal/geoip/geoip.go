@@ -80,6 +80,18 @@ type Service struct {
 	lifeCancel  context.CancelFunc
 }
 
+func (s *Service) isStopped() bool {
+	if s.lifeCtx == nil {
+		return false
+	}
+	select {
+	case <-s.lifeCtx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
 // NewService creates a new GeoIP service.
 func NewService(cfg ServiceConfig) *Service {
 	if cfg.DBFilename == "" {
@@ -180,7 +192,16 @@ func (s *Service) Stop() {
 	if s.lifeCancel != nil {
 		s.lifeCancel()
 	}
-	s.cron.Stop()
+
+	if s.cron != nil {
+		// Wait for in-flight scheduled jobs to finish.
+		<-s.cron.Stop().Done()
+	}
+
+	// Serialize Stop with UpdateNow to prevent post-stop reader reload.
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+
 	s.mu.Lock()
 	r := s.reader
 	s.reader = nil
@@ -220,6 +241,10 @@ func (s *Service) UpdateNow() error {
 	s.updateMu.Lock()
 	defer s.updateMu.Unlock()
 
+	if s.isStopped() {
+		return context.Canceled
+	}
+
 	if s.downloader == nil {
 		return fmt.Errorf("geoip: no downloader configured")
 	}
@@ -229,6 +254,9 @@ func (s *Service) UpdateNow() error {
 		parent = s.lifeCtx
 	}
 	ctx := parent
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	// 1. Fetch latest release metadata.
 	releaseBody, err := s.downloader.Download(ctx, ReleaseAPIURL)
@@ -294,12 +322,18 @@ func (s *Service) UpdateNow() error {
 	}
 
 	// 5. Atomic rename.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	dbPath := filepath.Join(s.cacheDir, s.dbFilename)
 	if err := os.Rename(tmpPath, dbPath); err != nil {
 		return fmt.Errorf("geoip: atomic replace: %w", err)
 	}
 
 	// 6. Hot-reload reader.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return s.reloadReader(dbPath)
 }
 

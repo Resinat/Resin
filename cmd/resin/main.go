@@ -22,6 +22,7 @@ import (
 	"github.com/resin-proxy/resin/internal/outbound"
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/probe"
+	"github.com/resin-proxy/resin/internal/proxy"
 	"github.com/resin-proxy/resin/internal/routing"
 	"github.com/resin-proxy/resin/internal/service"
 	"github.com/resin-proxy/resin/internal/state"
@@ -74,21 +75,6 @@ func main() {
 	}
 
 	// Phase 4: OutboundManager and Router (now that pool exists).
-
-	// Override node lifecycle callbacks to include outbound management.
-	// Pool was constructed with persistence-only callbacks; now extend them.
-	topoRuntime.pool.SetOnNodeAdded(func(hash node.Hash) {
-		engine.MarkNodeStatic(hash.Hex())
-		topoRuntime.outboundMgr.EnsureNodeOutbound(hash)
-		// No NotifyNodeDirty here — AddNodeFromSub already notifies all platforms.
-		if topoRuntime.probeMgr != nil {
-			topoRuntime.probeMgr.TriggerImmediateEgressProbe(hash)
-		}
-	})
-	topoRuntime.pool.SetOnNodeRemoved(func(hash node.Hash, entry *node.NodeEntry) {
-		engine.MarkNodeStaticDelete(hash.Hex())
-		topoRuntime.outboundMgr.RemoveNodeOutbound(entry)
-	})
 	log.Println("OutboundManager initialized with lifecycle callbacks")
 
 	topoRuntime.router = routing.NewRouter(routing.RouterConfig{
@@ -193,6 +179,47 @@ func main() {
 		}
 	}()
 
+	// Phase 6: Load Account Header Rules and start Forward/Reverse Proxy.
+	accountMatcher := buildAccountMatcher(engine)
+
+	forwardProxy := proxy.NewForwardProxy(proxy.ForwardProxyConfig{
+		ProxyToken: envCfg.ProxyToken,
+		Router:     topoRuntime.router,
+		Pool:       topoRuntime.pool,
+		Health:     topoRuntime.pool,
+		Events:     proxy.NoOpEventEmitter{},
+	})
+	forwardSrv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", envCfg.ForwardProxyPort),
+		Handler: forwardProxy,
+	}
+	go func() {
+		log.Printf("Forward proxy starting on :%d", envCfg.ForwardProxyPort)
+		if err := forwardSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Forward proxy error: %v", err)
+		}
+	}()
+
+	reverseProxy := proxy.NewReverseProxy(proxy.ReverseProxyConfig{
+		ProxyToken:     envCfg.ProxyToken,
+		Router:         topoRuntime.router,
+		Pool:           topoRuntime.pool,
+		PlatformLookup: topoRuntime.pool,
+		Health:         topoRuntime.pool,
+		Matcher:        accountMatcher,
+		Events:         proxy.NoOpEventEmitter{},
+	})
+	reverseSrv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", envCfg.ReverseProxyPort),
+		Handler: reverseProxy,
+	}
+	go func() {
+		log.Printf("Reverse proxy starting on :%d", envCfg.ReverseProxyPort)
+		if err := reverseSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Reverse proxy error: %v", err)
+		}
+	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
@@ -200,6 +227,16 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	if err := forwardSrv.Shutdown(ctx); err != nil {
+		log.Printf("Forward proxy shutdown error: %v", err)
+	}
+	log.Println("Forward proxy stopped")
+
+	if err := reverseSrv.Shutdown(ctx); err != nil {
+		log.Printf("Reverse proxy shutdown error: %v", err)
+	}
+	log.Println("Reverse proxy stopped")
 
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
@@ -290,20 +327,10 @@ func newTopologyRuntime(
 	downloader netutil.Downloader,
 ) (*topologyRuntime, error) {
 	subManager := topology.NewSubscriptionManager()
-	var probeMgr *probe.ProbeManager
 
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		SubLookup: subManager.Lookup,
 		GeoLookup: geoSvc.Lookup,
-		OnNodeAdded: func(hash node.Hash) {
-			engine.MarkNodeStatic(hash.Hex())
-			if probeMgr != nil {
-				probeMgr.TriggerImmediateEgressProbe(hash)
-			}
-		},
-		OnNodeRemoved: func(hash node.Hash, _ *node.NodeEntry) {
-			engine.MarkNodeStaticDelete(hash.Hex())
-		},
 		OnSubNodeChanged: func(subID string, hash node.Hash, added bool) {
 			if added {
 				engine.MarkSubscriptionNode(subID, hash.Hex())
@@ -331,12 +358,28 @@ func newTopologyRuntime(
 	}
 	outboundMgr := outbound.NewOutboundManager(pool, singboxBuilder)
 
-	probeMgr = probe.NewProbeManager(probe.ProbeConfig{
+	probeMgr := probe.NewProbeManager(probe.ProbeConfig{
 		Pool:        pool,
 		Concurrency: envCfg.ProbeConcurrency,
-		Fetcher: outboundMgr.AsFetcher(func() time.Duration {
-			return time.Duration(runtimeCfg.ProbeTimeout)
-		}),
+		Fetcher: func(hash node.Hash, url string) ([]byte, time.Duration, error) {
+			timeout := time.Duration(runtimeCfg.ProbeTimeout)
+			if timeout <= 0 {
+				timeout = 15 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			entry, ok := pool.GetEntry(hash)
+			if !ok {
+				return nil, 0, fmt.Errorf("node not found")
+			}
+			outboundPtr := entry.Outbound.Load()
+			if outboundPtr == nil {
+				return nil, 0, outbound.ErrOutboundNotReady
+			}
+			return netutil.HTTPGetViaOutbound(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
+				RequireStatusOK: false,
+			})
+		},
 		MaxEgressTestInterval: func() time.Duration {
 			return time.Duration(runtimeCfg.MaxEgressTestInterval)
 		},
@@ -352,6 +395,17 @@ func newTopologyRuntime(
 		LatencyAuthorities: func() []string {
 			return runtimeCfg.LatencyAuthorities
 		},
+	})
+
+	pool.SetOnNodeAdded(func(hash node.Hash) {
+		engine.MarkNodeStatic(hash.Hex())
+		outboundMgr.EnsureNodeOutbound(hash)
+		// No NotifyNodeDirty here — AddNodeFromSub already notifies all platforms.
+		probeMgr.TriggerImmediateEgressProbe(hash)
+	})
+	pool.SetOnNodeRemoved(func(hash node.Hash, entry *node.NodeEntry) {
+		engine.MarkNodeStaticDelete(hash.Hex())
+		outboundMgr.RemoveNodeOutbound(entry)
 	})
 	log.Println("ProbeManager initialized")
 
@@ -566,4 +620,16 @@ func newFlushReaders(
 			}
 		},
 	}
+}
+
+func buildAccountMatcher(engine *state.StateEngine) *proxy.AccountMatcher {
+	rules, err := engine.ListAccountHeaderRules()
+	if err != nil {
+		log.Printf("Warning: load account header rules: %v", err)
+		return proxy.BuildAccountMatcher(nil)
+	}
+	if len(rules) > 0 {
+		log.Printf("Loaded %d account header rules", len(rules))
+	}
+	return proxy.BuildAccountMatcher(rules)
 }
