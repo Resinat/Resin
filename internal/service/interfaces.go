@@ -3,6 +3,7 @@
 package service
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/resin-proxy/resin/internal/config"
@@ -27,11 +28,14 @@ type SystemService interface {
 // MemorySystemService is a minimal SystemService backed by in-memory state.
 type MemorySystemService struct {
 	info       SystemInfo
-	runtimeCfg *config.RuntimeConfig
+	runtimeCfg *atomic.Pointer[config.RuntimeConfig]
 }
 
 // NewMemorySystemService creates a MemorySystemService with the given info and config.
-func NewMemorySystemService(info SystemInfo, runtimeCfg *config.RuntimeConfig) *MemorySystemService {
+func NewMemorySystemService(
+	info SystemInfo,
+	runtimeCfg *atomic.Pointer[config.RuntimeConfig],
+) *MemorySystemService {
 	return &MemorySystemService{
 		info:       info,
 		runtimeCfg: runtimeCfg,
@@ -43,5 +47,8 @@ func (s *MemorySystemService) GetSystemInfo() SystemInfo {
 }
 
 func (s *MemorySystemService) GetRuntimeConfig() *config.RuntimeConfig {
-	return s.runtimeCfg
+	if s.runtimeCfg == nil {
+		return nil
+	}
+	return s.runtimeCfg.Load()
 }

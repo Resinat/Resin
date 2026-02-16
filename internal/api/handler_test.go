@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,6 +13,9 @@ import (
 )
 
 func newTestServer() *Server {
+	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
+	runtimeCfg.Store(config.NewDefaultRuntimeConfig())
+
 	svc := service.NewMemorySystemService(
 		service.SystemInfo{
 			Version:   "1.0.0-test",
@@ -19,7 +23,7 @@ func newTestServer() *Server {
 			BuildTime: "2026-01-01T00:00:00Z",
 			StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
 		},
-		config.NewDefaultRuntimeConfig(),
+		runtimeCfg,
 	)
 	return NewServer(0, "test-admin-token", svc)
 }

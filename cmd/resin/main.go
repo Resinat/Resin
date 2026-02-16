@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -55,7 +56,8 @@ func main() {
 	defer dbCloser.Close()
 	log.Println("Persistence bootstrap complete")
 
-	runtimeCfg := loadRuntimeConfig(engine)
+	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
+	runtimeCfg.Store(loadRuntimeConfig(engine))
 
 	// Phase 1: Create DirectDownloader and RetryDownloader shell.
 	// NodePicker/ProxyFetch are nil initially; set after Pool + OutboundManager creation.
@@ -79,10 +81,10 @@ func main() {
 	topoRuntime.router = routing.NewRouter(routing.RouterConfig{
 		Pool: topoRuntime.pool,
 		Authorities: func() []string {
-			return runtimeCfg.LatencyAuthorities
+			return runtimeConfigSnapshot(runtimeCfg).LatencyAuthorities
 		},
 		P2CWindow: func() time.Duration {
-			return time.Duration(runtimeCfg.P2CLatencyWindow)
+			return time.Duration(runtimeConfigSnapshot(runtimeCfg).P2CLatencyWindow)
 		},
 		// Lease events are emitted synchronously on routing paths.
 		// Keep this callback lightweight and non-blocking.
@@ -138,8 +140,8 @@ func main() {
 	flushReaders := newFlushReaders(topoRuntime.pool, topoRuntime.subManager, topoRuntime.router)
 	flushWorker := state.NewCacheFlushWorker(
 		engine, flushReaders,
-		func() int { return runtimeCfg.CacheFlushDirtyThreshold },
-		func() time.Duration { return time.Duration(runtimeCfg.CacheFlushInterval) },
+		func() int { return runtimeConfigSnapshot(runtimeCfg).CacheFlushDirtyThreshold },
+		func() time.Duration { return time.Duration(runtimeConfigSnapshot(runtimeCfg).CacheFlushInterval) },
 		5*time.Second, // check tick
 	)
 	flushWorker.Start()
@@ -286,7 +288,10 @@ func loadRuntimeConfig(engine *state.StateEngine) *config.RuntimeConfig {
 	return runtimeCfg
 }
 
-func newDirectDownloader(envCfg *config.EnvConfig, runtimeCfg *config.RuntimeConfig) *netutil.DirectDownloader {
+func newDirectDownloader(
+	envCfg *config.EnvConfig,
+	runtimeCfg *atomic.Pointer[config.RuntimeConfig],
+) *netutil.DirectDownloader {
 	return netutil.NewDirectDownloader(
 		func() time.Duration {
 			return envCfg.ResourceFetchTimeout
@@ -297,12 +302,23 @@ func newDirectDownloader(envCfg *config.EnvConfig, runtimeCfg *config.RuntimeCon
 	)
 }
 
-func currentDownloadUserAgent(runtimeCfg *config.RuntimeConfig) string {
-	ua := runtimeCfg.UserAgent
+func currentDownloadUserAgent(runtimeCfg *atomic.Pointer[config.RuntimeConfig]) string {
+	ua := runtimeConfigSnapshot(runtimeCfg).UserAgent
 	if ua == "" {
 		ua = "Resin/" + buildinfo.Version
 	}
 	return ua
+}
+
+func runtimeConfigSnapshot(runtimeCfg *atomic.Pointer[config.RuntimeConfig]) *config.RuntimeConfig {
+	if runtimeCfg == nil {
+		return config.NewDefaultRuntimeConfig()
+	}
+	cfg := runtimeCfg.Load()
+	if cfg == nil {
+		return config.NewDefaultRuntimeConfig()
+	}
+	return cfg
 }
 
 func newGeoIPService(
@@ -329,7 +345,7 @@ func startGeoIPService(geoSvc *geoip.Service) {
 func newTopologyRuntime(
 	engine *state.StateEngine,
 	envCfg *config.EnvConfig,
-	runtimeCfg *config.RuntimeConfig,
+	runtimeCfg *atomic.Pointer[config.RuntimeConfig],
 	geoSvc *geoip.Service,
 	downloader netutil.Downloader,
 ) (*topologyRuntime, error) {
@@ -353,10 +369,10 @@ func newTopologyRuntime(
 		},
 		MaxLatencyTableEntries: envCfg.MaxLatencyTableEntries,
 		MaxConsecutiveFailures: func() int {
-			return runtimeCfg.MaxConsecutiveFailures
+			return runtimeConfigSnapshot(runtimeCfg).MaxConsecutiveFailures
 		},
 		LatencyDecayWindow: func() time.Duration {
-			return time.Duration(runtimeCfg.LatencyDecayWindow)
+			return time.Duration(runtimeConfigSnapshot(runtimeCfg).LatencyDecayWindow)
 		},
 	})
 	log.Println("Topology: GlobalNodePool initialized")
@@ -386,19 +402,19 @@ func newTopologyRuntime(
 			})
 		},
 		MaxEgressTestInterval: func() time.Duration {
-			return time.Duration(runtimeCfg.MaxEgressTestInterval)
+			return time.Duration(runtimeConfigSnapshot(runtimeCfg).MaxEgressTestInterval)
 		},
 		MaxLatencyTestInterval: func() time.Duration {
-			return time.Duration(runtimeCfg.MaxLatencyTestInterval)
+			return time.Duration(runtimeConfigSnapshot(runtimeCfg).MaxLatencyTestInterval)
 		},
 		MaxAuthorityLatencyTestInterval: func() time.Duration {
-			return time.Duration(runtimeCfg.MaxAuthorityLatencyTestInterval)
+			return time.Duration(runtimeConfigSnapshot(runtimeCfg).MaxAuthorityLatencyTestInterval)
 		},
 		LatencyTestURL: func() string {
-			return runtimeCfg.LatencyTestURL
+			return runtimeConfigSnapshot(runtimeCfg).LatencyTestURL
 		},
 		LatencyAuthorities: func() []string {
-			return runtimeCfg.LatencyAuthorities
+			return runtimeConfigSnapshot(runtimeCfg).LatencyAuthorities
 		},
 	})
 
@@ -423,7 +439,7 @@ func newTopologyRuntime(
 		subManager,
 		pool,
 		func() time.Duration {
-			return time.Duration(runtimeCfg.EphemeralNodeEvictDelay)
+			return time.Duration(runtimeConfigSnapshot(runtimeCfg).EphemeralNodeEvictDelay)
 		},
 	)
 
