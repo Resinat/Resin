@@ -136,6 +136,44 @@ func TestAccountMatcher_QueryStripped(t *testing.T) {
 	}
 }
 
+func TestAccountMatcherRuntime_Swap(t *testing.T) {
+	initial := BuildAccountMatcher([]model.AccountHeaderRule{
+		{URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`},
+	})
+	rt := NewAccountMatcherRuntime(initial)
+
+	h := rt.Match("api.example.com", "/v1/users")
+	if len(h) != 1 || h[0] != "Authorization" {
+		t.Fatalf("initial match: expected [Authorization], got %v", h)
+	}
+
+	next := BuildAccountMatcher([]model.AccountHeaderRule{
+		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-api-key"]`},
+	})
+	rt.Swap(next)
+
+	h = rt.Match("api.example.com", "/v1/users")
+	if len(h) != 1 || h[0] != "x-api-key" {
+		t.Fatalf("after swap: expected [x-api-key], got %v", h)
+	}
+}
+
+func TestAccountMatcherRuntime_ReplaceRules(t *testing.T) {
+	rt := NewAccountMatcherRuntime(nil)
+
+	if h := rt.Match("unknown.com", "/"); h != nil {
+		t.Fatalf("initial empty matcher: expected nil, got %v", h)
+	}
+
+	rt.ReplaceRules([]model.AccountHeaderRule{
+		{URLPrefix: "*", HeadersJSON: `["Authorization", "x-api-key"]`},
+	})
+	h := rt.Match("unknown.com", "/anything")
+	if len(h) != 2 || h[0] != "Authorization" || h[1] != "x-api-key" {
+		t.Fatalf("after replace rules: expected wildcard headers, got %v", h)
+	}
+}
+
 func TestExtractAccountFromHeaders_Ordered(t *testing.T) {
 	// First non-empty header value wins.
 	r := httptest.NewRequest("GET", "/", nil)

@@ -31,7 +31,7 @@ type ReverseProxyConfig struct {
 	Pool           outbound.PoolAccessor
 	PlatformLookup PlatformLookup
 	Health         HealthRecorder
-	Matcher        *AccountMatcher
+	Matcher        AccountRuleMatcher
 	Events         EventEmitter
 }
 
@@ -43,7 +43,7 @@ type ReverseProxy struct {
 	pool     outbound.PoolAccessor
 	platLook PlatformLookup
 	health   HealthRecorder
-	matcher  *AccountMatcher
+	matcher  AccountRuleMatcher
 	events   EventEmitter
 }
 

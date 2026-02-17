@@ -639,14 +639,14 @@ func newFlushReaders(
 	}
 }
 
-func buildAccountMatcher(engine *state.StateEngine) *proxy.AccountMatcher {
+func buildAccountMatcher(engine *state.StateEngine) *proxy.AccountMatcherRuntime {
 	rules, err := engine.ListAccountHeaderRules()
 	if err != nil {
 		log.Printf("Warning: load account header rules: %v", err)
-		return proxy.BuildAccountMatcher(nil)
+		return proxy.NewAccountMatcherRuntime(proxy.BuildAccountMatcher(nil))
 	}
 	if len(rules) > 0 {
 		log.Printf("Loaded %d account header rules", len(rules))
 	}
-	return proxy.BuildAccountMatcher(rules)
+	return proxy.NewAccountMatcherRuntime(proxy.BuildAccountMatcher(rules))
 }

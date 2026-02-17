@@ -10,6 +10,12 @@ import (
 	"github.com/resin-proxy/resin/internal/model"
 )
 
+// AccountRuleMatcher provides longest-prefix rule matching for account headers.
+// ReverseProxy depends on this interface to allow runtime matcher swapping.
+type AccountRuleMatcher interface {
+	Match(host, path string) []string
+}
+
 // AccountMatcher performs longest-prefix matching on (host, path) to find
 // the set of header names from which to extract an account identity.
 //
@@ -19,6 +25,8 @@ type AccountMatcher struct {
 	root     *matcherNode
 	wildcard []string // headers for the "*" catch-all rule, if any
 }
+
+var _ AccountRuleMatcher = (*AccountMatcher)(nil)
 
 type matcherNode struct {
 	children map[string]*matcherNode
