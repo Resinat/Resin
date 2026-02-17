@@ -477,6 +477,16 @@ func (r *Router) ReadLease(key model.LeaseKey) *model.Lease {
 	}
 }
 
+// SnapshotIPLoad returns a best-effort point-in-time IP load snapshot for a platform.
+// If the platform has no routing state yet, it returns an empty snapshot.
+func (r *Router) SnapshotIPLoad(platformID string) map[netip.Addr]int64 {
+	state, ok := r.states.Load(platformID)
+	if !ok {
+		return map[netip.Addr]int64{}
+	}
+	return state.IPLoadStats.Snapshot()
+}
+
 // RestoreLeases restores leases from persistence during bootstrap.
 func (r *Router) RestoreLeases(leases []model.Lease) {
 	for _, ml := range leases {

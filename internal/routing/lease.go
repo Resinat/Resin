@@ -100,6 +100,24 @@ func (s *IPLoadStats) Get(ip netip.Addr) int64 {
 	return 0
 }
 
+// Snapshot returns a best-effort point-in-time copy of positive lease counts.
+// Entries with non-positive counts are skipped.
+func (s *IPLoadStats) Snapshot() map[netip.Addr]int64 {
+	out := make(map[netip.Addr]int64)
+	s.counts.Range(func(ip netip.Addr, ctr *atomic.Int64) bool {
+		if !ip.IsValid() || ctr == nil {
+			return true
+		}
+		n := ctr.Load()
+		if n <= 0 {
+			return true
+		}
+		out[ip] = n
+		return true
+	})
+	return out
+}
+
 // IsExpired checks if a lease is expired relative to the given time.
 func (l Lease) IsExpired(now time.Time) bool {
 	return l.ExpiryNs < now.UnixNano()
