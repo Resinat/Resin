@@ -2,6 +2,7 @@ package topology
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"regexp"
@@ -307,6 +308,119 @@ func TestPool_RangePlatforms_UsesSnapshotAndDoesNotDeadlock(t *testing.T) {
 
 	if _, ok := pool.GetPlatform("p-range-2"); ok {
 		t.Fatal("platform should be removed after unregister")
+	}
+}
+
+func TestPool_ReplacePlatform_Success(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := newTestPool(subMgr)
+
+	oldPlat := platform.NewPlatform("p-replace", "OldName", nil, nil)
+	pool.RegisterPlatform(oldPlat)
+
+	nextPlat := platform.NewPlatform("p-replace", "NewName", nil, nil)
+	if err := pool.ReplacePlatform(nextPlat); err != nil {
+		t.Fatalf("ReplacePlatform error: %v", err)
+	}
+
+	gotByID, ok := pool.GetPlatform("p-replace")
+	if !ok || gotByID != nextPlat {
+		t.Fatal("GetPlatform should return replaced platform by ID")
+	}
+
+	if _, ok := pool.GetPlatformByName("OldName"); ok {
+		t.Fatal("old name mapping should be removed")
+	}
+	gotByName, ok := pool.GetPlatformByName("NewName")
+	if !ok || gotByName != nextPlat {
+		t.Fatal("new name mapping should point to replaced platform")
+	}
+}
+
+func TestPool_ReplacePlatform_NameConflict(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := newTestPool(subMgr)
+
+	platA := platform.NewPlatform("p-a", "A", nil, nil)
+	platB := platform.NewPlatform("p-b", "B", nil, nil)
+	pool.RegisterPlatform(platA)
+	pool.RegisterPlatform(platB)
+
+	conflict := platform.NewPlatform("p-a", "B", nil, nil)
+	err := pool.ReplacePlatform(conflict)
+	if err == nil || !errors.Is(err, ErrPlatformNameConflict) {
+		t.Fatalf("ReplacePlatform error = %v, want ErrPlatformNameConflict", err)
+	}
+
+	gotA, ok := pool.GetPlatform("p-a")
+	if !ok || gotA != platA {
+		t.Fatal("platform p-a should remain unchanged on conflict")
+	}
+	gotByNameA, ok := pool.GetPlatformByName("A")
+	if !ok || gotByNameA != platA {
+		t.Fatal("name mapping A should remain unchanged on conflict")
+	}
+	gotByNameB, ok := pool.GetPlatformByName("B")
+	if !ok || gotByNameB != platB {
+		t.Fatal("name mapping B should remain unchanged on conflict")
+	}
+}
+
+func TestPool_ReplacePlatform_NotRegistered(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := newTestPool(subMgr)
+
+	err := pool.ReplacePlatform(platform.NewPlatform("missing", "Nope", nil, nil))
+	if err == nil || !errors.Is(err, ErrPlatformNotRegistered) {
+		t.Fatalf("ReplacePlatform error = %v, want ErrPlatformNotRegistered", err)
+	}
+}
+
+func TestPool_ReplacePlatform_RebuildsViewBeforePublish(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "Provider", "url", true, false)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	oldPlat := platform.NewPlatform("p-rebuild", "Old", nil, nil)
+	pool.RegisterPlatform(oldPlat)
+
+	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
+	h := node.HashFromRawOptions(raw)
+
+	mn := xsync.NewMap[node.Hash, []string]()
+	mn.Store(h, []string{"us-node"})
+	sub.SwapManagedNodes(mn)
+
+	pool.AddNodeFromSub(h, raw, "s1")
+	entry, _ := pool.GetEntry(h)
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        100 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	ob := testutil.NewNoopOutbound()
+	entry.Outbound.Store(&ob)
+	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.NotifyNodeDirty(h)
+
+	// New platform requires "us" in tag. If ReplacePlatform skipped rebuild,
+	// its view would remain empty here.
+	nextPlat := platform.NewPlatform(
+		"p-rebuild",
+		"New",
+		[]*regexp.Regexp{regexp.MustCompile("us")},
+		nil,
+	)
+	if err := pool.ReplacePlatform(nextPlat); err != nil {
+		t.Fatalf("ReplacePlatform error: %v", err)
+	}
+
+	got, ok := pool.GetPlatform("p-rebuild")
+	if !ok || got != nextPlat {
+		t.Fatal("expected replaced platform by ID")
+	}
+	if !got.View().Contains(h) {
+		t.Fatal("replaced platform view should include routable us-node")
 	}
 }
 

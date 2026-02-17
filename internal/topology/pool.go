@@ -5,6 +5,7 @@ package topology
 
 import (
 	"encoding/json"
+	"errors"
 	"net/netip"
 	"sync"
 	"time"
@@ -61,6 +62,13 @@ type PoolConfig struct {
 	MaxConsecutiveFailures func() int
 	LatencyDecayWindow     func() time.Duration
 }
+
+var (
+	// ErrPlatformNotRegistered indicates the target platform ID is not registered.
+	ErrPlatformNotRegistered = errors.New("platform not registered")
+	// ErrPlatformNameConflict indicates another platform already uses the target name.
+	ErrPlatformNameConflict = errors.New("platform name conflict")
+)
 
 // NewGlobalNodePool creates a new GlobalNodePool.
 func NewGlobalNodePool(cfg PoolConfig) *GlobalNodePool {
@@ -191,6 +199,47 @@ func (p *GlobalNodePool) UnregisterPlatform(id string) {
 			delete(p.platformByName, plat.Name)
 		}
 	}
+}
+
+// ReplacePlatform atomically replaces an existing platform object by ID.
+// It follows a copy-on-write update path: the caller builds a new Platform
+// instance, this method rebuilds its routable view, then swaps map pointers
+// under platMu in one critical section.
+func (p *GlobalNodePool) ReplacePlatform(next *platform.Platform) error {
+	if next == nil || next.ID == "" {
+		return ErrPlatformNotRegistered
+	}
+
+	// Build the new platform's view before publish so readers never observe
+	// an empty, not-yet-built view due only to replacement.
+	p.RebuildPlatform(next)
+
+	p.platMu.Lock()
+	defer p.platMu.Unlock()
+
+	current, ok := p.platformByID[next.ID]
+	if !ok {
+		return ErrPlatformNotRegistered
+	}
+
+	if next.Name != "" {
+		if existingByName, exists := p.platformByName[next.Name]; exists && existingByName != current {
+			return ErrPlatformNameConflict
+		}
+	}
+
+	p.platformByID[next.ID] = next
+
+	if current.Name != "" {
+		if mapped, exists := p.platformByName[current.Name]; exists && mapped == current {
+			delete(p.platformByName, current.Name)
+		}
+	}
+	if next.Name != "" {
+		p.platformByName[next.Name] = next
+	}
+
+	return nil
 }
 
 // GetPlatform retrieves a platform by ID.
