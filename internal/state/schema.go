@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS leases (
 	account         TEXT NOT NULL,
 	node_hash       TEXT NOT NULL,
 	egress_ip       TEXT NOT NULL DEFAULT '',
+	created_at_ns   INTEGER NOT NULL DEFAULT 0,
 	expiry_ns       INTEGER NOT NULL,
 	last_accessed_ns INTEGER NOT NULL,
 	PRIMARY KEY (platform_id, account)

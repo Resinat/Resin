@@ -18,8 +18,9 @@ type RequestFinishedEvent struct {
 }
 
 // RequestLogEntry captures per-request details for the structured request log.
-// Used by the requestlog subsystem (Phase 7).
+// Used by the requestlog subsystem (Phase 8).
 type RequestLogEntry struct {
+	StartedAtNs  int64     // request start time (Unix nano), used as ts_ns in DB
 	ProxyType    ProxyType // 1=forward, 2=reverse
 	ClientIP     string
 	PlatformID   string
@@ -28,6 +29,7 @@ type RequestLogEntry struct {
 	TargetHost   string
 	TargetURL    string
 	NodeHash     string
+	NodeTag      string // display tag: "<Subscription>/<Tag>" (DESIGN.md §601)
 	EgressIP     string
 	DurationNs   int64
 	NetOK        bool

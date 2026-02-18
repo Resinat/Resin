@@ -146,3 +146,36 @@ func TestListNodes_SubscriptionFilterSkipsStaleManagedNodes(t *testing.T) {
 		t.Fatalf("live node hash = %q, want %q", nodes[0].NodeHash, liveHash.Hex())
 	}
 }
+
+func TestGetNode_TagIncludesSubscriptionNamePrefix(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := newNodeListTestPool(subMgr)
+
+	sub := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subMgr.Register(sub)
+
+	hash := addRoutableNodeForSubscription(
+		t,
+		pool,
+		sub,
+		[]byte(`{"type":"ss","server":"1.1.1.1","port":443}`),
+		"203.0.113.30",
+	)
+
+	cp := &ControlPlaneService{
+		Pool:   pool,
+		SubMgr: subMgr,
+		GeoIP:  &geoip.Service{},
+	}
+
+	got, err := cp.GetNode(hash.Hex())
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if len(got.Tags) != 1 {
+		t.Fatalf("tags len = %d, want 1", len(got.Tags))
+	}
+	if got.Tags[0].Tag != "sub-a/tag" {
+		t.Fatalf("tag = %q, want %q", got.Tags[0].Tag, "sub-a/tag")
+	}
+}

@@ -2,11 +2,13 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -15,9 +17,11 @@ import (
 
 	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/geoip"
+	"github.com/resin-proxy/resin/internal/metrics"
 	"github.com/resin-proxy/resin/internal/model"
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/proxy"
+	"github.com/resin-proxy/resin/internal/requestlog"
 	"github.com/resin-proxy/resin/internal/routing"
 	"github.com/resin-proxy/resin/internal/service"
 	"github.com/resin-proxy/resin/internal/state"
@@ -101,7 +105,7 @@ func newControlPlaneTestServerWithBodyLimit(
 		},
 		runtimeCfg,
 	)
-	srv := NewServer(0, testAdminToken, systemSvc, cp, apiMaxBodyBytes)
+	srv := NewServer(0, testAdminToken, systemSvc, cp, apiMaxBodyBytes, nil, nil)
 	return srv, cp, runtimeCfg
 }
 
@@ -172,6 +176,214 @@ func mustCreatePlatform(t *testing.T, srv *Server, name string) string {
 		t.Fatalf("create platform missing id: body=%s", rec.Body.String())
 	}
 	return id
+}
+
+type contractNodePoolStats struct{}
+
+func (contractNodePoolStats) TotalNodes() int    { return 20 }
+func (contractNodePoolStats) HealthyNodes() int  { return 15 }
+func (contractNodePoolStats) EgressIPCount() int { return 6 }
+
+type contractPlatformStats struct {
+	platformID string
+}
+
+func (s contractPlatformStats) RoutableNodeCount(platformID string) (int, bool) {
+	if platformID != s.platformID {
+		return 0, false
+	}
+	return 8, true
+}
+
+func (s contractPlatformStats) PlatformEgressIPCount(platformID string) (int, bool) {
+	if platformID != s.platformID {
+		return 0, false
+	}
+	return 3, true
+}
+
+type contractNodeLatencyProvider struct {
+	platformID string
+}
+
+func (p contractNodeLatencyProvider) CollectNodeEWMAs(platformID string) []float64 {
+	if platformID == "" {
+		return []float64{50, 150, 280}
+	}
+	if platformID == p.platformID {
+		return []float64{80, 120}
+	}
+	return nil
+}
+
+func newObservabilityTestServer(t *testing.T) (*Server, *requestlog.Repo, *metrics.Manager, string) {
+	t.Helper()
+
+	root := t.TempDir()
+	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
+	runtimeCfg.Store(config.NewDefaultRuntimeConfig())
+
+	systemSvc := service.NewMemorySystemService(
+		service.SystemInfo{
+			Version:   "1.0.0-test",
+			GitCommit: "abc123",
+			BuildTime: "2026-01-01T00:00:00Z",
+			StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
+		},
+		runtimeCfg,
+	)
+
+	requestlogRepo := requestlog.NewRepo(root, 64*1024*1024, 2)
+	if err := requestlogRepo.Open(); err != nil {
+		t.Fatalf("requestlogRepo.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = requestlogRepo.Close() })
+
+	metricsRepo, err := metrics.NewMetricsRepo(filepath.Join(root, "metrics.db"))
+	if err != nil {
+		t.Fatalf("metrics.NewMetricsRepo: %v", err)
+	}
+	t.Cleanup(func() { _ = metricsRepo.Close() })
+
+	platformID := "platform-1"
+	metricsManager := metrics.NewManager(metrics.ManagerConfig{
+		Repo:                        metricsRepo,
+		LatencyBinMs:                100,
+		LatencyOverflowMs:           3000,
+		BucketSeconds:               300,
+		ThroughputRealtimeCapacity:  16,
+		ThroughputIntervalSec:       1,
+		ConnectionsRealtimeCapacity: 16,
+		ConnectionsIntervalSec:      5,
+		LeasesRealtimeCapacity:      16,
+		LeasesIntervalSec:           5,
+		NodePoolStats:               contractNodePoolStats{},
+		PlatformStats:               contractPlatformStats{platformID: platformID},
+		NodeLatency:                 contractNodeLatencyProvider{platformID: platformID},
+	})
+
+	srv := NewServer(0, testAdminToken, systemSvc, nil, 1<<20, requestlogRepo, metricsManager)
+	return srv, requestlogRepo, metricsManager, platformID
+}
+
+func seedObservabilityData(
+	t *testing.T,
+	requestlogRepo *requestlog.Repo,
+	metricsManager *metrics.Manager,
+	platformID string,
+) string {
+	t.Helper()
+
+	logID := "log-contract-1"
+	inserted, err := requestlogRepo.InsertBatch([]requestlog.LogRow{
+		{
+			ID:                   logID,
+			TsNs:                 time.Now().Add(-2 * time.Minute).UnixNano(),
+			ProxyType:            int(proxy.ProxyTypeReverse),
+			ClientIP:             "127.0.0.1",
+			PlatformID:           platformID,
+			PlatformName:         "Platform One",
+			Account:              "acct-1",
+			TargetHost:           "example.com",
+			TargetURL:            "https://example.com/api",
+			NodeHash:             "node-1",
+			NodeTag:              "sub/tag-1",
+			EgressIP:             "8.8.8.8",
+			DurationNs:           int64(45 * time.Millisecond),
+			NetOK:                true,
+			HTTPMethod:           "GET",
+			HTTPStatus:           200,
+			ReqHeadersLen:        10,
+			ReqBodyLen:           11,
+			RespHeadersLen:       12,
+			RespBodyLen:          13,
+			ReqHeadersTruncated:  true,
+			ReqBodyTruncated:     true,
+			RespHeadersTruncated: false,
+			RespBodyTruncated:    true,
+			ReqHeaders:           []byte("req-h-1"),
+			ReqBody:              []byte("req-b-1"),
+			RespHeaders:          []byte("resp-h-1"),
+			RespBody:             []byte("resp-b-1"),
+		},
+		{
+			ID:         "log-contract-2",
+			TsNs:       time.Now().Add(-time.Minute).UnixNano(),
+			ProxyType:  int(proxy.ProxyTypeForward),
+			ClientIP:   "127.0.0.2",
+			PlatformID: platformID,
+			Account:    "acct-2",
+			TargetHost: "example.org",
+			TargetURL:  "https://example.org/resource",
+			DurationNs: int64(12 * time.Millisecond),
+			NetOK:      false,
+			HTTPMethod: "POST",
+			HTTPStatus: 502,
+		},
+	})
+	if err != nil {
+		t.Fatalf("requestlogRepo.InsertBatch: %v", err)
+	}
+	if inserted != 2 {
+		t.Fatalf("inserted: got %d, want %d", inserted, 2)
+	}
+
+	now := time.Now()
+	metricsManager.ThroughputRing().Push(metrics.RealtimeSample{
+		Timestamp:  now.Add(-30 * time.Second),
+		IngressBPS: 123,
+		EgressBPS:  456,
+	})
+	metricsManager.ConnectionsRing().Push(metrics.RealtimeSample{
+		Timestamp:     now.Add(-30 * time.Second),
+		InboundConns:  7,
+		OutboundConns: 5,
+	})
+	metricsManager.LeasesRing().Push(metrics.RealtimeSample{
+		Timestamp:        now.Add(-30 * time.Second),
+		LeasesByPlatform: map[string]int{platformID: 3},
+	})
+	metricsManager.OnTrafficDelta(platformID, 1000, 1500)
+	metricsManager.OnRequestFinished(proxy.RequestFinishedEvent{
+		PlatformID: platformID,
+		ProxyType:  proxy.ProxyTypeForward,
+		NetOK:      true,
+		DurationNs: int64(120 * time.Millisecond),
+	})
+	metricsManager.OnRequestFinished(proxy.RequestFinishedEvent{
+		PlatformID: platformID,
+		ProxyType:  proxy.ProxyTypeForward,
+		NetOK:      false,
+		DurationNs: int64(240 * time.Millisecond),
+	})
+	metricsManager.OnProbeEvent(metrics.ProbeEvent{Kind: metrics.ProbeKindEgress})
+	metricsManager.OnLeaseEvent(metrics.LeaseMetricEvent{
+		PlatformID: platformID,
+		Op:         "remove",
+		LifetimeNs: int64(30 * time.Second),
+	})
+	metricsManager.Stop() // ForceFlush bucket data without starting background loops.
+
+	trafficRows, err := metricsManager.Repo().QueryTraffic(0, time.Now().Add(time.Hour).Unix(), platformID)
+	if err != nil {
+		t.Fatalf("metrics QueryTraffic: %v", err)
+	}
+	if len(trafficRows) == 0 {
+		t.Fatal("expected flushed traffic rows")
+	}
+	bucketStart := trafficRows[0].BucketStartUnix
+
+	if err := metricsManager.Repo().WriteNodePoolSnapshot(bucketStart, 20, 15, 6); err != nil {
+		t.Fatalf("WriteNodePoolSnapshot: %v", err)
+	}
+	if err := metricsManager.Repo().WriteLatencyBucket(bucketStart, "", []int64{1, 2, 3}); err != nil {
+		t.Fatalf("WriteLatencyBucket global: %v", err)
+	}
+	if err := metricsManager.Repo().WriteLatencyBucket(bucketStart, platformID, []int64{2, 1, 0}); err != nil {
+		t.Fatalf("WriteLatencyBucket platform: %v", err)
+	}
+
+	return logID
 }
 
 func TestAPIContract_HealthzAndAuth(t *testing.T) {
@@ -623,6 +835,189 @@ func TestAPIContract_UpsertRuleRequiresPathPrefix(t *testing.T) {
 	}, true)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("upsert rule missing path prefix status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "INVALID_ARGUMENT")
+}
+
+func TestAPIContract_RequestLogEndpoints(t *testing.T) {
+	srv, requestlogRepo, metricsManager, platformID := newObservabilityTestServer(t)
+	logID := seedObservabilityData(t, requestlogRepo, metricsManager, platformID)
+
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs?platform_id="+platformID+"&limit=10", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list request logs status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	itemsRaw, ok := body["items"]
+	if !ok {
+		t.Fatalf("missing items field: body=%s", rec.Body.String())
+	}
+	items, ok := itemsRaw.([]any)
+	if !ok || len(items) < 2 {
+		t.Fatalf("items: got %T len=%d, want >=2", itemsRaw, len(items))
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs/"+logID, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get request log status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	row := decodeJSONMap(t, rec)
+	if row["id"] != logID {
+		t.Fatalf("id: got %v, want %q", row["id"], logID)
+	}
+	if row["payload_present"] != float64(1) {
+		t.Fatalf("payload_present: got %v, want 1", row["payload_present"])
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs/"+logID+"/payloads", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get request log payload status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	payload := decodeJSONMap(t, rec)
+	if payload["req_headers_b64"] != base64.StdEncoding.EncodeToString([]byte("req-h-1")) {
+		t.Fatalf("req_headers_b64 mismatch: got %v", payload["req_headers_b64"])
+	}
+	if payload["resp_body_b64"] != base64.StdEncoding.EncodeToString([]byte("resp-b-1")) {
+		t.Fatalf("resp_body_b64 mismatch: got %v", payload["resp_body_b64"])
+	}
+	trunc, ok := payload["truncated"].(map[string]any)
+	if !ok {
+		t.Fatalf("truncated type: got %T", payload["truncated"])
+	}
+	if trunc["req_headers"] != true || trunc["req_body"] != true || trunc["resp_body"] != true {
+		t.Fatalf("truncated flags mismatch: %+v", trunc)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs?from=not-a-time", nil, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid from status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "INVALID_ARGUMENT")
+
+	invalidCases := []string{
+		"/api/v1/request-logs?limit=bad",
+		"/api/v1/request-logs?limit=0",
+		"/api/v1/request-logs?limit=10001",
+		"/api/v1/request-logs?offset=bad",
+		"/api/v1/request-logs?offset=-1",
+		"/api/v1/request-logs?proxy_type=3",
+		"/api/v1/request-logs?net_ok=2",
+		"/api/v1/request-logs?http_status=bad",
+		"/api/v1/request-logs?http_status=99",
+	}
+	for _, path := range invalidCases {
+		rec = doJSONRequest(t, srv, http.MethodGet, path, nil, true)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("%s status: got %d, want %d, body=%s", path, rec.Code, http.StatusBadRequest, rec.Body.String())
+		}
+		assertErrorCode(t, rec, "INVALID_ARGUMENT")
+	}
+}
+
+func TestAPIContract_MetricsEndpoints(t *testing.T) {
+	srv, requestlogRepo, metricsManager, platformID := newObservabilityTestServer(t)
+	_ = seedObservabilityData(t, requestlogRepo, metricsManager, platformID)
+
+	from := url.QueryEscape(time.Unix(0, 0).UTC().Format(time.RFC3339Nano))
+	to := url.QueryEscape(time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano))
+
+	checkItemsEndpoint := func(path string) {
+		t.Helper()
+		rec := doJSONRequest(t, srv, http.MethodGet, path, nil, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status: got %d, want %d, body=%s", path, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := decodeJSONMap(t, rec)
+		items, ok := body["items"].([]any)
+		if !ok || len(items) == 0 {
+			t.Fatalf("%s items: got %T len=%d", path, body["items"], len(items))
+		}
+	}
+
+	checkRealtimeEndpoint := func(path string, wantStep float64) {
+		t.Helper()
+		rec := doJSONRequest(t, srv, http.MethodGet, path, nil, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status: got %d, want %d, body=%s", path, rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := decodeJSONMap(t, rec)
+		if body["step_seconds"] != wantStep {
+			t.Fatalf("%s step_seconds: got %v, want %v", path, body["step_seconds"], wantStep)
+		}
+		items, ok := body["items"].([]any)
+		if !ok || len(items) == 0 {
+			t.Fatalf("%s items: got %T len=%d", path, body["items"], len(items))
+		}
+	}
+
+	checkRealtimeEndpoint("/api/v1/metrics/realtime/throughput?from="+from+"&to="+to, 1)
+	checkRealtimeEndpoint("/api/v1/metrics/realtime/connections?from="+from+"&to="+to, 5)
+	checkRealtimeEndpoint("/api/v1/metrics/realtime/leases?platform_id="+platformID+"&from="+from+"&to="+to, 5)
+	checkItemsEndpoint("/api/v1/metrics/history/traffic?platform_id=" + platformID + "&from=" + from + "&to=" + to)
+	checkItemsEndpoint("/api/v1/metrics/history/requests?platform_id=" + platformID + "&from=" + from + "&to=" + to)
+	checkItemsEndpoint("/api/v1/metrics/history/access-latency?platform_id=" + platformID + "&from=" + from + "&to=" + to)
+	checkItemsEndpoint("/api/v1/metrics/history/probes?from=" + from + "&to=" + to)
+	checkItemsEndpoint("/api/v1/metrics/history/node-pool?from=" + from + "&to=" + to)
+	checkItemsEndpoint("/api/v1/metrics/history/lease-lifetime?platform_id=" + platformID + "&from=" + from + "&to=" + to)
+
+	// Without platform_id, mixed global+platform rows must not leak through.
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/history/traffic?from="+from+"&to="+to, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("global traffic status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if items, ok := body["items"].([]any); !ok || len(items) != 1 {
+		t.Fatalf("global traffic items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/history/requests?from="+from+"&to="+to, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("global requests status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if items, ok := body["items"].([]any); !ok || len(items) != 1 {
+		t.Fatalf("global requests items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/history/access-latency?from="+from+"&to="+to, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("global access-latency status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if items, ok := body["items"].([]any); !ok || len(items) != 1 {
+		t.Fatalf("global access-latency items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/snapshots/node-pool", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("snapshot node-pool status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if body["total_nodes"] != float64(20) || body["healthy_nodes"] != float64(15) {
+		t.Fatalf("snapshot node-pool values mismatch: %+v", body)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/snapshots/platform-node-pool?platform_id="+platformID, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("snapshot platform-node-pool status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if body["platform_id"] != platformID || body["routable_node_count"] != float64(8) {
+		t.Fatalf("snapshot platform-node-pool values mismatch: %+v", body)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/snapshots/node-latency-distribution?platform_id="+platformID, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("snapshot node-latency-distribution status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if body["scope"] != "platform" || body["sample_count"] == float64(0) {
+		t.Fatalf("snapshot node-latency-distribution values mismatch: %+v", body)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/history/traffic?from=bad-time", nil, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid metrics from status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 	assertErrorCode(t, rec, "INVALID_ARGUMENT")
 }

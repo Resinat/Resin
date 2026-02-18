@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/resin-proxy/resin/internal/metrics"
+	"github.com/resin-proxy/resin/internal/requestlog"
 	"github.com/resin-proxy/resin/internal/service"
 )
 
@@ -22,6 +24,8 @@ func NewServer(
 	systemSvc service.SystemService,
 	cp *service.ControlPlaneService,
 	apiMaxBodyBytes int64,
+	requestlogRepo *requestlog.Repo,
+	metricsManager *metrics.Manager,
 ) *Server {
 	mux := http.NewServeMux()
 
@@ -80,6 +84,34 @@ func NewServer(
 		authed.Handle("GET /api/v1/geoip/lookup", HandleGeoIPLookup(cp))
 		authed.Handle("POST /api/v1/geoip/lookup", HandleGeoIPLookupPost(cp))
 		authed.Handle("POST /api/v1/geoip/actions/update-now", HandleGeoIPUpdate(cp))
+	}
+
+	// Request log endpoints (always registered if repo is available).
+	if requestlogRepo != nil {
+		authed.Handle("GET /api/v1/request-logs", HandleListRequestLogs(requestlogRepo))
+		authed.Handle("GET /api/v1/request-logs/{log_id}", HandleGetRequestLog(requestlogRepo))
+		authed.Handle("GET /api/v1/request-logs/{log_id}/payloads", HandleGetRequestLogPayloads(requestlogRepo))
+	}
+
+	// Metrics endpoints.
+	if metricsManager != nil {
+		// Realtime (ring buffer).
+		authed.Handle("GET /api/v1/metrics/realtime/throughput", HandleRealtimeThroughput(metricsManager))
+		authed.Handle("GET /api/v1/metrics/realtime/connections", HandleRealtimeConnections(metricsManager))
+		authed.Handle("GET /api/v1/metrics/realtime/leases", HandleRealtimeLeases(metricsManager))
+
+		// History (metrics.db bucket).
+		authed.Handle("GET /api/v1/metrics/history/traffic", HandleHistoryTraffic(metricsManager))
+		authed.Handle("GET /api/v1/metrics/history/requests", HandleHistoryRequests(metricsManager))
+		authed.Handle("GET /api/v1/metrics/history/access-latency", HandleHistoryAccessLatency(metricsManager))
+		authed.Handle("GET /api/v1/metrics/history/probes", HandleHistoryProbes(metricsManager))
+		authed.Handle("GET /api/v1/metrics/history/node-pool", HandleHistoryNodePool(metricsManager))
+		authed.Handle("GET /api/v1/metrics/history/lease-lifetime", HandleHistoryLeaseLifetime(metricsManager))
+
+		// Snapshots (realtime computed).
+		authed.Handle("GET /api/v1/metrics/snapshots/node-pool", HandleSnapshotNodePool(metricsManager))
+		authed.Handle("GET /api/v1/metrics/snapshots/platform-node-pool", HandleSnapshotPlatformNodePool(metricsManager))
+		authed.Handle("GET /api/v1/metrics/snapshots/node-latency-distribution", HandleSnapshotNodeLatencyDistribution(metricsManager))
 	}
 
 	limitedAuthed := RequestBodyLimitMiddleware(apiMaxBodyBytes, authed)

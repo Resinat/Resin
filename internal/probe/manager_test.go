@@ -436,6 +436,58 @@ func TestProbeLatencySync_ReturnsEWMAFromNormalizedDomain(t *testing.T) {
 	}
 }
 
+func TestProbeSync_EmitsProbeEvents(t *testing.T) {
+	pool := topology.NewGlobalNodePool(topology.PoolConfig{
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+	})
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"probe-sync-events"}`))
+	pool.AddNodeFromSub(hash, []byte(`{"type":"probe-sync-events"}`), "sub1")
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	storeOutbound(entry)
+
+	var gotKinds []string
+	mgr := NewProbeManager(ProbeConfig{
+		Pool: pool,
+		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
+			switch url {
+			case egressTraceURL:
+				return []byte("ip=198.51.100.10"), 20 * time.Millisecond, nil
+			default:
+				return []byte("ok"), 30 * time.Millisecond, nil
+			}
+		},
+		LatencyTestURL: func() string {
+			return "https://www.gstatic.com/generate_204"
+		},
+		OnProbeEvent: func(kind string) {
+			gotKinds = append(gotKinds, kind)
+		},
+	})
+
+	if _, err := mgr.ProbeEgressSync(hash); err != nil {
+		t.Fatalf("ProbeEgressSync: %v", err)
+	}
+	if _, err := mgr.ProbeLatencySync(hash); err != nil {
+		t.Fatalf("ProbeLatencySync: %v", err)
+	}
+
+	wantKinds := []string{"egress", "latency"}
+	if len(gotKinds) != len(wantKinds) {
+		t.Fatalf("probe event count: got %d, want %d (kinds=%v)", len(gotKinds), len(wantKinds), gotKinds)
+	}
+	for i := range wantKinds {
+		if gotKinds[i] != wantKinds[i] {
+			t.Fatalf("probe event kind[%d]: got %q, want %q", i, gotKinds[i], wantKinds[i])
+		}
+	}
+}
+
 // TestParseCloudflareTrace_Success verifies IP extraction from trace body.
 func TestParseCloudflareTrace_Success(t *testing.T) {
 	body := []byte("fl=abc\nip=1.2.3.4\nts=12345")

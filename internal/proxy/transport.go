@@ -9,10 +9,18 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 )
 
-func newOutboundTransport(ob adapter.Outbound) *http.Transport {
+func newOutboundTransport(ob adapter.Outbound, sink MetricsEventSink, platformID string) *http.Transport {
 	return &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return ob.DialContext(ctx, network, M.ParseSocksaddr(addr))
+			conn, err := ob.DialContext(ctx, network, M.ParseSocksaddr(addr))
+			if err != nil {
+				return nil, err
+			}
+			if sink != nil {
+				sink.OnConnectionLifecycle("outbound", "open")
+				conn = newCountingConn(conn, sink, platformID)
+			}
+			return conn, nil
 		},
 		DisableKeepAlives: true,
 	}

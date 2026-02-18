@@ -27,11 +27,12 @@ type PoolAccessor interface {
 
 // Router handles route selection and lease management.
 type Router struct {
-	pool         PoolAccessor
-	states       *xsync.Map[string, *PlatformRoutingState]
-	authorities  func() []string
-	p2cWindow    func() time.Duration
-	onLeaseEvent LeaseEventFunc
+	pool            PoolAccessor
+	states          *xsync.Map[string, *PlatformRoutingState]
+	authorities     func() []string
+	p2cWindow       func() time.Duration
+	onLeaseEvent    LeaseEventFunc
+	nodeTagResolver func(node.Hash) string
 }
 
 type RouterConfig struct {
@@ -40,15 +41,19 @@ type RouterConfig struct {
 	P2CWindow   func() time.Duration
 	// OnLeaseEvent is called synchronously; handlers must stay lightweight.
 	OnLeaseEvent LeaseEventFunc
+	// NodeTagResolver resolves a node hash to its display tag ("<Sub>/<Tag>").
+	// If nil, NodeTag will be empty.
+	NodeTagResolver func(node.Hash) string
 }
 
 func NewRouter(cfg RouterConfig) *Router {
 	return &Router{
-		pool:         cfg.Pool,
-		states:       xsync.NewMap[string, *PlatformRoutingState](),
-		authorities:  cfg.Authorities,
-		p2cWindow:    cfg.P2CWindow,
-		onLeaseEvent: cfg.OnLeaseEvent,
+		pool:            cfg.Pool,
+		states:          xsync.NewMap[string, *PlatformRoutingState](),
+		authorities:     cfg.Authorities,
+		p2cWindow:       cfg.P2CWindow,
+		onLeaseEvent:    cfg.OnLeaseEvent,
+		nodeTagResolver: cfg.NodeTagResolver,
 	}
 }
 
@@ -57,6 +62,7 @@ type RouteResult struct {
 	PlatformName string
 	NodeHash     node.Hash
 	EgressIP     netip.Addr
+	NodeTag      string // display tag: "<Subscription>/<Tag>" (DESIGN.md §601)
 	LeaseCreated bool
 }
 
@@ -87,7 +93,11 @@ func (r *Router) RouteRequest(platName, account, target string) (RouteResult, er
 	if err != nil {
 		return RouteResult{}, err
 	}
-	return withPlatformContext(plat, result), nil
+	result = withPlatformContext(plat, result)
+	if r.nodeTagResolver != nil {
+		result.NodeTag = r.nodeTagResolver(result.NodeHash)
+	}
+	return result, nil
 }
 
 func withPlatformContext(plat *platform.Platform, res RouteResult) RouteResult {
@@ -320,6 +330,7 @@ func (r *Router) createLease(
 	lease := Lease{
 		NodeHash:       h,
 		EgressIP:       entry.GetEgressIP(),
+		CreatedAtNs:    nowNs,
 		ExpiryNs:       now.Add(time.Duration(ttl)).UnixNano(),
 		LastAccessedNs: nowNs,
 	}
@@ -345,19 +356,21 @@ func (r *Router) cleanupPreviousLease(
 	switch invalidation {
 	case leaseInvalidationExpire:
 		r.emitLeaseEvent(LeaseEvent{
-			Type:       LeaseExpire,
-			PlatformID: platformID,
-			Account:    account,
-			NodeHash:   lease.NodeHash,
-			EgressIP:   lease.EgressIP,
+			Type:        LeaseExpire,
+			PlatformID:  platformID,
+			Account:     account,
+			NodeHash:    lease.NodeHash,
+			EgressIP:    lease.EgressIP,
+			CreatedAtNs: lease.CreatedAtNs,
 		})
 	case leaseInvalidationRemove:
 		r.emitLeaseEvent(LeaseEvent{
-			Type:       LeaseRemove,
-			PlatformID: platformID,
-			Account:    account,
-			NodeHash:   lease.NodeHash,
-			EgressIP:   lease.EgressIP,
+			Type:        LeaseRemove,
+			PlatformID:  platformID,
+			Account:     account,
+			NodeHash:    lease.NodeHash,
+			EgressIP:    lease.EgressIP,
+			CreatedAtNs: lease.CreatedAtNs,
 		})
 	}
 }
@@ -468,6 +481,7 @@ func (r *Router) ReadLease(key model.LeaseKey) *model.Lease {
 		Account:        key.Account,
 		NodeHash:       lease.NodeHash.Hex(),
 		EgressIP:       lease.EgressIP.String(),
+		CreatedAtNs:    lease.CreatedAtNs,
 		ExpiryNs:       lease.ExpiryNs,
 		LastAccessedNs: lease.LastAccessedNs,
 	}
@@ -502,6 +516,7 @@ func (r *Router) RestoreLeases(leases []model.Lease) {
 		l := Lease{
 			NodeHash:       h,
 			EgressIP:       ip,
+			CreatedAtNs:    ml.CreatedAtNs,
 			ExpiryNs:       ml.ExpiryNs,
 			LastAccessedNs: ml.LastAccessedNs,
 		}
@@ -528,13 +543,17 @@ func (r *Router) DeleteLease(platformID, account string) bool {
 	if !ok {
 		return false
 	}
-	if !state.Leases.DeleteLease(account) {
+	lease, deleted := state.Leases.DeleteLease(account)
+	if !deleted {
 		return false
 	}
 	r.emitLeaseEvent(LeaseEvent{
-		Type:       LeaseRemove,
-		PlatformID: platformID,
-		Account:    account,
+		Type:        LeaseRemove,
+		PlatformID:  platformID,
+		Account:     account,
+		NodeHash:    lease.NodeHash,
+		EgressIP:    lease.EgressIP,
+		CreatedAtNs: lease.CreatedAtNs,
 	})
 	return true
 }
@@ -548,11 +567,15 @@ func (r *Router) DeleteAllLeases(platformID string) int {
 	}
 	count := 0
 	state.Leases.Range(func(account string, _ Lease) bool {
-		if state.Leases.DeleteLease(account) {
+		removed, deleted := state.Leases.DeleteLease(account)
+		if deleted {
 			r.emitLeaseEvent(LeaseEvent{
-				Type:       LeaseRemove,
-				PlatformID: platformID,
-				Account:    account,
+				Type:        LeaseRemove,
+				PlatformID:  platformID,
+				Account:     account,
+				NodeHash:    removed.NodeHash,
+				EgressIP:    removed.EgressIP,
+				CreatedAtNs: removed.CreatedAtNs,
 			})
 			count++
 		}

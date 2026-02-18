@@ -132,7 +132,7 @@ func TestEngine_WeakPersist_CacheDataSurvivesRestart(t *testing.T) {
 		{NodeHash: "n1", Domain: "google.com"}: {NodeHash: "n1", Domain: "google.com", EwmaNs: 42000, LastUpdatedNs: 999},
 	}
 	leaseStore := map[model.LeaseKey]*model.Lease{
-		{PlatformID: "p1", Account: "user1"}: {PlatformID: "p1", Account: "user1", NodeHash: "n1", ExpiryNs: 99999, LastAccessedNs: 888},
+		{PlatformID: "p1", Account: "user1"}: {PlatformID: "p1", Account: "user1", NodeHash: "n1", CreatedAtNs: 777, ExpiryNs: 99999, LastAccessedNs: 888},
 	}
 
 	readers := CacheReaders{
@@ -181,6 +181,9 @@ func TestEngine_WeakPersist_CacheDataSurvivesRestart(t *testing.T) {
 	leases, _ := engine2.LoadAllLeases()
 	if len(leases) != 1 || leases[0].Account != "user1" {
 		t.Fatalf("leases did not survive restart: %+v", leases)
+	}
+	if leases[0].CreatedAtNs != 777 {
+		t.Fatalf("lease created_at_ns did not survive restart: %+v", leases)
 	}
 }
 

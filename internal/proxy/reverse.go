@@ -30,18 +30,20 @@ type ReverseProxyConfig struct {
 	Health         HealthRecorder
 	Matcher        AccountRuleMatcher
 	Events         EventEmitter
+	MetricsSink    MetricsEventSink
 }
 
 // ReverseProxy implements an HTTP reverse proxy.
 // Path format: /PROXY_TOKEN/Platform:Account/protocol/host/path?query
 type ReverseProxy struct {
-	token    string
-	router   *routing.Router
-	pool     outbound.PoolAccessor
-	platLook PlatformLookup
-	health   HealthRecorder
-	matcher  AccountRuleMatcher
-	events   EventEmitter
+	token       string
+	router      *routing.Router
+	pool        outbound.PoolAccessor
+	platLook    PlatformLookup
+	health      HealthRecorder
+	matcher     AccountRuleMatcher
+	events      EventEmitter
+	metricsSink MetricsEventSink
 }
 
 // NewReverseProxy creates a new reverse proxy handler.
@@ -51,13 +53,14 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 		ev = NoOpEventEmitter{}
 	}
 	return &ReverseProxy{
-		token:    cfg.ProxyToken,
-		router:   cfg.Router,
-		pool:     cfg.Pool,
-		platLook: cfg.PlatformLookup,
-		health:   cfg.Health,
-		matcher:  cfg.Matcher,
-		events:   ev,
+		token:       cfg.ProxyToken,
+		router:      cfg.Router,
+		pool:        cfg.Pool,
+		platLook:    cfg.PlatformLookup,
+		health:      cfg.Health,
+		matcher:     cfg.Matcher,
+		events:      ev,
+		metricsSink: cfg.MetricsSink,
 	}
 }
 
@@ -288,7 +291,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	lifecycle.setTarget(parsed.Host, target.String())
 
-	transport := newOutboundTransport(routed.Outbound)
+	transport := newOutboundTransport(routed.Outbound, p.metricsSink, routed.Route.PlatformID)
 
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {

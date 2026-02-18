@@ -22,6 +22,10 @@ type OutboundHTTPOptions struct {
 	RequireStatusOK bool
 	// UserAgent overrides the request User-Agent when non-empty.
 	UserAgent string
+	// OnConnLifecycle is called with "open" or "close" to track connection
+	// lifecycle for metrics. Set by probe callers to count outbound connections;
+	// left nil for download callers (GeoIP, subscription) to exclude from stats.
+	OnConnLifecycle func(op string)
 }
 
 // HTTPGetViaOutbound executes an HTTP GET through the provided outbound.
@@ -38,7 +42,15 @@ func HTTPGetViaOutbound(
 
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return outbound.DialContext(ctx, network, M.ParseSocksaddr(addr))
+			conn, err := outbound.DialContext(ctx, network, M.ParseSocksaddr(addr))
+			if err != nil {
+				return nil, err
+			}
+			if opts.OnConnLifecycle != nil {
+				opts.OnConnLifecycle("open")
+				return &connCloseHook{Conn: conn, onClose: func() { opts.OnConnLifecycle("close") }}, nil
+			}
+			return conn, nil
 		},
 		DisableKeepAlives: true,
 		ForceAttemptHTTP2: true,
@@ -87,4 +99,19 @@ func HTTPGetViaOutbound(
 	}
 
 	return body, latency, nil
+}
+
+// connCloseHook wraps a net.Conn and calls onClose exactly once on Close.
+type connCloseHook struct {
+	net.Conn
+	onClose func()
+	closed  bool
+}
+
+func (c *connCloseHook) Close() error {
+	if !c.closed {
+		c.closed = true
+		c.onClose()
+	}
+	return c.Conn.Close()
 }

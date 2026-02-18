@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"net"
 	"net/http"
 	"time"
 
@@ -29,19 +30,25 @@ func newRequestLifecycle(
 	clientIP := ""
 	if r != nil {
 		method = r.Method
-		clientIP = r.RemoteAddr
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			clientIP = host
+		} else {
+			clientIP = r.RemoteAddr // fallback: bare IP or unparseable
+		}
 	}
+	now := time.Now()
 	return &requestLifecycle{
-		startedAt: time.Now(),
+		startedAt: now,
 		events:    events,
 		finished: RequestFinishedEvent{
 			ProxyType: proxyType,
 			IsConnect: isConnect,
 		},
 		log: RequestLogEntry{
-			ProxyType:  proxyType,
-			ClientIP:   clientIP,
-			HTTPMethod: method,
+			StartedAtNs: now.UnixNano(),
+			ProxyType:   proxyType,
+			ClientIP:    clientIP,
+			HTTPMethod:  method,
 		},
 	}
 }
@@ -61,8 +68,8 @@ func (l *requestLifecycle) finish() {
 	durationNs := time.Since(l.startedAt).Nanoseconds()
 	l.finished.DurationNs = durationNs
 	l.log.DurationNs = durationNs
-	go l.events.EmitRequestFinished(l.finished)
-	go l.events.EmitRequestLog(l.log)
+	l.events.EmitRequestFinished(l.finished)
+	l.events.EmitRequestLog(l.log)
 }
 
 func (l *requestLifecycle) setHTTPStatus(code int) {
@@ -108,5 +115,6 @@ func (l *requestLifecycle) setRouteResult(result routing.RouteResult) {
 	l.log.PlatformID = result.PlatformID
 	l.log.PlatformName = result.PlatformName
 	l.log.NodeHash = result.NodeHash.Hex()
+	l.log.NodeTag = result.NodeTag
 	l.log.EgressIP = result.EgressIP.String()
 }

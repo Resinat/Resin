@@ -68,6 +68,7 @@ type Lease struct {
 	Account        string `json:"account"`
 	NodeHash       string `json:"node_hash"`
 	EgressIP       string `json:"egress_ip"`
+	CreatedAtNs    int64  `json:"created_at_ns"`
 	ExpiryNs       int64  `json:"expiry_ns"`
 	LastAccessedNs int64  `json:"last_accessed_ns"`
 }

@@ -156,7 +156,7 @@ func TestCacheRepo_Leases_BulkUpsertAndLoad(t *testing.T) {
 	repo := newTestCacheRepo(t)
 
 	leases := []model.Lease{
-		{PlatformID: "p1", Account: "user1", NodeHash: "n1", EgressIP: "1.2.3.4", ExpiryNs: 9999, LastAccessedNs: 100},
+		{PlatformID: "p1", Account: "user1", NodeHash: "n1", EgressIP: "1.2.3.4", CreatedAtNs: 50, ExpiryNs: 9999, LastAccessedNs: 100},
 	}
 	if err := repo.BulkUpsertLeases(leases); err != nil {
 		t.Fatal(err)
@@ -169,14 +169,17 @@ func TestCacheRepo_Leases_BulkUpsertAndLoad(t *testing.T) {
 	if len(loaded) != 1 || loaded[0].Account != "user1" {
 		t.Fatalf("unexpected: %+v", loaded)
 	}
+	if loaded[0].CreatedAtNs != 50 {
+		t.Fatalf("created_at_ns: got %d, want %d", loaded[0].CreatedAtNs, 50)
+	}
 }
 
 func TestCacheRepo_Leases_BulkDelete(t *testing.T) {
 	repo := newTestCacheRepo(t)
 
 	repo.BulkUpsertLeases([]model.Lease{
-		{PlatformID: "p1", Account: "user1", NodeHash: "n1", ExpiryNs: 9999, LastAccessedNs: 100},
-		{PlatformID: "p1", Account: "user2", NodeHash: "n2", ExpiryNs: 9999, LastAccessedNs: 100},
+		{PlatformID: "p1", Account: "user1", NodeHash: "n1", CreatedAtNs: 10, ExpiryNs: 9999, LastAccessedNs: 100},
+		{PlatformID: "p1", Account: "user2", NodeHash: "n2", CreatedAtNs: 20, ExpiryNs: 9999, LastAccessedNs: 100},
 	})
 	repo.BulkDeleteLeases([]model.LeaseKey{{PlatformID: "p1", Account: "user1"}})
 

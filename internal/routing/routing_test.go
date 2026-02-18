@@ -201,6 +201,41 @@ func TestStickyLease_CreateAndHit(t *testing.T) {
 	}
 }
 
+func TestDeleteLease_EmitsLeaseRemoveWithLifetimeFields(t *testing.T) {
+	pool, subMgr := setupPool(t)
+	makeRoutableNode(t, pool, subMgr, `{"delete":"1"}`, "10.0.0.9", "cloudflare.com", 50*time.Millisecond)
+
+	var events []routing.LeaseEvent
+	router := makeRouter(pool, &events)
+
+	res, err := router.RouteRequest(platName, "user-delete", "example.com")
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if !router.DeleteLease(platID, "user-delete") {
+		t.Fatal("DeleteLease should return true")
+	}
+
+	found := false
+	for _, e := range events {
+		if e.Type == routing.LeaseRemove && e.Account == "user-delete" {
+			found = true
+			if e.NodeHash != res.NodeHash {
+				t.Fatalf("LeaseRemove node_hash: got %s, want %s", e.NodeHash.Hex(), res.NodeHash.Hex())
+			}
+			if e.EgressIP != res.EgressIP {
+				t.Fatalf("LeaseRemove egress_ip: got %s, want %s", e.EgressIP, res.EgressIP)
+			}
+			if e.CreatedAtNs <= 0 {
+				t.Fatalf("LeaseRemove created_at_ns: got %d, want > 0", e.CreatedAtNs)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected LeaseRemove event for DeleteLease")
+	}
+}
+
 // ── lease expiry test ───────────────────────────────────────────
 
 func TestStickyLease_Expiry(t *testing.T) {
@@ -301,20 +336,30 @@ func TestRestoreLeases(t *testing.T) {
 	pool, subMgr := setupPool(t)
 	h := makeRoutableNode(t, pool, subMgr, `{"restore":"1"}`, "10.0.0.1", "cloudflare.com", 50*time.Millisecond)
 
-	router := makeRouter(pool, nil)
+	var events []routing.LeaseEvent
+	router := makeRouter(pool, &events)
 
 	// Restore a lease.
+	createdAtNs := time.Now().Add(-2 * time.Minute).UnixNano()
 	leases := []model.Lease{
 		{
 			PlatformID:     platID,
 			Account:        "restored-user",
 			NodeHash:       h.Hex(),
 			EgressIP:       "10.0.0.1",
+			CreatedAtNs:    createdAtNs,
 			ExpiryNs:       time.Now().Add(1 * time.Hour).UnixNano(),
 			LastAccessedNs: time.Now().UnixNano(),
 		},
 	}
 	router.RestoreLeases(leases)
+	restored := router.ReadLease(model.LeaseKey{PlatformID: platID, Account: "restored-user"})
+	if restored == nil {
+		t.Fatal("restored lease missing")
+	}
+	if restored.CreatedAtNs != createdAtNs {
+		t.Fatalf("restored created_at_ns: got %d, want %d", restored.CreatedAtNs, createdAtNs)
+	}
 
 	// After restore, routing should hit the restored lease.
 	res, err := router.RouteRequest(platName, "restored-user", "example.com")
@@ -326,6 +371,22 @@ func TestRestoreLeases(t *testing.T) {
 	}
 	if res.LeaseCreated {
 		t.Fatal("should NOT create new lease for restored entry")
+	}
+
+	if ok := router.DeleteLease(platID, "restored-user"); !ok {
+		t.Fatal("DeleteLease should remove restored lease")
+	}
+	found := false
+	for _, e := range events {
+		if e.Type == routing.LeaseRemove && e.Account == "restored-user" {
+			found = true
+			if e.CreatedAtNs != createdAtNs {
+				t.Fatalf("lease remove created_at_ns: got %d, want %d", e.CreatedAtNs, createdAtNs)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected LeaseRemove event for restored lease")
 	}
 }
 

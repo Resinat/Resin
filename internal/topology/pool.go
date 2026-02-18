@@ -278,8 +278,8 @@ func (p *GlobalNodePool) platformSnapshot() []*platform.Platform {
 	return platforms
 }
 
-// makeSubLookup builds the SubLookupFunc closure for MatchRegexs.
-func (p *GlobalNodePool) makeSubLookup() node.SubLookupFunc {
+// MakeSubLookup builds the SubLookupFunc closure for MatchRegexs / tag resolution.
+func (p *GlobalNodePool) MakeSubLookup() node.SubLookupFunc {
 	return func(subID string, hash node.Hash) (string, bool, []string, bool) {
 		sub := p.subLookup(subID)
 		if sub == nil {
@@ -290,10 +290,73 @@ func (p *GlobalNodePool) makeSubLookup() node.SubLookupFunc {
 	}
 }
 
+// ResolveNodeDisplayTag resolves a node hash to its display tag for request logs.
+// Rule (DESIGN.md §601):
+//  1. Among subscriptions that hold this node, choose the earliest-created one.
+//  2. Within that subscription, choose lexicographically smallest tag.
+//  3. Return "<SubscriptionName>/<Tag>".
+//
+// Returns empty string when resolution is not possible.
+func (p *GlobalNodePool) ResolveNodeDisplayTag(hash node.Hash) string {
+	if p.subLookup == nil {
+		return ""
+	}
+
+	entry, ok := p.GetEntry(hash)
+	if !ok || entry == nil {
+		return ""
+	}
+	subIDs := entry.SubscriptionIDs()
+	if len(subIDs) == 0 {
+		return ""
+	}
+
+	bestFound := false
+	var bestCreatedAtNs int64
+	var bestSubID string
+	var bestSubName string
+	var bestTag string
+
+	for _, subID := range subIDs {
+		sub := p.subLookup(subID)
+		if sub == nil {
+			continue
+		}
+
+		tags, ok := sub.ManagedNodes().Load(hash)
+		if !ok || len(tags) == 0 {
+			continue
+		}
+
+		smallestTag := tags[0]
+		for _, tag := range tags[1:] {
+			if tag < smallestTag {
+				smallestTag = tag
+			}
+		}
+
+		createdAtNs := sub.CreatedAtNs
+		if !bestFound ||
+			createdAtNs < bestCreatedAtNs ||
+			(createdAtNs == bestCreatedAtNs && subID < bestSubID) {
+			bestFound = true
+			bestCreatedAtNs = createdAtNs
+			bestSubID = subID
+			bestSubName = sub.Name()
+			bestTag = smallestTag
+		}
+	}
+
+	if !bestFound || bestSubName == "" || bestTag == "" {
+		return ""
+	}
+	return bestSubName + "/" + bestTag
+}
+
 // notifyAllPlatformsDirty tells every registered platform to re-evaluate a node.
 func (p *GlobalNodePool) notifyAllPlatformsDirty(hash node.Hash) {
 	platforms := p.platformSnapshot()
-	subLookup := p.makeSubLookup()
+	subLookup := p.MakeSubLookup()
 	getEntry := func(h node.Hash) (*node.NodeEntry, bool) {
 		return p.nodes.Load(h)
 	}
@@ -306,7 +369,7 @@ func (p *GlobalNodePool) notifyAllPlatformsDirty(hash node.Hash) {
 // RebuildAllPlatforms triggers a full rebuild on all registered platforms.
 func (p *GlobalNodePool) RebuildAllPlatforms() {
 	platforms := p.platformSnapshot()
-	subLookup := p.makeSubLookup()
+	subLookup := p.MakeSubLookup()
 	poolRange := func(fn func(node.Hash, *node.NodeEntry) bool) {
 		p.nodes.Range(fn)
 	}
@@ -318,7 +381,7 @@ func (p *GlobalNodePool) RebuildAllPlatforms() {
 
 // RebuildPlatform triggers a full rebuild on a specific platform.
 func (p *GlobalNodePool) RebuildPlatform(plat *platform.Platform) {
-	subLookup := p.makeSubLookup()
+	subLookup := p.MakeSubLookup()
 	poolRange := func(fn func(node.Hash, *node.NodeEntry) bool) {
 		p.nodes.Range(fn)
 	}

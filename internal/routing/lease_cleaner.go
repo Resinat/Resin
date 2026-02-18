@@ -77,11 +77,12 @@ func (c *LeaseCleaner) sweep() {
 
 						if c.router.onLeaseEvent != nil {
 							c.router.onLeaseEvent(LeaseEvent{
-								Type:       LeaseExpire,
-								PlatformID: platID,
-								Account:    account,
-								NodeHash:   current.NodeHash,
-								EgressIP:   current.EgressIP,
+								Type:        LeaseExpire,
+								PlatformID:  platID,
+								Account:     account,
+								NodeHash:    current.NodeHash,
+								EgressIP:    current.EgressIP,
+								CreatedAtNs: current.CreatedAtNs,
 							})
 						}
 

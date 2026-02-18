@@ -73,6 +73,18 @@ func (s *SubscriptionScheduler) Stop() {
 	s.wg.Wait()
 }
 
+// ForceRefreshAll unconditionally updates ALL enabled subscriptions, regardless
+// of their next-check timestamps. Called once at startup to compensate for
+// lost data from weak persistence (DESIGN.md step 8 batch 3).
+func (s *SubscriptionScheduler) ForceRefreshAll() {
+	s.subManager.Range(func(id string, sub *subscription.Subscription) bool {
+		if sub.Enabled() {
+			s.UpdateSubscription(sub)
+		}
+		return true
+	})
+}
+
 func (s *SubscriptionScheduler) tick() {
 	now := time.Now().UnixNano()
 	s.subManager.Range(func(id string, sub *subscription.Subscription) bool {

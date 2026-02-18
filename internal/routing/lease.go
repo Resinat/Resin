@@ -14,6 +14,7 @@ import (
 type Lease struct {
 	NodeHash       node.Hash
 	EgressIP       netip.Addr
+	CreatedAtNs    int64
 	ExpiryNs       int64
 	LastAccessedNs int64
 }
@@ -68,18 +69,20 @@ func (t *LeaseTable) CreateLease(account string, lease Lease) {
 }
 
 // DeleteLease atomically removes a lease and decrements IP load stats.
-// Returns true if a lease was actually deleted.
-func (t *LeaseTable) DeleteLease(account string) bool {
-	deleted := false
+// Returns the deleted lease and true when a lease was actually deleted.
+func (t *LeaseTable) DeleteLease(account string) (Lease, bool) {
+	var deleted Lease
+	ok := false
 	t.leases.Compute(account, func(oldVal Lease, loaded bool) (Lease, xsync.ComputeOp) {
 		if loaded {
 			t.stats.Dec(oldVal.EgressIP)
-			deleted = true
+			deleted = oldVal
+			ok = true
 			return oldVal, xsync.DeleteOp
 		}
 		return oldVal, xsync.CancelOp
 	})
-	return deleted
+	return deleted, ok
 }
 
 // Size returns the number of leases in the table.

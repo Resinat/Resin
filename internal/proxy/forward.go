@@ -20,21 +20,23 @@ import (
 
 // ForwardProxyConfig holds dependencies for the forward proxy.
 type ForwardProxyConfig struct {
-	ProxyToken string
-	Router     *routing.Router
-	Pool       outbound.PoolAccessor
-	Health     HealthRecorder
-	Events     EventEmitter
+	ProxyToken  string
+	Router      *routing.Router
+	Pool        outbound.PoolAccessor
+	Health      HealthRecorder
+	Events      EventEmitter
+	MetricsSink MetricsEventSink
 }
 
 // ForwardProxy implements an HTTP forward proxy with Proxy-Authorization
 // authentication, HTTP request forwarding, and CONNECT tunneling.
 type ForwardProxy struct {
-	token  string
-	router *routing.Router
-	pool   outbound.PoolAccessor
-	health HealthRecorder
-	events EventEmitter
+	token       string
+	router      *routing.Router
+	pool        outbound.PoolAccessor
+	health      HealthRecorder
+	events      EventEmitter
+	metricsSink MetricsEventSink
 }
 
 // NewForwardProxy creates a new forward proxy handler.
@@ -44,11 +46,12 @@ func NewForwardProxy(cfg ForwardProxyConfig) *ForwardProxy {
 		ev = NoOpEventEmitter{}
 	}
 	return &ForwardProxy{
-		token:  cfg.ProxyToken,
-		router: cfg.Router,
-		pool:   cfg.Pool,
-		health: cfg.Health,
-		events: ev,
+		token:       cfg.ProxyToken,
+		router:      cfg.Router,
+		pool:        cfg.Pool,
+		health:      cfg.Health,
+		events:      ev,
+		metricsSink: cfg.MetricsSink,
 	}
 }
 
@@ -167,7 +170,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	lifecycle.setRouteResult(routed.Route)
 
-	transport := newOutboundTransport(routed.Outbound)
+	transport := newOutboundTransport(routed.Outbound, p.metricsSink, routed.Route.PlatformID)
 
 	// Strip hop-by-hop headers (including Proxy-Authorization).
 	stripHopByHopHeaders(r.Header)
@@ -247,8 +250,15 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	lifecycle.setNetOK(true)
 	go p.health.RecordResult(nodeHashRaw, true)
 
+	// Wrap with counting conn for traffic/connection metrics.
+	var upstreamBase net.Conn = rawConn
+	if p.metricsSink != nil {
+		p.metricsSink.OnConnectionLifecycle("outbound", "open")
+		upstreamBase = newCountingConn(rawConn, p.metricsSink, routed.Route.PlatformID)
+	}
+
 	// Wrap with TLS latency measurement.
-	upstreamConn := newTLSLatencyConn(rawConn, func(latency time.Duration) {
+	upstreamConn := newTLSLatencyConn(upstreamBase, func(latency time.Duration) {
 		p.health.RecordLatency(nodeHashRaw, domain, latency)
 	})
 

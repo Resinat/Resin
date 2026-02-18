@@ -5,17 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"runtime"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/puzpuzpuz/xsync/v4"
 
 	"github.com/resin-proxy/resin/internal/api"
 	"github.com/resin-proxy/resin/internal/buildinfo"
 	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/geoip"
+	"github.com/resin-proxy/resin/internal/metrics"
 	"github.com/resin-proxy/resin/internal/model"
 	"github.com/resin-proxy/resin/internal/netutil"
 	"github.com/resin-proxy/resin/internal/node"
@@ -23,6 +31,7 @@ import (
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/probe"
 	"github.com/resin-proxy/resin/internal/proxy"
+	"github.com/resin-proxy/resin/internal/requestlog"
 	"github.com/resin-proxy/resin/internal/routing"
 	"github.com/resin-proxy/resin/internal/service"
 	"github.com/resin-proxy/resin/internal/state"
@@ -57,6 +66,7 @@ func main() {
 
 	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
 	runtimeCfg.Store(loadRuntimeConfig(engine))
+	accountMatcher := buildAccountMatcher(engine)
 
 	// Phase 1: Create DirectDownloader and RetryDownloader shell.
 	// NodePicker/ProxyFetch are nil initially; set after Pool + OutboundManager creation.
@@ -85,14 +95,39 @@ func main() {
 		P2CWindow: func() time.Duration {
 			return time.Duration(runtimeConfigSnapshot(runtimeCfg).P2CLatencyWindow)
 		},
+		NodeTagResolver: topoRuntime.pool.ResolveNodeDisplayTag,
 		// Lease events are emitted synchronously on routing paths.
 		// Keep this callback lightweight and non-blocking.
+		// metricsManager is set after creation below via leaseEventMetricsSink.
 		OnLeaseEvent: func(e routing.LeaseEvent) {
 			switch e.Type {
 			case routing.LeaseCreate, routing.LeaseTouch, routing.LeaseReplace:
 				engine.MarkLease(e.PlatformID, e.Account)
 			case routing.LeaseRemove, routing.LeaseExpire:
 				engine.MarkLeaseDelete(e.PlatformID, e.Account)
+			}
+			if sink := leaseEventMetricsSink.Load(); sink != nil {
+				op := "touch"
+				switch e.Type {
+				case routing.LeaseCreate:
+					op = "create"
+				case routing.LeaseRemove:
+					op = "remove"
+				case routing.LeaseExpire:
+					op = "expire"
+				case routing.LeaseReplace:
+					op = "replace"
+				}
+				(*sink).OnLeaseEvent(metrics.LeaseMetricEvent{
+					PlatformID: e.PlatformID,
+					Op:         op,
+					LifetimeNs: func() int64 {
+						if e.CreatedAtNs > 0 && (op == "remove" || op == "expire") {
+							return time.Now().UnixNano() - e.CreatedAtNs
+						}
+						return 0
+					}(),
+				})
 			}
 		},
 	})
@@ -118,11 +153,22 @@ func main() {
 		fatalf("%v", err)
 	}
 
-	// Phase 6.5: Start GeoIP after platforms are loaded so proxy retry can
-	// route through the restored Default platform immediately.
-	startGeoIPService(geoSvc)
+	// Phase 6.1: Bootstrap nodes (steps 3-6: static, subscription_nodes, dynamic, latency).
+	if err := bootstrapNodes(engine, topoRuntime.pool, topoRuntime.subManager, topoRuntime.outboundMgr, envCfg); err != nil {
+		fatalf("%v", err)
+	}
 
-	// Phase 7: Restore leases.
+	// GeoIP moved to step 8 batch 1 (after lease restore, per DESIGN.md).
+
+	// Phase 8: Outbound warmup — create outbounds for all bootstrapped nodes.
+	topoRuntime.outboundMgr.WarmupAll()
+
+	// Phase 8.1: Rebuild platform views BEFORE lease restore.
+	// DESIGN.md requires step 6 (rebuild) before step 7 (leases).
+	topoRuntime.pool.RebuildAllPlatforms()
+	log.Println("Outbound warmup and platform rebuild complete")
+
+	// Phase 9: Restore leases (AFTER rebuild so platform views are populated).
 	leases, err := engine.LoadAllLeases()
 	if err != nil {
 		log.Printf("Warning: load leases: %v", err)
@@ -130,11 +176,6 @@ func main() {
 		topoRuntime.router.RestoreLeases(leases)
 		log.Printf("Restored %d leases from cache.db", len(leases))
 	}
-
-	// Phase 8: Outbound warmup — create outbounds for all bootstrapped nodes.
-	topoRuntime.outboundMgr.WarmupAll()
-	topoRuntime.pool.RebuildAllPlatforms()
-	log.Println("Outbound warmup complete")
 
 	flushReaders := newFlushReaders(topoRuntime.pool, topoRuntime.subManager, topoRuntime.router)
 	flushWorker := state.NewCacheFlushWorker(
@@ -146,17 +187,84 @@ func main() {
 	flushWorker.Start()
 	log.Println("Cache flush worker started")
 
+	// Phase 10: Initialize observability services.
+	requestLogCfg := deriveRequestLogRuntimeSettings(envCfg)
+	metricsCfg := deriveMetricsManagerSettings(envCfg)
+	metricsDB, err := metrics.NewMetricsRepo(filepath.Join(envCfg.LogDir, "metrics.db"))
+	if err != nil {
+		fatalf("metrics DB: %v", err)
+	}
+	metricsManager := metrics.NewManager(metrics.ManagerConfig{
+		Repo:                        metricsDB,
+		LatencyBinMs:                metricsCfg.LatencyBinMs,
+		LatencyOverflowMs:           metricsCfg.LatencyOverflowMs,
+		BucketSeconds:               metricsCfg.BucketSeconds,
+		ThroughputRealtimeCapacity:  metricsCfg.ThroughputRealtimeCapacity,
+		ThroughputIntervalSec:       metricsCfg.ThroughputIntervalSec,
+		ConnectionsRealtimeCapacity: metricsCfg.ConnectionsRealtimeCapacity,
+		ConnectionsIntervalSec:      metricsCfg.ConnectionsIntervalSec,
+		LeasesRealtimeCapacity:      metricsCfg.LeasesRealtimeCapacity,
+		LeasesIntervalSec:           metricsCfg.LeasesIntervalSec,
+		NodePoolStats:               &nodePoolStatsAdapter{pool: topoRuntime.pool},
+		LeaseCountProvider: &leaseCountAdapter{
+			pool:   topoRuntime.pool,
+			router: topoRuntime.router,
+		},
+		PlatformStats: &platformStatsAdapter{pool: topoRuntime.pool},
+		NodeLatency: &nodeLatencyAdapter{
+			pool: topoRuntime.pool,
+			authorities: func() []string {
+				return runtimeConfigSnapshot(runtimeCfg).LatencyAuthorities
+			},
+		},
+	})
+
+	// Wire LeaseEvent metrics sink (closure captures metricsManager).
+	leaseEventMetricsSink.Store(&metricsManager)
+
+	requestlogRepo := requestlog.NewRepo(
+		envCfg.LogDir,
+		requestLogCfg.DBMaxBytes,
+		requestLogCfg.DBRetainCount,
+	)
+	if err := requestlogRepo.Open(); err != nil {
+		fatalf("requestlog repo open: %v", err)
+	}
+	requestlogSvc := requestlog.NewService(requestlog.ServiceConfig{
+		Repo:          requestlogRepo,
+		QueueSize:     requestLogCfg.QueueSize,
+		FlushBatch:    requestLogCfg.FlushBatch,
+		FlushInterval: requestLogCfg.FlushInterval,
+	})
+
+	// --- Step 8 Batch 1: CacheFlushWorker (already started) + GeoIP + MetricsManager ---
+	startGeoIPService(geoSvc)
+	log.Println("GeoIP service started (batch 1)")
+
+	metricsManager.Start()
+	log.Println("Metrics manager started (batch 1)")
+
+	// --- Step 8 Batch 2: ProbeManager, RequestLog, LeaseCleaner, EphemeralCleaner ---
+	topoRuntime.probeMgr.SetOnProbeEvent(func(kind string) {
+		metricsManager.OnProbeEvent(metrics.ProbeEvent{Kind: metrics.ProbeKind(kind)})
+	})
+
 	topoRuntime.probeMgr.Start()
-	log.Println("Probe manager started")
+	log.Println("Probe manager started (batch 2)")
 
-	topoRuntime.scheduler.Start()
-	log.Println("Subscription scheduler started")
-
-	topoRuntime.ephemeralCleaner.Start()
-	log.Println("Ephemeral cleaner started")
+	requestlogSvc.Start()
+	log.Println("Request log service started (batch 2)")
 
 	topoRuntime.leaseCleaner.Start()
-	log.Println("Lease cleaner started")
+	log.Println("Lease cleaner started (batch 2)")
+
+	topoRuntime.ephemeralCleaner.Start()
+	log.Println("Ephemeral cleaner started (batch 2)")
+
+	// --- Step 8 Batch 3: Subscription scheduler (force full refresh on start) ---
+	topoRuntime.scheduler.Start()
+	topoRuntime.scheduler.ForceRefreshAll()
+	log.Println("Subscription scheduler started with forced full refresh (batch 3)")
 
 	startedAt := time.Now().UTC()
 	systemSvc := service.NewMemorySystemService(
@@ -168,9 +276,6 @@ func main() {
 		},
 		runtimeCfg,
 	)
-
-	// Phase 6: Load Account Header Rules and start Forward/Reverse Proxy.
-	accountMatcher := buildAccountMatcher(engine)
 
 	// Build the Control Plane service (after accountMatcher so we can inject MatcherRuntime).
 	cpService := &service.ControlPlaneService{
@@ -192,6 +297,8 @@ func main() {
 		systemSvc,
 		cpService,
 		int64(envCfg.APIMaxBodyBytes),
+		requestlogRepo,
+		metricsManager,
 	)
 
 	go func() {
@@ -201,8 +308,10 @@ func main() {
 		}
 	}()
 
+	// Composite emitter: requestlog handles EmitRequestLog, metricsManager handles EmitRequestFinished.
+	composite := compositeEmitter{logSvc: requestlogSvc, metricsMgr: metricsManager}
 	proxyEvents := proxy.ConfigAwareEventEmitter{
-		Base: proxy.NoOpEventEmitter{},
+		Base: composite,
 		RequestLogEnabled: func() bool {
 			return runtimeConfigSnapshot(runtimeCfg).RequestLogEnabled
 		},
@@ -224,19 +333,22 @@ func main() {
 	}
 
 	forwardProxy := proxy.NewForwardProxy(proxy.ForwardProxyConfig{
-		ProxyToken: envCfg.ProxyToken,
-		Router:     topoRuntime.router,
-		Pool:       topoRuntime.pool,
-		Health:     topoRuntime.pool,
-		Events:     proxyEvents,
+		ProxyToken:  envCfg.ProxyToken,
+		Router:      topoRuntime.router,
+		Pool:        topoRuntime.pool,
+		Health:      topoRuntime.pool,
+		Events:      proxyEvents,
+		MetricsSink: metricsManager,
 	})
-	forwardSrv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", envCfg.ForwardProxyPort),
-		Handler: forwardProxy,
+	forwardLn, err := net.Listen("tcp", fmt.Sprintf(":%d", envCfg.ForwardProxyPort))
+	if err != nil {
+		fatalf("forward proxy listen: %v", err)
 	}
+	forwardLn = proxy.NewCountingListener(forwardLn, metricsManager)
+	forwardSrv := &http.Server{Handler: forwardProxy}
 	go func() {
 		log.Printf("Forward proxy starting on :%d", envCfg.ForwardProxyPort)
-		if err := forwardSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := forwardSrv.Serve(forwardLn); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Forward proxy error: %v", err)
 		}
 	}()
@@ -249,14 +361,17 @@ func main() {
 		Health:         topoRuntime.pool,
 		Matcher:        accountMatcher,
 		Events:         proxyEvents,
+		MetricsSink:    metricsManager,
 	})
-	reverseSrv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", envCfg.ReverseProxyPort),
-		Handler: reverseProxy,
+	reverseLn, err := net.Listen("tcp", fmt.Sprintf(":%d", envCfg.ReverseProxyPort))
+	if err != nil {
+		fatalf("reverse proxy listen: %v", err)
 	}
+	reverseLn = proxy.NewCountingListener(reverseLn, metricsManager)
+	reverseSrv := &http.Server{Handler: reverseProxy}
 	go func() {
 		log.Printf("Reverse proxy starting on :%d", envCfg.ReverseProxyPort)
-		if err := reverseSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := reverseSrv.Serve(reverseLn); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Reverse proxy error: %v", err)
 		}
 	}()
@@ -283,8 +398,8 @@ func main() {
 		log.Printf("Server shutdown error: %v", err)
 	}
 
-	// Stop in reverse order: lease cleaner -> ephemeral cleaner -> scheduler -> probe manager -> geoip -> flush worker.
-	// scheduler must stop before probe manager to avoid post-stop triggers.
+	// Stop in order: event sources first, then sinks, then persistence.
+	// 1. Stop all event sources (no more events after this).
 	topoRuntime.leaseCleaner.Stop()
 	log.Println("Lease cleaner stopped")
 
@@ -300,6 +415,22 @@ func main() {
 	geoSvc.Stop()
 	log.Println("GeoIP service stopped")
 
+	// 2. Stop observability sinks (flush remaining data).
+	requestlogSvc.Stop()
+	log.Println("Request log service stopped")
+	if err := requestlogRepo.Close(); err != nil {
+		log.Printf("Request log repo close error: %v", err)
+	}
+	log.Println("Request log repo closed")
+
+	metricsManager.Stop()
+	log.Println("Metrics manager stopped")
+	if err := metricsDB.Close(); err != nil {
+		log.Printf("Metrics DB close error: %v", err)
+	}
+	log.Println("Metrics DB closed")
+
+	// 3. Stop infrastructure.
 	if topoRuntime.singboxBuilder != nil {
 		if err := topoRuntime.singboxBuilder.Close(); err != nil {
 			log.Printf("SingboxBuilder close error: %v", err)
@@ -307,7 +438,7 @@ func main() {
 		log.Println("SingboxBuilder stopped")
 	}
 
-	flushWorker.Stop() // final flush before DB close
+	flushWorker.Stop() // final cache flush before DB close
 	log.Println("Server stopped")
 }
 
@@ -360,6 +491,80 @@ func runtimeConfigSnapshot(runtimeCfg *atomic.Pointer[config.RuntimeConfig]) *co
 		return config.NewDefaultRuntimeConfig()
 	}
 	return cfg
+}
+
+type requestLogRuntimeSettings struct {
+	DBMaxBytes    int64
+	DBRetainCount int
+	QueueSize     int
+	FlushBatch    int
+	FlushInterval time.Duration
+}
+
+func deriveRequestLogRuntimeSettings(envCfg *config.EnvConfig) requestLogRuntimeSettings {
+	return requestLogRuntimeSettings{
+		DBMaxBytes:    int64(envCfg.RequestLogDBMaxMB) * 1024 * 1024,
+		DBRetainCount: envCfg.RequestLogDBRetainCount,
+		QueueSize:     envCfg.RequestLogQueueSize,
+		FlushBatch:    envCfg.RequestLogQueueFlushBatchSize,
+		FlushInterval: envCfg.RequestLogQueueFlushInterval,
+	}
+}
+
+type metricsManagerSettings struct {
+	LatencyBinMs                int
+	LatencyOverflowMs           int
+	BucketSeconds               int
+	ThroughputIntervalSec       int
+	ThroughputRealtimeCapacity  int
+	ConnectionsIntervalSec      int
+	ConnectionsRealtimeCapacity int
+	LeasesIntervalSec           int
+	LeasesRealtimeCapacity      int
+}
+
+func deriveMetricsManagerSettings(envCfg *config.EnvConfig) metricsManagerSettings {
+	throughputInterval := envCfg.MetricThroughputIntervalSeconds
+	if throughputInterval <= 0 {
+		throughputInterval = 1
+	}
+	connectionsInterval := envCfg.MetricConnectionsIntervalSeconds
+	if connectionsInterval <= 0 {
+		connectionsInterval = 5
+	}
+	leasesInterval := envCfg.MetricLeasesIntervalSeconds
+	if leasesInterval <= 0 {
+		leasesInterval = 5
+	}
+
+	return metricsManagerSettings{
+		LatencyBinMs:                envCfg.MetricLatencyBinWidthMS,
+		LatencyOverflowMs:           envCfg.MetricLatencyBinOverflowMS,
+		BucketSeconds:               envCfg.MetricBucketSeconds,
+		ThroughputIntervalSec:       throughputInterval,
+		ThroughputRealtimeCapacity:  realtimeCapacity(envCfg.MetricThroughputRetentionSeconds, throughputInterval),
+		ConnectionsIntervalSec:      connectionsInterval,
+		ConnectionsRealtimeCapacity: realtimeCapacity(envCfg.MetricConnectionsRetentionSeconds, connectionsInterval),
+		LeasesIntervalSec:           leasesInterval,
+		LeasesRealtimeCapacity:      realtimeCapacity(envCfg.MetricLeasesRetentionSeconds, leasesInterval),
+	}
+}
+
+func realtimeCapacity(retentionSec, intervalSec int) int {
+	if intervalSec <= 0 {
+		intervalSec = 1
+	}
+	if retentionSec <= 0 {
+		retentionSec = intervalSec
+	}
+	capacity := retentionSec / intervalSec
+	if retentionSec%intervalSec != 0 {
+		capacity++
+	}
+	if capacity <= 0 {
+		capacity = 1
+	}
+	return capacity
 }
 
 func newGeoIPService(
@@ -440,6 +645,11 @@ func newTopologyRuntime(
 			}
 			return netutil.HTTPGetViaOutbound(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
 				RequireStatusOK: false,
+				OnConnLifecycle: func(op string) {
+					if sink := leaseEventMetricsSink.Load(); sink != nil {
+						(*sink).OnConnectionLifecycle("outbound", op)
+					}
+				},
 			})
 		},
 		MaxEgressTestInterval: func() time.Duration {
@@ -466,7 +676,7 @@ func newTopologyRuntime(
 		probeMgr.TriggerImmediateEgressProbe(hash)
 	})
 	pool.SetOnNodeRemoved(func(hash node.Hash, entry *node.NodeEntry) {
-		engine.MarkNodeStaticDelete(hash.Hex())
+		markNodeRemovedDirty(engine, hash, entry)
 		outboundMgr.RemoveNodeOutbound(entry)
 	})
 	log.Println("ProbeManager initialized")
@@ -493,6 +703,20 @@ func newTopologyRuntime(
 		outboundMgr:      outboundMgr,
 		singboxBuilder:   singboxBuilder,
 	}, nil
+}
+
+func markNodeRemovedDirty(engine *state.StateEngine, hash node.Hash, entry *node.NodeEntry) {
+	hashHex := hash.Hex()
+	engine.MarkNodeStaticDelete(hashHex)
+	engine.MarkNodeDynamicDelete(hashHex)
+
+	if entry == nil || entry.LatencyTable == nil {
+		return
+	}
+	entry.LatencyTable.Range(func(domain string, _ node.DomainLatencyStats) bool {
+		engine.MarkNodeLatencyDelete(hashHex, domain)
+		return true
+	})
 }
 
 func bootstrapTopology(
@@ -676,4 +900,307 @@ func buildAccountMatcher(engine *state.StateEngine) *proxy.AccountMatcherRuntime
 		log.Printf("Loaded %d account header rules", len(rules))
 	}
 	return proxy.NewAccountMatcherRuntime(proxy.BuildAccountMatcher(rules))
+}
+
+// leaseEventMetricsSink is set after metricsManager creation so that the
+// lease event callback (set during router creation) can forward events.
+var leaseEventMetricsSink atomic.Pointer[*metrics.Manager]
+
+// --- Metrics provider adapters ---
+
+// nodePoolStatsAdapter implements metrics.NodePoolStatsProvider using GlobalNodePool.
+type nodePoolStatsAdapter struct {
+	pool *topology.GlobalNodePool
+}
+
+func (a *nodePoolStatsAdapter) TotalNodes() int { return a.pool.Size() }
+
+func (a *nodePoolStatsAdapter) HealthyNodes() int {
+	count := 0
+	a.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
+		if !entry.IsCircuitOpen() && entry.HasOutbound() {
+			count++
+		}
+		return true
+	})
+	return count
+}
+
+func (a *nodePoolStatsAdapter) EgressIPCount() int {
+	seen := make(map[netip.Addr]struct{})
+	a.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
+		if ip := entry.GetEgressIP(); ip.IsValid() {
+			seen[ip] = struct{}{}
+		}
+		return true
+	})
+	return len(seen)
+}
+
+// leaseCountAdapter implements metrics.LeaseCountProvider using Router.
+type leaseCountAdapter struct {
+	pool   *topology.GlobalNodePool
+	router *routing.Router
+}
+
+func (a *leaseCountAdapter) LeaseCountsByPlatform() map[string]int {
+	result := make(map[string]int)
+	a.pool.RangePlatforms(func(plat *platform.Platform) bool {
+		count := 0
+		a.router.RangeLeases(plat.ID, func(_ string, _ routing.Lease) bool {
+			count++
+			return true
+		})
+		if count > 0 {
+			result[plat.ID] = count
+		}
+		return true
+	})
+	return result
+}
+
+// platformStatsAdapter implements metrics.PlatformStatsProvider using GlobalNodePool.
+type platformStatsAdapter struct {
+	pool *topology.GlobalNodePool
+}
+
+func (a *platformStatsAdapter) RoutableNodeCount(platformID string) (int, bool) {
+	plat, ok := a.pool.GetPlatform(platformID)
+	if !ok {
+		return 0, false
+	}
+	return plat.View().Size(), true
+}
+
+func (a *platformStatsAdapter) PlatformEgressIPCount(platformID string) (int, bool) {
+	plat, ok := a.pool.GetPlatform(platformID)
+	if !ok {
+		return 0, false
+	}
+	seen := make(map[netip.Addr]struct{})
+	plat.View().Range(func(h node.Hash) bool {
+		entry, ok := a.pool.GetEntry(h)
+		if ok {
+			if ip := entry.GetEgressIP(); ip.IsValid() {
+				seen[ip] = struct{}{}
+			}
+		}
+		return true
+	})
+	return len(seen), true
+}
+
+// nodeLatencyAdapter implements metrics.NodeLatencyProvider using GlobalNodePool.
+type nodeLatencyAdapter struct {
+	pool        *topology.GlobalNodePool
+	authorities func() []string
+}
+
+func (a *nodeLatencyAdapter) CollectNodeEWMAs(platformID string) []float64 {
+	authorities := a.authorities()
+	var ewmas []float64
+
+	if platformID == "" {
+		// Global: iterate all nodes.
+		a.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
+			if avg, ok := nodeAvgEWMA(entry, authorities); ok {
+				ewmas = append(ewmas, avg)
+			}
+			return true
+		})
+	} else {
+		// Platform-scoped: iterate only nodes routable by this platform.
+		plat, ok := a.pool.GetPlatform(platformID)
+		if !ok {
+			return nil
+		}
+		plat.View().Range(func(h node.Hash) bool {
+			entry, ok := a.pool.GetEntry(h)
+			if ok {
+				if avg, ok := nodeAvgEWMA(entry, authorities); ok {
+					ewmas = append(ewmas, avg)
+				}
+			}
+			return true
+		})
+	}
+	return ewmas
+}
+
+// nodeAvgEWMA computes the average EWMA across authority domains for a node.
+func nodeAvgEWMA(entry *node.NodeEntry, authorities []string) (float64, bool) {
+	if entry.LatencyTable == nil || entry.LatencyTable.Size() == 0 {
+		return 0, false
+	}
+	var sumMs float64
+	var count int
+	for _, domain := range authorities {
+		if stats, ok := entry.LatencyTable.GetDomainStats(domain); ok {
+			sumMs += float64(stats.Ewma.Milliseconds())
+			count++
+		}
+	}
+	if count == 0 {
+		return 0, false
+	}
+	return sumMs / float64(count), true
+}
+
+// compositeEmitter dispatches proxy events to both requestlog and metrics.
+type compositeEmitter struct {
+	logSvc     *requestlog.Service
+	metricsMgr *metrics.Manager
+}
+
+func (c compositeEmitter) EmitRequestFinished(ev proxy.RequestFinishedEvent) {
+	c.metricsMgr.EmitRequestFinished(ev)
+}
+
+func (c compositeEmitter) EmitRequestLog(ev proxy.RequestLogEntry) {
+	c.logSvc.EmitRequestLog(ev)
+}
+
+// bootstrapNodes loads cached node data from persistence for bootstrap recovery.
+// Steps: static nodes → subscription bindings → dynamic state → latency tables.
+func bootstrapNodes(
+	engine *state.StateEngine,
+	pool *topology.GlobalNodePool,
+	subManager *topology.SubscriptionManager,
+	outboundMgr *outbound.OutboundManager,
+	envCfg *config.EnvConfig,
+) error {
+	// Step 3: Load static nodes.
+	statics, err := engine.LoadAllNodesStatic()
+	if err != nil {
+		return fmt.Errorf("load nodes_static: %w", err)
+	}
+	for _, ns := range statics {
+		hash, err := node.ParseHex(ns.Hash)
+		if err != nil {
+			log.Printf("[bootstrap] skip node %s: %v", ns.Hash, err)
+			continue
+		}
+		entry := &node.NodeEntry{
+			Hash:       hash,
+			RawOptions: json.RawMessage(ns.RawOptionsJSON),
+			CreatedAt:  time.Unix(0, ns.CreatedAtNs),
+		}
+		entry.LatencyTable = node.NewLatencyTable(envCfg.MaxLatencyTableEntries)
+		pool.LoadNodeFromBootstrap(entry)
+	}
+	log.Printf("Loaded %d static nodes from cache.db", len(statics))
+
+	// Parallel outbound init for bootstrapped nodes.
+	if len(statics) > 0 {
+		workers := runtime.GOMAXPROCS(0)
+		if workers < 1 {
+			workers = 1
+		}
+		hashCh := make(chan node.Hash, len(statics))
+		for _, ns := range statics {
+			hash, err := node.ParseHex(ns.Hash)
+			if err != nil {
+				continue
+			}
+			hashCh <- hash
+		}
+		close(hashCh)
+		var wg sync.WaitGroup
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for h := range hashCh {
+					outboundMgr.EnsureNodeOutbound(h)
+				}
+			}()
+		}
+		wg.Wait()
+		log.Printf("Parallel outbound init complete (%d workers)", workers)
+	}
+
+	// Step 4: Load subscription-node bindings.
+	subNodes, err := engine.LoadAllSubscriptionNodes()
+	if err != nil {
+		return fmt.Errorf("load subscription_nodes: %w", err)
+	}
+	// Group by subscription ID for batch processing.
+	subNodeMap := make(map[string][]model.SubscriptionNode)
+	for _, sn := range subNodes {
+		subNodeMap[sn.SubscriptionID] = append(subNodeMap[sn.SubscriptionID], sn)
+	}
+	for subID, nodes := range subNodeMap {
+		sub, ok := subManager.Get(subID)
+		if !ok {
+			log.Printf("[bootstrap] subscription %s not found, skipping %d node bindings", subID, len(nodes))
+			continue
+		}
+		managed := xsync.NewMap[node.Hash, []string]()
+		for _, sn := range nodes {
+			hash, err := node.ParseHex(sn.NodeHash)
+			if err != nil {
+				continue
+			}
+			var tags []string
+			if sn.TagsJSON != "" {
+				_ = json.Unmarshal([]byte(sn.TagsJSON), &tags)
+			}
+			managed.Store(hash, tags)
+			// Also set the node's subscription ID reference.
+			if entry, ok := pool.GetEntry(hash); ok {
+				entry.AddSubscriptionID(subID)
+			}
+		}
+		sub.SwapManagedNodes(managed)
+	}
+	log.Printf("Loaded %d subscription-node bindings from cache.db", len(subNodes))
+
+	// Step 5: Load dynamic state (failure count, circuit breaker, egress IP).
+	dynamics, err := engine.LoadAllNodesDynamic()
+	if err != nil {
+		return fmt.Errorf("load nodes_dynamic: %w", err)
+	}
+	for _, nd := range dynamics {
+		hash, err := node.ParseHex(nd.Hash)
+		if err != nil {
+			continue
+		}
+		entry, ok := pool.GetEntry(hash)
+		if !ok {
+			continue
+		}
+		entry.FailureCount.Store(int32(nd.FailureCount))
+		entry.CircuitOpenSince.Store(nd.CircuitOpenSince)
+		if nd.EgressIP != "" {
+			if ip, err := netip.ParseAddr(nd.EgressIP); err == nil {
+				entry.SetEgressIP(ip)
+				entry.LastEgressUpdate.Store(nd.EgressUpdatedAtNs)
+			}
+		}
+	}
+	log.Printf("Loaded %d node dynamic states from cache.db", len(dynamics))
+
+	// Step 6: Load latency tables.
+	latencies, err := engine.LoadAllNodeLatency()
+	if err != nil {
+		return fmt.Errorf("load node_latency: %w", err)
+	}
+	for _, nl := range latencies {
+		hash, err := node.ParseHex(nl.NodeHash)
+		if err != nil {
+			continue
+		}
+		entry, ok := pool.GetEntry(hash)
+		if !ok {
+			continue
+		}
+		if entry.LatencyTable != nil {
+			entry.LatencyTable.LoadEntry(nl.Domain, node.DomainLatencyStats{
+				Ewma:        time.Duration(nl.EwmaNs),
+				LastUpdated: time.Unix(0, nl.LastUpdatedNs),
+			})
+		}
+	}
+	log.Printf("Loaded %d latency entries from cache.db", len(latencies))
+	return nil
 }

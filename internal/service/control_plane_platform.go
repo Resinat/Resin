@@ -492,7 +492,7 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 			ns.Tags = append(ns.Tags, NodeTag{
 				SubscriptionID:          subID,
 				SubscriptionName:        sub.Name(),
-				Tag:                     tag,
+				Tag:                     sub.Name() + "/" + tag,
 				SubscriptionCreatedAtNs: sub.CreatedAtNs,
 			})
 		}

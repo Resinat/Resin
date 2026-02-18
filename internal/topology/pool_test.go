@@ -280,6 +280,45 @@ func TestPool_PlatformLookupByIDAndName(t *testing.T) {
 	}
 }
 
+func TestPool_ResolveNodeDisplayTag_EarliestSubscriptionThenMinTag(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+
+	older := subscription.NewSubscription("sub-old", "Z-Provider", "url", true, false)
+	older.CreatedAtNs = 100
+	older.SetEnabled(false) // display-tag rule should not depend on enabled flag.
+
+	newer := subscription.NewSubscription("sub-new", "A-Provider", "url", true, false)
+	newer.CreatedAtNs = 200
+
+	subMgr.Register(older)
+	subMgr.Register(newer)
+
+	pool := newTestPool(subMgr)
+	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
+	h := node.HashFromRawOptions(raw)
+
+	oldManaged := xsync.NewMap[node.Hash, []string]()
+	oldManaged.Store(h, []string{"zz", "aa"})
+	older.SwapManagedNodes(oldManaged)
+
+	newManaged := xsync.NewMap[node.Hash, []string]()
+	newManaged.Store(h, []string{"00"})
+	newer.SwapManagedNodes(newManaged)
+
+	pool.AddNodeFromSub(h, raw, older.ID)
+	pool.AddNodeFromSub(h, raw, newer.ID)
+
+	got := pool.ResolveNodeDisplayTag(h)
+	want := "Z-Provider/aa"
+	if got != want {
+		t.Fatalf("ResolveNodeDisplayTag = %q, want %q", got, want)
+	}
+
+	if v := pool.ResolveNodeDisplayTag(node.Zero); v != "" {
+		t.Fatalf("ResolveNodeDisplayTag(unknown) = %q, want empty", v)
+	}
+}
+
 func TestPool_RangePlatforms_UsesSnapshotAndDoesNotDeadlock(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	pool := newTestPool(subMgr)

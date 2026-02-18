@@ -33,6 +33,10 @@ type ProbeConfig struct {
 
 	LatencyTestURL     func() string
 	LatencyAuthorities func() []string
+
+	// OnProbeEvent is called after each probe attempt completes (egress or latency).
+	// The kind parameter is "egress" or "latency".
+	OnProbeEvent func(kind string)
 }
 
 // ProbeManager schedules and executes active probes against nodes in the pool.
@@ -49,6 +53,7 @@ type ProbeManager struct {
 	maxAuthorityLatencyTestInterval func() time.Duration
 	latencyTestURL                  func() string
 	latencyAuthorities              func() []string
+	onProbeEvent                    func(kind string)
 }
 
 const (
@@ -81,7 +86,13 @@ func NewProbeManager(cfg ProbeConfig) *ProbeManager {
 		maxAuthorityLatencyTestInterval: cfg.MaxAuthorityLatencyTestInterval,
 		latencyTestURL:                  cfg.LatencyTestURL,
 		latencyAuthorities:              cfg.LatencyAuthorities,
+		onProbeEvent:                    cfg.OnProbeEvent,
 	}
+}
+
+// SetOnProbeEvent sets the probe event callback. Must be called before Start.
+func (m *ProbeManager) SetOnProbeEvent(fn func(kind string)) {
+	m.onProbeEvent = fn
 }
 
 // Start launches the background probe workers.
@@ -178,6 +189,11 @@ func (m *ProbeManager) ProbeEgressSync(hash node.Hash) (*EgressProbeResult, erro
 		return nil, fmt.Errorf("probe manager stopped")
 	}
 
+	// Record synchronous probe attempts for metrics parity with async paths.
+	if m.onProbeEvent != nil {
+		m.onProbeEvent("egress")
+	}
+
 	ip, stage, err := m.performEgressProbe(hash)
 	if err != nil {
 		if stage == egressProbeParseError {
@@ -227,6 +243,11 @@ func (m *ProbeManager) ProbeLatencySync(hash node.Hash) (*LatencyProbeResult, er
 		defer func() { <-m.sem }()
 	case <-m.stopCh:
 		return nil, fmt.Errorf("probe manager stopped")
+	}
+
+	// Record synchronous probe attempts for metrics parity with async paths.
+	if m.onProbeEvent != nil {
+		m.onProbeEvent("latency")
 	}
 
 	if err := m.performLatencyProbe(hash, testURL); err != nil {
@@ -401,12 +422,14 @@ func (m *ProbeManager) probeEgress(hash node.Hash, entry *node.NodeEntry) {
 		return
 	}
 
+	// Always record the probe attempt (success or failure).
+	if m.onProbeEvent != nil {
+		m.onProbeEvent("egress")
+	}
+
 	_, stage, err := m.performEgressProbe(hash)
 	if err != nil {
 		if stage == egressProbeParseError {
-			// Intentionally do NOT touch LastEgressUpdate on parse failure.
-			// LastEgressUpdate means "last successful egress-IP sample"; keeping it
-			// unchanged keeps this node due for near-term retry in the scan loop.
 			log.Printf("[probe] parse egress IP for %s: %v", hash.Hex(), err)
 			return
 		}
@@ -424,6 +447,11 @@ func (m *ProbeManager) probeLatency(hash node.Hash, entry *node.NodeEntry, testU
 
 	if entry.Outbound.Load() == nil {
 		return
+	}
+
+	// Always record the probe attempt (success or failure).
+	if m.onProbeEvent != nil {
+		m.onProbeEvent("latency")
 	}
 
 	if err := m.performLatencyProbe(hash, testURL); err != nil {

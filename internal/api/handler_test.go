@@ -25,7 +25,7 @@ func newTestServer() *Server {
 		},
 		runtimeCfg,
 	)
-	return NewServer(0, "test-admin-token", svc, nil, 1<<20)
+	return NewServer(0, "test-admin-token", svc, nil, 1<<20, nil, nil)
 }
 
 // --- /healthz ---
@@ -140,6 +140,30 @@ func TestSystemConfig_OK(t *testing.T) {
 	}
 	if _, ok := body["resource_fetch_timeout"]; ok {
 		t.Error("resource_fetch_timeout should not be exposed in /system/config")
+	}
+	if _, ok := body["request_log_db_max_mb"]; ok {
+		t.Error("request_log_db_max_mb should be env-only and not exposed in /system/config")
+	}
+	if _, ok := body["request_log_db_retain_count"]; ok {
+		t.Error("request_log_db_retain_count should be env-only and not exposed in /system/config")
+	}
+	if _, ok := body["request_log_batch_size"]; ok {
+		t.Error("request_log_batch_size should be env-only and not exposed in /system/config")
+	}
+	if _, ok := body["metric_latency_bin_ms"]; ok {
+		t.Error("metric_latency_bin_ms should be env-only and not exposed in /system/config")
+	}
+	if _, ok := body["metric_latency_overflow_ms"]; ok {
+		t.Error("metric_latency_overflow_ms should be env-only and not exposed in /system/config")
+	}
+	if _, ok := body["metric_bucket_seconds"]; ok {
+		t.Error("metric_bucket_seconds should be env-only and not exposed in /system/config")
+	}
+	if _, ok := body["metric_realtime_capacity"]; ok {
+		t.Error("metric_realtime_capacity should be env-only and not exposed in /system/config")
+	}
+	if _, ok := body["metric_sample_interval_sec"]; ok {
+		t.Error("metric_sample_interval_sec should be env-only and not exposed in /system/config")
 	}
 }
 

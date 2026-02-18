@@ -11,6 +11,7 @@ import (
 
 	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/model"
+	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/state"
 	"github.com/resin-proxy/resin/internal/topology"
@@ -218,5 +219,104 @@ func TestBootstrapTopology_FailsFastOnCorruptPlatformFilters(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "regex_filters_json") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMarkNodeRemovedDirty_DeletesStaticDynamicAndLatency(t *testing.T) {
+	engine, closer, err := state.PersistenceBootstrap(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("PersistenceBootstrap: %v", err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+
+	raw := json.RawMessage(`{"type":"stub","server":"198.51.100.42","server_port":443}`)
+	hash := node.HashFromRawOptions(raw)
+	hashHex := hash.Hex()
+
+	entry := node.NewNodeEntry(hash, raw, time.Now(), 16)
+	entry.FailureCount.Store(2)
+	entry.CircuitOpenSince.Store(time.Now().Add(-time.Minute).UnixNano())
+	entry.SetEgressIP(netip.MustParseAddr("203.0.113.50"))
+	entry.LastEgressUpdate.Store(time.Now().UnixNano())
+	entry.LatencyTable.Update("example.com", 55*time.Millisecond, 5*time.Minute)
+	entry.LatencyTable.Update("cloudflare.com", 65*time.Millisecond, 5*time.Minute)
+
+	readers := state.CacheReaders{
+		ReadNodeStatic: func(h string) *model.NodeStatic {
+			if h != hashHex {
+				return nil
+			}
+			return &model.NodeStatic{
+				Hash:           hashHex,
+				RawOptionsJSON: string(raw),
+				CreatedAtNs:    entry.CreatedAt.UnixNano(),
+			}
+		},
+		ReadNodeDynamic: func(h string) *model.NodeDynamic {
+			if h != hashHex {
+				return nil
+			}
+			return &model.NodeDynamic{
+				Hash:              hashHex,
+				FailureCount:      int(entry.FailureCount.Load()),
+				CircuitOpenSince:  entry.CircuitOpenSince.Load(),
+				EgressIP:          entry.GetEgressIP().String(),
+				EgressUpdatedAtNs: entry.LastEgressUpdate.Load(),
+			}
+		},
+		ReadNodeLatency: func(key model.NodeLatencyKey) *model.NodeLatency {
+			if key.NodeHash != hashHex {
+				return nil
+			}
+			stats, ok := entry.LatencyTable.GetDomainStats(key.Domain)
+			if !ok {
+				return nil
+			}
+			return &model.NodeLatency{
+				NodeHash:      hashHex,
+				Domain:        key.Domain,
+				EwmaNs:        int64(stats.Ewma),
+				LastUpdatedNs: stats.LastUpdated.UnixNano(),
+			}
+		},
+	}
+
+	// Seed cache rows for this node.
+	engine.MarkNodeStatic(hashHex)
+	engine.MarkNodeDynamic(hashHex)
+	engine.MarkNodeLatency(hashHex, "example.com")
+	engine.MarkNodeLatency(hashHex, "cloudflare.com")
+	if err := engine.FlushDirtySets(readers); err != nil {
+		t.Fatalf("seed FlushDirtySets: %v", err)
+	}
+
+	// Simulate node removed callback and flush deletes.
+	markNodeRemovedDirty(engine, hash, entry)
+	if err := engine.FlushDirtySets(state.CacheReaders{}); err != nil {
+		t.Fatalf("delete FlushDirtySets: %v", err)
+	}
+
+	nodesStatic, err := engine.LoadAllNodesStatic()
+	if err != nil {
+		t.Fatalf("LoadAllNodesStatic: %v", err)
+	}
+	if len(nodesStatic) != 0 {
+		t.Fatalf("nodes_static not deleted: %+v", nodesStatic)
+	}
+
+	nodesDynamic, err := engine.LoadAllNodesDynamic()
+	if err != nil {
+		t.Fatalf("LoadAllNodesDynamic: %v", err)
+	}
+	if len(nodesDynamic) != 0 {
+		t.Fatalf("nodes_dynamic not deleted: %+v", nodesDynamic)
+	}
+
+	latencies, err := engine.LoadAllNodeLatency()
+	if err != nil {
+		t.Fatalf("LoadAllNodeLatency: %v", err)
+	}
+	if len(latencies) != 0 {
+		t.Fatalf("node_latency not deleted: %+v", latencies)
 	}
 }

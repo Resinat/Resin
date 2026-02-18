@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -173,6 +174,47 @@ func TestValidateRuntimeConfig_ValidConfig(t *testing.T) {
 	cfg := newDefaultCfg()
 	if err := validateRuntimeConfig(cfg); err != nil {
 		t.Errorf("unexpected error for valid config: %v", err)
+	}
+}
+
+func TestRuntimeConfigPatchAllowlist_StaysInSyncWithRuntimeConfigJSONFields(t *testing.T) {
+	rt := reflect.TypeOf(config.RuntimeConfig{})
+	jsonFields := make(map[string]struct{})
+	for i := 0; i < rt.NumField(); i++ {
+		tag := rt.Field(i).Tag.Get("json")
+		if tag == "" || tag == "-" {
+			continue
+		}
+		name := strings.Split(tag, ",")[0]
+		if name == "" || name == "-" {
+			continue
+		}
+		jsonFields[name] = struct{}{}
+	}
+
+	allow := make(map[string]struct{}, len(runtimeConfigAllowedFields))
+	for key := range runtimeConfigAllowedFields {
+		allow[key] = struct{}{}
+	}
+
+	var onlyInJSON []string
+	for key := range jsonFields {
+		if _, ok := allow[key]; !ok {
+			onlyInJSON = append(onlyInJSON, key)
+		}
+	}
+	sort.Strings(onlyInJSON)
+
+	var onlyInAllow []string
+	for key := range allow {
+		if _, ok := jsonFields[key]; !ok {
+			onlyInAllow = append(onlyInAllow, key)
+		}
+	}
+	sort.Strings(onlyInAllow)
+
+	if len(onlyInJSON) > 0 || len(onlyInAllow) > 0 {
+		t.Fatalf("runtime_config fields and patch allowlist drifted: onlyInJSON=%v onlyInAllow=%v", onlyInJSON, onlyInAllow)
 	}
 }
 
