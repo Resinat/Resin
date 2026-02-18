@@ -75,7 +75,7 @@ func (c *EphemeralCleaner) sweepWithHook(betweenScans func()) {
 		// prevent TOCTOU: a node that recovers between check and eviction
 		// would otherwise be erroneously removed.
 		var evictCount int
-		c.subManager.WithSubLock(sub.ID, func() {
+		sub.WithOpLock(func() {
 			evictSet := make(map[node.Hash]struct{})
 			sub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {
 				entry, ok := c.pool.GetEntry(h)

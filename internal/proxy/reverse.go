@@ -1,9 +1,7 @@
 package proxy
 
 import (
-	"context"
 	"crypto/tls"
-	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/http/httputil"
@@ -15,7 +13,6 @@ import (
 	"github.com/resin-proxy/resin/internal/outbound"
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/routing"
-	M "github.com/sagernet/sing/common/metadata"
 )
 
 // PlatformLookup provides read-only access to platforms.
@@ -137,10 +134,6 @@ func (p *ReverseProxy) parsePath(rawPath string) (*parsedPath, *ProxyError) {
 
 	// Need at least: token, plat:acct, protocol, host (4 segments).
 	if len(segments) < 4 {
-		if len(segments) < 2 {
-			return nil, ErrURLParseError
-		}
-		// Have token + identity but missing protocol/host.
 		return nil, ErrURLParseError
 	}
 
@@ -211,58 +204,47 @@ func buildReverseTargetURL(parsed *parsedPath, rawQuery string) (*url.URL, *Prox
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	startTime := time.Now()
-	account := ""
-	targetHost := ""
-	targetURL := ""
-	platformID := ""
-	platformName := ""
-	nodeHash := ""
-	egressIP := ""
-	httpStatus := 0
-	netOK := false
-	defer func() {
-		duration := time.Since(startTime)
-		go p.events.EmitRequestFinished(RequestFinishedEvent{
-			PlatformID: platformID,
-			ProxyType:  "reverse",
-			IsConnect:  false,
-			NetOK:      netOK,
-			DurationNs: duration.Nanoseconds(),
-		})
-		go p.events.EmitRequestLog(RequestLogEntry{
-			ProxyType:    2,
-			ClientIP:     r.RemoteAddr,
-			PlatformID:   platformID,
-			PlatformName: platformName,
-			Account:      account,
-			TargetHost:   targetHost,
-			TargetURL:    targetURL,
-			NodeHash:     nodeHash,
-			EgressIP:     egressIP,
-			DurationNs:   duration.Nanoseconds(),
-			NetOK:        netOK,
-			HTTPMethod:   r.Method,
-			HTTPStatus:   httpStatus,
-		})
-	}()
+	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeReverse, false)
+	detailCfg := reverseDetailCaptureConfig{
+		Enabled:             false,
+		ReqHeadersMaxBytes:  -1,
+		ReqBodyMaxBytes:     -1,
+		RespHeadersMaxBytes: -1,
+		RespBodyMaxBytes:    -1,
+	}
+	if provider, ok := p.events.(interface {
+		reverseDetailCaptureConfig() reverseDetailCaptureConfig
+	}); ok {
+		detailCfg = provider.reverseDetailCaptureConfig()
+	}
+	if detailCfg.Enabled {
+		reqHeaders, reqHeadersLen, reqHeadersTruncated := captureHeadersWithLimit(r.Header, detailCfg.ReqHeadersMaxBytes)
+		lifecycle.setReqHeadersCaptured(reqHeaders, reqHeadersLen, reqHeadersTruncated)
+		if r.Body != nil && r.Body != http.NoBody {
+			reqBodyCapture := newPayloadCaptureReadCloser(r.Body, detailCfg.ReqBodyMaxBytes)
+			r.Body = reqBodyCapture
+			lifecycle.setReqBodyCapture(reqBodyCapture)
+		}
+	}
+	defer lifecycle.finish()
 
 	parsed, perr := p.parsePath(r.URL.EscapedPath())
 	if perr != nil {
-		httpStatus = perr.HTTPCode
+		lifecycle.setHTTPStatus(perr.HTTPCode)
 		writeProxyError(w, perr)
 		return
 	}
-	targetHost = parsed.Host
+	lifecycle.setTarget(parsed.Host, "")
 
 	// Resolve account from headers if not in path.
-	account = parsed.Account
+	account := parsed.Account
 	if account == "" && p.matcher != nil {
 		headers := p.matcher.Match(parsed.Host, parsed.Path)
 		if headers != nil {
 			account = extractAccountFromHeaders(r, headers)
 		}
 	}
+	lifecycle.setAccount(account)
 
 	// Check miss action if account still empty.
 	// When PlatformName is empty, the router resolves to the default platform.
@@ -280,58 +262,33 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			plat = p.resolveDefaultPlatform()
 		}
 		if plat != nil && plat.ReverseProxyMissAction == "REJECT" {
-			httpStatus = ErrAccountRejected.HTTPCode
+			lifecycle.setHTTPStatus(ErrAccountRejected.HTTPCode)
 			writeProxyError(w, ErrAccountRejected)
 			return
 		}
 		// RANDOM or no platform found: proceed with empty account → random routing.
 	}
 
-	// Route.
-	result, err := p.router.RouteRequest(parsed.PlatformName, account, parsed.Host)
-	if err != nil {
-		proxyErr := mapRouteError(err)
-		httpStatus = proxyErr.HTTPCode
-		writeProxyError(w, proxyErr)
+	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, parsed.PlatformName, account, parsed.Host)
+	if routeErr != nil {
+		lifecycle.setHTTPStatus(routeErr.HTTPCode)
+		writeProxyError(w, routeErr)
 		return
 	}
-	platformID = result.PlatformID
-	platformName = result.PlatformName
-	nodeHash = result.NodeHash.Hex()
-	egressIP = result.EgressIP.String()
+	lifecycle.setRouteResult(routed.Route)
 
-	entry, ok := p.pool.GetEntry(result.NodeHash)
-	if !ok {
-		httpStatus = ErrNoAvailableNodes.HTTPCode
-		writeProxyError(w, ErrNoAvailableNodes)
-		return
-	}
-	obPtr := entry.Outbound.Load()
-	if obPtr == nil {
-		httpStatus = ErrNoAvailableNodes.HTTPCode
-		writeProxyError(w, ErrNoAvailableNodes)
-		return
-	}
-	ob := *obPtr
-
-	nodeHashRaw := result.NodeHash
+	nodeHashRaw := routed.Route.NodeHash
 	domain := netutil.ExtractDomain(parsed.Host)
 
 	target, targetErr := buildReverseTargetURL(parsed, r.URL.RawQuery)
 	if targetErr != nil {
-		httpStatus = targetErr.HTTPCode
+		lifecycle.setHTTPStatus(targetErr.HTTPCode)
 		writeProxyError(w, targetErr)
 		return
 	}
-	targetURL = target.String()
+	lifecycle.setTarget(parsed.Host, target.String())
 
-	// Build transport with the node's outbound dialer.
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return ob.DialContext(ctx, network, M.ParseSocksaddr(addr))
-		},
-		DisableKeepAlives: true,
-	}
+	transport := newOutboundTransport(routed.Outbound)
 
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
@@ -359,24 +316,33 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 		Transport: transport,
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
-			netOK = false
+			lifecycle.setNetOK(false)
 			proxyErr := classifyUpstreamError(err)
 			if proxyErr == nil {
 				// context.Canceled — no health recording, silently close.
 				return
 			}
-			httpStatus = proxyErr.HTTPCode
+			lifecycle.setHTTPStatus(proxyErr.HTTPCode)
 			go p.health.RecordResult(nodeHashRaw, false)
 			writeProxyError(rw, proxyErr)
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			httpStatus = resp.StatusCode
+			lifecycle.setHTTPStatus(resp.StatusCode)
+			if detailCfg.Enabled {
+				respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
+				lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
+				if resp.Body != nil && resp.Body != http.NoBody {
+					respBodyCapture := newPayloadCaptureReadCloser(resp.Body, detailCfg.RespBodyMaxBytes)
+					resp.Body = respBodyCapture
+					lifecycle.setRespBodyCapture(respBodyCapture)
+				}
+			}
 			// Intentional coarse-grained policy:
 			// mark node success once upstream response headers arrive.
 			// Further attribution for mid-body stream failures is expensive and noisy
 			// (client abort vs upstream reset vs network blip), and the added
 			// complexity is not worth it for the current phase.
-			netOK = true
+			lifecycle.setNetOK(true)
 			go p.health.RecordResult(nodeHashRaw, true)
 			return nil
 		},
@@ -389,9 +355,6 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // miss-action checks when PlatformName is empty.
 func (p *ReverseProxy) resolveDefaultPlatform() *platform.Platform {
 	if plat, ok := p.platLook.GetPlatform(platform.DefaultPlatformID); ok {
-		return plat
-	}
-	if plat, ok := p.platLook.GetPlatformByName(platform.DefaultPlatformName); ok {
 		return plat
 	}
 	return nil

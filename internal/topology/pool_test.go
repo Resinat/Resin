@@ -424,21 +424,21 @@ func TestPool_ReplacePlatform_RebuildsViewBeforePublish(t *testing.T) {
 	}
 }
 
-// --- SubscriptionManager tests ---
+// --- Subscription operation-lock tests ---
 
-func TestSubscriptionManager_WithSubLock(t *testing.T) {
+func TestSubscription_WithOpLock(t *testing.T) {
 	mgr := NewSubscriptionManager()
 	sub := subscription.NewSubscription("s1", "Sub1", "url", true, false)
 	mgr.Register(sub)
 
-	// WithSubLock should serialize.
+	// WithOpLock should serialize.
 	counter := 0
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			mgr.WithSubLock("s1", func() {
+			sub.WithOpLock(func() {
 				counter++
 			})
 		}()
@@ -447,6 +447,53 @@ func TestSubscriptionManager_WithSubLock(t *testing.T) {
 
 	if counter != 100 {
 		t.Fatalf("expected 100, got %d (serialization broken)", counter)
+	}
+}
+
+func TestSubscription_WithOpLockAfterUnregister(t *testing.T) {
+	mgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "Sub1", "url", true, false)
+	mgr.Register(sub)
+
+	firstEntered := make(chan struct{})
+	firstRelease := make(chan struct{})
+	secondEntered := make(chan struct{})
+
+	var firstWG sync.WaitGroup
+	firstWG.Add(1)
+	go func() {
+		defer firstWG.Done()
+		sub.WithOpLock(func() {
+			close(firstEntered)
+			// Simulate delete path that unregisters while holding the lock.
+			mgr.Unregister("s1")
+			<-firstRelease
+		})
+	}()
+
+	<-firstEntered
+
+	go sub.WithOpLock(func() {
+		close(secondEntered)
+	})
+
+	select {
+	case <-secondEntered:
+		close(firstRelease)
+		firstWG.Wait()
+		t.Fatal("second WithOpLock entered before first lock holder exited")
+	case <-time.After(100 * time.Millisecond):
+		// expected: second goroutine must block on the same lock
+	}
+
+	close(firstRelease)
+	firstWG.Wait()
+
+	select {
+	case <-secondEntered:
+		// expected
+	case <-time.After(time.Second):
+		t.Fatal("second WithOpLock did not enter after first lock holder exited")
 	}
 }
 

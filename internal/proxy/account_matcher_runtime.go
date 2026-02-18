@@ -37,6 +37,19 @@ func (r *AccountMatcherRuntime) Match(host, path string) []string {
 	return m.Match(host, path)
 }
 
+// MatchWithPrefix resolves rules using the current matcher snapshot and returns
+// both the matched url_prefix and header list.
+func (r *AccountMatcherRuntime) MatchWithPrefix(host, path string) (string, []string) {
+	if r == nil {
+		return "", nil
+	}
+	m := r.ptr.Load()
+	if m == nil {
+		return "", nil
+	}
+	return m.MatchWithPrefix(host, path)
+}
+
 // Swap atomically replaces the current matcher.
 // Passing nil resets to an empty matcher.
 func (r *AccountMatcherRuntime) Swap(next *AccountMatcher) {

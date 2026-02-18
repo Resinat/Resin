@@ -382,6 +382,16 @@ func (s *Service) LastUpdated() time.Time {
 	return info.ModTime()
 }
 
+// NextScheduledUpdate returns the next cron-scheduled update time.
+// Returns zero time if cron is not configured.
+func (s *Service) NextScheduledUpdate() time.Time {
+	if s.cron == nil {
+		return time.Time{}
+	}
+	entry := s.cron.Entry(s.cronEntryID)
+	return entry.Next
+}
+
 // parseSHA256Sum extracts the hex hash from a "<hash>  <filename>" formatted string.
 func parseSHA256Sum(s string) string {
 	s = strings.TrimSpace(s)

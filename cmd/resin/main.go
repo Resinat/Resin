@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -170,7 +169,30 @@ func main() {
 		runtimeCfg,
 	)
 
-	srv := api.NewServer(envCfg.APIPort, envCfg.AdminToken, systemSvc)
+	// Phase 6: Load Account Header Rules and start Forward/Reverse Proxy.
+	accountMatcher := buildAccountMatcher(engine)
+
+	// Build the Control Plane service (after accountMatcher so we can inject MatcherRuntime).
+	cpService := &service.ControlPlaneService{
+		RuntimeCfg:     runtimeCfg,
+		EnvCfg:         envCfg,
+		Engine:         engine,
+		Pool:           topoRuntime.pool,
+		SubMgr:         topoRuntime.subManager,
+		Scheduler:      topoRuntime.scheduler,
+		Router:         topoRuntime.router,
+		ProbeMgr:       topoRuntime.probeMgr,
+		GeoIP:          geoSvc,
+		MatcherRuntime: accountMatcher,
+	}
+
+	srv := api.NewServer(
+		envCfg.APIPort,
+		envCfg.AdminToken,
+		systemSvc,
+		cpService,
+		int64(envCfg.APIMaxBodyBytes),
+	)
 
 	go func() {
 		log.Printf("Resin API server starting on :%d", envCfg.APIPort)
@@ -179,15 +201,34 @@ func main() {
 		}
 	}()
 
-	// Phase 6: Load Account Header Rules and start Forward/Reverse Proxy.
-	accountMatcher := buildAccountMatcher(engine)
+	proxyEvents := proxy.ConfigAwareEventEmitter{
+		Base: proxy.NoOpEventEmitter{},
+		RequestLogEnabled: func() bool {
+			return runtimeConfigSnapshot(runtimeCfg).RequestLogEnabled
+		},
+		ReverseProxyLogDetailEnabled: func() bool {
+			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogDetailEnabled
+		},
+		ReverseProxyLogReqHeadersMaxBytes: func() int {
+			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogReqHeadersMaxBytes
+		},
+		ReverseProxyLogReqBodyMaxBytes: func() int {
+			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogReqBodyMaxBytes
+		},
+		ReverseProxyLogRespHeadersMaxBytes: func() int {
+			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogRespHeadersMaxBytes
+		},
+		ReverseProxyLogRespBodyMaxBytes: func() int {
+			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogRespBodyMaxBytes
+		},
+	}
 
 	forwardProxy := proxy.NewForwardProxy(proxy.ForwardProxyConfig{
 		ProxyToken: envCfg.ProxyToken,
 		Router:     topoRuntime.router,
 		Pool:       topoRuntime.pool,
 		Health:     topoRuntime.pool,
-		Events:     proxy.NoOpEventEmitter{},
+		Events:     proxyEvents,
 	})
 	forwardSrv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", envCfg.ForwardProxyPort),
@@ -207,7 +248,7 @@ func main() {
 		PlatformLookup: topoRuntime.pool,
 		Health:         topoRuntime.pool,
 		Matcher:        accountMatcher,
-		Events:         proxy.NoOpEventEmitter{},
+		Events:         proxyEvents,
 	})
 	reverseSrv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", envCfg.ReverseProxyPort),
@@ -466,7 +507,7 @@ func bootstrapTopology(
 	}
 	for _, ms := range dbSubs {
 		sub := subscription.NewSubscription(ms.ID, ms.Name, ms.URL, ms.Enabled, ms.Ephemeral)
-		sub.UpdateIntervalNs = ms.UpdateIntervalNs
+		sub.SetFetchConfig(ms.URL, ms.UpdateIntervalNs)
 		sub.CreatedAtNs = ms.CreatedAtNs
 		sub.UpdatedAtNs = ms.UpdatedAtNs
 		subManager.Register(sub)
@@ -485,20 +526,10 @@ func bootstrapTopology(
 		return fmt.Errorf("reload platforms: %w", err)
 	}
 	for _, mp := range dbPlats {
-		var regexStrs []string
-		_ = json.Unmarshal([]byte(mp.RegexFiltersJSON), &regexStrs)
-		var compiled []*regexp.Regexp
-		for _, rs := range regexStrs {
-			if re, err := regexp.Compile(rs); err == nil {
-				compiled = append(compiled, re)
-			}
+		plat, err := platform.BuildFromModel(mp)
+		if err != nil {
+			return err
 		}
-		var regionFilters []string
-		_ = json.Unmarshal([]byte(mp.RegionFiltersJSON), &regionFilters)
-		plat := platform.NewPlatform(mp.ID, mp.Name, compiled, regionFilters)
-		plat.StickyTTLNs = mp.StickyTTLNs
-		plat.ReverseProxyMissAction = mp.ReverseProxyMissAction
-		plat.AllocationPolicy = platform.ParseAllocationPolicy(mp.AllocationPolicy)
 		pool.RegisterPlatform(plat)
 	}
 	log.Printf("Loaded %d platforms from state.db", len(dbPlats))
@@ -511,16 +542,12 @@ func ensureDefaultPlatform(
 	platformsInDB []model.Platform,
 ) error {
 	hasDefaultID := false
-	hasDefaultName := false
 	for _, p := range platformsInDB {
 		if p.ID == platform.DefaultPlatformID {
 			hasDefaultID = true
 		}
-		if p.Name == platform.DefaultPlatformName {
-			hasDefaultName = true
-		}
 	}
-	if hasDefaultID || hasDefaultName {
+	if hasDefaultID {
 		return nil
 	}
 

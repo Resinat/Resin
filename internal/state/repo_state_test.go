@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -88,6 +89,14 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	got, err := repo.GetPlatform("plat-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Default" {
+		t.Fatalf("unexpected get result: %+v", got)
+	}
+
 	// List.
 	list, err := repo.ListPlatforms()
 	if err != nil {
@@ -121,6 +130,9 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 	if len(list) != 0 {
 		t.Fatalf("expected empty list after delete, got %+v", list)
 	}
+	if _, err := repo.GetPlatform("plat-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
 }
 
 func TestStateRepo_Platform_NameUniqueViolation(t *testing.T) {
@@ -137,12 +149,15 @@ func TestStateRepo_Platform_NameUniqueViolation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Different ID, same name → should fail with UNIQUE constraint.
+	// Different ID, same name → should fail with ErrConflict.
 	p2 := p1
 	p2.ID = "plat-2"
 	err := repo.UpsertPlatform(p2)
 	if err == nil {
-		t.Fatal("expected UNIQUE violation error for same name with different ID")
+		t.Fatal("expected ErrConflict for same name with different ID")
+	}
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("expected ErrConflict, got %v", err)
 	}
 
 	// Original should still exist untouched.
@@ -289,7 +304,7 @@ func TestStateRepo_AccountHeaderRules_CRUD(t *testing.T) {
 	r := model.AccountHeaderRule{
 		URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`, UpdatedAtNs: now,
 	}
-	if err := repo.UpsertAccountHeaderRule(r); err != nil {
+	if _, err := repo.UpsertAccountHeaderRuleWithCreated(r); err != nil {
 		t.Fatal(err)
 	}
 
@@ -303,7 +318,7 @@ func TestStateRepo_AccountHeaderRules_CRUD(t *testing.T) {
 
 	// Update.
 	r.HeadersJSON = `["x-api-key"]`
-	if err := repo.UpsertAccountHeaderRule(r); err != nil {
+	if _, err := repo.UpsertAccountHeaderRuleWithCreated(r); err != nil {
 		t.Fatal(err)
 	}
 	list, _ = repo.ListAccountHeaderRules()
@@ -318,6 +333,34 @@ func TestStateRepo_AccountHeaderRules_CRUD(t *testing.T) {
 	list, _ = repo.ListAccountHeaderRules()
 	if len(list) != 0 {
 		t.Fatal("expected empty after delete")
+	}
+}
+
+func TestStateRepo_AccountHeaderRules_UpsertCreatedFlag(t *testing.T) {
+	repo := newTestStateRepo(t)
+	now := time.Now().UnixNano()
+
+	r := model.AccountHeaderRule{
+		URLPrefix:   "api.example.com/v1",
+		HeadersJSON: `["Authorization"]`,
+		UpdatedAtNs: now,
+	}
+	created, err := repo.UpsertAccountHeaderRuleWithCreated(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Fatal("expected first upsert to report created=true")
+	}
+
+	r.HeadersJSON = `["x-api-key"]`
+	r.UpdatedAtNs = now + 1
+	created, err = repo.UpsertAccountHeaderRuleWithCreated(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created {
+		t.Fatal("expected second upsert to report created=false")
 	}
 }
 

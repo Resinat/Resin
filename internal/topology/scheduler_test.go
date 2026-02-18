@@ -50,7 +50,7 @@ func newTestScheduler(subMgr *SubscriptionManager, pool *GlobalNodePool, fetcher
 func TestScheduler_UpdateSubscription_Success(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	sub := subscription.NewSubscription("s1", "TestSub", "http://example.com", true, false)
-	sub.UpdateIntervalNs = int64(time.Hour)
+	sub.SetFetchConfig(sub.URL(), int64(time.Hour))
 	subMgr.Register(sub)
 
 	pool := newTestPool(subMgr)
@@ -453,13 +453,13 @@ func TestScheduler_DueCheck(t *testing.T) {
 
 	// Sub that was checked 2 hours ago with 1-hour interval → due.
 	dueSub := subscription.NewSubscription("s1", "Due", "http://example.com", true, false)
-	dueSub.UpdateIntervalNs = int64(time.Hour)
+	dueSub.SetFetchConfig(dueSub.URL(), int64(time.Hour))
 	dueSub.LastCheckedNs.Store(time.Now().Add(-2 * time.Hour).UnixNano())
 	subMgr.Register(dueSub)
 
 	// Sub that was just checked → not due.
 	notDueSub := subscription.NewSubscription("s2", "NotDue", "http://example.com", true, false)
-	notDueSub.UpdateIntervalNs = int64(time.Hour)
+	notDueSub.SetFetchConfig(notDueSub.URL(), int64(time.Hour))
 	notDueSub.LastCheckedNs.Store(time.Now().UnixNano())
 	subMgr.Register(notDueSub)
 
@@ -478,7 +478,7 @@ func TestScheduler_DueCheck(t *testing.T) {
 		if !sub.Enabled() {
 			return true
 		}
-		if sub.LastCheckedNs.Load()+sub.UpdateIntervalNs-15*int64(time.Second) <= now {
+		if sub.LastCheckedNs.Load()+sub.UpdateIntervalNs()-15*int64(time.Second) <= now {
 			dueIDs = append(dueIDs, id)
 		}
 		return true

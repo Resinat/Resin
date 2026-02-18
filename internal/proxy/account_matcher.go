@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"sort"
 	"strings"
 
 	"github.com/resin-proxy/resin/internal/model"
@@ -31,23 +32,66 @@ var _ AccountRuleMatcher = (*AccountMatcher)(nil)
 type matcherNode struct {
 	children map[string]*matcherNode
 	headers  []string // non-nil when this node is a terminal rule
+	prefix   string   // original url_prefix for this terminal rule
+}
+
+type normalizedRule struct {
+	normalizedPrefix string
+	rawPrefix        string
+	headers          []string
+	headersJSON      string
+	updatedAtNs      int64
+}
+
+func shouldReplaceRule(next, current normalizedRule) bool {
+	if next.updatedAtNs != current.updatedAtNs {
+		return next.updatedAtNs > current.updatedAtNs
+	}
+	if next.rawPrefix != current.rawPrefix {
+		return next.rawPrefix < current.rawPrefix
+	}
+	return next.headersJSON < current.headersJSON
 }
 
 // BuildAccountMatcher constructs a matcher from persisted rules.
 func BuildAccountMatcher(rules []model.AccountHeaderRule) *AccountMatcher {
 	m := &AccountMatcher{root: &matcherNode{}}
+	winners := make(map[string]normalizedRule)
 	for _, r := range rules {
 		var headers []string
 		if err := json.Unmarshal([]byte(r.HeadersJSON), &headers); err != nil {
 			continue
 		}
-		prefix := r.URLPrefix
-		if prefix == "*" {
-			m.wildcard = headers
+		normPrefix, err := NormalizeRulePrefix(r.URLPrefix)
+		if err != nil {
 			continue
 		}
-		segments := splitPrefix(prefix)
-		m.insertSegments(segments, headers)
+		candidate := normalizedRule{
+			normalizedPrefix: normPrefix,
+			rawPrefix:        r.URLPrefix,
+			headers:          headers,
+			headersJSON:      r.HeadersJSON,
+			updatedAtNs:      r.UpdatedAtNs,
+		}
+		if current, ok := winners[normPrefix]; !ok || shouldReplaceRule(candidate, current) {
+			winners[normPrefix] = candidate
+		}
+	}
+
+	keys := make([]string, 0, len(winners))
+	for key := range winners {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		r := winners[key]
+		if r.normalizedPrefix == "*" {
+			m.wildcard = r.headers
+			continue
+		}
+		segments := splitPrefix(r.normalizedPrefix)
+		m.insertSegments(segments, r.normalizedPrefix, r.headers)
 	}
 	return m
 }
@@ -55,6 +99,14 @@ func BuildAccountMatcher(rules []model.AccountHeaderRule) *AccountMatcher {
 // Match returns the header names for the longest-prefix rule matching
 // the given host and path. Returns nil if no rule matches.
 func (m *AccountMatcher) Match(host, path string) []string {
+	_, headers := m.MatchWithPrefix(host, path)
+	return headers
+}
+
+// MatchWithPrefix returns the matched url_prefix and its headers for the
+// longest-prefix rule matching the given host/path. If no rule matches,
+// it returns ("", nil). Wildcard fallback returns ("*", wildcardHeaders).
+func (m *AccountMatcher) MatchWithPrefix(host, path string) (string, []string) {
 	host = normalizeMatchHost(host)
 
 	segments := []string{host}
@@ -70,6 +122,7 @@ func (m *AccountMatcher) Match(host, path string) []string {
 	}
 
 	cur := m.root
+	bestPrefix := ""
 	var bestHeaders []string
 
 	for _, seg := range segments {
@@ -80,13 +133,17 @@ func (m *AccountMatcher) Match(host, path string) []string {
 		cur = child
 		if cur.headers != nil {
 			bestHeaders = cur.headers
+			bestPrefix = cur.prefix
 		}
 	}
 
 	if bestHeaders != nil {
-		return bestHeaders
+		return bestPrefix, bestHeaders
 	}
-	return m.wildcard // may be nil
+	if m.wildcard != nil {
+		return "*", m.wildcard
+	}
+	return "", nil
 }
 
 func normalizeMatchHost(host string) string {
@@ -133,7 +190,7 @@ func splitPrefix(prefix string) []string {
 	return segments
 }
 
-func (m *AccountMatcher) insertSegments(segments []string, headers []string) {
+func (m *AccountMatcher) insertSegments(segments []string, prefix string, headers []string) {
 	cur := m.root
 	for _, seg := range segments {
 		if cur.children == nil {
@@ -147,4 +204,5 @@ func (m *AccountMatcher) insertSegments(segments []string, headers []string) {
 		cur = child
 	}
 	cur.headers = headers
+	cur.prefix = prefix
 }

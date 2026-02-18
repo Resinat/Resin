@@ -1,10 +1,13 @@
 package probe
 
 import (
+	"fmt"
 	"log"
+	"net/netip"
 	"sync"
 	"time"
 
+	"github.com/resin-proxy/resin/internal/netutil"
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/scanloop"
 	"github.com/resin-proxy/resin/internal/topology"
@@ -47,6 +50,20 @@ type ProbeManager struct {
 	latencyTestURL                  func() string
 	latencyAuthorities              func() []string
 }
+
+const (
+	egressTraceURL        = "https://cloudflare.com/cdn-cgi/trace"
+	egressTraceDomain     = "cloudflare.com"
+	defaultLatencyTestURL = "https://www.gstatic.com/generate_204"
+)
+
+type egressProbeErrorStage int
+
+const (
+	egressProbeNoError egressProbeErrorStage = iota
+	egressProbeFetchError
+	egressProbeParseError
+)
 
 // NewProbeManager creates a new ProbeManager.
 func NewProbeManager(cfg ProbeConfig) *ProbeManager {
@@ -132,6 +149,103 @@ func (m *ProbeManager) TriggerImmediateEgressProbe(hash node.Hash) {
 	}()
 }
 
+// EgressProbeResult holds the results of a synchronous egress probe.
+type EgressProbeResult struct {
+	EgressIP      string  `json:"egress_ip"`
+	LatencyEwmaMs float64 `json:"latency_ewma_ms"`
+}
+
+// ProbeEgressSync performs a blocking egress probe and returns the results.
+// Used by API action endpoints that must return probe data synchronously.
+func (m *ProbeManager) ProbeEgressSync(hash node.Hash) (*EgressProbeResult, error) {
+	if m.fetcher == nil {
+		return nil, fmt.Errorf("no probe fetcher configured")
+	}
+
+	entry, ok := m.pool.GetEntry(hash)
+	if !ok {
+		return nil, fmt.Errorf("node not found")
+	}
+	if entry.Outbound.Load() == nil {
+		return nil, fmt.Errorf("node outbound not ready")
+	}
+
+	// Acquire semaphore (blocking, with stop-signal awareness).
+	select {
+	case m.sem <- struct{}{}:
+		defer func() { <-m.sem }()
+	case <-m.stopCh:
+		return nil, fmt.Errorf("probe manager stopped")
+	}
+
+	ip, stage, err := m.performEgressProbe(hash)
+	if err != nil {
+		if stage == egressProbeParseError {
+			return nil, fmt.Errorf("parse egress IP: %w", err)
+		}
+		return nil, fmt.Errorf("egress probe failed: %w", err)
+	}
+
+	// Read back EWMA for cloudflare.com from the latency table.
+	var ewmaMs float64
+	if entry.LatencyTable != nil {
+		if stats, ok := entry.LatencyTable.GetDomainStats(egressTraceDomain); ok {
+			ewmaMs = float64(stats.Ewma) / float64(time.Millisecond)
+		}
+	}
+
+	return &EgressProbeResult{
+		EgressIP:      ip.String(),
+		LatencyEwmaMs: ewmaMs,
+	}, nil
+}
+
+// LatencyProbeResult holds the results of a synchronous latency probe.
+type LatencyProbeResult struct {
+	LatencyEwmaMs float64 `json:"latency_ewma_ms"`
+}
+
+// ProbeLatencySync performs a blocking latency probe and returns the results.
+func (m *ProbeManager) ProbeLatencySync(hash node.Hash) (*LatencyProbeResult, error) {
+	if m.fetcher == nil {
+		return nil, fmt.Errorf("no probe fetcher configured")
+	}
+
+	entry, ok := m.pool.GetEntry(hash)
+	if !ok {
+		return nil, fmt.Errorf("node not found")
+	}
+	if entry.Outbound.Load() == nil {
+		return nil, fmt.Errorf("node outbound not ready")
+	}
+
+	testURL := m.currentLatencyTestURL()
+	domain := netutil.ExtractDomain(testURL)
+
+	select {
+	case m.sem <- struct{}{}:
+		defer func() { <-m.sem }()
+	case <-m.stopCh:
+		return nil, fmt.Errorf("probe manager stopped")
+	}
+
+	if err := m.performLatencyProbe(hash, testURL); err != nil {
+		return nil, fmt.Errorf("latency probe failed: %w", err)
+	}
+
+	// Read back EWMA.
+	var ewmaMs float64
+	if entry.LatencyTable != nil {
+		if stats, ok := entry.LatencyTable.GetDomainStats(domain); ok {
+			ewmaMs = float64(stats.Ewma) / float64(time.Millisecond)
+		}
+	}
+
+	return &LatencyProbeResult{
+		LatencyEwmaMs: ewmaMs,
+	}, nil
+}
+
 // scanEgress iterates all pool nodes and probes those due for egress check.
 func (m *ProbeManager) scanEgress() {
 	now := time.Now()
@@ -192,10 +306,7 @@ func (m *ProbeManager) scanLatency() {
 		maxAuthorityInterval = m.maxAuthorityLatencyTestInterval()
 	}
 	lookahead := 15 * time.Second
-	testURL := "https://www.gstatic.com/generate_204"
-	if m.latencyTestURL != nil {
-		testURL = m.latencyTestURL()
-	}
+	testURL := m.currentLatencyTestURL()
 	var authorities []string
 	if m.latencyAuthorities != nil {
 		authorities = m.latencyAuthorities()
@@ -290,31 +401,18 @@ func (m *ProbeManager) probeEgress(hash node.Hash, entry *node.NodeEntry) {
 		return
 	}
 
-	body, latency, err := m.fetcher(hash, "https://cloudflare.com/cdn-cgi/trace")
+	_, stage, err := m.performEgressProbe(hash)
 	if err != nil {
-		m.pool.RecordResult(hash, false)
+		if stage == egressProbeParseError {
+			// Intentionally do NOT touch LastEgressUpdate on parse failure.
+			// LastEgressUpdate means "last successful egress-IP sample"; keeping it
+			// unchanged keeps this node due for near-term retry in the scan loop.
+			log.Printf("[probe] parse egress IP for %s: %v", hash.Hex(), err)
+			return
+		}
 		log.Printf("[probe] egress probe failed for %s: %v", hash.Hex(), err)
 		return
 	}
-
-	// Success.
-	m.pool.RecordResult(hash, true)
-
-	// Ignore non-positive latency samples to avoid polluting EWMA.
-	if latency > 0 {
-		m.pool.RecordLatency(hash, "cloudflare.com", latency)
-	}
-
-	// Parse egress IP from trace response.
-	ip, err := ParseCloudflareTrace(body)
-	if err != nil {
-		// Intentionally do NOT touch LastEgressUpdate on parse failure.
-		// LastEgressUpdate means "last successful egress-IP sample"; keeping it
-		// unchanged keeps this node due for near-term retry in the scan loop.
-		log.Printf("[probe] parse egress IP for %s: %v", hash.Hex(), err)
-		return
-	}
-	m.pool.UpdateNodeEgressIP(hash, ip)
 }
 
 // probeLatency performs a latency probe against a node using the configured test URL.
@@ -328,15 +426,50 @@ func (m *ProbeManager) probeLatency(hash node.Hash, entry *node.NodeEntry, testU
 		return
 	}
 
-	_, latency, err := m.fetcher(hash, testURL)
-	if err != nil {
-		m.pool.RecordResult(hash, false)
+	if err := m.performLatencyProbe(hash, testURL); err != nil {
 		log.Printf("[probe] latency probe failed for %s: %v", hash.Hex(), err)
 		return
+	}
+}
+
+func (m *ProbeManager) performEgressProbe(hash node.Hash) (netip.Addr, egressProbeErrorStage, error) {
+	body, latency, err := m.fetcher(hash, egressTraceURL)
+	if err != nil {
+		m.pool.RecordResult(hash, false)
+		return netip.Addr{}, egressProbeFetchError, err
 	}
 
 	m.pool.RecordResult(hash, true)
 	if latency > 0 {
-		m.pool.RecordLatency(hash, testURL, latency)
+		m.pool.RecordLatency(hash, egressTraceDomain, latency)
 	}
+
+	ip, err := ParseCloudflareTrace(body)
+	if err != nil {
+		return netip.Addr{}, egressProbeParseError, err
+	}
+	m.pool.UpdateNodeEgressIP(hash, ip)
+	return ip, egressProbeNoError, nil
+}
+
+func (m *ProbeManager) performLatencyProbe(hash node.Hash, testURL string) error {
+	_, latency, err := m.fetcher(hash, testURL)
+	if err != nil {
+		m.pool.RecordResult(hash, false)
+		return err
+	}
+
+	m.pool.RecordResult(hash, true)
+	if latency > 0 {
+		m.pool.RecordLatency(hash, netutil.ExtractDomain(testURL), latency)
+	}
+	return nil
+}
+
+func (m *ProbeManager) currentLatencyTestURL() string {
+	testURL := defaultLatencyTestURL
+	if m.latencyTestURL != nil {
+		testURL = m.latencyTestURL()
+	}
+	return testURL
 }

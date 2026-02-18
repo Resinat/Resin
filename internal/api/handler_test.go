@@ -25,7 +25,7 @@ func newTestServer() *Server {
 		},
 		runtimeCfg,
 	)
-	return NewServer(0, "test-admin-token", svc)
+	return NewServer(0, "test-admin-token", svc, nil, 1<<20)
 }
 
 // --- /healthz ---

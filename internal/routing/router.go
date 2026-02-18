@@ -101,10 +101,6 @@ func (r *Router) resolvePlatform(platName string) (*platform.Platform, error) {
 		if p, ok := r.pool.GetPlatform(platform.DefaultPlatformID); ok {
 			return p, nil
 		}
-		// Compatibility fallback: resolve by the well-known default platform name.
-		if p, ok := r.pool.GetPlatformByName(platform.DefaultPlatformName); ok {
-			return p, nil
-		}
 		return nil, ErrPlatformNotFound
 	}
 	p, ok := r.pool.GetPlatformByName(platName)
@@ -512,4 +508,55 @@ func (r *Router) RestoreLeases(leases []model.Lease) {
 		// Directly insert into table and stats
 		state.Leases.CreateLease(ml.Account, l)
 	}
+}
+
+// RangeLeases iterates over all leases for a platform.
+// Returns false if the platform has no routing state.
+func (r *Router) RangeLeases(platformID string, fn func(account string, lease Lease) bool) bool {
+	state, ok := r.states.Load(platformID)
+	if !ok {
+		return false
+	}
+	state.Leases.Range(fn)
+	return true
+}
+
+// DeleteLease removes a single lease by platform and account.
+// Returns true if a lease was deleted. Emits a LeaseRemove event.
+func (r *Router) DeleteLease(platformID, account string) bool {
+	state, ok := r.states.Load(platformID)
+	if !ok {
+		return false
+	}
+	if !state.Leases.DeleteLease(account) {
+		return false
+	}
+	r.emitLeaseEvent(LeaseEvent{
+		Type:       LeaseRemove,
+		PlatformID: platformID,
+		Account:    account,
+	})
+	return true
+}
+
+// DeleteAllLeases removes all leases for a platform.
+// Returns the number of leases deleted. Emits a LeaseRemove event for each.
+func (r *Router) DeleteAllLeases(platformID string) int {
+	state, ok := r.states.Load(platformID)
+	if !ok {
+		return 0
+	}
+	count := 0
+	state.Leases.Range(func(account string, _ Lease) bool {
+		if state.Leases.DeleteLease(account) {
+			r.emitLeaseEvent(LeaseEvent{
+				Type:       LeaseRemove,
+				PlatformID: platformID,
+				Account:    account,
+			})
+			count++
+		}
+		return true
+	})
+	return count
 }

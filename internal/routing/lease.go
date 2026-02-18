@@ -67,6 +67,26 @@ func (t *LeaseTable) CreateLease(account string, lease Lease) {
 	})
 }
 
+// DeleteLease atomically removes a lease and decrements IP load stats.
+// Returns true if a lease was actually deleted.
+func (t *LeaseTable) DeleteLease(account string) bool {
+	deleted := false
+	t.leases.Compute(account, func(oldVal Lease, loaded bool) (Lease, xsync.ComputeOp) {
+		if loaded {
+			t.stats.Dec(oldVal.EgressIP)
+			deleted = true
+			return oldVal, xsync.DeleteOp
+		}
+		return oldVal, xsync.CancelOp
+	})
+	return deleted
+}
+
+// Size returns the number of leases in the table.
+func (t *LeaseTable) Size() int {
+	return t.leases.Size()
+}
+
 // Inc increments the lease count for an IP.
 func (s *IPLoadStats) Inc(ip netip.Addr) {
 	if !ip.IsValid() {

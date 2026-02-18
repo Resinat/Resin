@@ -1,17 +1,14 @@
 package topology
 
 import (
-	"sync"
-
 	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/resin-proxy/resin/internal/subscription"
 )
 
 // SubscriptionManager holds all subscription instances and provides
-// per-subscription operation locks for serializing update/rename/eviction.
+// lifecycle-safe lookup/register/unregister for subscription instances.
 type SubscriptionManager struct {
-	subs  *xsync.Map[string, *subscription.Subscription]
-	locks sync.Map // map[string]*sync.Mutex — per-sub operation locks
+	subs *xsync.Map[string, *subscription.Subscription]
 }
 
 // NewSubscriptionManager creates a new SubscriptionManager.
@@ -29,30 +26,17 @@ func (m *SubscriptionManager) Get(id string) (*subscription.Subscription, bool) 
 // Register adds a subscription to the manager.
 func (m *SubscriptionManager) Register(sub *subscription.Subscription) {
 	m.subs.Store(sub.ID, sub)
-	m.locks.LoadOrStore(sub.ID, &sync.Mutex{})
 }
 
 // Unregister removes a subscription from the manager.
 func (m *SubscriptionManager) Unregister(id string) {
 	m.subs.Delete(id)
-	m.locks.Delete(id)
 }
 
 // Lookup returns a subscription by ID (convenience for pool's subLookup).
 func (m *SubscriptionManager) Lookup(subID string) *subscription.Subscription {
 	sub, _ := m.subs.Load(subID)
 	return sub
-}
-
-// WithSubLock acquires the per-subscription operation lock, runs fn, and releases.
-// This serializes UpdateSubscription, RenameSubscription, and Ephemeral eviction
-// on the same subscription.
-func (m *SubscriptionManager) WithSubLock(subID string, fn func()) {
-	lockVal, _ := m.locks.LoadOrStore(subID, &sync.Mutex{})
-	mu := lockVal.(*sync.Mutex)
-	mu.Lock()
-	defer mu.Unlock()
-	fn()
 }
 
 // Range iterates all subscriptions.

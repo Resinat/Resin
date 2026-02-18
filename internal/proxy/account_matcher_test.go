@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/resin-proxy/resin/internal/model"
@@ -81,6 +82,51 @@ func TestAccountMatcher_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestBuildAccountMatcher_NormalizedConflictPrefersLatestUpdatedAt(t *testing.T) {
+	rulesA := []model.AccountHeaderRule{
+		{URLPrefix: "API.Example.com/v1", HeadersJSON: `["x-old"]`, UpdatedAtNs: 10},
+		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-new"]`, UpdatedAtNs: 20},
+	}
+	rulesB := []model.AccountHeaderRule{
+		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-new"]`, UpdatedAtNs: 20},
+		{URLPrefix: "API.Example.com/v1", HeadersJSON: `["x-old"]`, UpdatedAtNs: 10},
+	}
+
+	m1 := BuildAccountMatcher(rulesA)
+	m2 := BuildAccountMatcher(rulesB)
+
+	p1, h1 := m1.MatchWithPrefix("api.example.com", "/v1/path")
+	p2, h2 := m2.MatchWithPrefix("api.example.com", "/v1/path")
+
+	if p1 != "api.example.com/v1" || !reflect.DeepEqual(h1, []string{"x-new"}) {
+		t.Fatalf("m1 matched (%q, %v), want (%q, %v)", p1, h1, "api.example.com/v1", []string{"x-new"})
+	}
+	if p2 != "api.example.com/v1" || !reflect.DeepEqual(h2, []string{"x-new"}) {
+		t.Fatalf("m2 matched (%q, %v), want (%q, %v)", p2, h2, "api.example.com/v1", []string{"x-new"})
+	}
+}
+
+func TestBuildAccountMatcher_NormalizedConflictTieIsDeterministic(t *testing.T) {
+	rulesA := []model.AccountHeaderRule{
+		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-b"]`, UpdatedAtNs: 100},
+		{URLPrefix: "Api.Example.com/v1", HeadersJSON: `["x-a"]`, UpdatedAtNs: 100},
+	}
+	rulesB := []model.AccountHeaderRule{
+		{URLPrefix: "Api.Example.com/v1", HeadersJSON: `["x-a"]`, UpdatedAtNs: 100},
+		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-b"]`, UpdatedAtNs: 100},
+	}
+
+	m1 := BuildAccountMatcher(rulesA)
+	m2 := BuildAccountMatcher(rulesB)
+
+	p1, h1 := m1.MatchWithPrefix("api.example.com", "/v1/path")
+	p2, h2 := m2.MatchWithPrefix("api.example.com", "/v1/path")
+
+	if p1 != p2 || !reflect.DeepEqual(h1, h2) {
+		t.Fatalf("order-dependent result: m1=(%q,%v), m2=(%q,%v)", p1, h1, p2, h2)
+	}
+}
+
 func TestAccountMatcher_HostWithPort(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
 		{URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`},
@@ -136,6 +182,30 @@ func TestAccountMatcher_QueryStripped(t *testing.T) {
 	}
 }
 
+func TestAccountMatcher_MatchWithPrefix(t *testing.T) {
+	m := BuildAccountMatcher([]model.AccountHeaderRule{
+		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-base"]`},
+		{URLPrefix: "api.example.com/v1/team%2Fa", HeadersJSON: `["x-special"]`},
+		{URLPrefix: "*", HeadersJSON: `["Authorization"]`},
+	})
+
+	prefix, h := m.MatchWithPrefix("api.example.com:443", "/v1/team%2Fa/profile?x=1")
+	if prefix != "api.example.com/v1/team%2Fa" {
+		t.Fatalf("expected prefix api.example.com/v1/team%%2Fa, got %q", prefix)
+	}
+	if len(h) != 1 || h[0] != "x-special" {
+		t.Fatalf("expected [x-special], got %v", h)
+	}
+
+	prefix, h = m.MatchWithPrefix("unknown.com", "/anything")
+	if prefix != "*" {
+		t.Fatalf("expected wildcard prefix *, got %q", prefix)
+	}
+	if len(h) != 1 || h[0] != "Authorization" {
+		t.Fatalf("expected wildcard headers [Authorization], got %v", h)
+	}
+}
+
 func TestAccountMatcherRuntime_Swap(t *testing.T) {
 	initial := BuildAccountMatcher([]model.AccountHeaderRule{
 		{URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`},
@@ -171,6 +241,20 @@ func TestAccountMatcherRuntime_ReplaceRules(t *testing.T) {
 	h := rt.Match("unknown.com", "/anything")
 	if len(h) != 2 || h[0] != "Authorization" || h[1] != "x-api-key" {
 		t.Fatalf("after replace rules: expected wildcard headers, got %v", h)
+	}
+}
+
+func TestAccountMatcherRuntime_MatchWithPrefix(t *testing.T) {
+	rt := NewAccountMatcherRuntime(BuildAccountMatcher([]model.AccountHeaderRule{
+		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-api-key"]`},
+	}))
+
+	prefix, headers := rt.MatchWithPrefix("api.example.com", "/v1/users")
+	if prefix != "api.example.com/v1" {
+		t.Fatalf("expected prefix api.example.com/v1, got %q", prefix)
+	}
+	if len(headers) != 1 || headers[0] != "x-api-key" {
+		t.Fatalf("expected headers [x-api-key], got %v", headers)
 	}
 }
 

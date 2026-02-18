@@ -78,6 +78,11 @@ func (e *StateEngine) DeletePlatform(id string) error {
 	return e.stateRepo.DeletePlatform(id)
 }
 
+// GetPlatform reads one platform by ID.
+func (e *StateEngine) GetPlatform(id string) (*model.Platform, error) {
+	return e.stateRepo.GetPlatform(id)
+}
+
 // ListPlatforms reads all platforms.
 func (e *StateEngine) ListPlatforms() ([]model.Platform, error) {
 	return e.stateRepo.ListPlatforms()
@@ -98,9 +103,10 @@ func (e *StateEngine) ListSubscriptions() ([]model.Subscription, error) {
 	return e.stateRepo.ListSubscriptions()
 }
 
-// UpsertAccountHeaderRule persists a rule (transactional).
-func (e *StateEngine) UpsertAccountHeaderRule(r model.AccountHeaderRule) error {
-	return e.stateRepo.UpsertAccountHeaderRule(r)
+// UpsertAccountHeaderRuleWithCreated persists a rule (transactional) and reports
+// whether the row was newly created.
+func (e *StateEngine) UpsertAccountHeaderRuleWithCreated(r model.AccountHeaderRule) (bool, error) {
+	return e.stateRepo.UpsertAccountHeaderRuleWithCreated(r)
 }
 
 // DeleteAccountHeaderRule removes a rule (transactional).

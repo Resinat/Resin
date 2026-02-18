@@ -1,0 +1,209 @@
+package service
+
+import (
+	"time"
+
+	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/probe"
+)
+
+// ------------------------------------------------------------------
+// Nodes
+// ------------------------------------------------------------------
+
+// NodeFilters holds query filters for listing nodes.
+type NodeFilters struct {
+	PlatformID     *string
+	SubscriptionID *string
+	Region         *string
+	CircuitOpen    *bool
+	HasOutbound    *bool
+	EgressIP       *string
+	UpdatedSince   *time.Time
+}
+
+// ListNodes returns nodes from the pool with optional filters.
+func (s *ControlPlaneService) ListNodes(filters NodeFilters) ([]NodeSummary, error) {
+	// If platform_id filter, get the platform view.
+	var platformView map[node.Hash]struct{}
+	if filters.PlatformID != nil {
+		plat, ok := s.Pool.GetPlatform(*filters.PlatformID)
+		if !ok {
+			return nil, notFound("platform not found")
+		}
+		platformView = make(map[node.Hash]struct{}, plat.View().Size())
+		plat.View().Range(func(h node.Hash) bool {
+			platformView[h] = struct{}{}
+			return true
+		})
+	}
+
+	var subNodes map[node.Hash]struct{}
+	if filters.SubscriptionID != nil {
+		sub := s.SubMgr.Lookup(*filters.SubscriptionID)
+		if sub == nil {
+			return nil, notFound("subscription not found")
+		}
+		subNodes = make(map[node.Hash]struct{})
+		sub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {
+			subNodes[h] = struct{}{}
+			return true
+		})
+	}
+
+	var result []NodeSummary
+	appendIfMatched := func(h node.Hash, entry *node.NodeEntry) {
+		if !s.nodeEntryMatchesFilters(entry, filters) {
+			return
+		}
+		result = append(result, s.nodeEntryToSummary(h, entry))
+	}
+
+	appendIfMatchedHash := func(h node.Hash) {
+		entry, ok := s.Pool.GetEntry(h)
+		if !ok {
+			return
+		}
+		appendIfMatched(h, entry)
+	}
+
+	switch {
+	case platformView != nil && subNodes != nil:
+		// Iterate the smaller candidate set, then intersect by membership.
+		if len(platformView) <= len(subNodes) {
+			for h := range platformView {
+				if _, ok := subNodes[h]; !ok {
+					continue
+				}
+				appendIfMatchedHash(h)
+			}
+		} else {
+			for h := range subNodes {
+				if _, ok := platformView[h]; !ok {
+					continue
+				}
+				appendIfMatchedHash(h)
+			}
+		}
+	case platformView != nil:
+		for h := range platformView {
+			appendIfMatchedHash(h)
+		}
+	case subNodes != nil:
+		for h := range subNodes {
+			appendIfMatchedHash(h)
+		}
+	default:
+		s.Pool.Range(func(h node.Hash, entry *node.NodeEntry) bool {
+			appendIfMatched(h, entry)
+			return true
+		})
+	}
+
+	if result == nil {
+		result = []NodeSummary{}
+	}
+	return result, nil
+}
+
+func (s *ControlPlaneService) nodeEntryMatchesFilters(entry *node.NodeEntry, filters NodeFilters) bool {
+	// Region filter.
+	if filters.Region != nil {
+		egressIP := entry.GetEgressIP()
+		if !egressIP.IsValid() {
+			return false
+		}
+		if s.GeoIP.Lookup(egressIP) != *filters.Region {
+			return false
+		}
+	}
+	// Circuit open filter.
+	if filters.CircuitOpen != nil {
+		if entry.IsCircuitOpen() != *filters.CircuitOpen {
+			return false
+		}
+	}
+	// Has outbound filter.
+	if filters.HasOutbound != nil {
+		if entry.HasOutbound() != *filters.HasOutbound {
+			return false
+		}
+	}
+	// Egress IP filter.
+	if filters.EgressIP != nil {
+		egressIP := entry.GetEgressIP()
+		if !egressIP.IsValid() || egressIP.String() != *filters.EgressIP {
+			return false
+		}
+	}
+	// Updated since filter.
+	if filters.UpdatedSince != nil {
+		lastUpdate := entry.LastEgressUpdate.Load()
+		if lastUpdate < filters.UpdatedSince.UnixNano() {
+			return false
+		}
+	}
+	return true
+}
+
+// GetNode returns a single node by hash.
+func (s *ControlPlaneService) GetNode(hashStr string) (*NodeSummary, error) {
+	h, err := node.ParseHex(hashStr)
+	if err != nil {
+		return nil, invalidArg("node_hash: invalid format")
+	}
+	entry, ok := s.Pool.GetEntry(h)
+	if !ok {
+		return nil, notFound("node not found")
+	}
+	ns := s.nodeEntryToSummary(h, entry)
+	return &ns, nil
+}
+
+// ProbeEgress triggers a synchronous egress probe and returns results.
+func (s *ControlPlaneService) ProbeEgress(hashStr string) (*probe.EgressProbeResult, error) {
+	h, err := node.ParseHex(hashStr)
+	if err != nil {
+		return nil, invalidArg("node_hash: invalid format")
+	}
+	if _, ok := s.Pool.GetEntry(h); !ok {
+		return nil, notFound("node not found")
+	}
+	result, err := s.ProbeMgr.ProbeEgressSync(h)
+	if err != nil {
+		return nil, internal("egress probe failed", err)
+	}
+	return result, nil
+}
+
+// ProbeLatency triggers a synchronous latency probe and returns results.
+func (s *ControlPlaneService) ProbeLatency(hashStr string) (*probe.LatencyProbeResult, error) {
+	h, err := node.ParseHex(hashStr)
+	if err != nil {
+		return nil, invalidArg("node_hash: invalid format")
+	}
+	if _, ok := s.Pool.GetEntry(h); !ok {
+		return nil, notFound("node not found")
+	}
+	result, err := s.ProbeMgr.ProbeLatencySync(h)
+	if err != nil {
+		return nil, internal("latency probe failed", err)
+	}
+	return result, nil
+}
+
+// buildSubLookup returns a node.SubLookupFunc adapter that bridges
+// SubscriptionManager.Lookup to the signature expected by NodeEntry.MatchRegexs.
+func (s *ControlPlaneService) buildSubLookup() node.SubLookupFunc {
+	return func(subID string, hash node.Hash) (name string, enabled bool, tags []string, ok bool) {
+		sub := s.SubMgr.Lookup(subID)
+		if sub == nil {
+			return "", false, nil, false
+		}
+		t, found := sub.ManagedNodes().Load(hash)
+		if !found {
+			return sub.Name(), sub.Enabled(), nil, true
+		}
+		return sub.Name(), sub.Enabled(), t, true
+	}
+}

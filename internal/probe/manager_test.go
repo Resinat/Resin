@@ -394,6 +394,48 @@ func TestProbeManager_StopWaitsImmediateProbe(t *testing.T) {
 	}
 }
 
+func TestProbeLatencySync_ReturnsEWMAFromNormalizedDomain(t *testing.T) {
+	pool := topology.NewGlobalNodePool(topology.PoolConfig{
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+	})
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"latency-sync"}`))
+	pool.AddNodeFromSub(hash, []byte(`{"type":"latency-sync"}`), "sub1")
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	storeOutbound(entry)
+
+	mgr := NewProbeManager(ProbeConfig{
+		Pool: pool,
+		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
+			return []byte("ok"), 80 * time.Millisecond, nil
+		},
+		LatencyTestURL: func() string {
+			return "https://www.gstatic.com/generate_204"
+		},
+	})
+
+	result, err := mgr.ProbeLatencySync(hash)
+	if err != nil {
+		t.Fatalf("ProbeLatencySync: %v", err)
+	}
+	if result.LatencyEwmaMs <= 0 {
+		t.Fatalf("latency_ewma_ms = %f, want > 0", result.LatencyEwmaMs)
+	}
+
+	stats, ok := entry.LatencyTable.GetDomainStats("gstatic.com")
+	if !ok {
+		t.Fatal("expected normalized domain latency entry for gstatic.com")
+	}
+	if stats.Ewma != 80*time.Millisecond {
+		t.Fatalf("stored EWMA = %v, want %v", stats.Ewma, 80*time.Millisecond)
+	}
+}
+
 // TestParseCloudflareTrace_Success verifies IP extraction from trace body.
 func TestParseCloudflareTrace_Success(t *testing.T) {
 	body := []byte("fl=abc\nip=1.2.3.4\nts=12345")

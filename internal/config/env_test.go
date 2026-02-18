@@ -40,6 +40,7 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	assertEqual(t, "APIPort", cfg.APIPort, 2620)
 	assertEqual(t, "ForwardProxyPort", cfg.ForwardProxyPort, 2621)
 	assertEqual(t, "ReverseProxyPort", cfg.ReverseProxyPort, 2622)
+	assertEqual(t, "APIMaxBodyBytes", cfg.APIMaxBodyBytes, 1<<20)
 
 	// Core
 	assertEqual(t, "MaxLatencyTableEntries", cfg.MaxLatencyTableEntries, 128)
@@ -75,6 +76,7 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	envs := requiredEnvs()
 	envs["RESIN_CACHE_DIR"] = "/tmp/cache"
 	envs["RESIN_API_PORT"] = "8080"
+	envs["RESIN_API_MAX_BODY_BYTES"] = "2097152"
 	envs["RESIN_PROBE_CONCURRENCY"] = "500"
 	envs["RESIN_GEOIP_UPDATE_SCHEDULE"] = "0 0 * * *"
 	envs["RESIN_DEFAULT_PLATFORM_STICKY_TTL"] = "2h"
@@ -94,6 +96,7 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 
 	assertEqual(t, "CacheDir", cfg.CacheDir, "/tmp/cache")
 	assertEqual(t, "APIPort", cfg.APIPort, 8080)
+	assertEqual(t, "APIMaxBodyBytes", cfg.APIMaxBodyBytes, 2097152)
 	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 500)
 	assertEqual(t, "GeoIPUpdateSchedule", cfg.GeoIPUpdateSchedule, "0 0 * * *")
 	assertEqual(t, "DefaultPlatformStickyTTL", cfg.DefaultPlatformStickyTTL, 2*time.Hour)
@@ -190,6 +193,18 @@ func TestLoadEnvConfig_ZeroPort(t *testing.T) {
 		t.Fatal("expected error for zero port")
 	}
 	assertContains(t, err.Error(), "RESIN_FORWARD_PROXY_PORT")
+}
+
+func TestLoadEnvConfig_InvalidAPIMaxBodyBytes(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_API_MAX_BODY_BYTES"] = "0"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for non-positive API max body bytes")
+	}
+	assertContains(t, err.Error(), "RESIN_API_MAX_BODY_BYTES")
 }
 
 func TestLoadEnvConfig_QueueSizeTooSmall(t *testing.T) {

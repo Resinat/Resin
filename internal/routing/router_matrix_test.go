@@ -59,23 +59,20 @@ func (p *transientMissingPool) RangePlatforms(fn func(*platform.Platform) bool) 
 	p.inner.RangePlatforms(fn)
 }
 
-func TestRouteRequest_DefaultPlatformFallbackByName(t *testing.T) {
+func TestRouteRequest_DefaultPlatformRequiresWellKnownID(t *testing.T) {
 	pool := newRouterTestPool()
-	// Simulate legacy/migrated data where Default exists by name but ID differs.
+	// Default name alone is not sufficient; only the well-known ID is treated as default.
 	plat := platform.NewPlatform("legacy-default-id", platform.DefaultPlatformName, nil, nil)
 	pool.addPlatform(plat)
 
-	h, e := newRoutableEntry(t, `{"id":"default-by-name"}`, "198.51.100.10")
-	pool.addEntry(h, e)
+	defaultHash, defaultEntry := newRoutableEntry(t, `{"id":"default-by-name"}`, "198.51.100.10")
+	pool.addEntry(defaultHash, defaultEntry)
 	pool.rebuildPlatformView(plat)
 
 	router := newTestRouter(pool, nil)
-	res, err := router.RouteRequest("", "", "https://example.com")
-	if err != nil {
-		t.Fatalf("route with default-by-name fallback failed: %v", err)
-	}
-	if res.NodeHash != h {
-		t.Fatalf("unexpected node selected: got=%s want=%s", res.NodeHash.Hex(), h.Hex())
+	_, err := router.RouteRequest("", "", "https://example.com")
+	if !errors.Is(err, ErrPlatformNotFound) {
+		t.Fatalf("expected ErrPlatformNotFound without default ID, got %v", err)
 	}
 }
 

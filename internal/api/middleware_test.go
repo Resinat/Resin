@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -69,6 +71,30 @@ func TestAuthMiddleware_InvalidFormat(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("status: got %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestRequestBodyLimitMiddleware_TooLarge(t *testing.T) {
+	handler := RequestBodyLimitMiddleware(4, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := io.ReadAll(r.Body)
+		if err == nil {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+		t.Fatalf("unexpected read error: %v", err)
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader("12345"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
 	}
 }
 

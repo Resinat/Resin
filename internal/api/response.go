@@ -33,3 +33,21 @@ func WriteError(w http.ResponseWriter, status int, code, message string) {
 		},
 	})
 }
+
+// PageResponse is the standard list envelope for paginated endpoints.
+type PageResponse[T any] struct {
+	Items  []T `json:"items"`
+	Total  int `json:"total"`
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+}
+
+// WritePage writes a paginated list response.
+func WritePage[T any](w http.ResponseWriter, status int, allItems []T, p Pagination) {
+	WriteJSON(w, status, PageResponse[T]{
+		Items:  PaginateSlice(allItems, p),
+		Total:  len(allItems),
+		Limit:  p.Limit,
+		Offset: p.Offset,
+	})
+}

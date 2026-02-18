@@ -866,7 +866,6 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 * `NOT_FOUND` (404)
 * `CONFLICT` (409) — 唯一约束冲突（如 platform name）
 * `UNAUTHORIZED` (401)
-* `RATE_LIMITED` (429)
 * `INTERNAL` (500)
 
 #### 分页
@@ -885,7 +884,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 
 #### PATCH 语义
 
-* `PATCH` 使用 **JSON Merge Patch (RFC7396)**
+* `PATCH` 使用受限的 JSON 对象 partial patch（**非 RFC 7396 JSON Merge Patch**）
 * 更新成功返回更新后的完整资源。
 
 #### 写接口请求体与字段校验约定
@@ -951,7 +950,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 #### 更新全局配置
 
 **PATCH** `/system/config`
-Body（JSON Merge Patch 示例）：
+Body（partial patch 示例）：
 
 ```json
 {
@@ -1044,7 +1043,7 @@ Body：
 #### 更新平台
 **PATCH** `/platforms/{platform_id}`
 
-Body（JSON Merge Patch 示例）：
+Body（partial patch 示例）：
 
 ```json
 {
@@ -1097,7 +1096,6 @@ Body（JSON Merge Patch 示例）：
 
 * `404 NOT_FOUND`：`platform_id` 不存在。
 * `409 CONFLICT`：目标为 `Default` 平台。
-* `429 RATE_LIMITED`：已有同平台重建任务执行中。
 
 返回：`200 OK` + 平台对象
 
@@ -1151,7 +1149,6 @@ API 阻塞到重建完成为止。
 错误码映射（最小集）：
 
 * `404 NOT_FOUND`：`platform_id` 不存在。
-* `429 RATE_LIMITED`：已有同平台重建任务执行中。
 
 ### Subscription
 
@@ -1221,7 +1218,7 @@ Body：
 
 **PATCH** `/subscriptions/{subscription_id}`
 
-Body（JSON Merge Patch 示例）：
+Body（partial patch 示例）：
 
 ```json
 {
@@ -1267,7 +1264,6 @@ API 阻塞到更新完成为止。
 错误码映射（最小集）：
 
 * `404 NOT_FOUND`：`subscription_id` 不存在。
-* `429 RATE_LIMITED`：已有同订阅刷新任务执行中。
 
 ### 反向代理 Account Header Rules
 
@@ -1662,7 +1658,6 @@ API 阻塞到更新完成
 
 错误码映射（最小集）：
 
-* `429 RATE_LIMITED`：已有更新任务在执行。
 * `500 INTERNAL`：下载或校验失败。
 
 ### 数据统计（用于 Dashboard）
@@ -1930,6 +1925,7 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * RESIN_STATE_DIR：配置目录。默认 /var/lib/resin
 * RESIN_LOG_DIR：日志目录。默认 /var/log/resin
 * RESIN_API_PORT：API 端口。默认 2620
+* RESIN_API_MAX_BODY_BYTES：控制面 API（`/api/*`）请求体最大字节数。超限返回 `413 PAYLOAD_TOO_LARGE`。仅作用于控制面，不作用于正/反向代理数据面。默认 1048576（1 MiB）。
 * RESIN_FORWARD_PROXY_PORT：前向代理端口。默认 2621
 * RESIN_REVERSE_PROXY_PORT：反向代理端口。默认 2622
 
@@ -1976,7 +1972,7 @@ Resin 支持通过 API (`PATCH /system/config`) 动态调整大部分全局运�
 
 #### 请求日志设置
 * `RequestLogEnabled`: 是否开启请求日志记录。此开关实时生效。默认 False。
-* `ReverseProxyLogDetailEnabled`: 是否记录反向代理的详细日志（请求头/体）。默认 False。
+* `ReverseProxyLogDetailEnabled`: 是否记录反向代理的详细日志（请求/响应头与体）。默认 False。
 * `ReverseProxyLogReqHeadersMaxBytes`: 记录请求头的最大字节数。默认 4KB。
 * `ReverseProxyLogReqBodyMaxBytes`: 记录请求体的最大字节数。默认 1KB。
 * `ReverseProxyLogRespHeadersMaxBytes`: 记录响应头的最大字节数。默认 1KB。

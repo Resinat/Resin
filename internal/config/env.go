@@ -24,6 +24,7 @@ type EnvConfig struct {
 	APIPort          int
 	ForwardProxyPort int
 	ReverseProxyPort int
+	APIMaxBodyBytes  int
 
 	// Core
 	MaxLatencyTableEntries                int
@@ -75,6 +76,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.APIPort = envInt("RESIN_API_PORT", 2620, &errs)
 	cfg.ForwardProxyPort = envInt("RESIN_FORWARD_PROXY_PORT", 2621, &errs)
 	cfg.ReverseProxyPort = envInt("RESIN_REVERSE_PROXY_PORT", 2622, &errs)
+	cfg.APIMaxBodyBytes = envInt("RESIN_API_MAX_BODY_BYTES", 1<<20, &errs)
 
 	// --- Core ---
 	cfg.MaxLatencyTableEntries = envInt("RESIN_MAX_LATENCY_TABLE_ENTRIES", 128, &errs)
@@ -125,6 +127,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	validatePort("RESIN_API_PORT", cfg.APIPort, &errs)
 	validatePort("RESIN_FORWARD_PROXY_PORT", cfg.ForwardProxyPort, &errs)
 	validatePort("RESIN_REVERSE_PROXY_PORT", cfg.ReverseProxyPort, &errs)
+	validatePositive("RESIN_API_MAX_BODY_BYTES", cfg.APIMaxBodyBytes, &errs)
 
 	validatePositive("RESIN_MAX_LATENCY_TABLE_ENTRIES", cfg.MaxLatencyTableEntries, &errs)
 	validatePositive("RESIN_PROBE_CONCURRENCY", cfg.ProbeConcurrency, &errs)

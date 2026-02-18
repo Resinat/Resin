@@ -10,19 +10,29 @@ import (
 )
 
 // Subscription represents a subscription's runtime state.
-// The per-subscription operation lock (serializing update/rename/eviction)
-// lives in topology.SubscriptionManager, not here.
+// It has two synchronization layers:
+//   - mu protects mutable config fields (url/name/enabled/ephemeral).
+//   - opMu serializes high-level operations (update/rename/eviction/delete)
+//     on the same subscription instance.
+//
+// Lock-order rule (must be preserved to avoid deadlocks):
+//   - If both locks are needed in one flow, always acquire opMu before mu.
+//   - Never call WithOpLock from code that already holds mu.
 type Subscription struct {
 	// Immutable after creation.
-	ID               string
-	URL              string
-	UpdateIntervalNs int64 // configured interval, set at creation
+	ID string
+
+	// Operation-level lock for serializing multi-step workflows.
+	opMu sync.Mutex
 
 	// Mutable fields guarded by mu.
-	mu        sync.RWMutex
-	name      string
-	enabled   bool
-	ephemeral bool
+	mu  sync.RWMutex
+	url string
+	// updateIntervalNs is the configured subscription refresh interval.
+	updateIntervalNs int64
+	name             string
+	enabled          bool
+	ephemeral        bool
 
 	// Persistence timestamps (written under mu or single-writer context).
 	CreatedAtNs int64
@@ -43,7 +53,7 @@ type Subscription struct {
 func NewSubscription(id, name, url string, enabled, ephemeral bool) *Subscription {
 	s := &Subscription{
 		ID:        id,
-		URL:       url,
+		url:       url,
 		name:      name,
 		enabled:   enabled,
 		ephemeral: ephemeral,
@@ -60,6 +70,35 @@ func (s *Subscription) SetLastError(err string) { s.LastError.Store(&err) }
 
 // GetLastError atomically loads the last error string.
 func (s *Subscription) GetLastError() string { return *s.LastError.Load() }
+
+// WithOpLock runs fn under the subscription operation lock.
+func (s *Subscription) WithOpLock(fn func()) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	fn()
+}
+
+// URL returns the subscription source URL (thread-safe).
+func (s *Subscription) URL() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.url
+}
+
+// UpdateIntervalNs returns the configured update interval in nanoseconds (thread-safe).
+func (s *Subscription) UpdateIntervalNs() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.updateIntervalNs
+}
+
+// SetFetchConfig updates URL and update interval together atomically under lock.
+func (s *Subscription) SetFetchConfig(url string, updateIntervalNs int64) {
+	s.mu.Lock()
+	s.url = url
+	s.updateIntervalNs = updateIntervalNs
+	s.mu.Unlock()
+}
 
 // Name returns the subscription name (thread-safe).
 func (s *Subscription) Name() string {
@@ -94,6 +133,13 @@ func (s *Subscription) Ephemeral() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.ephemeral
+}
+
+// SetEphemeral updates the ephemeral flag (thread-safe).
+func (s *Subscription) SetEphemeral(v bool) {
+	s.mu.Lock()
+	s.ephemeral = v
+	s.mu.Unlock()
 }
 
 // ManagedNodes returns the current node view via atomic load.

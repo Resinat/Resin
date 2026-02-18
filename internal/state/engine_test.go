@@ -85,12 +85,12 @@ func TestEngine_StrongPersist_PlatformSurvivesRestart(t *testing.T) {
 	}
 	defer closer2.Close()
 
-	platforms, err := engine2.ListPlatforms()
+	got, err := engine2.GetPlatform("p1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(platforms) != 1 || platforms[0].Name != "MyPlatform" {
-		t.Fatalf("platform did not survive: %+v", platforms)
+	if got.Name != "MyPlatform" {
+		t.Fatalf("platform did not survive: %+v", got)
 	}
 }
 

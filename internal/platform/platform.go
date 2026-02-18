@@ -12,7 +12,7 @@ import (
 // DefaultPlatformID is the well-known UUID of the built-in Default platform.
 const DefaultPlatformID = "00000000-0000-0000-0000-000000000000"
 
-// DefaultPlatformName is the built-in platform name used for fallback lookup.
+// DefaultPlatformName is the built-in platform name.
 const DefaultPlatformName = "Default"
 
 // GeoLookupFunc resolves an IP address to a lowercase ISO country code.

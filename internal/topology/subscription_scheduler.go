@@ -80,7 +80,7 @@ func (s *SubscriptionScheduler) tick() {
 			return true
 		}
 		// Check if due: lastChecked + interval - lookahead <= now.
-		if sub.LastCheckedNs.Load()+sub.UpdateIntervalNs-int64(schedulerLookahead) <= now {
+		if sub.LastCheckedNs.Load()+sub.UpdateIntervalNs()-int64(schedulerLookahead) <= now {
 			s.UpdateSubscription(sub)
 		}
 		return true
@@ -92,18 +92,19 @@ func (s *SubscriptionScheduler) tick() {
 // (no I/O under lock) while still preventing concurrent diff/apply races.
 func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscription) {
 	attemptStartedNs := time.Now().UnixNano()
+	attemptURL := sub.URL()
 
 	// 1. Fetch (lock-free).
-	body, err := s.Fetcher(sub.URL)
+	body, err := s.Fetcher(attemptURL)
 	if err != nil {
-		s.handleUpdateFailure(sub, attemptStartedNs, "fetch", err)
+		s.handleUpdateFailure(sub, attemptStartedNs, attemptURL, "fetch", err)
 		return
 	}
 
 	// 2. Parse (lock-free).
 	parsed, err := subscription.ParseSingboxSubscription(body)
 	if err != nil {
-		s.handleUpdateFailure(sub, attemptStartedNs, "parse", err)
+		s.handleUpdateFailure(sub, attemptStartedNs, attemptURL, "parse", err)
 		return
 	}
 
@@ -122,7 +123,11 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 
 	// 4. Diff, swap, add/remove — under lock.
 	applied := false
-	s.subManager.WithSubLock(sub.ID, func() {
+	sub.WithOpLock(func() {
+		// If fetch URL changed while this attempt was in-flight, discard.
+		if sub.URL() != attemptURL {
+			return
+		}
 		// Stale success guard: if a newer successful update has already landed,
 		// discard this older attempt to avoid rolling state backward.
 		if sub.LastUpdatedNs.Load() > attemptStartedNs {
@@ -166,11 +171,16 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 func (s *SubscriptionScheduler) handleUpdateFailure(
 	sub *subscription.Subscription,
 	attemptStartedNs int64,
+	attemptURL string,
 	stage string,
 	err error,
 ) {
 	applied := false
-	s.subManager.WithSubLock(sub.ID, func() {
+	sub.WithOpLock(func() {
+		// If fetch URL changed while this attempt was in-flight, discard.
+		if sub.URL() != attemptURL {
+			return
+		}
 		if sub.LastUpdatedNs.Load() > attemptStartedNs {
 			return
 		}
@@ -194,7 +204,7 @@ func (s *SubscriptionScheduler) handleUpdateFailure(
 // routable views. Disabling a subscription makes its nodes invisible to
 // platform tag-regex matching; enabling makes them visible again.
 func (s *SubscriptionScheduler) SetSubscriptionEnabled(sub *subscription.Subscription, enabled bool) {
-	s.subManager.WithSubLock(sub.ID, func() {
+	sub.WithOpLock(func() {
 		sub.SetEnabled(enabled)
 	})
 	// Rebuild all platform views so they pick up the visibility change.
@@ -207,7 +217,7 @@ func (s *SubscriptionScheduler) SetSubscriptionEnabled(sub *subscription.Subscri
 // RenameSubscription updates the subscription name and re-triggers platform
 // re-evaluation for all managed nodes (since tags include the sub name).
 func (s *SubscriptionScheduler) RenameSubscription(sub *subscription.Subscription, newName string) {
-	s.subManager.WithSubLock(sub.ID, func() {
+	sub.WithOpLock(func() {
 		sub.SetName(newName)
 		// Re-add all managed hashes to trigger platform re-filter.
 		sub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {

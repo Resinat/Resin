@@ -15,7 +15,14 @@ type Server struct {
 }
 
 // NewServer creates a new API server wired with all routes.
-func NewServer(port int, adminToken string, systemSvc service.SystemService) *Server {
+// cp may be nil if the control plane is not yet initialized.
+func NewServer(
+	port int,
+	adminToken string,
+	systemSvc service.SystemService,
+	cp *service.ControlPlaneService,
+	apiMaxBodyBytes int64,
+) *Server {
 	mux := http.NewServeMux()
 
 	// Public (no auth)
@@ -26,7 +33,57 @@ func NewServer(port int, adminToken string, systemSvc service.SystemService) *Se
 	authed.Handle("GET /api/v1/system/info", HandleSystemInfo(systemSvc))
 	authed.Handle("GET /api/v1/system/config", HandleSystemConfig(systemSvc))
 
-	mux.Handle("/api/", AuthMiddleware(adminToken, authed))
+	if cp != nil {
+		// System config mutations.
+		authed.Handle("PATCH /api/v1/system/config", HandlePatchSystemConfig(cp))
+
+		// Platforms.
+		authed.Handle("GET /api/v1/platforms", HandleListPlatforms(cp))
+		authed.Handle("POST /api/v1/platforms", HandleCreatePlatform(cp))
+		authed.Handle("POST /api/v1/platforms/preview-filter", HandlePreviewFilter(cp))
+		authed.Handle("GET /api/v1/platforms/{id}", HandleGetPlatform(cp))
+		authed.Handle("PATCH /api/v1/platforms/{id}", HandleUpdatePlatform(cp))
+		authed.Handle("DELETE /api/v1/platforms/{id}", HandleDeletePlatform(cp))
+		authed.Handle("POST /api/v1/platforms/{id}/actions/reset-to-default", HandleResetPlatform(cp))
+		authed.Handle("POST /api/v1/platforms/{id}/actions/rebuild-routable-view", HandleRebuildPlatform(cp))
+
+		// Leases (under platforms).
+		authed.Handle("GET /api/v1/platforms/{id}/leases", HandleListLeases(cp))
+		authed.Handle("DELETE /api/v1/platforms/{id}/leases", HandleDeleteAllLeases(cp))
+		authed.Handle("GET /api/v1/platforms/{id}/leases/{account}", HandleGetLease(cp))
+		authed.Handle("DELETE /api/v1/platforms/{id}/leases/{account}", HandleDeleteLease(cp))
+		authed.Handle("GET /api/v1/platforms/{id}/ip-load", HandleIPLoad(cp))
+
+		// Subscriptions.
+		authed.Handle("GET /api/v1/subscriptions", HandleListSubscriptions(cp))
+		authed.Handle("POST /api/v1/subscriptions", HandleCreateSubscription(cp))
+		authed.Handle("GET /api/v1/subscriptions/{id}", HandleGetSubscription(cp))
+		authed.Handle("PATCH /api/v1/subscriptions/{id}", HandleUpdateSubscription(cp))
+		authed.Handle("DELETE /api/v1/subscriptions/{id}", HandleDeleteSubscription(cp))
+		authed.Handle("POST /api/v1/subscriptions/{id}/actions/refresh", HandleRefreshSubscription(cp))
+
+		// Account header rules.
+		authed.Handle("GET /api/v1/account-header-rules", HandleListRules(cp))
+		// Canonical route (DESIGN.md): url_prefix comes from path parameter only.
+		authed.Handle("PUT /api/v1/account-header-rules/{prefix...}", HandleUpsertRule(cp))
+		authed.Handle("POST /api/v1/account-header-rules:resolve", HandleResolveRule(cp))
+		authed.Handle("DELETE /api/v1/account-header-rules/{prefix...}", HandleDeleteRule(cp))
+
+		// Nodes.
+		authed.Handle("GET /api/v1/nodes", HandleListNodes(cp))
+		authed.Handle("GET /api/v1/nodes/{hash}", HandleGetNode(cp))
+		authed.Handle("POST /api/v1/nodes/{hash}/actions/probe-egress", HandleProbeEgress(cp))
+		authed.Handle("POST /api/v1/nodes/{hash}/actions/probe-latency", HandleProbeLatency(cp))
+
+		// GeoIP.
+		authed.Handle("GET /api/v1/geoip/status", HandleGeoIPStatus(cp))
+		authed.Handle("GET /api/v1/geoip/lookup", HandleGeoIPLookup(cp))
+		authed.Handle("POST /api/v1/geoip/lookup", HandleGeoIPLookupPost(cp))
+		authed.Handle("POST /api/v1/geoip/actions/update-now", HandleGeoIPUpdate(cp))
+	}
+
+	limitedAuthed := RequestBodyLimitMiddleware(apiMaxBodyBytes, authed)
+	mux.Handle("/api/", AuthMiddleware(adminToken, limitedAuthed))
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),

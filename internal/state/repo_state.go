@@ -3,13 +3,16 @@ package state
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"regexp"
 	"sync"
 	"time"
 
 	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/model"
+	"github.com/resin-proxy/resin/internal/platform"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // StateRepo wraps state.db and provides transactional CRUD for strong-persist data.
@@ -69,30 +72,26 @@ func (r *StateRepo) SaveSystemConfig(cfg *config.RuntimeConfig, version int, upd
 // --- platforms ---
 
 // UpsertPlatform inserts or updates a platform by ID.
-// If the name collides with a different platform's name, the UNIQUE constraint
-// error is returned to the caller.
+// If the name collides with a different platform's name, ErrConflict is returned.
 func (r *StateRepo) UpsertPlatform(p model.Platform) error {
 	// Validate regex_filters_json.
-	var regexes []string
-	if err := json.Unmarshal([]byte(p.RegexFiltersJSON), &regexes); err != nil {
-		return fmt.Errorf("regex_filters_json: must be a JSON []string: %w", err)
-	}
-	for i, re := range regexes {
-		if _, err := regexp.Compile(re); err != nil {
-			return fmt.Errorf("regex_filters_json[%d]: invalid regex %q: %w", i, re, err)
-		}
+	if _, err := platform.DecodeRegexFiltersJSON(p.ID, p.RegexFiltersJSON); err != nil {
+		return err
 	}
 
 	// Validate region_filters_json.
-	var regions []string
-	if err := json.Unmarshal([]byte(p.RegionFiltersJSON), &regions); err != nil {
-		return fmt.Errorf("region_filters_json: must be a JSON []string: %w", err)
+	regions, err := platform.DecodeRegionFiltersJSON(p.ID, p.RegionFiltersJSON)
+	if err != nil {
+		return err
+	}
+	if err := platform.ValidateRegionFilters(regions); err != nil {
+		return err
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, err := r.db.Exec(`
+	_, err = r.db.Exec(`
 		INSERT INTO platforms (id, name, sticky_ttl_ns, regex_filters_json, region_filters_json,
 		                       reverse_proxy_miss_action, allocation_policy, updated_at_ns)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -106,7 +105,25 @@ func (r *StateRepo) UpsertPlatform(p model.Platform) error {
 			updated_at_ns            = excluded.updated_at_ns
 	`, p.ID, p.Name, p.StickyTTLNs, p.RegexFiltersJSON, p.RegionFiltersJSON,
 		p.ReverseProxyMissAction, p.AllocationPolicy, p.UpdatedAtNs)
+	if err != nil {
+		if isSQLiteUniqueConstraint(err) {
+			return fmt.Errorf("%w: platform name already exists", ErrConflict)
+		}
+		return err
+	}
 	return err
+}
+
+func isSQLiteUniqueConstraint(err error) bool {
+	var sqlErr *sqlite.Error
+	if !errors.As(err, &sqlErr) {
+		return false
+	}
+	switch sqlErr.Code() {
+	case sqlite3.SQLITE_CONSTRAINT_UNIQUE:
+		return true
+	}
+	return false
 }
 
 // DeletePlatform removes a platform by ID.
@@ -114,8 +131,32 @@ func (r *StateRepo) DeletePlatform(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, err := r.db.Exec("DELETE FROM platforms WHERE id = ?", id)
-	return err
+	result, err := r.db.Exec("DELETE FROM platforms WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetPlatform returns one platform by ID.
+func (r *StateRepo) GetPlatform(id string) (*model.Platform, error) {
+	row := r.db.QueryRow(`SELECT id, name, sticky_ttl_ns, regex_filters_json, region_filters_json,
+		reverse_proxy_miss_action, allocation_policy, updated_at_ns
+		FROM platforms WHERE id = ?`, id)
+
+	var p model.Platform
+	if err := row.Scan(&p.ID, &p.Name, &p.StickyTTLNs, &p.RegexFiltersJSON,
+		&p.RegionFiltersJSON, &p.ReverseProxyMissAction, &p.AllocationPolicy, &p.UpdatedAtNs); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &p, nil
 }
 
 // ListPlatforms returns all platforms.
@@ -173,8 +214,15 @@ func (r *StateRepo) DeleteSubscription(id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, err := r.db.Exec("DELETE FROM subscriptions WHERE id = ?", id)
-	return err
+	result, err := r.db.Exec("DELETE FROM subscriptions WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ListSubscriptions returns all subscriptions.
@@ -200,19 +248,45 @@ func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 
 // --- account_header_rules ---
 
-// UpsertAccountHeaderRule inserts or updates a rule by url_prefix.
-func (r *StateRepo) UpsertAccountHeaderRule(rule model.AccountHeaderRule) error {
+// UpsertAccountHeaderRuleWithCreated inserts or updates a rule by url_prefix and
+// reports whether the row was newly created.
+func (r *StateRepo) UpsertAccountHeaderRuleWithCreated(rule model.AccountHeaderRule) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, err := r.db.Exec(`
+	tx, err := r.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	insertRes, err := tx.Exec(`
 		INSERT INTO account_header_rules (url_prefix, headers_json, updated_at_ns)
 		VALUES (?, ?, ?)
-		ON CONFLICT(url_prefix) DO UPDATE SET
-			headers_json  = excluded.headers_json,
-			updated_at_ns = excluded.updated_at_ns
+		ON CONFLICT(url_prefix) DO NOTHING
 	`, rule.URLPrefix, rule.HeadersJSON, rule.UpdatedAtNs)
-	return err
+	if err != nil {
+		return false, err
+	}
+
+	inserted := false
+	if n, _ := insertRes.RowsAffected(); n > 0 {
+		inserted = true
+	} else {
+		// Existing row: apply update path.
+		if _, err := tx.Exec(`
+			UPDATE account_header_rules
+			SET headers_json = ?, updated_at_ns = ?
+			WHERE url_prefix = ?
+		`, rule.HeadersJSON, rule.UpdatedAtNs, rule.URLPrefix); err != nil {
+			return false, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return inserted, nil
 }
 
 // DeleteAccountHeaderRule removes a rule by url_prefix.
@@ -220,8 +294,15 @@ func (r *StateRepo) DeleteAccountHeaderRule(prefix string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, err := r.db.Exec("DELETE FROM account_header_rules WHERE url_prefix = ?", prefix)
-	return err
+	result, err := r.db.Exec("DELETE FROM account_header_rules WHERE url_prefix = ?", prefix)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ListAccountHeaderRules returns all rules.

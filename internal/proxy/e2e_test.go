@@ -180,6 +180,80 @@ func TestReverseProxy_E2ESuccess(t *testing.T) {
 	}
 }
 
+func TestReverseProxy_E2ECapturesDetailPayloads(t *testing.T) {
+	env := newProxyE2EEnv(t)
+	emitter := newMockEventEmitter()
+
+	upstreamBody := "reverse-body-payload"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Path; got != "/api/v1/items" {
+			t.Fatalf("unexpected path: %q", got)
+		}
+		w.Header().Set("X-Upstream-Header", "yes")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(upstreamBody))
+	}))
+	defer upstream.Close()
+
+	host := strings.TrimPrefix(upstream.URL, "http://")
+	path := fmt.Sprintf("/tok/plat/http/%s/api/v1/items", host)
+	reqBody := "request-body-data"
+
+	rp := NewReverseProxy(ReverseProxyConfig{
+		ProxyToken:     "tok",
+		Router:         env.router,
+		Pool:           env.pool,
+		PlatformLookup: env.pool,
+		Health:         &mockHealthRecorder{},
+		Events: ConfigAwareEventEmitter{
+			Base:                         emitter,
+			RequestLogEnabled:            func() bool { return true },
+			ReverseProxyLogDetailEnabled: func() bool { return true },
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Client-Header", "capture")
+	w := httptest.NewRecorder()
+
+	rp.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status: got %d, want %d (body=%q, resinErr=%q)",
+			w.Code, http.StatusCreated, w.Body.String(), w.Header().Get("X-Resin-Error"))
+	}
+
+	select {
+	case logEv := <-emitter.logCh:
+		if len(logEv.ReqHeaders) == 0 || logEv.ReqHeadersLen == 0 {
+			t.Fatalf("expected req headers capture, got len=%d payload=%d", logEv.ReqHeadersLen, len(logEv.ReqHeaders))
+		}
+		if string(logEv.ReqBody) != reqBody {
+			t.Fatalf("ReqBody: got %q, want %q", string(logEv.ReqBody), reqBody)
+		}
+		if logEv.ReqBodyLen != len(reqBody) || logEv.ReqBodyTruncated {
+			t.Fatalf("ReqBody meta: len=%d truncated=%v, want len=%d truncated=false",
+				logEv.ReqBodyLen, logEv.ReqBodyTruncated, len(reqBody))
+		}
+		if len(logEv.RespHeaders) == 0 || logEv.RespHeadersLen == 0 {
+			t.Fatalf("expected resp headers capture, got len=%d payload=%d", logEv.RespHeadersLen, len(logEv.RespHeaders))
+		}
+		if !strings.Contains(string(logEv.RespHeaders), "X-Upstream-Header: yes") {
+			t.Fatalf("RespHeaders missing upstream header, payload=%q", string(logEv.RespHeaders))
+		}
+		if string(logEv.RespBody) != upstreamBody {
+			t.Fatalf("RespBody: got %q, want %q", string(logEv.RespBody), upstreamBody)
+		}
+		if logEv.RespBodyLen != len(upstreamBody) || logEv.RespBodyTruncated {
+			t.Fatalf("RespBody meta: len=%d truncated=%v, want len=%d truncated=false",
+				logEv.RespBodyLen, logEv.RespBodyTruncated, len(upstreamBody))
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected reverse log event")
+	}
+}
+
 func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 	env := newProxyE2EEnv(t)
 

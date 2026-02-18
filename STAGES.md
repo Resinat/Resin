@@ -213,10 +213,10 @@
 
 任务：
 1. 实现 Admin Token 鉴权中间件（`/healthz` 例外）。
-2. 实现通用能力：分页、排序、错误包装、JSON Merge Patch。
+2. 实现通用能力：分页、排序、错误包装、受限 partial patch（非 RFC 7396）。
 3. 实现模块端点：system、platform、subscription、account header rules、nodes、leases、geoip。
 4. 实现 action 端点：重建视图、刷新订阅、触发探测、释放租约、GeoIP 立即更新等。
-5. 实现 `PATCH /system/config` 完整热更新链路：JSON Merge Patch -> 字段/枚举/类型校验 -> 通过 StateEngine 强持久化 -> 运行时原子替换。
+5. 实现 `PATCH /system/config` 完整热更新链路。atomic.Pointer[*RuntimeConfig]；快照不可变：PATCH 时构造新配置对象，[]string 要深拷贝，不能原地改旧对象；提交顺序固定：校验 -> 持久化(state.db) -> atomic swap，持久化失败就不切换；并发 PATCH 互斥或版本 CAS，避免丢更新。
 6. 实现运行时配置分发：维护线程安全配置快照，依赖模块读取最新配置（至少覆盖请求日志开关与截断阈值、路由/延迟参数、缓存刷盘参数）。
 7. 实现字段校验、枚举校验、只读字段保护、冲突处理。
 8. 编写 API 契约测试（重点：错误码、状态码、返回体结构、PATCH 语义）。
@@ -233,7 +233,6 @@
 - `PATCH /system/config` 支持 DESIGN.md 允许的可改字段，且拒绝未声明字段与 `null` 值。
 - 热更新生效可验证：至少覆盖 `request_log_enabled`、`reverse_proxy_log_req_headers_max_bytes`、`p2c_latency_window`、`cache_flush_interval`。
 - 热更新后重启，配置仍保持为更新后的值。
-- 输出 API 覆盖率与未覆盖项清单（仅核心资源）。
 
 
 
