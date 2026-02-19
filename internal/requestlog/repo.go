@@ -14,6 +14,8 @@ import (
 	"github.com/resin-proxy/resin/internal/state"
 )
 
+const logSummarySelectColumns = "id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, duration_ns, net_ok, http_method, http_status, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated"
+
 // Repo manages rolling SQLite databases for request logs.
 // Each DB is named request_logs-<unix_ms>.db and lives in logDir.
 type Repo struct {
@@ -322,24 +324,19 @@ func (r *Repo) GetByID(id string) (*LogSummary, error) {
 		return nil, err
 	}
 
-	for i := len(files) - 1; i >= 0; i-- {
-		db, err := r.openReadOnly(files[i])
-		if err != nil {
-			log.Printf("[requestlog] warning: get_by_id open db failed path=%q id=%q: %v", files[i], id, err)
-			continue
-		}
+	var result *LogSummary
+	r.queryAcrossRetainedDBs(files, "get_by_id", "id", id, func(db *sql.DB) (bool, error) {
 		row, err := r.queryLogByID(db, id)
-		if closeErr := db.Close(); closeErr != nil {
-			log.Printf("[requestlog] warning: get_by_id close db failed path=%q id=%q: %v", files[i], id, closeErr)
+		if err != nil {
+			return false, err
 		}
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("[requestlog] warning: get_by_id query failed path=%q id=%q: %v", files[i], id, err)
+		if row != nil {
+			result = row
+			return true, nil
 		}
-		if err == nil && row != nil {
-			return row, nil
-		}
-	}
-	return nil, nil
+		return false, nil
+	})
+	return result, nil
 }
 
 // GetPayloads retrieves payload data for a given log ID across all retained DBs.
@@ -349,24 +346,46 @@ func (r *Repo) GetPayloads(logID string) (*PayloadRow, error) {
 		return nil, err
 	}
 
-	for i := len(files) - 1; i >= 0; i-- {
-		db, err := r.openReadOnly(files[i])
+	var result *PayloadRow
+	r.queryAcrossRetainedDBs(files, "get_payloads", "log_id", logID, func(db *sql.DB) (bool, error) {
+		row, err := r.queryPayload(db, logID)
 		if err != nil {
-			log.Printf("[requestlog] warning: get_payloads open db failed path=%q log_id=%q: %v", files[i], logID, err)
+			return false, err
+		}
+		if row != nil {
+			result = row
+			return true, nil
+		}
+		return false, nil
+	})
+	return result, nil
+}
+
+func (r *Repo) queryAcrossRetainedDBs(
+	files []string,
+	op string,
+	keyName string,
+	keyValue string,
+	query func(*sql.DB) (bool, error),
+) {
+	for i := len(files) - 1; i >= 0; i-- {
+		path := files[i]
+		db, err := r.openReadOnly(path)
+		if err != nil {
+			log.Printf("[requestlog] warning: %s open db failed path=%q %s=%q: %v", op, path, keyName, keyValue, err)
 			continue
 		}
-		row, err := r.queryPayload(db, logID)
+		row, err := query(db)
 		if closeErr := db.Close(); closeErr != nil {
-			log.Printf("[requestlog] warning: get_payloads close db failed path=%q log_id=%q: %v", files[i], logID, closeErr)
+			log.Printf("[requestlog] warning: %s close db failed path=%q %s=%q: %v", op, path, keyName, keyValue, closeErr)
 		}
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("[requestlog] warning: get_payloads query failed path=%q log_id=%q: %v", files[i], logID, err)
+			log.Printf("[requestlog] warning: %s query failed path=%q %s=%q: %v", op, path, keyName, keyValue, err)
 		}
-		if err == nil && row != nil {
-			return row, nil
+		if err == nil && row {
+			return
 		}
 	}
-	return nil, nil
 }
 
 // --- internal helpers ---
@@ -502,7 +521,7 @@ func (r *Repo) queryLogs(db *sql.DB, f ListFilter, limit int) ([]LogSummary, err
 		args = append(args, f.After)
 	}
 
-	q := "SELECT id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, duration_ns, net_ok, http_method, http_status, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated FROM request_logs"
+	q := "SELECT " + logSummarySelectColumns + " FROM request_logs"
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -519,28 +538,11 @@ func (r *Repo) queryLogs(db *sql.DB, f ListFilter, limit int) ([]LogSummary, err
 }
 
 func (r *Repo) queryLogByID(db *sql.DB, id string) (*LogSummary, error) {
-	row := db.QueryRow("SELECT id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, duration_ns, net_ok, http_method, http_status, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated FROM request_logs WHERE id = ?", id)
-
-	var s LogSummary
-	var netOK, payloadPresent, rht, rbt, rsht, rsbt int
-	err := row.Scan(
-		&s.ID, &s.TsNs, &s.ProxyType, &s.ClientIP,
-		&s.PlatformID, &s.PlatformName, &s.Account,
-		&s.TargetHost, &s.TargetURL, &s.NodeHash, &s.NodeTag, &s.EgressIP,
-		&s.DurationNs, &netOK, &s.HTTPMethod, &s.HTTPStatus,
-		&payloadPresent,
-		&s.ReqHeadersLen, &s.ReqBodyLen, &s.RespHeadersLen, &s.RespBodyLen,
-		&rht, &rbt, &rsht, &rsbt,
-	)
+	row := db.QueryRow("SELECT "+logSummarySelectColumns+" FROM request_logs WHERE id = ?", id)
+	s, err := scanLogSummary(row)
 	if err != nil {
 		return nil, err
 	}
-	s.NetOK = netOK != 0
-	s.PayloadPresent = payloadPresent != 0
-	s.ReqHeadersTruncated = rht != 0
-	s.ReqBodyTruncated = rbt != 0
-	s.RespHeadersTruncated = rsht != 0
-	s.RespBodyTruncated = rsbt != 0
 	return &s, nil
 }
 
@@ -557,30 +559,42 @@ func (r *Repo) queryPayload(db *sql.DB, logID string) (*PayloadRow, error) {
 func scanLogSummaries(rows *sql.Rows) ([]LogSummary, error) {
 	var results []LogSummary
 	for rows.Next() {
-		var s LogSummary
-		var netOK, payloadPresent, rht, rbt, rsht, rsbt int
-		err := rows.Scan(
-			&s.ID, &s.TsNs, &s.ProxyType, &s.ClientIP,
-			&s.PlatformID, &s.PlatformName, &s.Account,
-			&s.TargetHost, &s.TargetURL, &s.NodeHash, &s.NodeTag, &s.EgressIP,
-			&s.DurationNs, &netOK, &s.HTTPMethod, &s.HTTPStatus,
-			&payloadPresent,
-			&s.ReqHeadersLen, &s.ReqBodyLen, &s.RespHeadersLen, &s.RespBodyLen,
-			&rht, &rbt, &rsht, &rsbt,
-		)
+		s, err := scanLogSummary(rows)
 		if err != nil {
 			log.Printf("[requestlog] warning: skip malformed log row during scan: %v", err)
 			continue
 		}
-		s.NetOK = netOK != 0
-		s.PayloadPresent = payloadPresent != 0
-		s.ReqHeadersTruncated = rht != 0
-		s.ReqBodyTruncated = rbt != 0
-		s.RespHeadersTruncated = rsht != 0
-		s.RespBodyTruncated = rsbt != 0
 		results = append(results, s)
 	}
 	return results, rows.Err()
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanLogSummary(s rowScanner) (LogSummary, error) {
+	var row LogSummary
+	var netOK, payloadPresent, rht, rbt, rsht, rsbt int
+	err := s.Scan(
+		&row.ID, &row.TsNs, &row.ProxyType, &row.ClientIP,
+		&row.PlatformID, &row.PlatformName, &row.Account,
+		&row.TargetHost, &row.TargetURL, &row.NodeHash, &row.NodeTag, &row.EgressIP,
+		&row.DurationNs, &netOK, &row.HTTPMethod, &row.HTTPStatus,
+		&payloadPresent,
+		&row.ReqHeadersLen, &row.ReqBodyLen, &row.RespHeadersLen, &row.RespBodyLen,
+		&rht, &rbt, &rsht, &rsbt,
+	)
+	if err != nil {
+		return LogSummary{}, err
+	}
+	row.NetOK = netOK != 0
+	row.PayloadPresent = payloadPresent != 0
+	row.ReqHeadersTruncated = rht != 0
+	row.ReqBodyTruncated = rbt != 0
+	row.RespHeadersTruncated = rsht != 0
+	row.RespBodyTruncated = rsbt != 0
+	return row, nil
 }
 
 func boolToInt(b bool) int {
