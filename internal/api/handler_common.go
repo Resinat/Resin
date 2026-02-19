@@ -88,3 +88,10 @@ func parseOptionalUUIDQuery(
 	}
 	return &value, true
 }
+
+func applySortOrder(order int, sortOrder string) int {
+	if sortOrder == "desc" {
+		return -order
+	}
+	return order
+}

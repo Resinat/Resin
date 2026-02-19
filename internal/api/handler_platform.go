@@ -6,6 +6,17 @@ import (
 	"github.com/resin-proxy/resin/internal/service"
 )
 
+func platformSortKey(sortBy string, p service.PlatformResponse) string {
+	switch sortBy {
+	case "id":
+		return p.ID
+	case "updated_at":
+		return p.UpdatedAt
+	default:
+		return p.Name
+	}
+}
+
 // HandleListPlatforms returns a handler for GET /api/v1/platforms.
 func HandleListPlatforms(cp *service.ControlPlaneService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -20,14 +31,7 @@ func HandleListPlatforms(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 		SortSlice(platforms, sorting, func(p service.PlatformResponse) string {
-			switch sorting.SortBy {
-			case "id":
-				return p.ID
-			case "updated_at":
-				return p.UpdatedAt
-			default:
-				return p.Name
-			}
+			return platformSortKey(sorting.SortBy, p)
 		})
 
 		pg, ok := parsePaginationOrWriteInvalid(w, r)

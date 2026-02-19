@@ -1,8 +1,6 @@
 package service
 
 import (
-	"cmp"
-	"slices"
 	"time"
 
 	"github.com/resin-proxy/resin/internal/model"
@@ -109,9 +107,5 @@ func (s *ControlPlaneService) GetIPLoad(platformID string) ([]IPLoadEntry, error
 			LeaseCount: count,
 		})
 	}
-	// Default sort: by lease_count desc.
-	slices.SortFunc(result, func(a, b IPLoadEntry) int {
-		return cmp.Compare(b.LeaseCount, a.LeaseCount)
-	})
 	return result, nil
 }

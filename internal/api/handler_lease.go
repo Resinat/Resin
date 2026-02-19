@@ -17,6 +17,36 @@ func validateAccountPath(r *http.Request) (string, error) {
 	return account, nil
 }
 
+func leaseSortKey(sortBy string, l service.LeaseResponse) string {
+	switch sortBy {
+	case "expiry":
+		return l.Expiry
+	case "last_accessed":
+		return l.LastAccessed
+	default:
+		return l.Account
+	}
+}
+
+func compareIPLoadEntries(sortBy string, a, b service.IPLoadEntry) int {
+	switch sortBy {
+	case "egress_ip":
+		return strings.Compare(a.EgressIP, b.EgressIP)
+	default: // lease_count
+		order := cmp.Compare(a.LeaseCount, b.LeaseCount)
+		if order != 0 {
+			return order
+		}
+		return strings.Compare(a.EgressIP, b.EgressIP)
+	}
+}
+
+func sortIPLoadEntries(entries []service.IPLoadEntry, sorting Sorting) {
+	slices.SortStableFunc(entries, func(a, b service.IPLoadEntry) int {
+		return applySortOrder(compareIPLoadEntries(sorting.SortBy, a, b), sorting.SortOrder)
+	})
+}
+
 // HandleListLeases returns a handler for GET /api/v1/platforms/{id}/leases.
 func HandleListLeases(cp *service.ControlPlaneService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -52,14 +82,7 @@ func HandleListLeases(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 		SortSlice(leases, sorting, func(l service.LeaseResponse) string {
-			switch sorting.SortBy {
-			case "expiry":
-				return l.Expiry
-			case "last_accessed":
-				return l.LastAccessed
-			default:
-				return l.Account
-			}
+			return leaseSortKey(sorting.SortBy, l)
 		})
 
 		pg, ok := parsePaginationOrWriteInvalid(w, r)
@@ -144,22 +167,7 @@ func HandleIPLoad(cp *service.ControlPlaneService) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		slices.SortStableFunc(entries, func(a, b service.IPLoadEntry) int {
-			var order int
-			switch sorting.SortBy {
-			case "egress_ip":
-				order = strings.Compare(a.EgressIP, b.EgressIP)
-			default: // lease_count
-				order = cmp.Compare(a.LeaseCount, b.LeaseCount)
-			}
-			if order == 0 {
-				order = strings.Compare(a.EgressIP, b.EgressIP)
-			}
-			if sorting.SortOrder == "desc" {
-				order = -order
-			}
-			return order
-		})
+		sortIPLoadEntries(entries, sorting)
 
 		pg, ok := parsePaginationOrWriteInvalid(w, r)
 		if !ok {

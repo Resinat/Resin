@@ -30,6 +30,30 @@ func nodeTagSortKey(n service.NodeSummary) string {
 	return bestTag
 }
 
+func compareNodeSummaries(sortBy string, a, b service.NodeSummary) int {
+	order := 0
+	switch sortBy {
+	case "created_at":
+		order = strings.Compare(a.CreatedAt, b.CreatedAt)
+	case "failure_count":
+		order = cmp.Compare(a.FailureCount, b.FailureCount)
+	case "region":
+		order = strings.Compare(a.Region, b.Region)
+	default:
+		order = strings.Compare(nodeTagSortKey(a), nodeTagSortKey(b))
+	}
+	if order != 0 {
+		return order
+	}
+	return strings.Compare(a.NodeHash, b.NodeHash)
+}
+
+func sortNodeSummaries(nodes []service.NodeSummary, sorting Sorting) {
+	slices.SortStableFunc(nodes, func(a, b service.NodeSummary) int {
+		return applySortOrder(compareNodeSummaries(sorting.SortBy, a, b), sorting.SortOrder)
+	})
+}
+
 // HandleListNodes returns a handler for GET /api/v1/nodes.
 func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -86,26 +110,7 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		slices.SortStableFunc(nodes, func(a, b service.NodeSummary) int {
-			order := 0
-			switch sorting.SortBy {
-			case "created_at":
-				order = strings.Compare(a.CreatedAt, b.CreatedAt)
-			case "failure_count":
-				order = cmp.Compare(a.FailureCount, b.FailureCount)
-			case "region":
-				order = strings.Compare(a.Region, b.Region)
-			default:
-				order = strings.Compare(nodeTagSortKey(a), nodeTagSortKey(b))
-			}
-			if order == 0 {
-				order = strings.Compare(a.NodeHash, b.NodeHash)
-			}
-			if sorting.SortOrder == "desc" {
-				order = -order
-			}
-			return order
-		})
+		sortNodeSummaries(nodes, sorting)
 
 		pg, ok := parsePaginationOrWriteInvalid(w, r)
 		if !ok {

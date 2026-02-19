@@ -6,6 +6,19 @@ import (
 	"github.com/resin-proxy/resin/internal/service"
 )
 
+func subscriptionSortKey(sortBy string, s service.SubscriptionResponse) string {
+	switch sortBy {
+	case "created_at":
+		return s.CreatedAt
+	case "last_checked":
+		return s.LastChecked
+	case "last_updated":
+		return s.LastUpdated
+	default:
+		return s.Name
+	}
+}
+
 // HandleListSubscriptions returns a handler for GET /api/v1/subscriptions.
 func HandleListSubscriptions(cp *service.ControlPlaneService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -30,16 +43,7 @@ func HandleListSubscriptions(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 		SortSlice(subs, sorting, func(s service.SubscriptionResponse) string {
-			switch sorting.SortBy {
-			case "created_at":
-				return s.CreatedAt
-			case "last_checked":
-				return s.LastChecked
-			case "last_updated":
-				return s.LastUpdated
-			default:
-				return s.Name
-			}
+			return subscriptionSortKey(sorting.SortBy, s)
 		})
 
 		pg, ok := parsePaginationOrWriteInvalid(w, r)
