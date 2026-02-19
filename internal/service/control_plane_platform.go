@@ -64,6 +64,102 @@ func platformToResponse(p model.Platform) (PlatformResponse, error) {
 	}, nil
 }
 
+type platformConfig struct {
+	Name                   string
+	StickyTTLNs            int64
+	RegexFilters           []string
+	RegionFilters          []string
+	ReverseProxyMissAction string
+	AllocationPolicy       string
+}
+
+func (s *ControlPlaneService) defaultPlatformConfig(name string) platformConfig {
+	return platformConfig{
+		Name:                   name,
+		StickyTTLNs:            int64(s.EnvCfg.DefaultPlatformStickyTTL),
+		RegexFilters:           append([]string(nil), s.EnvCfg.DefaultPlatformRegexFilters...),
+		RegionFilters:          append([]string(nil), s.EnvCfg.DefaultPlatformRegionFilters...),
+		ReverseProxyMissAction: s.EnvCfg.DefaultPlatformReverseProxyMissAction,
+		AllocationPolicy:       s.EnvCfg.DefaultPlatformAllocationPolicy,
+	}
+}
+
+func platformConfigFromModel(mp model.Platform) (platformConfig, error) {
+	regexFilters, err := decodePlatformStringSliceJSON(mp.RegexFiltersJSON, "regex_filters_json")
+	if err != nil {
+		return platformConfig{}, internal(fmt.Sprintf("decode platform %s", mp.ID), err)
+	}
+	regionFilters, err := decodePlatformStringSliceJSON(mp.RegionFiltersJSON, "region_filters_json")
+	if err != nil {
+		return platformConfig{}, internal(fmt.Sprintf("decode platform %s", mp.ID), err)
+	}
+	return platformConfig{
+		Name:                   mp.Name,
+		StickyTTLNs:            mp.StickyTTLNs,
+		RegexFilters:           regexFilters,
+		RegionFilters:          regionFilters,
+		ReverseProxyMissAction: mp.ReverseProxyMissAction,
+		AllocationPolicy:       mp.AllocationPolicy,
+	}, nil
+}
+
+func encodePlatformStringSliceJSON(in []string) string {
+	out, _ := json.Marshal(in)
+	return string(out)
+}
+
+func (cfg platformConfig) toModel(id string, updatedAtNs int64) model.Platform {
+	return model.Platform{
+		ID:                     id,
+		Name:                   cfg.Name,
+		StickyTTLNs:            cfg.StickyTTLNs,
+		RegexFiltersJSON:       encodePlatformStringSliceJSON(cfg.RegexFilters),
+		RegionFiltersJSON:      encodePlatformStringSliceJSON(cfg.RegionFilters),
+		ReverseProxyMissAction: cfg.ReverseProxyMissAction,
+		AllocationPolicy:       cfg.AllocationPolicy,
+		UpdatedAtNs:            updatedAtNs,
+	}
+}
+
+func (cfg platformConfig) toRuntime(id string) (*platform.Platform, error) {
+	compiledRegexFilters, err := platform.CompileRegexFilters(cfg.RegexFilters)
+	if err != nil {
+		return nil, err
+	}
+	return platform.NewConfiguredPlatform(
+		id,
+		cfg.Name,
+		compiledRegexFilters,
+		cfg.RegionFilters,
+		cfg.StickyTTLNs,
+		cfg.ReverseProxyMissAction,
+		cfg.AllocationPolicy,
+	), nil
+}
+
+func validatePlatformMissAction(raw string) *ServiceError {
+	if platform.ReverseProxyMissAction(raw).IsValid() {
+		return nil
+	}
+	return invalidArg(fmt.Sprintf(
+		"reverse_proxy_miss_action: must be %s or %s",
+		platform.ReverseProxyMissActionRandom,
+		platform.ReverseProxyMissActionReject,
+	))
+}
+
+func validatePlatformAllocationPolicy(raw string) *ServiceError {
+	if platform.AllocationPolicy(raw).IsValid() {
+		return nil
+	}
+	return invalidArg(fmt.Sprintf(
+		"allocation_policy: must be %s, %s, or %s",
+		platform.AllocationPolicyBalanced,
+		platform.AllocationPolicyPreferLowLatency,
+		platform.AllocationPolicyPreferIdleIP,
+	))
+}
+
 // ListPlatforms returns all platforms from the database.
 func (s *ControlPlaneService) ListPlatforms() ([]PlatformResponse, error) {
 	platforms, err := s.Engine.ListPlatforms()
@@ -126,8 +222,8 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 		return nil, conflict("cannot use reserved name 'Default'")
 	}
 
-	// Apply defaults from env.
-	stickyTTLNs := int64(s.EnvCfg.DefaultPlatformStickyTTL)
+	// Apply defaults from env and overlay request fields.
+	cfg := s.defaultPlatformConfig(name)
 	if req.StickyTTL != nil {
 		d, err := time.ParseDuration(*req.StickyTTL)
 		if err != nil {
@@ -136,69 +232,37 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 		if d <= 0 {
 			return nil, invalidArg("sticky_ttl: must be > 0")
 		}
-		stickyTTLNs = int64(d)
+		cfg.StickyTTLNs = int64(d)
 	}
-
-	regexFilters := s.EnvCfg.DefaultPlatformRegexFilters
 	if req.RegexFilters != nil {
-		regexFilters = req.RegexFilters
+		cfg.RegexFilters = req.RegexFilters
 	}
-	compiled, err := platform.CompileRegexFilters(regexFilters)
-	if err != nil {
-		return nil, invalidArg(err.Error())
-	}
-
-	regionFilters := s.EnvCfg.DefaultPlatformRegionFilters
 	if req.RegionFilters != nil {
-		regionFilters = req.RegionFilters
+		cfg.RegionFilters = req.RegionFilters
 	}
-	if err := platform.ValidateRegionFilters(regionFilters); err != nil {
+	if req.ReverseProxyMissAction != nil {
+		if err := validatePlatformMissAction(*req.ReverseProxyMissAction); err != nil {
+			return nil, err
+		}
+		cfg.ReverseProxyMissAction = *req.ReverseProxyMissAction
+	}
+	if req.AllocationPolicy != nil {
+		if err := validatePlatformAllocationPolicy(*req.AllocationPolicy); err != nil {
+			return nil, err
+		}
+		cfg.AllocationPolicy = *req.AllocationPolicy
+	}
+	if err := platform.ValidateRegionFilters(cfg.RegionFilters); err != nil {
 		return nil, invalidArg(err.Error())
 	}
-
-	missAction := s.EnvCfg.DefaultPlatformReverseProxyMissAction
-	if req.ReverseProxyMissAction != nil {
-		ma := *req.ReverseProxyMissAction
-		if !platform.ReverseProxyMissAction(ma).IsValid() {
-			return nil, invalidArg(fmt.Sprintf(
-				"reverse_proxy_miss_action: must be %s or %s",
-				platform.ReverseProxyMissActionRandom,
-				platform.ReverseProxyMissActionReject,
-			))
-		}
-		missAction = ma
-	}
-
-	allocPolicy := s.EnvCfg.DefaultPlatformAllocationPolicy
-	if req.AllocationPolicy != nil {
-		ap := platform.AllocationPolicy(*req.AllocationPolicy)
-		if !ap.IsValid() {
-			return nil, invalidArg(fmt.Sprintf(
-				"allocation_policy: must be %s, %s, or %s",
-				platform.AllocationPolicyBalanced,
-				platform.AllocationPolicyPreferLowLatency,
-				platform.AllocationPolicyPreferIdleIP,
-			))
-		}
-		allocPolicy = string(ap)
-	}
-
-	regexJSON, _ := json.Marshal(regexFilters)
-	regionJSON, _ := json.Marshal(regionFilters)
 
 	id := uuid.New().String()
 	now := time.Now().UnixNano()
-
-	mp := model.Platform{
-		ID:                     id,
-		Name:                   name,
-		StickyTTLNs:            stickyTTLNs,
-		RegexFiltersJSON:       string(regexJSON),
-		RegionFiltersJSON:      string(regionJSON),
-		ReverseProxyMissAction: missAction,
-		AllocationPolicy:       allocPolicy,
-		UpdatedAtNs:            now,
+	plat, err := cfg.toRuntime(id)
+	if err != nil {
+		return nil, invalidArg(err.Error())
 	}
+	mp := cfg.toModel(id, now)
 	if err := s.Engine.UpsertPlatform(mp); err != nil {
 		if errors.Is(err, state.ErrConflict) {
 			return nil, conflict("platform name already exists")
@@ -207,9 +271,6 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 	}
 
 	// Register in topology pool.
-	plat := platform.NewConfiguredPlatform(
-		id, name, compiled, regionFilters, stickyTTLNs, missAction, allocPolicy,
-	)
 	// Build the routable view before publish so concurrent readers don't observe
 	// a newly created platform with an empty view.
 	s.Pool.RebuildPlatform(plat)
@@ -250,78 +311,58 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		}
 	}
 
-	// Apply patch to current.
-	name := current.Name
+	cfg, err := platformConfigFromModel(*current)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply patch to current config.
 	if nameStr, ok, err := patch.optionalNonEmptyString("name"); err != nil {
 		return nil, err
 	} else if ok {
-		name = nameStr
-		if name == platform.DefaultPlatformName && current.ID != platform.DefaultPlatformID {
+		cfg.Name = nameStr
+		if cfg.Name == platform.DefaultPlatformName && current.ID != platform.DefaultPlatformID {
 			return nil, conflict("cannot use reserved name 'Default'")
 		}
 	}
 
-	stickyTTLNs := current.StickyTTLNs
 	if d, ok, err := patch.optionalDurationString("sticky_ttl"); err != nil {
 		return nil, err
 	} else if ok {
 		if d <= 0 {
 			return nil, invalidArg("sticky_ttl: must be > 0")
 		}
-		stickyTTLNs = int64(d)
+		cfg.StickyTTLNs = int64(d)
 	}
 
-	regexFilters, err := decodePlatformStringSliceJSON(current.RegexFiltersJSON, "regex_filters_json")
-	if err != nil {
-		return nil, internal(fmt.Sprintf("decode platform %s", current.ID), err)
-	}
 	if filters, ok, err := patch.optionalStringSlice("regex_filters"); err != nil {
 		return nil, err
 	} else if ok {
-		regexFilters = filters
-	}
-	compiled, err := platform.CompileRegexFilters(regexFilters)
-	if err != nil {
-		return nil, invalidArg(err.Error())
+		cfg.RegexFilters = filters
 	}
 
-	regionFilters, err := decodePlatformStringSliceJSON(current.RegionFiltersJSON, "region_filters_json")
-	if err != nil {
-		return nil, internal(fmt.Sprintf("decode platform %s", current.ID), err)
-	}
 	regionFiltersPatched := false
 	if filters, ok, err := patch.optionalStringSlice("region_filters"); err != nil {
 		return nil, err
 	} else if ok {
 		regionFiltersPatched = true
-		regionFilters = filters
-	}
-	if regionFiltersPatched {
-		if err := platform.ValidateRegionFilters(regionFilters); err != nil {
-			return nil, invalidArg(err.Error())
-		}
+		cfg.RegionFilters = filters
 	}
 
-	missAction := current.ReverseProxyMissAction
 	if v, ok := patch["reverse_proxy_miss_action"]; ok {
 		ma, ok := v.(string)
 		if !ok {
 			return nil, invalidArg("reverse_proxy_miss_action: must be a string")
 		}
-		if !platform.ReverseProxyMissAction(ma).IsValid() {
-			return nil, invalidArg(fmt.Sprintf(
-				"reverse_proxy_miss_action: must be %s or %s",
-				platform.ReverseProxyMissActionRandom,
-				platform.ReverseProxyMissActionReject,
-			))
+		if err := validatePlatformMissAction(ma); err != nil {
+			return nil, err
 		}
-		missAction = ma
+		cfg.ReverseProxyMissAction = ma
 	}
 
-	allocPolicy := current.AllocationPolicy
 	if v, ok := patch["allocation_policy"]; ok {
 		ap, ok := v.(string)
-		if !ok || !platform.AllocationPolicy(ap).IsValid() {
+		if !ok {
 			return nil, invalidArg(fmt.Sprintf(
 				"allocation_policy: must be %s, %s, or %s",
 				platform.AllocationPolicyBalanced,
@@ -329,23 +370,22 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 				platform.AllocationPolicyPreferIdleIP,
 			))
 		}
-		allocPolicy = ap
+		if err := validatePlatformAllocationPolicy(ap); err != nil {
+			return nil, err
+		}
+		cfg.AllocationPolicy = ap
+	}
+	if regionFiltersPatched {
+		if err := platform.ValidateRegionFilters(cfg.RegionFilters); err != nil {
+			return nil, invalidArg(err.Error())
+		}
 	}
 
-	regexJSON, _ := json.Marshal(regexFilters)
-	regionJSON, _ := json.Marshal(regionFilters)
-	now := time.Now().UnixNano()
-
-	mp := model.Platform{
-		ID:                     id,
-		Name:                   name,
-		StickyTTLNs:            stickyTTLNs,
-		RegexFiltersJSON:       string(regexJSON),
-		RegionFiltersJSON:      string(regionJSON),
-		ReverseProxyMissAction: missAction,
-		AllocationPolicy:       allocPolicy,
-		UpdatedAtNs:            now,
+	plat, err := cfg.toRuntime(id)
+	if err != nil {
+		return nil, invalidArg(err.Error())
 	}
+	mp := cfg.toModel(id, time.Now().UnixNano())
 	if err := s.Engine.UpsertPlatform(mp); err != nil {
 		if errors.Is(err, state.ErrConflict) {
 			return nil, conflict("platform name already exists")
@@ -354,9 +394,6 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	}
 
 	// Replace in topology pool.
-	plat := platform.NewConfiguredPlatform(
-		id, name, compiled, regionFilters, stickyTTLNs, missAction, allocPolicy,
-	)
 	if err := s.Pool.ReplacePlatform(plat); err != nil {
 		return nil, internal("replace platform in pool", err)
 	}
@@ -399,38 +436,17 @@ func (s *ControlPlaneService) ResetPlatformToDefault(id string) (*PlatformRespon
 		return nil, conflict("cannot reset Default platform to defaults")
 	}
 
-	regexJSON, _ := json.Marshal(s.EnvCfg.DefaultPlatformRegexFilters)
-	regionJSON, _ := json.Marshal(s.EnvCfg.DefaultPlatformRegionFilters)
-	now := time.Now().UnixNano()
-
-	mp := model.Platform{
-		ID:                     id,
-		Name:                   current.Name,
-		StickyTTLNs:            int64(s.EnvCfg.DefaultPlatformStickyTTL),
-		RegexFiltersJSON:       string(regexJSON),
-		RegionFiltersJSON:      string(regionJSON),
-		ReverseProxyMissAction: s.EnvCfg.DefaultPlatformReverseProxyMissAction,
-		AllocationPolicy:       s.EnvCfg.DefaultPlatformAllocationPolicy,
-		UpdatedAtNs:            now,
-	}
-	if err := s.Engine.UpsertPlatform(mp); err != nil {
-		return nil, internal("persist platform", err)
-	}
-
-	compiled, err := platform.CompileRegexFilters(s.EnvCfg.DefaultPlatformRegexFilters)
+	cfg := s.defaultPlatformConfig(current.Name)
+	plat, err := cfg.toRuntime(id)
 	if err != nil {
 		// Environment defaults should be validated on process startup.
 		return nil, internal("compile default platform regex filters", err)
 	}
-	plat := platform.NewConfiguredPlatform(
-		id,
-		current.Name,
-		compiled,
-		s.EnvCfg.DefaultPlatformRegionFilters,
-		int64(s.EnvCfg.DefaultPlatformStickyTTL),
-		s.EnvCfg.DefaultPlatformReverseProxyMissAction,
-		s.EnvCfg.DefaultPlatformAllocationPolicy,
-	)
+	mp := cfg.toModel(id, time.Now().UnixNano())
+	if err := s.Engine.UpsertPlatform(mp); err != nil {
+		return nil, internal("persist platform", err)
+	}
+
 	if err := s.Pool.ReplacePlatform(plat); err != nil {
 		return nil, internal("replace platform in pool", err)
 	}
