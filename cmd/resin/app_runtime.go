@@ -243,13 +243,10 @@ func (a *resinApp) bootstrapFromPersistence(engine *state.StateEngine) error {
 
 	// GeoIP moved to step 8 batch 1 (after lease restore, per DESIGN.md).
 
-	// Phase 8: Outbound warmup — create outbounds for all bootstrapped nodes.
-	a.topoRuntime.outboundMgr.WarmupAll()
-
 	// Phase 8.1: Rebuild platform views BEFORE lease restore.
 	// DESIGN.md requires step 6 (rebuild) before step 7 (leases).
 	a.topoRuntime.pool.RebuildAllPlatforms()
-	log.Println("Outbound warmup and platform rebuild complete")
+	log.Println("Platform rebuild complete")
 
 	// Phase 9: Restore leases (AFTER rebuild so platform views are populated).
 	leases, err := engine.LoadAllLeases()
