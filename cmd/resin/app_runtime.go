@@ -58,7 +58,7 @@ func (b *metricsEventBridge) SetManager(m *metrics.Manager) {
 	b.manager.Store(m)
 }
 
-func (b *metricsEventBridge) EmitConnectionLifecycle(op string) {
+func (b *metricsEventBridge) EmitConnectionLifecycle(op netutil.ConnLifecycleOp) {
 	if b == nil {
 		return
 	}
@@ -67,9 +67,9 @@ func (b *metricsEventBridge) EmitConnectionLifecycle(op string) {
 		return
 	}
 	switch op {
-	case "open":
+	case netutil.ConnLifecycleOpen:
 		mgr.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionOpen)
-	case "close":
+	case netutil.ConnLifecycleClose:
 		mgr.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionClose)
 	}
 }

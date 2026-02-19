@@ -17,16 +17,23 @@ import (
 
 const defaultOutboundUserAgent = "Resin/1.0"
 
+type ConnLifecycleOp uint8
+
+const (
+	ConnLifecycleOpen ConnLifecycleOp = iota
+	ConnLifecycleClose
+)
+
 // OutboundHTTPOptions controls outbound-backed HTTP execution behavior.
 type OutboundHTTPOptions struct {
 	// RequireStatusOK enforces HTTP 200 status; otherwise any status is accepted.
 	RequireStatusOK bool
 	// UserAgent overrides the request User-Agent when non-empty.
 	UserAgent string
-	// OnConnLifecycle is called with "open" or "close" to track connection
+	// OnConnLifecycle is called with open/close lifecycle events to track connection
 	// lifecycle for metrics. Set by probe callers to count outbound connections;
 	// left nil for download callers (GeoIP, subscription) to exclude from stats.
-	OnConnLifecycle func(op string)
+	OnConnLifecycle func(op ConnLifecycleOp)
 }
 
 // HTTPGetViaOutbound executes an HTTP GET through the provided outbound.
@@ -48,8 +55,8 @@ func HTTPGetViaOutbound(
 				return nil, err
 			}
 			if opts.OnConnLifecycle != nil {
-				opts.OnConnLifecycle("open")
-				return &connCloseHook{Conn: conn, onClose: func() { opts.OnConnLifecycle("close") }}, nil
+				opts.OnConnLifecycle(ConnLifecycleOpen)
+				return &connCloseHook{Conn: conn, onClose: func() { opts.OnConnLifecycle(ConnLifecycleClose) }}, nil
 			}
 			return conn, nil
 		},
