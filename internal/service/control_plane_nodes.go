@@ -191,19 +191,3 @@ func (s *ControlPlaneService) ProbeLatency(hashStr string) (*probe.LatencyProbeR
 	}
 	return result, nil
 }
-
-// buildSubLookup returns a node.SubLookupFunc adapter that bridges
-// SubscriptionManager.Lookup to the signature expected by NodeEntry.MatchRegexs.
-func (s *ControlPlaneService) buildSubLookup() node.SubLookupFunc {
-	return func(subID string, hash node.Hash) (name string, enabled bool, tags []string, ok bool) {
-		sub := s.SubMgr.Lookup(subID)
-		if sub == nil {
-			return "", false, nil, false
-		}
-		t, found := sub.ManagedNodes().Load(hash)
-		if !found {
-			return sub.Name(), sub.Enabled(), nil, true
-		}
-		return sub.Name(), sub.Enabled(), t, true
-	}
-}

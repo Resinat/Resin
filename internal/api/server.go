@@ -21,7 +21,7 @@ type Server struct {
 func NewServer(
 	port int,
 	adminToken string,
-	systemSvc service.SystemService,
+	systemSvc *service.MemorySystemService,
 	cp *service.ControlPlaneService,
 	apiMaxBodyBytes int64,
 	requestlogRepo *requestlog.Repo,

@@ -210,11 +210,6 @@ func (m *Manager) OnRequestFinished(ev proxy.RequestFinishedEvent) {
 	m.collector.RecordRequest(ev.PlatformID, ev.NetOK, latencyMs, ev.IsConnect)
 }
 
-// EmitRequestFinished is an adapter for callers that emit proxy finished events.
-func (m *Manager) EmitRequestFinished(ev proxy.RequestFinishedEvent) {
-	m.OnRequestFinished(ev)
-}
-
 // OnTrafficDelta records traffic bytes (implements proxy.MetricsEventSink).
 func (m *Manager) OnTrafficDelta(platformID string, ingressBytes, egressBytes int64) {
 	m.collector.RecordTraffic(platformID, ingressBytes, egressBytes)

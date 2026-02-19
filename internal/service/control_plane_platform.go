@@ -522,7 +522,7 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 
 	var subLookup node.SubLookupFunc
 	if len(regexFilters) > 0 {
-		subLookup = s.buildSubLookup()
+		subLookup = s.Pool.MakeSubLookup()
 	}
 	var regionFilterSet map[string]struct{}
 	if len(regionFilters) > 0 {

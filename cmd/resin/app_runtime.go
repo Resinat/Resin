@@ -32,7 +32,6 @@ type resinApp struct {
 	envCfg         *config.EnvConfig
 	runtimeCfg     *atomic.Pointer[config.RuntimeConfig]
 	accountMatcher *proxy.AccountMatcherRuntime
-	metricsBridge  *metricsEventBridge
 	geoSvc         *geoip.Service
 	topoRuntime    *topologyRuntime
 	flushWorker    *state.CacheFlushWorker
@@ -45,66 +44,6 @@ type resinApp struct {
 	reverseSrv     *http.Server
 	forwardLn      net.Listener
 	reverseLn      net.Listener
-}
-
-type metricsEventBridge struct {
-	manager atomic.Pointer[metrics.Manager]
-}
-
-func (b *metricsEventBridge) SetManager(m *metrics.Manager) {
-	if b == nil {
-		return
-	}
-	b.manager.Store(m)
-}
-
-func (b *metricsEventBridge) EmitConnectionLifecycle(op netutil.ConnLifecycleOp) {
-	if b == nil {
-		return
-	}
-	mgr := b.manager.Load()
-	if mgr == nil {
-		return
-	}
-	switch op {
-	case netutil.ConnLifecycleOpen:
-		mgr.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionOpen)
-	case netutil.ConnLifecycleClose:
-		mgr.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionClose)
-	}
-}
-
-func (b *metricsEventBridge) EmitLeaseEvent(e routing.LeaseEvent) {
-	if b == nil {
-		return
-	}
-	mgr := b.manager.Load()
-	if mgr == nil {
-		return
-	}
-
-	op := metrics.LeaseOpTouch
-	switch e.Type {
-	case routing.LeaseCreate:
-		op = metrics.LeaseOpCreate
-	case routing.LeaseReplace:
-		op = metrics.LeaseOpReplace
-	case routing.LeaseRemove:
-		op = metrics.LeaseOpRemove
-	case routing.LeaseExpire:
-		op = metrics.LeaseOpExpire
-	}
-
-	lifetimeNs := int64(0)
-	if e.CreatedAtNs > 0 && op.HasLifetimeSample() {
-		lifetimeNs = time.Now().UnixNano() - e.CreatedAtNs
-	}
-
-	mgr.OnLeaseEvent(metrics.LeaseMetricEvent{
-		PlatformID: e.PlatformID,
-		Op:         op,
-		LifetimeNs: lifetimeNs,
-	})
 }
 
 func run() error {
@@ -143,9 +82,8 @@ func run() error {
 
 func newResinApp(envCfg *config.EnvConfig, engine *state.StateEngine) (*resinApp, error) {
 	app := &resinApp{
-		envCfg:        envCfg,
-		runtimeCfg:    &atomic.Pointer[config.RuntimeConfig]{},
-		metricsBridge: &metricsEventBridge{},
+		envCfg:     envCfg,
+		runtimeCfg: &atomic.Pointer[config.RuntimeConfig]{},
 	}
 	app.runtimeCfg.Store(loadRuntimeConfig(engine))
 	app.accountMatcher = buildAccountMatcher(engine)
@@ -180,7 +118,14 @@ func (a *resinApp) initTopologyRuntime(engine *state.StateEngine) (*netutil.Retr
 	a.geoSvc = newGeoIPService(a.envCfg.CacheDir, a.envCfg.GeoIPUpdateSchedule, retryDL)
 
 	// Phase 3: Topology (pool, probe, scheduler).
-	topoRuntime, err := newTopologyRuntime(engine, a.envCfg, a.runtimeCfg, a.geoSvc, retryDL, a.metricsBridge)
+	topoRuntime, err := newTopologyRuntime(
+		engine,
+		a.envCfg,
+		a.runtimeCfg,
+		a.geoSvc,
+		retryDL,
+		a.onProbeConnectionLifecycle,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("topology runtime: %w", err)
 	}
@@ -206,12 +151,53 @@ func (a *resinApp) initTopologyRuntime(engine *state.StateEngine) (*netutil.Retr
 			case routing.LeaseRemove, routing.LeaseExpire:
 				engine.MarkLeaseDelete(e.PlatformID, e.Account)
 			}
-			a.metricsBridge.EmitLeaseEvent(e)
+			a.onLeaseEventForMetrics(e)
 		},
 	})
 	a.topoRuntime.leaseCleaner = routing.NewLeaseCleaner(a.topoRuntime.router)
 	log.Println("Router and LeaseCleaner initialized")
 	return retryDL, nil
+}
+
+func (a *resinApp) onProbeConnectionLifecycle(op netutil.ConnLifecycleOp) {
+	if a == nil || a.metricsManager == nil {
+		return
+	}
+	switch op {
+	case netutil.ConnLifecycleOpen:
+		a.metricsManager.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionOpen)
+	case netutil.ConnLifecycleClose:
+		a.metricsManager.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionClose)
+	}
+}
+
+func (a *resinApp) onLeaseEventForMetrics(e routing.LeaseEvent) {
+	if a == nil || a.metricsManager == nil {
+		return
+	}
+
+	op := metrics.LeaseOpTouch
+	switch e.Type {
+	case routing.LeaseCreate:
+		op = metrics.LeaseOpCreate
+	case routing.LeaseReplace:
+		op = metrics.LeaseOpReplace
+	case routing.LeaseRemove:
+		op = metrics.LeaseOpRemove
+	case routing.LeaseExpire:
+		op = metrics.LeaseOpExpire
+	}
+
+	lifetimeNs := int64(0)
+	if e.CreatedAtNs > 0 && op.HasLifetimeSample() {
+		lifetimeNs = time.Now().UnixNano() - e.CreatedAtNs
+	}
+
+	a.metricsManager.OnLeaseEvent(metrics.LeaseMetricEvent{
+		PlatformID: e.PlatformID,
+		Op:         op,
+		LifetimeNs: lifetimeNs,
+	})
 }
 
 func (a *resinApp) wireRetryDownloader(retryDL *netutil.RetryDownloader) {
@@ -303,8 +289,6 @@ func (a *resinApp) initObservability() error {
 			},
 		},
 	})
-
-	a.metricsBridge.SetManager(a.metricsManager)
 
 	a.requestlogRepo = requestlog.NewRepo(
 		a.envCfg.LogDir,

@@ -189,7 +189,7 @@ func newTopologyRuntime(
 	runtimeCfg *atomic.Pointer[config.RuntimeConfig],
 	geoSvc *geoip.Service,
 	downloader netutil.Downloader,
-	metricsBridge *metricsEventBridge,
+	onProbeConnLifecycle func(netutil.ConnLifecycleOp),
 ) (*topologyRuntime, error) {
 	subManager := topology.NewSubscriptionManager()
 
@@ -242,8 +242,8 @@ func newTopologyRuntime(
 			return netutil.HTTPGetViaOutbound(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
 				RequireStatusOK: false,
 				OnConnLifecycle: func(op netutil.ConnLifecycleOp) {
-					if metricsBridge != nil {
-						metricsBridge.EmitConnectionLifecycle(op)
+					if onProbeConnLifecycle != nil {
+						onProbeConnLifecycle(op)
 					}
 				},
 			})
@@ -635,7 +635,7 @@ type compositeEmitter struct {
 }
 
 func (c compositeEmitter) EmitRequestFinished(ev proxy.RequestFinishedEvent) {
-	c.metricsMgr.EmitRequestFinished(ev)
+	c.metricsMgr.OnRequestFinished(ev)
 }
 
 func (c compositeEmitter) EmitRequestLog(ev proxy.RequestLogEntry) {

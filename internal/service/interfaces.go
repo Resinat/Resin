@@ -1,5 +1,4 @@
-// Package service defines the interfaces that API handlers depend on.
-// Concrete implementations live in other packages and are wired in main.
+// Package service defines system-level service types used by API handlers.
 package service
 
 import (
@@ -17,15 +16,7 @@ type SystemInfo struct {
 	StartedAt time.Time `json:"started_at"`
 }
 
-// SystemService provides system-level operations.
-type SystemService interface {
-	GetSystemInfo() SystemInfo
-	GetRuntimeConfig() *config.RuntimeConfig
-}
-
-// --- Minimal in-memory implementation for Phase 1 ---
-
-// MemorySystemService is a minimal SystemService backed by in-memory state.
+// MemorySystemService provides system-level operations backed by in-memory state.
 type MemorySystemService struct {
 	info       SystemInfo
 	runtimeCfg *atomic.Pointer[config.RuntimeConfig]
