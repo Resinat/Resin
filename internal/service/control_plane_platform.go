@@ -173,7 +173,12 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 	if req.AllocationPolicy != nil {
 		ap := platform.AllocationPolicy(*req.AllocationPolicy)
 		if !ap.IsValid() {
-			return nil, invalidArg("allocation_policy: must be BALANCED, PREFER_LOW_LATENCY, or PREFER_IDLE_IP")
+			return nil, invalidArg(fmt.Sprintf(
+				"allocation_policy: must be %s, %s, or %s",
+				platform.AllocationPolicyBalanced,
+				platform.AllocationPolicyPreferLowLatency,
+				platform.AllocationPolicyPreferIdleIP,
+			))
 		}
 		allocPolicy = string(ap)
 	}
@@ -317,7 +322,12 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	if v, ok := patch["allocation_policy"]; ok {
 		ap, ok := v.(string)
 		if !ok || !platform.AllocationPolicy(ap).IsValid() {
-			return nil, invalidArg("allocation_policy: must be BALANCED, PREFER_LOW_LATENCY, or PREFER_IDLE_IP")
+			return nil, invalidArg(fmt.Sprintf(
+				"allocation_policy: must be %s, %s, or %s",
+				platform.AllocationPolicyBalanced,
+				platform.AllocationPolicyPreferLowLatency,
+				platform.AllocationPolicyPreferIdleIP,
+			))
 		}
 		allocPolicy = ap
 	}

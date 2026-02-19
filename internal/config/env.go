@@ -90,7 +90,10 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION",
 		string(platform.ReverseProxyMissActionRandom),
 	)
-	cfg.DefaultPlatformAllocationPolicy = envStr("RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY", "BALANCED")
+	cfg.DefaultPlatformAllocationPolicy = envStr(
+		"RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY",
+		string(platform.AllocationPolicyBalanced),
+	)
 	cfg.ProbeTimeout = envDuration("RESIN_PROBE_TIMEOUT", 15*time.Second, &errs)
 	cfg.ResourceFetchTimeout = envDuration("RESIN_RESOURCE_FETCH_TIMEOUT", 30*time.Second, &errs)
 
@@ -159,10 +162,14 @@ func LoadEnvConfig() (*EnvConfig, error) {
 			platform.ReverseProxyMissActionReject,
 		))
 	}
-	switch cfg.DefaultPlatformAllocationPolicy {
-	case "BALANCED", "PREFER_LOW_LATENCY", "PREFER_IDLE_IP":
-	default:
-		errs = append(errs, fmt.Sprintf("RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY: invalid value %q (allowed: BALANCED, PREFER_LOW_LATENCY, PREFER_IDLE_IP)", cfg.DefaultPlatformAllocationPolicy))
+	if !platform.AllocationPolicy(cfg.DefaultPlatformAllocationPolicy).IsValid() {
+		errs = append(errs, fmt.Sprintf(
+			"RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY: invalid value %q (allowed: %s, %s, %s)",
+			cfg.DefaultPlatformAllocationPolicy,
+			platform.AllocationPolicyBalanced,
+			platform.AllocationPolicyPreferLowLatency,
+			platform.AllocationPolicyPreferIdleIP,
+		))
 	}
 	if cfg.ProbeTimeout <= 0 {
 		errs = append(errs, "RESIN_PROBE_TIMEOUT must be positive")
