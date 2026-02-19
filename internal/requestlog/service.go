@@ -10,7 +10,7 @@ import (
 	"github.com/resin-proxy/resin/internal/proxy"
 )
 
-// Service provides an async request log writer that implements proxy.EventEmitter.
+// Service provides an async request log writer.
 // EmitRequestLog performs a non-blocking channel send (drops on overflow).
 // A background goroutine flushes batches to the Repo.
 type Service struct {
@@ -74,9 +74,6 @@ func (s *Service) EmitRequestLog(entry proxy.RequestLogEntry) {
 		// Queue full — drop entry to avoid blocking hot path.
 	}
 }
-
-// EmitRequestFinished is a no-op; finished events are handled by MetricsManager.
-func (s *Service) EmitRequestFinished(proxy.RequestFinishedEvent) {}
 
 // flushLoop runs until stopCh is closed, flushing on batch-size or timer.
 func (s *Service) flushLoop() {

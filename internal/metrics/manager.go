@@ -204,19 +204,16 @@ func (m *Manager) Stop() {
 
 // --- Event handlers (hot-path, called by proxy/routing/probe) ---
 
-// OnRequestFinished implements the metrics side of proxy.EventEmitter.
+// OnRequestFinished records request completion metrics.
 func (m *Manager) OnRequestFinished(ev proxy.RequestFinishedEvent) {
 	latencyMs := ev.DurationNs / 1e6
 	m.collector.RecordRequest(ev.PlatformID, ev.NetOK, latencyMs, ev.IsConnect)
 }
 
-// EmitRequestFinished implements proxy.EventEmitter.
+// EmitRequestFinished is an adapter for callers that emit proxy finished events.
 func (m *Manager) EmitRequestFinished(ev proxy.RequestFinishedEvent) {
 	m.OnRequestFinished(ev)
 }
-
-// EmitRequestLog is a no-op for Manager (handled by requestlog.Service).
-func (m *Manager) EmitRequestLog(proxy.RequestLogEntry) {}
 
 // OnTrafficDelta records traffic bytes (implements proxy.MetricsEventSink).
 func (m *Manager) OnTrafficDelta(platformID string, ingressBytes, egressBytes int64) {
