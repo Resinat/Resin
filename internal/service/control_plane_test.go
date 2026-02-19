@@ -782,10 +782,7 @@ func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *test
 	if err != nil {
 		t.Fatalf("GetPlatform: %v", err)
 	}
-	storedResp, err := platformToResponse(*stored)
-	if err != nil {
-		t.Fatalf("platformToResponse(stored): %v", err)
-	}
+	storedResp := platformToResponse(*stored)
 	if !reflect.DeepEqual(storedResp.RegexFilters, []string{"^prod-"}) {
 		t.Fatalf("stored regex_filters = %v, want %v", storedResp.RegexFilters, []string{"^prod-"})
 	}

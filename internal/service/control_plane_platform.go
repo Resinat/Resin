@@ -32,7 +32,7 @@ type PlatformResponse struct {
 	UpdatedAt              string   `json:"updated_at"`
 }
 
-func platformToResponse(p model.Platform) (PlatformResponse, error) {
+func platformToResponse(p model.Platform) PlatformResponse {
 	return PlatformResponse{
 		ID:                     p.ID,
 		Name:                   p.Name,
@@ -42,7 +42,7 @@ func platformToResponse(p model.Platform) (PlatformResponse, error) {
 		ReverseProxyMissAction: p.ReverseProxyMissAction,
 		AllocationPolicy:       p.AllocationPolicy,
 		UpdatedAt:              time.Unix(0, p.UpdatedAtNs).UTC().Format(time.RFC3339Nano),
-	}, nil
+	}
 }
 
 type platformConfig struct {
@@ -65,7 +65,7 @@ func (s *ControlPlaneService) defaultPlatformConfig(name string) platformConfig 
 	}
 }
 
-func platformConfigFromModel(mp model.Platform) (platformConfig, error) {
+func platformConfigFromModel(mp model.Platform) platformConfig {
 	return platformConfig{
 		Name:                   mp.Name,
 		StickyTTLNs:            mp.StickyTTLNs,
@@ -73,7 +73,7 @@ func platformConfigFromModel(mp model.Platform) (platformConfig, error) {
 		RegionFilters:          append([]string(nil), mp.RegionFilters...),
 		ReverseProxyMissAction: mp.ReverseProxyMissAction,
 		AllocationPolicy:       mp.AllocationPolicy,
-	}, nil
+	}
 }
 
 func (cfg platformConfig) toModel(id string, updatedAtNs int64) model.Platform {
@@ -136,11 +136,7 @@ func (s *ControlPlaneService) ListPlatforms() ([]PlatformResponse, error) {
 	}
 	resp := make([]PlatformResponse, len(platforms))
 	for i, p := range platforms {
-		platformResp, err := platformToResponse(p)
-		if err != nil {
-			return nil, internal(fmt.Sprintf("decode platform %s", p.ID), err)
-		}
-		resp[i] = platformResp
+		resp[i] = platformToResponse(p)
 	}
 	return resp, nil
 }
@@ -162,10 +158,7 @@ func (s *ControlPlaneService) GetPlatform(id string) (*PlatformResponse, error) 
 	if err != nil {
 		return nil, err
 	}
-	r, err := platformToResponse(*mp)
-	if err != nil {
-		return nil, internal(fmt.Sprintf("decode platform %s", mp.ID), err)
-	}
+	r := platformToResponse(*mp)
 	return &r, nil
 }
 
@@ -244,10 +237,7 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 	s.Pool.RebuildPlatform(plat)
 	s.Pool.RegisterPlatform(plat)
 
-	r, err := platformToResponse(mp)
-	if err != nil {
-		return nil, internal(fmt.Sprintf("decode platform %s", mp.ID), err)
-	}
+	r := platformToResponse(mp)
 	return &r, nil
 }
 
@@ -279,10 +269,7 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		}
 	}
 
-	cfg, err := platformConfigFromModel(*current)
-	if err != nil {
-		return nil, err
-	}
+	cfg := platformConfigFromModel(*current)
 
 	// Apply patch to current config.
 	if nameStr, ok, err := patch.optionalNonEmptyString("name"); err != nil {
@@ -366,10 +353,7 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		return nil, internal("replace platform in pool", err)
 	}
 
-	r, err := platformToResponse(mp)
-	if err != nil {
-		return nil, internal(fmt.Sprintf("decode platform %s", mp.ID), err)
-	}
+	r := platformToResponse(mp)
 	return &r, nil
 }
 
@@ -418,10 +402,7 @@ func (s *ControlPlaneService) ResetPlatformToDefault(id string) (*PlatformRespon
 		return nil, internal("replace platform in pool", err)
 	}
 
-	r, err := platformToResponse(mp)
-	if err != nil {
-		return nil, internal(fmt.Sprintf("decode platform %s", mp.ID), err)
-	}
+	r := platformToResponse(mp)
 	return &r, nil
 }
 
