@@ -304,27 +304,18 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		cfg.RegionFilters = filters
 	}
 
-	if v, ok := patch["reverse_proxy_miss_action"]; ok {
-		ma, ok := v.(string)
-		if !ok {
-			return nil, invalidArg("reverse_proxy_miss_action: must be a string")
-		}
+	if ma, ok, err := patch.optionalString("reverse_proxy_miss_action"); err != nil {
+		return nil, err
+	} else if ok {
 		if err := validatePlatformMissAction(ma); err != nil {
 			return nil, err
 		}
 		cfg.ReverseProxyMissAction = ma
 	}
 
-	if v, ok := patch["allocation_policy"]; ok {
-		ap, ok := v.(string)
-		if !ok {
-			return nil, invalidArg(fmt.Sprintf(
-				"allocation_policy: must be %s, %s, or %s",
-				platform.AllocationPolicyBalanced,
-				platform.AllocationPolicyPreferLowLatency,
-				platform.AllocationPolicyPreferIdleIP,
-			))
-		}
+	if ap, ok, err := patch.optionalString("allocation_policy"); err != nil {
+		return nil, err
+	} else if ok {
 		if err := validatePlatformAllocationPolicy(ap); err != nil {
 			return nil, err
 		}
