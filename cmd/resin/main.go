@@ -3,24 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
-	"net"
-	"net/http"
 	"net/netip"
 	"os"
-	"os/signal"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/puzpuzpuz/xsync/v4"
 
-	"github.com/resin-proxy/resin/internal/api"
 	"github.com/resin-proxy/resin/internal/buildinfo"
 	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/geoip"
@@ -34,7 +27,6 @@ import (
 	"github.com/resin-proxy/resin/internal/proxy"
 	"github.com/resin-proxy/resin/internal/requestlog"
 	"github.com/resin-proxy/resin/internal/routing"
-	"github.com/resin-proxy/resin/internal/service"
 	"github.com/resin-proxy/resin/internal/state"
 	"github.com/resin-proxy/resin/internal/subscription"
 	"github.com/resin-proxy/resin/internal/topology"
@@ -53,410 +45,8 @@ type topologyRuntime struct {
 }
 
 func main() {
-	envCfg, err := config.LoadEnvConfig()
-	if err != nil {
+	if err := run(); err != nil {
 		fatalf("%v", err)
-	}
-
-	engine, dbCloser, err := state.PersistenceBootstrap(envCfg.StateDir, envCfg.CacheDir)
-	if err != nil {
-		fatalf("persistence bootstrap: %v", err)
-	}
-	defer dbCloser.Close()
-	log.Println("Persistence bootstrap complete")
-
-	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
-	runtimeCfg.Store(loadRuntimeConfig(engine))
-	accountMatcher := buildAccountMatcher(engine)
-
-	// Phase 1: Create DirectDownloader and RetryDownloader shell.
-	// NodePicker/ProxyFetch are nil initially; set after Pool + OutboundManager creation.
-	direct := newDirectDownloader(envCfg, runtimeCfg)
-	retryDL := &netutil.RetryDownloader{
-		Direct: direct,
-	}
-
-	// Phase 2: Construct GeoIP service (start after retry downloader wiring).
-	geoSvc := newGeoIPService(envCfg.CacheDir, envCfg.GeoIPUpdateSchedule, retryDL)
-
-	// Phase 3: Topology (pool, probe, scheduler).
-	topoRuntime, err := newTopologyRuntime(engine, envCfg, runtimeCfg, geoSvc, retryDL)
-	if err != nil {
-		fatalf("topology runtime: %v", err)
-	}
-
-	// Phase 4: OutboundManager and Router (now that pool exists).
-	log.Println("OutboundManager initialized with lifecycle callbacks")
-
-	topoRuntime.router = routing.NewRouter(routing.RouterConfig{
-		Pool: topoRuntime.pool,
-		Authorities: func() []string {
-			return runtimeConfigSnapshot(runtimeCfg).LatencyAuthorities
-		},
-		P2CWindow: func() time.Duration {
-			return time.Duration(runtimeConfigSnapshot(runtimeCfg).P2CLatencyWindow)
-		},
-		NodeTagResolver: topoRuntime.pool.ResolveNodeDisplayTag,
-		// Lease events are emitted synchronously on routing paths.
-		// Keep this callback lightweight and non-blocking.
-		// metricsManager is set after creation below via leaseEventMetricsSink.
-		OnLeaseEvent: func(e routing.LeaseEvent) {
-			switch e.Type {
-			case routing.LeaseCreate, routing.LeaseTouch, routing.LeaseReplace:
-				engine.MarkLease(e.PlatformID, e.Account)
-			case routing.LeaseRemove, routing.LeaseExpire:
-				engine.MarkLeaseDelete(e.PlatformID, e.Account)
-			}
-			if sink := leaseEventMetricsSink.Load(); sink != nil {
-				op := metrics.LeaseOpTouch
-				switch e.Type {
-				case routing.LeaseCreate:
-					op = metrics.LeaseOpCreate
-				case routing.LeaseReplace:
-					op = metrics.LeaseOpReplace
-				case routing.LeaseRemove:
-					op = metrics.LeaseOpRemove
-				case routing.LeaseExpire:
-					op = metrics.LeaseOpExpire
-				}
-				lifetimeNs := int64(0)
-				if e.CreatedAtNs > 0 && op.HasLifetimeSample() {
-					lifetimeNs = time.Now().UnixNano() - e.CreatedAtNs
-				}
-				(*sink).OnLeaseEvent(metrics.LeaseMetricEvent{
-					PlatformID: e.PlatformID,
-					Op:         op,
-					LifetimeNs: lifetimeNs,
-				})
-			}
-		},
-	})
-	topoRuntime.leaseCleaner = routing.NewLeaseCleaner(topoRuntime.router)
-	log.Println("Router and LeaseCleaner initialized")
-
-	// Phase 5: Complete RetryDownloader wiring (now that Pool + OutboundManager exist).
-	retryDL.NodePicker = func(target string) (node.Hash, error) {
-		res, err := topoRuntime.router.RouteRequest("", "", target)
-		if err != nil {
-			return node.Zero, err
-		}
-		return res.NodeHash, nil
-	}
-	retryDL.ProxyFetch = func(ctx context.Context, hash node.Hash, url string) ([]byte, error) {
-		body, _, err := topoRuntime.outboundMgr.FetchWithUserAgent(ctx, hash, url, currentDownloadUserAgent(runtimeCfg))
-		return body, err
-	}
-	log.Println("RetryDownloader wiring complete")
-
-	// Phase 6: Bootstrap topology data from persistence.
-	if err := bootstrapTopology(engine, topoRuntime.subManager, topoRuntime.pool, envCfg); err != nil {
-		fatalf("%v", err)
-	}
-
-	// Phase 6.1: Bootstrap nodes (steps 3-6: static, subscription_nodes, dynamic, latency).
-	if err := bootstrapNodes(engine, topoRuntime.pool, topoRuntime.subManager, topoRuntime.outboundMgr, envCfg); err != nil {
-		fatalf("%v", err)
-	}
-
-	// GeoIP moved to step 8 batch 1 (after lease restore, per DESIGN.md).
-
-	// Phase 8: Outbound warmup — create outbounds for all bootstrapped nodes.
-	topoRuntime.outboundMgr.WarmupAll()
-
-	// Phase 8.1: Rebuild platform views BEFORE lease restore.
-	// DESIGN.md requires step 6 (rebuild) before step 7 (leases).
-	topoRuntime.pool.RebuildAllPlatforms()
-	log.Println("Outbound warmup and platform rebuild complete")
-
-	// Phase 9: Restore leases (AFTER rebuild so platform views are populated).
-	leases, err := engine.LoadAllLeases()
-	if err != nil {
-		log.Printf("Warning: load leases: %v", err)
-	} else if len(leases) > 0 {
-		topoRuntime.router.RestoreLeases(leases)
-		log.Printf("Restored %d leases from cache.db", len(leases))
-	}
-
-	flushReaders := newFlushReaders(topoRuntime.pool, topoRuntime.subManager, topoRuntime.router)
-	flushWorker := state.NewCacheFlushWorker(
-		engine, flushReaders,
-		func() int { return runtimeConfigSnapshot(runtimeCfg).CacheFlushDirtyThreshold },
-		func() time.Duration { return time.Duration(runtimeConfigSnapshot(runtimeCfg).CacheFlushInterval) },
-		5*time.Second, // check tick
-	)
-	flushWorker.Start()
-	log.Println("Cache flush worker started")
-
-	// Phase 10: Initialize observability services.
-	requestLogCfg := deriveRequestLogRuntimeSettings(envCfg)
-	metricsCfg := deriveMetricsManagerSettings(envCfg)
-	metricsDB, err := metrics.NewMetricsRepo(filepath.Join(envCfg.LogDir, "metrics.db"))
-	if err != nil {
-		fatalf("metrics DB: %v", err)
-	}
-	metricsManager := metrics.NewManager(metrics.ManagerConfig{
-		Repo:                        metricsDB,
-		LatencyBinMs:                metricsCfg.LatencyBinMs,
-		LatencyOverflowMs:           metricsCfg.LatencyOverflowMs,
-		BucketSeconds:               metricsCfg.BucketSeconds,
-		ThroughputRealtimeCapacity:  metricsCfg.ThroughputRealtimeCapacity,
-		ThroughputIntervalSec:       metricsCfg.ThroughputIntervalSec,
-		ConnectionsRealtimeCapacity: metricsCfg.ConnectionsRealtimeCapacity,
-		ConnectionsIntervalSec:      metricsCfg.ConnectionsIntervalSec,
-		LeasesRealtimeCapacity:      metricsCfg.LeasesRealtimeCapacity,
-		LeasesIntervalSec:           metricsCfg.LeasesIntervalSec,
-		NodePoolStats:               &nodePoolStatsAdapter{pool: topoRuntime.pool},
-		LeaseCountProvider: &leaseCountAdapter{
-			pool:   topoRuntime.pool,
-			router: topoRuntime.router,
-		},
-		PlatformStats: &platformStatsAdapter{pool: topoRuntime.pool},
-		NodeLatency: &nodeLatencyAdapter{
-			pool: topoRuntime.pool,
-			authorities: func() []string {
-				return runtimeConfigSnapshot(runtimeCfg).LatencyAuthorities
-			},
-		},
-	})
-
-	// Wire LeaseEvent metrics sink (closure captures metricsManager).
-	leaseEventMetricsSink.Store(&metricsManager)
-
-	requestlogRepo := requestlog.NewRepo(
-		envCfg.LogDir,
-		requestLogCfg.DBMaxBytes,
-		requestLogCfg.DBRetainCount,
-	)
-	if err := requestlogRepo.Open(); err != nil {
-		fatalf("requestlog repo open: %v", err)
-	}
-	requestlogSvc := requestlog.NewService(requestlog.ServiceConfig{
-		Repo:          requestlogRepo,
-		QueueSize:     requestLogCfg.QueueSize,
-		FlushBatch:    requestLogCfg.FlushBatch,
-		FlushInterval: requestLogCfg.FlushInterval,
-	})
-
-	// --- Step 8 Batch 1: CacheFlushWorker (already started) + GeoIP + MetricsManager ---
-	startGeoIPService(geoSvc)
-	log.Println("GeoIP service started (batch 1)")
-
-	metricsManager.Start()
-	log.Println("Metrics manager started (batch 1)")
-
-	// --- Step 8 Batch 2: ProbeManager, RequestLog, LeaseCleaner, EphemeralCleaner ---
-	topoRuntime.probeMgr.SetOnProbeEvent(func(kind string) {
-		metricsManager.OnProbeEvent(metrics.ProbeEvent{Kind: metrics.ProbeKind(kind)})
-	})
-
-	topoRuntime.probeMgr.Start()
-	log.Println("Probe manager started (batch 2)")
-
-	requestlogSvc.Start()
-	log.Println("Request log service started (batch 2)")
-
-	topoRuntime.leaseCleaner.Start()
-	log.Println("Lease cleaner started (batch 2)")
-
-	topoRuntime.ephemeralCleaner.Start()
-	log.Println("Ephemeral cleaner started (batch 2)")
-
-	// --- Step 8 Batch 3: Subscription scheduler (force full refresh on start) ---
-	topoRuntime.scheduler.Start()
-	topoRuntime.scheduler.ForceRefreshAll()
-	log.Println("Subscription scheduler started with forced full refresh (batch 3)")
-
-	startedAt := time.Now().UTC()
-	systemSvc := service.NewMemorySystemService(
-		service.SystemInfo{
-			Version:   buildinfo.Version,
-			GitCommit: buildinfo.GitCommit,
-			BuildTime: buildinfo.BuildTime,
-			StartedAt: startedAt,
-		},
-		runtimeCfg,
-	)
-
-	// Build the Control Plane service (after accountMatcher so we can inject MatcherRuntime).
-	cpService := &service.ControlPlaneService{
-		RuntimeCfg:     runtimeCfg,
-		EnvCfg:         envCfg,
-		Engine:         engine,
-		Pool:           topoRuntime.pool,
-		SubMgr:         topoRuntime.subManager,
-		Scheduler:      topoRuntime.scheduler,
-		Router:         topoRuntime.router,
-		ProbeMgr:       topoRuntime.probeMgr,
-		GeoIP:          geoSvc,
-		MatcherRuntime: accountMatcher,
-	}
-
-	srv := api.NewServer(
-		envCfg.APIPort,
-		envCfg.AdminToken,
-		systemSvc,
-		cpService,
-		int64(envCfg.APIMaxBodyBytes),
-		requestlogRepo,
-		metricsManager,
-	)
-
-	serverErrCh := make(chan error, 1)
-	reportServerErr := func(name string, err error) {
-		if err == nil || errors.Is(err, http.ErrServerClosed) {
-			return
-		}
-		wrapped := fmt.Errorf("%s: %w", name, err)
-		select {
-		case serverErrCh <- wrapped:
-		default:
-		}
-	}
-
-	go func() {
-		log.Printf("Resin API server starting on :%d", envCfg.APIPort)
-		reportServerErr("api server", srv.ListenAndServe())
-	}()
-
-	// Composite emitter: requestlog handles EmitRequestLog, metricsManager handles EmitRequestFinished.
-	composite := compositeEmitter{logSvc: requestlogSvc, metricsMgr: metricsManager}
-	proxyEvents := proxy.ConfigAwareEventEmitter{
-		Base: composite,
-		RequestLogEnabled: func() bool {
-			return runtimeConfigSnapshot(runtimeCfg).RequestLogEnabled
-		},
-		ReverseProxyLogDetailEnabled: func() bool {
-			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogDetailEnabled
-		},
-		ReverseProxyLogReqHeadersMaxBytes: func() int {
-			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogReqHeadersMaxBytes
-		},
-		ReverseProxyLogReqBodyMaxBytes: func() int {
-			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogReqBodyMaxBytes
-		},
-		ReverseProxyLogRespHeadersMaxBytes: func() int {
-			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogRespHeadersMaxBytes
-		},
-		ReverseProxyLogRespBodyMaxBytes: func() int {
-			return runtimeConfigSnapshot(runtimeCfg).ReverseProxyLogRespBodyMaxBytes
-		},
-	}
-
-	forwardProxy := proxy.NewForwardProxy(proxy.ForwardProxyConfig{
-		ProxyToken:  envCfg.ProxyToken,
-		Router:      topoRuntime.router,
-		Pool:        topoRuntime.pool,
-		Health:      topoRuntime.pool,
-		Events:      proxyEvents,
-		MetricsSink: metricsManager,
-	})
-	forwardLn, err := net.Listen("tcp", fmt.Sprintf(":%d", envCfg.ForwardProxyPort))
-	if err != nil {
-		fatalf("forward proxy listen: %v", err)
-	}
-	forwardLn = proxy.NewCountingListener(forwardLn, metricsManager)
-	forwardSrv := &http.Server{Handler: forwardProxy}
-	go func() {
-		log.Printf("Forward proxy starting on :%d", envCfg.ForwardProxyPort)
-		reportServerErr("forward proxy", forwardSrv.Serve(forwardLn))
-	}()
-
-	reverseProxy := proxy.NewReverseProxy(proxy.ReverseProxyConfig{
-		ProxyToken:     envCfg.ProxyToken,
-		Router:         topoRuntime.router,
-		Pool:           topoRuntime.pool,
-		PlatformLookup: topoRuntime.pool,
-		Health:         topoRuntime.pool,
-		Matcher:        accountMatcher,
-		Events:         proxyEvents,
-		MetricsSink:    metricsManager,
-	})
-	reverseLn, err := net.Listen("tcp", fmt.Sprintf(":%d", envCfg.ReverseProxyPort))
-	if err != nil {
-		fatalf("reverse proxy listen: %v", err)
-	}
-	reverseLn = proxy.NewCountingListener(reverseLn, metricsManager)
-	reverseSrv := &http.Server{Handler: reverseProxy}
-	go func() {
-		log.Printf("Reverse proxy starting on :%d", envCfg.ReverseProxyPort)
-		reportServerErr("reverse proxy", reverseSrv.Serve(reverseLn))
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(quit)
-
-	var runtimeErr error
-	select {
-	case sig := <-quit:
-		log.Printf("Received signal %s, shutting down...", sig)
-	case err := <-serverErrCh:
-		runtimeErr = err
-		log.Printf("Received server runtime error (%v), shutting down...", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := forwardSrv.Shutdown(ctx); err != nil {
-		log.Printf("Forward proxy shutdown error: %v", err)
-	}
-	log.Println("Forward proxy stopped")
-
-	if err := reverseSrv.Shutdown(ctx); err != nil {
-		log.Printf("Reverse proxy shutdown error: %v", err)
-	}
-	log.Println("Reverse proxy stopped")
-
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
-	}
-
-	// Stop in order: event sources first, then sinks, then persistence.
-	// 1. Stop all event sources (no more events after this).
-	topoRuntime.leaseCleaner.Stop()
-	log.Println("Lease cleaner stopped")
-
-	topoRuntime.ephemeralCleaner.Stop()
-	log.Println("Ephemeral cleaner stopped")
-
-	topoRuntime.scheduler.Stop()
-	log.Println("Subscription scheduler stopped")
-
-	topoRuntime.probeMgr.Stop()
-	log.Println("Probe manager stopped")
-
-	geoSvc.Stop()
-	log.Println("GeoIP service stopped")
-
-	// 2. Stop observability sinks (flush remaining data).
-	requestlogSvc.Stop()
-	log.Println("Request log service stopped")
-	if err := requestlogRepo.Close(); err != nil {
-		log.Printf("Request log repo close error: %v", err)
-	}
-	log.Println("Request log repo closed")
-
-	metricsManager.Stop()
-	log.Println("Metrics manager stopped")
-	if err := metricsDB.Close(); err != nil {
-		log.Printf("Metrics DB close error: %v", err)
-	}
-	log.Println("Metrics DB closed")
-
-	// 3. Stop infrastructure.
-	if topoRuntime.singboxBuilder != nil {
-		if err := topoRuntime.singboxBuilder.Close(); err != nil {
-			log.Printf("SingboxBuilder close error: %v", err)
-		}
-		log.Println("SingboxBuilder stopped")
-	}
-
-	flushWorker.Stop() // final cache flush before DB close
-	log.Println("Server stopped")
-	if runtimeErr != nil {
-		_ = dbCloser.Close()
-		fatalf("runtime server error: %v", runtimeErr)
 	}
 }
 
@@ -612,6 +202,7 @@ func newTopologyRuntime(
 	runtimeCfg *atomic.Pointer[config.RuntimeConfig],
 	geoSvc *geoip.Service,
 	downloader netutil.Downloader,
+	metricsBridge *metricsEventBridge,
 ) (*topologyRuntime, error) {
 	subManager := topology.NewSubscriptionManager()
 
@@ -664,13 +255,8 @@ func newTopologyRuntime(
 			return netutil.HTTPGetViaOutbound(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
 				RequireStatusOK: false,
 				OnConnLifecycle: func(op string) {
-					if sink := leaseEventMetricsSink.Load(); sink != nil {
-						switch op {
-						case "open":
-							(*sink).OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionOpen)
-						case "close":
-							(*sink).OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionClose)
-						}
+					if metricsBridge != nil {
+						metricsBridge.EmitConnectionLifecycle(op)
 					}
 				},
 			})
@@ -924,10 +510,6 @@ func buildAccountMatcher(engine *state.StateEngine) *proxy.AccountMatcherRuntime
 	}
 	return proxy.NewAccountMatcherRuntime(proxy.BuildAccountMatcher(rules))
 }
-
-// leaseEventMetricsSink is set after metricsManager creation so that the
-// lease event callback (set during router creation) can forward events.
-var leaseEventMetricsSink atomic.Pointer[*metrics.Manager]
 
 // --- Metrics provider adapters ---
 
