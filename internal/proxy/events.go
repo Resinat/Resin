@@ -42,6 +42,7 @@ type RequestFinishedEvent struct {
 // RequestLogEntry captures per-request details for the structured request log.
 // Used by the requestlog subsystem (Phase 8).
 type RequestLogEntry struct {
+	ID           string    // optional stable ID; repo generates one when empty
 	StartedAtNs  int64     // request start time (Unix nano), used as ts_ns in DB
 	ProxyType    ProxyType // 1=forward, 2=reverse
 	ClientIP     string

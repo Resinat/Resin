@@ -5,8 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/resin-proxy/resin/internal/proxy"
 )
 
@@ -125,44 +123,8 @@ func (s *Service) drainAndFlush(batch []proxy.RequestLogEntry) {
 }
 
 func (s *Service) flush(entries []proxy.RequestLogEntry) {
-	rows := make([]LogRow, len(entries))
-	for i, e := range entries {
-		rows[i] = LogRow{
-			ID:           uuid.New().String(),
-			TsNs:         e.StartedAtNs,
-			ProxyType:    int(e.ProxyType),
-			ClientIP:     e.ClientIP,
-			PlatformID:   e.PlatformID,
-			PlatformName: e.PlatformName,
-			Account:      e.Account,
-			TargetHost:   e.TargetHost,
-			TargetURL:    e.TargetURL,
-			NodeHash:     e.NodeHash,
-			NodeTag:      e.NodeTag,
-			EgressIP:     e.EgressIP,
-			DurationNs:   e.DurationNs,
-			NetOK:        e.NetOK,
-			HTTPMethod:   e.HTTPMethod,
-			HTTPStatus:   e.HTTPStatus,
-
-			ReqHeadersLen:        e.ReqHeadersLen,
-			ReqBodyLen:           e.ReqBodyLen,
-			RespHeadersLen:       e.RespHeadersLen,
-			RespBodyLen:          e.RespBodyLen,
-			ReqHeadersTruncated:  e.ReqHeadersTruncated,
-			ReqBodyTruncated:     e.ReqBodyTruncated,
-			RespHeadersTruncated: e.RespHeadersTruncated,
-			RespBodyTruncated:    e.RespBodyTruncated,
-
-			ReqHeaders:  e.ReqHeaders,
-			ReqBody:     e.ReqBody,
-			RespHeaders: e.RespHeaders,
-			RespBody:    e.RespBody,
-		}
-	}
-
-	if n, err := s.repo.InsertBatch(rows); err != nil {
-		log.Printf("[requestlog] flush %d entries failed: %v", len(rows), err)
+	if n, err := s.repo.InsertBatch(entries); err != nil {
+		log.Printf("[requestlog] flush %d entries failed: %v", len(entries), err)
 	} else if n > 0 {
 		log.Printf("[requestlog] flushed %d entries", n)
 	}

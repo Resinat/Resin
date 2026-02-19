@@ -18,11 +18,11 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 	t.Cleanup(func() { _ = repo.Close() })
 
 	ts := time.Now().Add(-time.Minute).UnixNano()
-	rows := []LogRow{
+	rows := []proxy.RequestLogEntry{
 		{
 			ID:                "log-a",
-			TsNs:              ts,
-			ProxyType:         int(proxy.ProxyTypeForward),
+			StartedAtNs:       ts,
+			ProxyType:         proxy.ProxyTypeForward,
 			ClientIP:          "10.0.0.1",
 			PlatformID:        "plat-1",
 			Account:           "acct-a",
@@ -45,8 +45,8 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 		},
 		{
 			ID:          "log-b",
-			TsNs:        ts,
-			ProxyType:   int(proxy.ProxyTypeReverse),
+			StartedAtNs: ts,
+			ProxyType:   proxy.ProxyTypeReverse,
 			ClientIP:    "10.0.0.2",
 			PlatformID:  "plat-2",
 			Account:     "acct-b",
@@ -204,10 +204,10 @@ func TestRepo_ListAcrossDBsUsesGlobalTsOrdering(t *testing.T) {
 	t.Cleanup(func() { _ = repo.Close() })
 
 	// Insert a newer timestamp into the first DB file.
-	if _, err := repo.InsertBatch([]LogRow{{
-		ID:        "old-file-new-ts",
-		TsNs:      200,
-		ProxyType: int(proxy.ProxyTypeForward),
+	if _, err := repo.InsertBatch([]proxy.RequestLogEntry{{
+		ID:          "old-file-new-ts",
+		StartedAtNs: 200,
+		ProxyType:   proxy.ProxyTypeForward,
 	}}); err != nil {
 		t.Fatalf("insert first db row: %v", err)
 	}
@@ -216,10 +216,10 @@ func TestRepo_ListAcrossDBsUsesGlobalTsOrdering(t *testing.T) {
 	if err := repo.rotateDB(); err != nil {
 		t.Fatalf("rotateDB: %v", err)
 	}
-	if _, err := repo.InsertBatch([]LogRow{{
-		ID:        "new-file-old-ts",
-		TsNs:      100,
-		ProxyType: int(proxy.ProxyTypeForward),
+	if _, err := repo.InsertBatch([]proxy.RequestLogEntry{{
+		ID:          "new-file-old-ts",
+		StartedAtNs: 100,
+		ProxyType:   proxy.ProxyTypeForward,
 	}}); err != nil {
 		t.Fatalf("insert second db row: %v", err)
 	}
@@ -250,10 +250,10 @@ func TestRepo_ListCursorPagination(t *testing.T) {
 	t.Cleanup(func() { _ = repo.Close() })
 
 	// Same ts to verify id ASC tie-break within ts.
-	rows := []LogRow{
-		{ID: "a", TsNs: 300, ProxyType: int(proxy.ProxyTypeForward)},
-		{ID: "b", TsNs: 300, ProxyType: int(proxy.ProxyTypeForward)},
-		{ID: "c", TsNs: 200, ProxyType: int(proxy.ProxyTypeForward)},
+	rows := []proxy.RequestLogEntry{
+		{ID: "a", StartedAtNs: 300, ProxyType: proxy.ProxyTypeForward},
+		{ID: "b", StartedAtNs: 300, ProxyType: proxy.ProxyTypeForward},
+		{ID: "c", StartedAtNs: 200, ProxyType: proxy.ProxyTypeForward},
 	}
 	if _, err := repo.InsertBatch(rows); err != nil {
 		t.Fatalf("repo.InsertBatch: %v", err)
@@ -327,10 +327,10 @@ func TestRepo_InsertBatchRecoversAfterActiveDBLost(t *testing.T) {
 	}
 	repo.activeDB = nil
 
-	inserted, err := repo.InsertBatch([]LogRow{{
-		ID:        "recovered-insert",
-		TsNs:      time.Now().UnixNano(),
-		ProxyType: int(proxy.ProxyTypeForward),
+	inserted, err := repo.InsertBatch([]proxy.RequestLogEntry{{
+		ID:          "recovered-insert",
+		StartedAtNs: time.Now().UnixNano(),
+		ProxyType:   proxy.ProxyTypeForward,
 	}})
 	if err != nil {
 		t.Fatalf("repo.InsertBatch recover path: %v", err)
@@ -350,10 +350,10 @@ func TestRepo_InsertBatchRecoversAfterActiveDBLost(t *testing.T) {
 
 func TestRepo_InsertBatchWithoutOpenReturnsNoActiveDB(t *testing.T) {
 	repo := NewRepo(t.TempDir(), 1<<20, 5)
-	_, err := repo.InsertBatch([]LogRow{{
-		ID:        "without-open",
-		TsNs:      time.Now().UnixNano(),
-		ProxyType: int(proxy.ProxyTypeForward),
+	_, err := repo.InsertBatch([]proxy.RequestLogEntry{{
+		ID:          "without-open",
+		StartedAtNs: time.Now().UnixNano(),
+		ProxyType:   proxy.ProxyTypeForward,
 	}})
 	if err == nil {
 		t.Fatal("expected error when InsertBatch is called before Open")

@@ -11,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/resin-proxy/resin/internal/proxy"
 	"github.com/resin-proxy/resin/internal/state"
 )
 
@@ -83,7 +86,7 @@ func (r *Repo) Close() error {
 
 // InsertBatch inserts a batch of log entries + optional payloads in a single
 // transaction. Returns the number of rows successfully inserted.
-func (r *Repo) InsertBatch(entries []LogRow) (int, error) {
+func (r *Repo) InsertBatch(entries []proxy.RequestLogEntry) (int, error) {
 	if r.activeDB == nil {
 		if err := r.recoverActiveDB(); err != nil {
 			return 0, err
@@ -126,6 +129,10 @@ func (r *Repo) InsertBatch(entries []LogRow) (int, error) {
 	inserted := 0
 	for i := range entries {
 		e := &entries[i]
+		id := e.ID
+		if id == "" {
+			id = uuid.NewString()
+		}
 		netOK := 0
 		if e.NetOK {
 			netOK = 1
@@ -136,7 +143,7 @@ func (r *Repo) InsertBatch(entries []LogRow) (int, error) {
 		}
 
 		_, err := insertLog.Exec(
-			e.ID, e.TsNs, e.ProxyType, e.ClientIP,
+			id, e.StartedAtNs, int(e.ProxyType), e.ClientIP,
 			e.PlatformID, e.PlatformName, e.Account,
 			e.TargetHost, e.TargetURL, e.NodeHash, e.NodeTag, e.EgressIP,
 			e.DurationNs, netOK, e.HTTPMethod, e.HTTPStatus,
@@ -146,13 +153,13 @@ func (r *Repo) InsertBatch(entries []LogRow) (int, error) {
 			boolToInt(e.RespHeadersTruncated), boolToInt(e.RespBodyTruncated),
 		)
 		if err != nil {
-			log.Printf("[requestlog] warning: skip log row id=%q insert failed: %v", e.ID, err)
+			log.Printf("[requestlog] warning: skip log row id=%q insert failed: %v", id, err)
 			continue // skip individual row errors
 		}
 
 		if hasPayload == 1 {
-			if _, err := insertPayload.Exec(e.ID, e.ReqHeaders, e.ReqBody, e.RespHeaders, e.RespBody); err != nil {
-				log.Printf("[requestlog] warning: payload insert failed for id=%q: %v", e.ID, err)
+			if _, err := insertPayload.Exec(id, e.ReqHeaders, e.ReqBody, e.RespHeaders, e.RespBody); err != nil {
+				log.Printf("[requestlog] warning: payload insert failed for id=%q: %v", id, err)
 			}
 		}
 		inserted++
@@ -179,41 +186,6 @@ func (r *Repo) recoverActiveDB() error {
 		return fmt.Errorf("requestlog repo recover active db: %w", err)
 	}
 	return nil
-}
-
-// LogRow is the internal representation of a request log entry ready for DB insertion.
-type LogRow struct {
-	ID           string
-	TsNs         int64
-	ProxyType    int
-	ClientIP     string
-	PlatformID   string
-	PlatformName string
-	Account      string
-	TargetHost   string
-	TargetURL    string
-	NodeHash     string
-	NodeTag      string
-	EgressIP     string
-	DurationNs   int64
-	NetOK        bool
-	HTTPMethod   string
-	HTTPStatus   int
-
-	ReqHeadersLen        int
-	ReqBodyLen           int
-	RespHeadersLen       int
-	RespBodyLen          int
-	ReqHeadersTruncated  bool
-	ReqBodyTruncated     bool
-	RespHeadersTruncated bool
-	RespBodyTruncated    bool
-
-	// Payload blobs (nil if not present).
-	ReqHeaders  []byte
-	ReqBody     []byte
-	RespHeaders []byte
-	RespBody    []byte
 }
 
 // LogSummary is the result of listing logs (without payload blobs).

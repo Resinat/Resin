@@ -275,11 +275,11 @@ func seedObservabilityData(
 	t.Helper()
 
 	logID := "log-contract-1"
-	inserted, err := requestlogRepo.InsertBatch([]requestlog.LogRow{
+	inserted, err := requestlogRepo.InsertBatch([]proxy.RequestLogEntry{
 		{
 			ID:                   logID,
-			TsNs:                 time.Now().Add(-2 * time.Minute).UnixNano(),
-			ProxyType:            int(proxy.ProxyTypeReverse),
+			StartedAtNs:          time.Now().Add(-2 * time.Minute).UnixNano(),
+			ProxyType:            proxy.ProxyTypeReverse,
 			ClientIP:             "127.0.0.1",
 			PlatformID:           platformID,
 			PlatformName:         "Platform One",
@@ -307,18 +307,18 @@ func seedObservabilityData(
 			RespBody:             []byte("resp-b-1"),
 		},
 		{
-			ID:         "log-contract-2",
-			TsNs:       time.Now().Add(-time.Minute).UnixNano(),
-			ProxyType:  int(proxy.ProxyTypeForward),
-			ClientIP:   "127.0.0.2",
-			PlatformID: platformID,
-			Account:    "acct-2",
-			TargetHost: "example.org",
-			TargetURL:  "https://example.org/resource",
-			DurationNs: int64(12 * time.Millisecond),
-			NetOK:      false,
-			HTTPMethod: "POST",
-			HTTPStatus: 502,
+			ID:          "log-contract-2",
+			StartedAtNs: time.Now().Add(-time.Minute).UnixNano(),
+			ProxyType:   proxy.ProxyTypeForward,
+			ClientIP:    "127.0.0.2",
+			PlatformID:  platformID,
+			Account:     "acct-2",
+			TargetHost:  "example.org",
+			TargetURL:   "https://example.org/resource",
+			DurationNs:  int64(12 * time.Millisecond),
+			NetOK:       false,
+			HTTPMethod:  "POST",
+			HTTPStatus:  502,
 		},
 	})
 	if err != nil {
