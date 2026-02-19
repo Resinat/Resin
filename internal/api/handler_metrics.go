@@ -15,7 +15,6 @@ import (
 func parseMetricsTimeRange(w http.ResponseWriter, r *http.Request) (from, to time.Time, ok bool) {
 	q := r.URL.Query()
 	to = time.Now()
-	from = to.Add(-1 * time.Hour)
 
 	if v := q.Get("to"); v != "" {
 		t, err := time.Parse(time.RFC3339Nano, v)
