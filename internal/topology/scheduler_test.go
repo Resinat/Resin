@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"regexp"
 	"sync"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/puzpuzpuz/xsync/v4"
+	"github.com/resin-proxy/resin/internal/netutil"
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/subscription"
@@ -88,6 +91,56 @@ func TestScheduler_UpdateSubscription_Success(t *testing.T) {
 	}
 	if sub.GetLastError() != "" {
 		t.Fatalf("LastError should be empty, got %s", sub.GetLastError())
+	}
+}
+
+func TestScheduler_UpdateSubscription_DownloadViaHTTPServer(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := newTestPool(subMgr)
+
+	const rawOutbound = `{"type":"shadowsocks","tag":"http-node","server":"1.1.1.1","server_port":443,"method":"aes-256-gcm","password":"secret"}`
+	body := makeSubscriptionJSON(rawOutbound)
+
+	subUserAgent := "resin-scheduler-e2e"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if ua := r.Header.Get("User-Agent"); ua != subUserAgent {
+			t.Fatalf("user-agent: got %q, want %q", ua, subUserAgent)
+		}
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	sub := subscription.NewSubscription("s1", "TestSub", srv.URL+"/sub", true, false)
+	subMgr.Register(sub)
+
+	downloader := netutil.NewDirectDownloader(
+		func() time.Duration { return time.Second },
+		func() string { return subUserAgent },
+	)
+	sched := NewSubscriptionScheduler(SchedulerConfig{
+		SubManager: subMgr,
+		Pool:       pool,
+		Downloader: downloader,
+	})
+
+	sched.UpdateSubscription(sub)
+
+	if sub.GetLastError() != "" {
+		t.Fatalf("unexpected last error: %q", sub.GetLastError())
+	}
+	if sub.LastCheckedNs.Load() == 0 {
+		t.Fatal("LastCheckedNs should be set")
+	}
+	if sub.LastUpdatedNs.Load() == 0 {
+		t.Fatal("LastUpdatedNs should be set")
+	}
+
+	hash := node.HashFromRawOptions([]byte(rawOutbound))
+	if _, ok := sub.ManagedNodes().Load(hash); !ok {
+		t.Fatalf("managed nodes should contain %s", hash.Hex())
+	}
+	if _, ok := pool.GetEntry(hash); !ok {
+		t.Fatalf("pool should contain %s", hash.Hex())
 	}
 }
 
