@@ -32,20 +32,25 @@ type PlatformResponse struct {
 	UpdatedAt              string   `json:"updated_at"`
 }
 
+func decodePlatformStringSliceJSON(raw, field string) ([]string, error) {
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", field, err)
+	}
+	if out == nil {
+		out = []string{}
+	}
+	return out, nil
+}
+
 func platformToResponse(p model.Platform) (PlatformResponse, error) {
-	var regexes []string
-	if err := json.Unmarshal([]byte(p.RegexFiltersJSON), &regexes); err != nil {
-		return PlatformResponse{}, fmt.Errorf("decode regex_filters_json: %w", err)
+	regexes, err := decodePlatformStringSliceJSON(p.RegexFiltersJSON, "regex_filters_json")
+	if err != nil {
+		return PlatformResponse{}, err
 	}
-	if regexes == nil {
-		regexes = []string{}
-	}
-	var regions []string
-	if err := json.Unmarshal([]byte(p.RegionFiltersJSON), &regions); err != nil {
-		return PlatformResponse{}, fmt.Errorf("decode region_filters_json: %w", err)
-	}
-	if regions == nil {
-		regions = []string{}
+	regions, err := decodePlatformStringSliceJSON(p.RegionFiltersJSON, "region_filters_json")
+	if err != nil {
+		return PlatformResponse{}, err
 	}
 	return PlatformResponse{
 		ID:                     p.ID,
@@ -76,8 +81,7 @@ func (s *ControlPlaneService) ListPlatforms() ([]PlatformResponse, error) {
 	return resp, nil
 }
 
-// GetPlatform returns a single platform by ID.
-func (s *ControlPlaneService) GetPlatform(id string) (*PlatformResponse, error) {
+func (s *ControlPlaneService) getPlatformModel(id string) (*model.Platform, error) {
 	p, err := s.Engine.GetPlatform(id)
 	if err != nil {
 		if errors.Is(err, state.ErrNotFound) {
@@ -85,9 +89,18 @@ func (s *ControlPlaneService) GetPlatform(id string) (*PlatformResponse, error) 
 		}
 		return nil, internal("get platform", err)
 	}
-	r, err := platformToResponse(*p)
+	return p, nil
+}
+
+// GetPlatform returns a single platform by ID.
+func (s *ControlPlaneService) GetPlatform(id string) (*PlatformResponse, error) {
+	mp, err := s.getPlatformModel(id)
 	if err != nil {
-		return nil, internal(fmt.Sprintf("decode platform %s", p.ID), err)
+		return nil, err
+	}
+	r, err := platformToResponse(*mp)
+	if err != nil {
+		return nil, internal(fmt.Sprintf("decode platform %s", mp.ID), err)
 	}
 	return &r, nil
 }
@@ -215,7 +228,7 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	}
 
 	// Load current.
-	current, err := s.GetPlatform(id)
+	current, err := s.getPlatformModel(id)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +252,7 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		}
 	}
 
-	stickyTTLNs := current.parseStickyTTL()
+	stickyTTLNs := current.StickyTTLNs
 	if d, ok, err := patch.optionalDurationString("sticky_ttl"); err != nil {
 		return nil, err
 	} else if ok {
@@ -249,7 +262,10 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		stickyTTLNs = int64(d)
 	}
 
-	regexFilters := current.RegexFilters
+	regexFilters, err := decodePlatformStringSliceJSON(current.RegexFiltersJSON, "regex_filters_json")
+	if err != nil {
+		return nil, internal(fmt.Sprintf("decode platform %s", current.ID), err)
+	}
 	if filters, ok, err := patch.optionalStringSlice("regex_filters"); err != nil {
 		return nil, err
 	} else if ok {
@@ -260,7 +276,10 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		return nil, invalidArg(err.Error())
 	}
 
-	regionFilters := current.RegionFilters
+	regionFilters, err := decodePlatformStringSliceJSON(current.RegionFiltersJSON, "region_filters_json")
+	if err != nil {
+		return nil, internal(fmt.Sprintf("decode platform %s", current.ID), err)
+	}
 	regionFiltersPatched := false
 	if filters, ok, err := patch.optionalStringSlice("region_filters"); err != nil {
 		return nil, err
@@ -328,19 +347,10 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	return &r, nil
 }
 
-// helper for PlatformResponse
-func (p *PlatformResponse) parseStickyTTL() int64 {
-	d, err := time.ParseDuration(p.StickyTTL)
-	if err != nil {
-		return 0
-	}
-	return int64(d)
-}
-
 // DeletePlatform deletes a platform.
 func (s *ControlPlaneService) DeletePlatform(id string) error {
 	// Check if it's the Default platform.
-	current, err := s.GetPlatform(id)
+	current, err := s.getPlatformModel(id)
 	if err != nil {
 		return err
 	}
@@ -360,7 +370,7 @@ func (s *ControlPlaneService) DeletePlatform(id string) error {
 
 // ResetPlatformToDefault resets a platform to env defaults.
 func (s *ControlPlaneService) ResetPlatformToDefault(id string) (*PlatformResponse, error) {
-	current, err := s.GetPlatform(id)
+	current, err := s.getPlatformModel(id)
 	if err != nil {
 		return nil, err
 	}

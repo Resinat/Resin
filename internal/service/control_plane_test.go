@@ -14,6 +14,7 @@ import (
 	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/model"
 	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/proxy"
 	"github.com/resin-proxy/resin/internal/state"
 	"github.com/resin-proxy/resin/internal/subscription"
@@ -613,6 +614,183 @@ func TestGetPlatform_FailsFastOnCorruptPersistedFiltersJSON(t *testing.T) {
 	}
 	if !strings.Contains(serviceErr.Message, "decode platform") {
 		t.Fatalf("unexpected service error message: %q", serviceErr.Message)
+	}
+}
+
+func TestDeletePlatform_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	cacheDir := filepath.Join(dir, "cache")
+
+	engine, closer, err := state.PersistenceBootstrap(stateDir, cacheDir)
+	if err != nil {
+		t.Fatalf("PersistenceBootstrap: %v", err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+
+	platformRow := model.Platform{
+		ID:                     "plat-delete-corrupt",
+		Name:                   "delete-corrupt",
+		StickyTTLNs:            int64(time.Hour),
+		RegexFiltersJSON:       `["^ok$"]`,
+		RegionFiltersJSON:      `["us"]`,
+		ReverseProxyMissAction: "RANDOM",
+		AllocationPolicy:       "BALANCED",
+		UpdatedAtNs:            time.Now().UnixNano(),
+	}
+	if err := engine.UpsertPlatform(platformRow); err != nil {
+		t.Fatalf("UpsertPlatform: %v", err)
+	}
+	db, err := state.OpenDB(filepath.Join(stateDir, "state.db"))
+	if err != nil {
+		t.Fatalf("OpenDB(state.db): %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(
+		`UPDATE platforms SET regex_filters_json = ? WHERE id = ?`,
+		`{"bad":"shape"}`,
+		platformRow.ID,
+	); err != nil {
+		t.Fatalf("corrupt platform row: %v", err)
+	}
+
+	pool := topology.NewGlobalNodePool(topology.PoolConfig{
+		SubLookup:              nil,
+		GeoLookup:              func(netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+		LatencyDecayWindow:     func() time.Duration { return 10 * time.Minute },
+	})
+	pool.RegisterPlatform(platform.NewConfiguredPlatform(
+		platformRow.ID,
+		platformRow.Name,
+		nil,
+		nil,
+		platformRow.StickyTTLNs,
+		platformRow.ReverseProxyMissAction,
+		platformRow.AllocationPolicy,
+	))
+
+	cp := &ControlPlaneService{
+		Engine: engine,
+		Pool:   pool,
+	}
+
+	if err := cp.DeletePlatform(platformRow.ID); err != nil {
+		t.Fatalf("DeletePlatform: %v", err)
+	}
+
+	_, err = engine.GetPlatform(platformRow.ID)
+	if !errors.Is(err, state.ErrNotFound) {
+		t.Fatalf("GetPlatform after delete err = %v, want ErrNotFound", err)
+	}
+	if _, ok := pool.GetPlatform(platformRow.ID); ok {
+		t.Fatalf("platform %s should be removed from pool", platformRow.ID)
+	}
+}
+
+func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	cacheDir := filepath.Join(dir, "cache")
+
+	engine, closer, err := state.PersistenceBootstrap(stateDir, cacheDir)
+	if err != nil {
+		t.Fatalf("PersistenceBootstrap: %v", err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+
+	platformRow := model.Platform{
+		ID:                     "plat-reset-corrupt",
+		Name:                   "reset-corrupt",
+		StickyTTLNs:            int64(time.Hour),
+		RegexFiltersJSON:       `["^ok$"]`,
+		RegionFiltersJSON:      `["us"]`,
+		ReverseProxyMissAction: "RANDOM",
+		AllocationPolicy:       "BALANCED",
+		UpdatedAtNs:            time.Now().UnixNano(),
+	}
+	if err := engine.UpsertPlatform(platformRow); err != nil {
+		t.Fatalf("UpsertPlatform: %v", err)
+	}
+	db, err := state.OpenDB(filepath.Join(stateDir, "state.db"))
+	if err != nil {
+		t.Fatalf("OpenDB(state.db): %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(
+		`UPDATE platforms SET regex_filters_json = ? WHERE id = ?`,
+		`{"bad":"shape"}`,
+		platformRow.ID,
+	); err != nil {
+		t.Fatalf("corrupt platform row: %v", err)
+	}
+
+	pool := topology.NewGlobalNodePool(topology.PoolConfig{
+		SubLookup:              nil,
+		GeoLookup:              func(netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+		LatencyDecayWindow:     func() time.Duration { return 10 * time.Minute },
+	})
+	pool.RegisterPlatform(platform.NewConfiguredPlatform(
+		platformRow.ID,
+		platformRow.Name,
+		nil,
+		nil,
+		platformRow.StickyTTLNs,
+		platformRow.ReverseProxyMissAction,
+		platformRow.AllocationPolicy,
+	))
+
+	cp := &ControlPlaneService{
+		Engine: engine,
+		Pool:   pool,
+		EnvCfg: &config.EnvConfig{
+			DefaultPlatformStickyTTL:              45 * time.Minute,
+			DefaultPlatformRegexFilters:           []string{"^prod-"},
+			DefaultPlatformRegionFilters:          []string{"jp"},
+			DefaultPlatformReverseProxyMissAction: "REJECT",
+			DefaultPlatformAllocationPolicy:       "PREFER_IDLE_IP",
+		},
+	}
+
+	resp, err := cp.ResetPlatformToDefault(platformRow.ID)
+	if err != nil {
+		t.Fatalf("ResetPlatformToDefault: %v", err)
+	}
+	if resp.Name != platformRow.Name {
+		t.Fatalf("response name = %q, want %q", resp.Name, platformRow.Name)
+	}
+	if resp.StickyTTL != (45 * time.Minute).String() {
+		t.Fatalf("response sticky_ttl = %q, want %q", resp.StickyTTL, (45 * time.Minute).String())
+	}
+	if !reflect.DeepEqual(resp.RegexFilters, []string{"^prod-"}) {
+		t.Fatalf("response regex_filters = %v, want %v", resp.RegexFilters, []string{"^prod-"})
+	}
+	if !reflect.DeepEqual(resp.RegionFilters, []string{"jp"}) {
+		t.Fatalf("response region_filters = %v, want %v", resp.RegionFilters, []string{"jp"})
+	}
+	if resp.ReverseProxyMissAction != "REJECT" {
+		t.Fatalf("response reverse_proxy_miss_action = %q, want REJECT", resp.ReverseProxyMissAction)
+	}
+	if resp.AllocationPolicy != "PREFER_IDLE_IP" {
+		t.Fatalf("response allocation_policy = %q, want PREFER_IDLE_IP", resp.AllocationPolicy)
+	}
+
+	stored, err := engine.GetPlatform(platformRow.ID)
+	if err != nil {
+		t.Fatalf("GetPlatform: %v", err)
+	}
+	storedResp, err := platformToResponse(*stored)
+	if err != nil {
+		t.Fatalf("platformToResponse(stored): %v", err)
+	}
+	if !reflect.DeepEqual(storedResp.RegexFilters, []string{"^prod-"}) {
+		t.Fatalf("stored regex_filters = %v, want %v", storedResp.RegexFilters, []string{"^prod-"})
+	}
+	if !reflect.DeepEqual(storedResp.RegionFilters, []string{"jp"}) {
+		t.Fatalf("stored region_filters = %v, want %v", storedResp.RegionFilters, []string{"jp"})
 	}
 }
 
