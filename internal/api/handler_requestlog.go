@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,23 +10,29 @@ import (
 )
 
 // HandleListRequestLogs handles GET /api/v1/request-logs.
-// Query params per DESIGN: from, to (RFC3339Nano), limit, offset,
+// Query params: from, to (RFC3339Nano), limit, offset,
 // platform_id, account, target_host, egress_ip, proxy_type, net_ok, http_status.
 func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pg, ok := parsePaginationOrWriteInvalid(w, r)
+		if !ok {
+			return
+		}
+
 		q := r.URL.Query()
 		f := requestlog.ListFilter{
 			PlatformID: q.Get("platform_id"),
 			Account:    q.Get("account"),
 			TargetHost: q.Get("target_host"),
 			EgressIP:   q.Get("egress_ip"),
+			Limit:      pg.Limit,
+			Offset:     pg.Offset,
 		}
 
-		// from/to: RFC3339Nano → unix nanoseconds.
 		if v := q.Get("from"); v != "" {
 			t, err := time.Parse(time.RFC3339Nano, v)
 			if err != nil {
-				WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid 'from': expected RFC3339Nano")
+				writeInvalidArgument(w, "from: invalid RFC3339 timestamp")
 				return
 			}
 			f.After = t.UnixNano()
@@ -35,60 +40,35 @@ func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 		if v := q.Get("to"); v != "" {
 			t, err := time.Parse(time.RFC3339Nano, v)
 			if err != nil {
-				WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid 'to': expected RFC3339Nano")
+				writeInvalidArgument(w, "to: invalid RFC3339 timestamp")
 				return
 			}
 			f.Before = t.UnixNano()
 		}
-
-		// from must be < to when both are provided.
 		if f.After > 0 && f.Before > 0 && f.After >= f.Before {
-			WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "'from' must be before 'to'")
+			writeInvalidArgument(w, "from: must be before to")
 			return
 		}
 
-		if v := q.Get("limit"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || n <= 0 || n > 10000 {
-				WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid 'limit': expected integer in [1,10000]")
-				return
-			}
-			f.Limit = n
+		proxyType, ok := parseBoundedIntQuery(w, r, "proxy_type", 1, 2, "proxy_type: must be 1 or 2")
+		if !ok {
+			return
 		}
-		if v := q.Get("offset"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 0 {
-				WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid 'offset': expected non-negative integer")
-				return
-			}
-			f.Offset = n
-		}
-		if v := q.Get("proxy_type"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || (n != 1 && n != 2) {
-				WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid 'proxy_type': expected 1 or 2")
-				return
-			}
-			f.ProxyType = &n
-		}
-		if v := q.Get("net_ok"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || (n != 0 && n != 1) {
-				WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid 'net_ok': expected 0 or 1")
-				return
-			}
-			f.NetOK = &n
-		}
-		if v := q.Get("http_status"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || n < 100 || n > 599 {
-				WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "invalid 'http_status': expected integer in [100,599]")
-				return
-			}
-			f.HTTPStatus = &n
-		}
+		f.ProxyType = proxyType
 
-		rows, err := repo.List(f)
+		netOK, ok := parseStrictBoolQuery(w, r, "net_ok")
+		if !ok {
+			return
+		}
+		f.NetOK = netOK
+
+		httpStatus, ok := parseBoundedIntQuery(w, r, "http_status", 100, 599, "http_status: must be in [100,599]")
+		if !ok {
+			return
+		}
+		f.HTTPStatus = httpStatus
+
+		rows, total, err := repo.List(f)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
@@ -99,8 +79,11 @@ func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 			items = append(items, toLogListItem(row))
 		}
 
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"items": items,
+		WriteJSON(w, http.StatusOK, PageResponse[logListItem]{
+			Items:  items,
+			Total:  total,
+			Limit:  pg.Limit,
+			Offset: pg.Offset,
 		})
 	})
 }
@@ -110,7 +93,7 @@ func HandleGetRequestLog(repo *requestlog.Repo) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logID := r.PathValue("log_id")
 		if logID == "" {
-			WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing log_id")
+			writeInvalidArgument(w, "log_id: is required")
 			return
 		}
 
@@ -124,21 +107,20 @@ func HandleGetRequestLog(repo *requestlog.Repo) http.Handler {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, toLogListItem(*row))
+		WriteJSON(w, http.StatusOK, toLogListItem(*row))
 	})
 }
 
 // HandleGetRequestLogPayloads handles GET /api/v1/request-logs/{log_id}/payloads.
-// Returns base64-encoded payloads with truncation metadata per DESIGN spec.
+// Returns base64-encoded payloads with truncation metadata.
 func HandleGetRequestLogPayloads(repo *requestlog.Repo) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logID := r.PathValue("log_id")
 		if logID == "" {
-			WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "missing log_id")
+			writeInvalidArgument(w, "log_id: is required")
 			return
 		}
 
-		// First check the log exists and get truncation info.
 		logRow, err := repo.GetByID(logID)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
@@ -170,8 +152,46 @@ func HandleGetRequestLogPayloads(repo *requestlog.Repo) http.Handler {
 			resp.RespBodyB64 = base64.StdEncoding.EncodeToString(payload.RespBody)
 		}
 
-		writeJSON(w, http.StatusOK, resp)
+		WriteJSON(w, http.StatusOK, resp)
 	})
+}
+
+func parseBoundedIntQuery(
+	w http.ResponseWriter,
+	r *http.Request,
+	key string,
+	min int,
+	max int,
+	errMsg string,
+) (*int, bool) {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return nil, true
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < min || n > max {
+		writeInvalidArgument(w, errMsg)
+		return nil, false
+	}
+	return &n, true
+}
+
+func parseStrictBoolQuery(w http.ResponseWriter, r *http.Request, key string) (*bool, bool) {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return nil, true
+	}
+	switch v {
+	case "true":
+		b := true
+		return &b, true
+	case "false":
+		b := false
+		return &b, true
+	default:
+		writeInvalidArgument(w, key+": must be true or false")
+		return nil, false
+	}
 }
 
 // --- Response types ---
@@ -190,10 +210,10 @@ type logListItem struct {
 	NodeTag              string `json:"node_tag"`
 	EgressIP             string `json:"egress_ip"`
 	DurationMs           int64  `json:"duration_ms"`
-	NetOK                int    `json:"net_ok"`
+	NetOK                bool   `json:"net_ok"`
 	HTTPMethod           string `json:"http_method"`
 	HTTPStatus           int    `json:"http_status"`
-	PayloadPresent       int    `json:"payload_present"`
+	PayloadPresent       bool   `json:"payload_present"`
 	ReqHeadersLen        int    `json:"req_headers_len"`
 	ReqBodyLen           int    `json:"req_body_len"`
 	RespHeadersLen       int    `json:"resp_headers_len"`
@@ -205,14 +225,6 @@ type logListItem struct {
 }
 
 func toLogListItem(s requestlog.LogSummary) logListItem {
-	netOK := 0
-	if s.NetOK {
-		netOK = 1
-	}
-	payloadPresent := 0
-	if s.PayloadPresent {
-		payloadPresent = 1
-	}
 	return logListItem{
 		ID:                   s.ID,
 		Ts:                   time.Unix(0, s.TsNs).UTC().Format(time.RFC3339Nano),
@@ -227,10 +239,10 @@ func toLogListItem(s requestlog.LogSummary) logListItem {
 		NodeTag:              s.NodeTag,
 		EgressIP:             s.EgressIP,
 		DurationMs:           s.DurationNs / 1e6,
-		NetOK:                netOK,
+		NetOK:                s.NetOK,
 		HTTPMethod:           s.HTTPMethod,
 		HTTPStatus:           s.HTTPStatus,
-		PayloadPresent:       payloadPresent,
+		PayloadPresent:       s.PayloadPresent,
 		ReqHeadersLen:        s.ReqHeadersLen,
 		ReqBodyLen:           s.ReqBodyLen,
 		RespHeadersLen:       s.RespHeadersLen,
@@ -255,10 +267,4 @@ type truncatedInfo struct {
 	ReqBody     bool `json:"req_body"`
 	RespHeaders bool `json:"resp_headers"`
 	RespBody    bool `json:"resp_body"`
-}
-
-func writeJSON(w http.ResponseWriter, code int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(data)
 }

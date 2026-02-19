@@ -67,9 +67,12 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 		t.Fatalf("inserted: got %d, want %d", inserted, 2)
 	}
 
-	list, err := repo.List(ListFilter{Limit: 10})
+	list, total, err := repo.List(ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("repo.List: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("list total: got %d, want %d", total, 2)
 	}
 	if len(list) != 2 {
 		t.Fatalf("list len: got %d, want %d", len(list), 2)
@@ -78,9 +81,12 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 		t.Fatalf("list order (ts desc, id asc tie-break): got [%s, %s]", list[0].ID, list[1].ID)
 	}
 
-	filtered, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
+	filtered, total, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
 	if err != nil {
 		t.Fatalf("repo.List filtered: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("filtered total: got %d, want %d", total, 1)
 	}
 	if len(filtered) != 1 || filtered[0].ID != "log-a" {
 		t.Fatalf("filtered list: got %+v", filtered)
@@ -161,7 +167,7 @@ func TestService_FlushesByBatchSize(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		rows, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
+		rows, _, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
 		if err != nil {
 			t.Fatalf("repo.List: %v", err)
 		}
@@ -211,9 +217,12 @@ func TestRepo_ListAcrossDBsUsesGlobalTsOrdering(t *testing.T) {
 		t.Fatalf("insert second db row: %v", err)
 	}
 
-	rows, err := repo.List(ListFilter{Limit: 1})
+	rows, total, err := repo.List(ListFilter{Limit: 1})
 	if err != nil {
 		t.Fatalf("repo.List: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("rows total: got %d, want %d", total, 2)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("rows len: got %d, want 1", len(rows))

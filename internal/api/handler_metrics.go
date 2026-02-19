@@ -88,7 +88,7 @@ func HandleRealtimeThroughput(mgr *metrics.Manager) http.Handler {
 				"egress_bps":  s.EgressBPS,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"step_seconds": mgr.ThroughputIntervalSeconds(),
 			"items":        items,
 		})
@@ -114,7 +114,7 @@ func HandleRealtimeConnections(mgr *metrics.Manager) http.Handler {
 				"outbound_connections": s.OutboundConns,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"step_seconds": mgr.ConnectionsIntervalSeconds(),
 			"items":        items,
 		})
@@ -148,7 +148,7 @@ func HandleRealtimeLeases(mgr *metrics.Manager) http.Handler {
 				"active_leases": count,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"platform_id":  platformID,
 			"step_seconds": mgr.LeasesIntervalSeconds(),
 			"items":        items,
@@ -186,7 +186,7 @@ func HandleHistoryTraffic(mgr *metrics.Manager) http.Handler {
 				"egress_bytes":  row.EgressBytes,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"bucket_seconds": mgr.BucketSeconds(),
 			"items":          items,
 		})
@@ -224,7 +224,7 @@ func HandleHistoryRequests(mgr *metrics.Manager) http.Handler {
 				"success_rate":     rate,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"bucket_seconds": mgr.BucketSeconds(),
 			"items":          items,
 		})
@@ -288,7 +288,7 @@ func HandleHistoryAccessLatency(mgr *metrics.Manager) http.Handler {
 				"overflow_count": overflowCount,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"bucket_seconds": mgr.BucketSeconds(),
 			"bin_width_ms":   snap.LatencyBinMs,
 			"overflow_ms":    snap.LatencyOverMs,
@@ -321,7 +321,7 @@ func HandleHistoryProbes(mgr *metrics.Manager) http.Handler {
 				"total_count":  row.TotalCount,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"bucket_seconds": mgr.BucketSeconds(),
 			"items":          items,
 		})
@@ -354,7 +354,7 @@ func HandleHistoryNodePool(mgr *metrics.Manager) http.Handler {
 				"egress_ip_count": row.EgressIPCount,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"bucket_seconds": mgr.BucketSeconds(),
 			"items":          items,
 		})
@@ -393,7 +393,7 @@ func HandleHistoryLeaseLifetime(mgr *metrics.Manager) http.Handler {
 				"p50_ms":       row.P50Ms,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"platform_id":    platformID,
 			"bucket_seconds": mgr.BucketSeconds(),
 			"items":          items,
@@ -416,7 +416,7 @@ func HandleSnapshotNodePool(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "node pool stats not available")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"generated_at":    time.Now().UTC().Format(time.RFC3339Nano),
 			"total_nodes":     stats.TotalNodes(),
 			"healthy_nodes":   stats.HealthyNodes(),
@@ -444,7 +444,7 @@ func HandleSnapshotPlatformNodePool(mgr *metrics.Manager) http.Handler {
 			return
 		}
 		egressCount, _ := psp.PlatformEgressIPCount(platformID)
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		WriteJSON(w, http.StatusOK, map[string]interface{}{
 			"generated_at":        time.Now().UTC().Format(time.RFC3339Nano),
 			"platform_id":         platformID,
 			"routable_node_count": routable,
@@ -537,7 +537,7 @@ func HandleSnapshotNodeLatencyDistribution(mgr *metrics.Manager) http.Handler {
 			resp["platform_id"] = platformID
 		}
 
-		writeJSON(w, http.StatusOK, resp)
+		WriteJSON(w, http.StatusOK, resp)
 	})
 }
 

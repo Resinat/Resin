@@ -350,12 +350,15 @@ func TestBootstrapRestart_RecoversObservabilityPersistence(t *testing.T) {
 	}
 	defer reqRepo2.Close()
 
-	rows, err := reqRepo2.List(requestlog.ListFilter{
+	rows, total, err := reqRepo2.List(requestlog.ListFilter{
 		PlatformID: platformID,
 		Limit:      10,
 	})
 	if err != nil {
 		t.Fatalf("reqRepo2.List: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("request log total: got %d, want %d", total, 1)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("request log rows: got %d, want %d", len(rows), 1)

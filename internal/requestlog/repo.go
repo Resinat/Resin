@@ -241,7 +241,7 @@ type ListFilter struct {
 	Account    string
 	TargetHost string
 	EgressIP   string
-	NetOK      *int  // 0/1 filter
+	NetOK      *bool // true/false filter
 	HTTPStatus *int  // exact match
 	Before     int64 // ts_ns < Before (0 means no upper bound)
 	After      int64 // ts_ns > After (0 means no lower bound)
@@ -249,11 +249,12 @@ type ListFilter struct {
 	Offset     int
 }
 
-// List queries all retained DBs and returns matching log summaries ordered by ts_ns DESC.
-func (r *Repo) List(f ListFilter) ([]LogSummary, error) {
+// List queries all retained DBs and returns a page of matching log summaries
+// ordered by ts_ns DESC, plus the total matched rows before pagination.
+func (r *Repo) List(f ListFilter) ([]LogSummary, int, error) {
 	files, err := r.listDBFiles()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	limit := f.Limit
@@ -298,15 +299,20 @@ func (r *Repo) List(f ListFilter) ([]LogSummary, error) {
 		}
 		return results[i].ID < results[j].ID
 	})
+	total := len(results)
+	if total == 0 {
+		return []LogSummary{}, 0, nil
+	}
+
 	// Apply offset.
-	if offset >= len(results) {
-		return nil, nil
+	if offset >= total {
+		return []LogSummary{}, total, nil
 	}
 	results = results[offset:]
 	if len(results) > limit {
 		results = results[:limit]
 	}
-	return results, nil
+	return results, total, nil
 }
 
 // GetByID looks up a single log entry across all retained DBs.
@@ -481,7 +487,7 @@ func (r *Repo) queryLogs(db *sql.DB, f ListFilter, limit int) ([]LogSummary, err
 	}
 	if f.NetOK != nil {
 		where = append(where, "net_ok = ?")
-		args = append(args, *f.NetOK)
+		args = append(args, boolToInt(*f.NetOK))
 	}
 	if f.HTTPStatus != nil {
 		where = append(where, "http_status = ?")

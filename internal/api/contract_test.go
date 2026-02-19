@@ -848,6 +848,9 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 		t.Fatalf("list request logs status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body := decodeJSONMap(t, rec)
+	if body["limit"] != float64(10) {
+		t.Fatalf("list limit: got %v, want 10", body["limit"])
+	}
 	itemsRaw, ok := body["items"]
 	if !ok {
 		t.Fatalf("missing items field: body=%s", rec.Body.String())
@@ -865,8 +868,8 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	if row["id"] != logID {
 		t.Fatalf("id: got %v, want %q", row["id"], logID)
 	}
-	if row["payload_present"] != float64(1) {
-		t.Fatalf("payload_present: got %v, want 1", row["payload_present"])
+	if row["payload_present"] != true {
+		t.Fatalf("payload_present: got %v, want true", row["payload_present"])
 	}
 
 	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs/"+logID+"/payloads", nil, true)
@@ -896,12 +899,13 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 
 	invalidCases := []string{
 		"/api/v1/request-logs?limit=bad",
-		"/api/v1/request-logs?limit=0",
 		"/api/v1/request-logs?limit=10001",
 		"/api/v1/request-logs?offset=bad",
 		"/api/v1/request-logs?offset=-1",
 		"/api/v1/request-logs?proxy_type=3",
 		"/api/v1/request-logs?net_ok=2",
+		"/api/v1/request-logs?net_ok=1",
+		"/api/v1/request-logs?net_ok=maybe",
 		"/api/v1/request-logs?http_status=bad",
 		"/api/v1/request-logs?http_status=99",
 	}
