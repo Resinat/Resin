@@ -276,14 +276,9 @@ func (a *resinApp) initObservability() error {
 		ConnectionsIntervalSec:      metricsCfg.ConnectionsIntervalSec,
 		LeasesRealtimeCapacity:      metricsCfg.LeasesRealtimeCapacity,
 		LeasesIntervalSec:           metricsCfg.LeasesIntervalSec,
-		NodePoolStats:               &nodePoolStatsAdapter{pool: a.topoRuntime.pool},
-		LeaseCountProvider: &leaseCountAdapter{
+		RuntimeStats: &runtimeStatsAdapter{
 			pool:   a.topoRuntime.pool,
 			router: a.topoRuntime.router,
-		},
-		PlatformStats: &platformStatsAdapter{pool: a.topoRuntime.pool},
-		NodeLatency: &nodeLatencyAdapter{
-			pool: a.topoRuntime.pool,
 			authorities: func() []string {
 				return runtimeConfigSnapshot(a.runtimeCfg).LatencyAuthorities
 			},
@@ -343,15 +338,12 @@ func (a *resinApp) startBackgroundServices() {
 
 func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 	startedAt := time.Now().UTC()
-	systemSvc := service.NewMemorySystemService(
-		service.SystemInfo{
-			Version:   buildinfo.Version,
-			GitCommit: buildinfo.GitCommit,
-			BuildTime: buildinfo.BuildTime,
-			StartedAt: startedAt,
-		},
-		a.runtimeCfg,
-	)
+	systemInfo := service.SystemInfo{
+		Version:   buildinfo.Version,
+		GitCommit: buildinfo.GitCommit,
+		BuildTime: buildinfo.BuildTime,
+		StartedAt: startedAt,
+	}
 
 	cpService := &service.ControlPlaneService{
 		RuntimeCfg:     a.runtimeCfg,
@@ -369,7 +361,8 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 	a.apiSrv = api.NewServer(
 		a.envCfg.APIPort,
 		a.envCfg.AdminToken,
-		systemSvc,
+		systemInfo,
+		a.runtimeCfg,
 		cpService,
 		int64(a.envCfg.APIMaxBodyBytes),
 		a.requestlogRepo,

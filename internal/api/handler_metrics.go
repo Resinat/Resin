@@ -44,12 +44,12 @@ func parseMetricsTimeRange(w http.ResponseWriter, r *http.Request) (from, to tim
 }
 
 func ensureMetricsPlatformExists(mgr *metrics.Manager, w http.ResponseWriter, platformID string) bool {
-	psp := mgr.PlatformStats()
-	if psp == nil {
+	stats := mgr.RuntimeStats()
+	if stats == nil {
 		WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "platform stats not available")
 		return false
 	}
-	if _, ok := psp.RoutableNodeCount(platformID); !ok {
+	if _, ok := stats.RoutableNodeCount(platformID); !ok {
 		WriteError(w, http.StatusNotFound, "NOT_FOUND", "platform not found")
 		return false
 	}
@@ -439,7 +439,7 @@ func HandleSnapshotNodePool(mgr *metrics.Manager) http.Handler {
 		if rejectUnsupportedPlatformDimension(w, r) {
 			return
 		}
-		stats := mgr.NodePoolStats()
+		stats := mgr.RuntimeStats()
 		if stats == nil {
 			WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "node pool stats not available")
 			return
@@ -461,17 +461,17 @@ func HandleSnapshotPlatformNodePool(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "platform_id is required")
 			return
 		}
-		psp := mgr.PlatformStats()
-		if psp == nil {
+		stats := mgr.RuntimeStats()
+		if stats == nil {
 			WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "platform stats not available")
 			return
 		}
-		routable, ok := psp.RoutableNodeCount(platformID)
+		routable, ok := stats.RoutableNodeCount(platformID)
 		if !ok {
 			WriteError(w, http.StatusNotFound, "NOT_FOUND", "platform not found")
 			return
 		}
-		egressCount, _ := psp.PlatformEgressIPCount(platformID)
+		egressCount, _ := stats.PlatformEgressIPCount(platformID)
 		WriteJSON(w, http.StatusOK, map[string]any{
 			"generated_at":        formatTimestamp(time.Now()),
 			"platform_id":         platformID,
@@ -495,8 +495,8 @@ func HandleSnapshotNodeLatencyDistribution(mgr *metrics.Manager) http.Handler {
 			}
 		}
 
-		nlp := mgr.NodeLatency()
-		if nlp == nil {
+		stats := mgr.RuntimeStats()
+		if stats == nil {
 			WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "node latency provider not available")
 			return
 		}
@@ -515,7 +515,7 @@ func HandleSnapshotNodeLatencyDistribution(mgr *metrics.Manager) http.Handler {
 			regularBins = 1
 		}
 
-		ewmas := nlp.CollectNodeEWMAs(platformID)
+		ewmas := stats.CollectNodeEWMAs(platformID)
 
 		// Build histogram from EWMA values.
 		bucketCounts := make([]int64, regularBins)

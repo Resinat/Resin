@@ -96,16 +96,13 @@ func newControlPlaneTestServerWithBodyLimit(
 		},
 	}
 
-	systemSvc := service.NewMemorySystemService(
-		service.SystemInfo{
-			Version:   "1.0.0-test",
-			GitCommit: "abc123",
-			BuildTime: "2026-01-01T00:00:00Z",
-			StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-		runtimeCfg,
-	)
-	srv := NewServer(0, testAdminToken, systemSvc, cp, apiMaxBodyBytes, nil, nil)
+	systemInfo := service.SystemInfo{
+		Version:   "1.0.0-test",
+		GitCommit: "abc123",
+		BuildTime: "2026-01-01T00:00:00Z",
+		StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
+	}
+	srv := NewServer(0, testAdminToken, systemInfo, runtimeCfg, cp, apiMaxBodyBytes, nil, nil)
 	return srv, cp, runtimeCfg
 }
 
@@ -178,35 +175,33 @@ func mustCreatePlatform(t *testing.T, srv *Server, name string) string {
 	return id
 }
 
-type contractNodePoolStats struct{}
-
-func (contractNodePoolStats) TotalNodes() int    { return 20 }
-func (contractNodePoolStats) HealthyNodes() int  { return 15 }
-func (contractNodePoolStats) EgressIPCount() int { return 6 }
-
-type contractPlatformStats struct {
+type contractRuntimeStats struct {
 	platformID string
 }
 
-func (s contractPlatformStats) RoutableNodeCount(platformID string) (int, bool) {
+func (contractRuntimeStats) TotalNodes() int    { return 20 }
+func (contractRuntimeStats) HealthyNodes() int  { return 15 }
+func (contractRuntimeStats) EgressIPCount() int { return 6 }
+
+func (s contractRuntimeStats) LeaseCountsByPlatform() map[string]int {
+	return map[string]int{s.platformID: 0}
+}
+
+func (s contractRuntimeStats) RoutableNodeCount(platformID string) (int, bool) {
 	if platformID != s.platformID {
 		return 0, false
 	}
 	return 8, true
 }
 
-func (s contractPlatformStats) PlatformEgressIPCount(platformID string) (int, bool) {
+func (s contractRuntimeStats) PlatformEgressIPCount(platformID string) (int, bool) {
 	if platformID != s.platformID {
 		return 0, false
 	}
 	return 3, true
 }
 
-type contractNodeLatencyProvider struct {
-	platformID string
-}
-
-func (p contractNodeLatencyProvider) CollectNodeEWMAs(platformID string) []float64 {
+func (p contractRuntimeStats) CollectNodeEWMAs(platformID string) []float64 {
 	if platformID == "" {
 		return []float64{50, 150, 280}
 	}
@@ -223,15 +218,12 @@ func newObservabilityTestServer(t *testing.T) (*Server, *requestlog.Repo, *metri
 	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
 	runtimeCfg.Store(config.NewDefaultRuntimeConfig())
 
-	systemSvc := service.NewMemorySystemService(
-		service.SystemInfo{
-			Version:   "1.0.0-test",
-			GitCommit: "abc123",
-			BuildTime: "2026-01-01T00:00:00Z",
-			StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-		runtimeCfg,
-	)
+	systemInfo := service.SystemInfo{
+		Version:   "1.0.0-test",
+		GitCommit: "abc123",
+		BuildTime: "2026-01-01T00:00:00Z",
+		StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
+	}
 
 	requestlogRepo := requestlog.NewRepo(root, 64*1024*1024, 2)
 	if err := requestlogRepo.Open(); err != nil {
@@ -257,12 +249,10 @@ func newObservabilityTestServer(t *testing.T) (*Server, *requestlog.Repo, *metri
 		ConnectionsIntervalSec:      5,
 		LeasesRealtimeCapacity:      16,
 		LeasesIntervalSec:           5,
-		NodePoolStats:               contractNodePoolStats{},
-		PlatformStats:               contractPlatformStats{platformID: platformID},
-		NodeLatency:                 contractNodeLatencyProvider{platformID: platformID},
+		RuntimeStats:                contractRuntimeStats{platformID: platformID},
 	})
 
-	srv := NewServer(0, testAdminToken, systemSvc, nil, 1<<20, requestlogRepo, metricsManager)
+	srv := NewServer(0, testAdminToken, systemInfo, runtimeCfg, nil, 1<<20, requestlogRepo, metricsManager)
 	return srv, requestlogRepo, metricsManager, platformID
 }
 

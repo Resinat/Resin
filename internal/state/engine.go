@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/model"
 )
 
@@ -33,8 +32,8 @@ type CacheReaders struct {
 // transactional writes to state.db. Weak-persist data (nodes, leases) is
 // marked dirty and batch-flushed to cache.db.
 type StateEngine struct {
-	stateRepo *StateRepo
-	cacheRepo *CacheRepo
+	*StateRepo
+	*CacheRepo
 
 	dirtyNodesStatic       *DirtySet[string]
 	dirtyNodesDynamic      *DirtySet[string]
@@ -46,82 +45,14 @@ type StateEngine struct {
 // newStateEngine creates a StateEngine with the given repos.
 func newStateEngine(stateRepo *StateRepo, cacheRepo *CacheRepo) *StateEngine {
 	return &StateEngine{
-		stateRepo:              stateRepo,
-		cacheRepo:              cacheRepo,
+		StateRepo:              stateRepo,
+		CacheRepo:              cacheRepo,
 		dirtyNodesStatic:       NewDirtySet[string](),
 		dirtyNodesDynamic:      NewDirtySet[string](),
 		dirtyNodeLatency:       NewDirtySet[NodeLatencyDirtyKey](),
 		dirtyLeases:            NewDirtySet[LeaseDirtyKey](),
 		dirtySubscriptionNodes: NewDirtySet[SubscriptionNodeDirtyKey](),
 	}
-}
-
-// --- Strong-persist methods (synchronous, transactional) ---
-
-// SaveSystemConfig persists the runtime config.
-func (e *StateEngine) SaveSystemConfig(cfg *config.RuntimeConfig, version int, updatedAtNs int64) error {
-	return e.stateRepo.SaveSystemConfig(cfg, version, updatedAtNs)
-}
-
-// GetSystemConfig reads the runtime config.
-func (e *StateEngine) GetSystemConfig() (*config.RuntimeConfig, int, error) {
-	return e.stateRepo.GetSystemConfig()
-}
-
-// UpsertPlatform persists a platform (transactional).
-func (e *StateEngine) UpsertPlatform(p model.Platform) error {
-	return e.stateRepo.UpsertPlatform(p)
-}
-
-// DeletePlatform removes a platform (transactional).
-func (e *StateEngine) DeletePlatform(id string) error {
-	return e.stateRepo.DeletePlatform(id)
-}
-
-// GetPlatformName reads a platform name by ID without decoding filter columns.
-func (e *StateEngine) GetPlatformName(id string) (string, error) {
-	return e.stateRepo.GetPlatformName(id)
-}
-
-// GetPlatform reads one platform by ID.
-func (e *StateEngine) GetPlatform(id string) (*model.Platform, error) {
-	return e.stateRepo.GetPlatform(id)
-}
-
-// ListPlatforms reads all platforms.
-func (e *StateEngine) ListPlatforms() ([]model.Platform, error) {
-	return e.stateRepo.ListPlatforms()
-}
-
-// UpsertSubscription persists a subscription (transactional).
-func (e *StateEngine) UpsertSubscription(s model.Subscription) error {
-	return e.stateRepo.UpsertSubscription(s)
-}
-
-// DeleteSubscription removes a subscription (transactional).
-func (e *StateEngine) DeleteSubscription(id string) error {
-	return e.stateRepo.DeleteSubscription(id)
-}
-
-// ListSubscriptions reads all subscriptions.
-func (e *StateEngine) ListSubscriptions() ([]model.Subscription, error) {
-	return e.stateRepo.ListSubscriptions()
-}
-
-// UpsertAccountHeaderRuleWithCreated persists a rule (transactional) and reports
-// whether the row was newly created.
-func (e *StateEngine) UpsertAccountHeaderRuleWithCreated(r model.AccountHeaderRule) (bool, error) {
-	return e.stateRepo.UpsertAccountHeaderRuleWithCreated(r)
-}
-
-// DeleteAccountHeaderRule removes a rule (transactional).
-func (e *StateEngine) DeleteAccountHeaderRule(prefix string) error {
-	return e.stateRepo.DeleteAccountHeaderRule(prefix)
-}
-
-// ListAccountHeaderRules reads all rules.
-func (e *StateEngine) ListAccountHeaderRules() ([]model.AccountHeaderRule, error) {
-	return e.stateRepo.ListAccountHeaderRules()
 }
 
 // --- Weak-persist methods (dirty-mark only) ---
@@ -211,7 +142,7 @@ func (e *StateEngine) FlushDirtySets(readers CacheReaders) error {
 	upsertLeases, deleteLeases := classifyDirtySet(drainedLeases, readers.ReadLease)
 
 	// Execute all writes in a single transaction.
-	if err := e.cacheRepo.FlushTx(FlushOps{
+	if err := e.CacheRepo.FlushTx(FlushOps{
 		UpsertNodesStatic:       upsertStatic,
 		DeleteNodesStatic:       deleteStatic,
 		UpsertSubscriptionNodes: upsertSubNodes,
@@ -230,26 +161,4 @@ func (e *StateEngine) FlushDirtySets(readers CacheReaders) error {
 	log.Printf("[state] flushed dirty sets: static=%d, sub_nodes=%d, dynamic=%d, latency=%d, leases=%d",
 		len(drainedStatic), len(drainedSubNodes), len(drainedDynamic), len(drainedLatency), len(drainedLeases))
 	return nil
-}
-
-// --- Read methods for bootstrap ---
-
-func (e *StateEngine) LoadAllNodesStatic() ([]model.NodeStatic, error) {
-	return e.cacheRepo.LoadAllNodesStatic()
-}
-
-func (e *StateEngine) LoadAllNodesDynamic() ([]model.NodeDynamic, error) {
-	return e.cacheRepo.LoadAllNodesDynamic()
-}
-
-func (e *StateEngine) LoadAllNodeLatency() ([]model.NodeLatency, error) {
-	return e.cacheRepo.LoadAllNodeLatency()
-}
-
-func (e *StateEngine) LoadAllLeases() ([]model.Lease, error) {
-	return e.cacheRepo.LoadAllLeases()
-}
-
-func (e *StateEngine) LoadAllSubscriptionNodes() ([]model.SubscriptionNode, error) {
-	return e.cacheRepo.LoadAllSubscriptionNodes()
 }

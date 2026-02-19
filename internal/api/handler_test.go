@@ -16,16 +16,13 @@ func newTestServer() *Server {
 	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
 	runtimeCfg.Store(config.NewDefaultRuntimeConfig())
 
-	svc := service.NewMemorySystemService(
-		service.SystemInfo{
-			Version:   "1.0.0-test",
-			GitCommit: "abc123",
-			BuildTime: "2026-01-01T00:00:00Z",
-			StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
-		},
-		runtimeCfg,
-	)
-	return NewServer(0, "test-admin-token", svc, nil, 1<<20, nil, nil)
+	systemInfo := service.SystemInfo{
+		Version:   "1.0.0-test",
+		GitCommit: "abc123",
+		BuildTime: "2026-01-01T00:00:00Z",
+		StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
+	}
+	return NewServer(0, "test-admin-token", systemInfo, runtimeCfg, nil, 1<<20, nil, nil)
 }
 
 // --- /healthz ---

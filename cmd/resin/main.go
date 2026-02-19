@@ -488,16 +488,19 @@ func buildAccountMatcher(engine *state.StateEngine) *proxy.AccountMatcherRuntime
 	return proxy.NewAccountMatcherRuntime(proxy.BuildAccountMatcher(rules))
 }
 
-// --- Metrics provider adapters ---
+// --- Metrics runtime stats adapter ---
 
-// nodePoolStatsAdapter implements metrics.NodePoolStatsProvider using GlobalNodePool.
-type nodePoolStatsAdapter struct {
-	pool *topology.GlobalNodePool
+// runtimeStatsAdapter implements metrics.RuntimeStatsProvider using
+// GlobalNodePool + Router.
+type runtimeStatsAdapter struct {
+	pool        *topology.GlobalNodePool
+	router      *routing.Router
+	authorities func() []string
 }
 
-func (a *nodePoolStatsAdapter) TotalNodes() int { return a.pool.Size() }
+func (a *runtimeStatsAdapter) TotalNodes() int { return a.pool.Size() }
 
-func (a *nodePoolStatsAdapter) HealthyNodes() int {
+func (a *runtimeStatsAdapter) HealthyNodes() int {
 	count := 0
 	a.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
 		if !entry.IsCircuitOpen() && entry.HasOutbound() {
@@ -508,7 +511,7 @@ func (a *nodePoolStatsAdapter) HealthyNodes() int {
 	return count
 }
 
-func (a *nodePoolStatsAdapter) EgressIPCount() int {
+func (a *runtimeStatsAdapter) EgressIPCount() int {
 	seen := make(map[netip.Addr]struct{})
 	a.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
 		if ip := entry.GetEgressIP(); ip.IsValid() {
@@ -519,13 +522,7 @@ func (a *nodePoolStatsAdapter) EgressIPCount() int {
 	return len(seen)
 }
 
-// leaseCountAdapter implements metrics.LeaseCountProvider using Router.
-type leaseCountAdapter struct {
-	pool   *topology.GlobalNodePool
-	router *routing.Router
-}
-
-func (a *leaseCountAdapter) LeaseCountsByPlatform() map[string]int {
+func (a *runtimeStatsAdapter) LeaseCountsByPlatform() map[string]int {
 	result := make(map[string]int)
 	a.pool.RangePlatforms(func(plat *platform.Platform) bool {
 		count := 0
@@ -541,12 +538,7 @@ func (a *leaseCountAdapter) LeaseCountsByPlatform() map[string]int {
 	return result
 }
 
-// platformStatsAdapter implements metrics.PlatformStatsProvider using GlobalNodePool.
-type platformStatsAdapter struct {
-	pool *topology.GlobalNodePool
-}
-
-func (a *platformStatsAdapter) RoutableNodeCount(platformID string) (int, bool) {
+func (a *runtimeStatsAdapter) RoutableNodeCount(platformID string) (int, bool) {
 	plat, ok := a.pool.GetPlatform(platformID)
 	if !ok {
 		return 0, false
@@ -554,7 +546,7 @@ func (a *platformStatsAdapter) RoutableNodeCount(platformID string) (int, bool) 
 	return plat.View().Size(), true
 }
 
-func (a *platformStatsAdapter) PlatformEgressIPCount(platformID string) (int, bool) {
+func (a *runtimeStatsAdapter) PlatformEgressIPCount(platformID string) (int, bool) {
 	plat, ok := a.pool.GetPlatform(platformID)
 	if !ok {
 		return 0, false
@@ -572,13 +564,7 @@ func (a *platformStatsAdapter) PlatformEgressIPCount(platformID string) (int, bo
 	return len(seen), true
 }
 
-// nodeLatencyAdapter implements metrics.NodeLatencyProvider using GlobalNodePool.
-type nodeLatencyAdapter struct {
-	pool        *topology.GlobalNodePool
-	authorities func() []string
-}
-
-func (a *nodeLatencyAdapter) CollectNodeEWMAs(platformID string) []float64 {
+func (a *runtimeStatsAdapter) CollectNodeEWMAs(platformID string) []float64 {
 	authorities := a.authorities()
 	var ewmas []float64
 

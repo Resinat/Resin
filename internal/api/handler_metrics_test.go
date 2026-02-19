@@ -16,6 +16,12 @@ type testPlatformStats struct {
 	platforms map[string]struct{}
 }
 
+func (s testPlatformStats) TotalNodes() int    { return 0 }
+func (s testPlatformStats) HealthyNodes() int  { return 0 }
+func (s testPlatformStats) EgressIPCount() int { return 0 }
+
+func (s testPlatformStats) LeaseCountsByPlatform() map[string]int { return nil }
+
 func (s testPlatformStats) RoutableNodeCount(platformID string) (int, bool) {
 	_, ok := s.platforms[platformID]
 	return 0, ok
@@ -74,9 +80,20 @@ func newTestMetricsManagerWithNodeLatency(
 		ConnectionsIntervalSec:      5,
 		LeasesRealtimeCapacity:      16,
 		LeasesIntervalSec:           7,
-		PlatformStats:               testPlatformStats{platforms: platforms},
-		NodeLatency:                 provider,
+		RuntimeStats: testRuntimeStatsProvider{
+			testPlatformStats:   testPlatformStats{platforms: platforms},
+			testNodeLatencyData: provider,
+		},
 	})
+}
+
+type testRuntimeStatsProvider struct {
+	testPlatformStats
+	testNodeLatencyData testNodeLatencyProvider
+}
+
+func (p testRuntimeStatsProvider) CollectNodeEWMAs(platformID string) []float64 {
+	return p.testNodeLatencyData.CollectNodeEWMAs(platformID)
 }
 
 func assertNotFoundError(t *testing.T, rec *httptest.ResponseRecorder) {

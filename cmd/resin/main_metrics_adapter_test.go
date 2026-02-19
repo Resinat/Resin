@@ -11,7 +11,7 @@ import (
 
 func TestNodePoolStatsAdapter_HealthyNodesRequiresOutbound(t *testing.T) {
 	_, pool := newBootstrapTestRuntime(config.NewDefaultRuntimeConfig())
-	adapter := &nodePoolStatsAdapter{pool: pool}
+	adapter := &runtimeStatsAdapter{pool: pool}
 
 	healthyHash := node.HashFromRawOptions([]byte(`{"type":"direct","server":"1.1.1.1","port":443}`))
 	healthy := node.NewNodeEntry(healthyHash, nil, time.Now(), 0)

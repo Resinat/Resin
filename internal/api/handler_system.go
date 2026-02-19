@@ -2,21 +2,27 @@ package api
 
 import (
 	"net/http"
+	"sync/atomic"
 
+	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/service"
 )
 
 // HandleSystemInfo returns a handler for GET /api/v1/system/info.
-func HandleSystemInfo(svc *service.MemorySystemService) http.HandlerFunc {
+func HandleSystemInfo(info service.SystemInfo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		WriteJSON(w, http.StatusOK, svc.GetSystemInfo())
+		WriteJSON(w, http.StatusOK, info)
 	}
 }
 
 // HandleSystemConfig returns a handler for GET /api/v1/system/config.
-func HandleSystemConfig(svc *service.MemorySystemService) http.HandlerFunc {
+func HandleSystemConfig(runtimeCfg *atomic.Pointer[config.RuntimeConfig]) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		WriteJSON(w, http.StatusOK, svc.GetRuntimeConfig())
+		if runtimeCfg == nil {
+			WriteJSON(w, http.StatusOK, nil)
+			return
+		}
+		WriteJSON(w, http.StatusOK, runtimeCfg.Load())
 	}
 }
 

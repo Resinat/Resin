@@ -9,23 +9,27 @@ import (
 	"github.com/resin-proxy/resin/internal/proxy"
 )
 
-type managerTestNodePoolStats struct{}
-
-func (managerTestNodePoolStats) TotalNodes() int    { return 9 }
-func (managerTestNodePoolStats) HealthyNodes() int  { return 7 }
-func (managerTestNodePoolStats) EgressIPCount() int { return 3 }
-
-type managerTestLeaseCountProvider struct {
+type managerTestRuntimeStats struct {
 	counts map[string]int
 }
 
-func (p managerTestLeaseCountProvider) LeaseCountsByPlatform() map[string]int {
+func (managerTestRuntimeStats) TotalNodes() int    { return 9 }
+func (managerTestRuntimeStats) HealthyNodes() int  { return 7 }
+func (managerTestRuntimeStats) EgressIPCount() int { return 3 }
+
+func (p managerTestRuntimeStats) LeaseCountsByPlatform() map[string]int {
 	out := make(map[string]int, len(p.counts))
 	for k, v := range p.counts {
 		out[k] = v
 	}
 	return out
 }
+
+func (managerTestRuntimeStats) RoutableNodeCount(string) (int, bool) { return 0, false }
+func (managerTestRuntimeStats) PlatformEgressIPCount(string) (int, bool) {
+	return 0, false
+}
+func (managerTestRuntimeStats) CollectNodeEWMAs(string) []float64 { return nil }
 
 func TestTakeSample_NormalizesThroughputToBPS(t *testing.T) {
 	mgr := NewManager(ManagerConfig{
@@ -68,7 +72,7 @@ func TestTakeSample_ConnectionsAndLeasesUseDedicatedRings(t *testing.T) {
 		ConnectionsIntervalSec:      5,
 		LeasesRealtimeCapacity:      8,
 		LeasesIntervalSec:           7,
-		LeaseCountProvider: managerTestLeaseCountProvider{
+		RuntimeStats: managerTestRuntimeStats{
 			counts: map[string]int{"p1": 3},
 		},
 	})
@@ -139,7 +143,7 @@ func TestFlushBucket_RetainsPendingTaskUntilRepoRecovers(t *testing.T) {
 		ConnectionsIntervalSec:      5,
 		LeasesRealtimeCapacity:      8,
 		LeasesIntervalSec:           5,
-		NodePoolStats:               managerTestNodePoolStats{},
+		RuntimeStats:                managerTestRuntimeStats{},
 	})
 
 	mgr.OnTrafficDelta("plat-1", 100, 200)

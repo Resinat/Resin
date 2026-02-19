@@ -11,22 +11,16 @@ import (
 	"github.com/resin-proxy/resin/internal/proxy"
 )
 
-// NodePoolStatsProvider supplies pool-level statistics for periodic snapshots.
-type NodePoolStatsProvider interface {
+// RuntimeStatsProvider supplies node-pool/platform/lease/latency stats from
+// the in-memory topology runtime.
+type RuntimeStatsProvider interface {
 	TotalNodes() int
 	HealthyNodes() int
 	EgressIPCount() int
-}
-
-// LeaseCountProvider supplies per-platform lease counts for realtime sampling.
-type LeaseCountProvider interface {
 	LeaseCountsByPlatform() map[string]int
-}
-
-// PlatformStatsProvider supplies per-platform node statistics for snapshot endpoints.
-type PlatformStatsProvider interface {
 	RoutableNodeCount(platformID string) (int, bool)
 	PlatformEgressIPCount(platformID string) (int, bool)
+	CollectNodeEWMAs(platformID string) []float64
 }
 
 // ManagerConfig configures the MetricsManager.
@@ -41,19 +35,7 @@ type ManagerConfig struct {
 	ConnectionsIntervalSec      int
 	LeasesRealtimeCapacity      int
 	LeasesIntervalSec           int
-	NodePoolStats               NodePoolStatsProvider
-	LeaseCountProvider          LeaseCountProvider
-	PlatformStats               PlatformStatsProvider
-	NodeLatency                 NodeLatencyProvider
-}
-
-// NodeLatencyProvider supplies per-node authority-domain EWMA latencies for
-// the /metrics/snapshots/node-latency-distribution endpoint.
-type NodeLatencyProvider interface {
-	// CollectNodeEWMAs returns a list of per-node EWMA millisecond values
-	// for the configured authority domains. If platformID is empty, returns
-	// all nodes; otherwise only nodes routable by that platform.
-	CollectNodeEWMAs(platformID string) []float64
+	RuntimeStats                RuntimeStatsProvider
 }
 
 // Manager is the central metrics coordinator.
@@ -68,10 +50,7 @@ type Manager struct {
 	leasesRing      *RealtimeRing
 	repo            *MetricsRepo
 
-	nodePoolStats      NodePoolStatsProvider
-	leaseCountProvider LeaseCountProvider
-	platformStats      PlatformStatsProvider
-	nodeLatency        NodeLatencyProvider
+	runtimeStats RuntimeStatsProvider
 
 	throughputInterval  time.Duration
 	connectionsInterval time.Duration
@@ -155,10 +134,7 @@ func NewManager(cfg ManagerConfig) *Manager {
 		connectionsRing:     NewRealtimeRing(cfg.ConnectionsRealtimeCapacity),
 		leasesRing:          NewRealtimeRing(cfg.LeasesRealtimeCapacity),
 		repo:                cfg.Repo,
-		nodePoolStats:       cfg.NodePoolStats,
-		leaseCountProvider:  cfg.LeaseCountProvider,
-		platformStats:       cfg.PlatformStats,
-		nodeLatency:         cfg.NodeLatency,
+		runtimeStats:        cfg.RuntimeStats,
 		throughputInterval:  time.Duration(throughputSec) * time.Second,
 		connectionsInterval: time.Duration(connectionsSec) * time.Second,
 		leasesInterval:      time.Duration(leasesSec) * time.Second,
@@ -277,14 +253,8 @@ func (m *Manager) ConnectionsIntervalSeconds() int { return int(m.connectionsInt
 // LeasesIntervalSeconds returns the configured leases realtime interval in seconds.
 func (m *Manager) LeasesIntervalSeconds() int { return int(m.leasesInterval.Seconds()) }
 
-// NodePoolStats returns the node pool stats provider.
-func (m *Manager) NodePoolStats() NodePoolStatsProvider { return m.nodePoolStats }
-
-// PlatformStats returns the platform stats provider.
-func (m *Manager) PlatformStats() PlatformStatsProvider { return m.platformStats }
-
-// NodeLatency returns the node latency provider.
-func (m *Manager) NodeLatency() NodeLatencyProvider { return m.nodeLatency }
+// RuntimeStats returns the runtime stats provider.
+func (m *Manager) RuntimeStats() RuntimeStatsProvider { return m.runtimeStats }
 
 // --- Background loops ---
 
@@ -403,8 +373,8 @@ func (m *Manager) takeConnectionsSample(ts time.Time) {
 
 func (m *Manager) takeLeasesSample(ts time.Time) {
 	var leases map[string]int
-	if m.leaseCountProvider != nil {
-		leases = maps.Clone(m.leaseCountProvider.LeaseCountsByPlatform())
+	if m.runtimeStats != nil {
+		leases = maps.Clone(m.runtimeStats.LeaseCountsByPlatform())
 	}
 
 	m.leasesRing.Push(RealtimeSample{
@@ -553,11 +523,11 @@ func (m *Manager) buildPersistTask(data *BucketFlushData) *persistTask {
 		GlobalLatency:   m.collector.SwapLatencyBuckets(),
 		PlatformLatency: m.collector.PlatformSwapAll(),
 	}
-	if m.nodePoolStats != nil {
+	if m.runtimeStats != nil {
 		task.NodePool = &nodePoolSnapshot{
-			TotalNodes:    m.nodePoolStats.TotalNodes(),
-			HealthyNodes:  m.nodePoolStats.HealthyNodes(),
-			EgressIPCount: m.nodePoolStats.EgressIPCount(),
+			TotalNodes:    m.runtimeStats.TotalNodes(),
+			HealthyNodes:  m.runtimeStats.HealthyNodes(),
+			EgressIPCount: m.runtimeStats.EgressIPCount(),
 		}
 	}
 	return task

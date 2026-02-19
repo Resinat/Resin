@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 
+	"github.com/resin-proxy/resin/internal/config"
 	"github.com/resin-proxy/resin/internal/metrics"
 	"github.com/resin-proxy/resin/internal/requestlog"
 	"github.com/resin-proxy/resin/internal/service"
@@ -21,7 +23,8 @@ type Server struct {
 func NewServer(
 	port int,
 	adminToken string,
-	systemSvc *service.MemorySystemService,
+	systemInfo service.SystemInfo,
+	runtimeCfg *atomic.Pointer[config.RuntimeConfig],
 	cp *service.ControlPlaneService,
 	apiMaxBodyBytes int64,
 	requestlogRepo *requestlog.Repo,
@@ -34,8 +37,8 @@ func NewServer(
 
 	// Authenticated routes
 	authed := http.NewServeMux()
-	authed.Handle("GET /api/v1/system/info", HandleSystemInfo(systemSvc))
-	authed.Handle("GET /api/v1/system/config", HandleSystemConfig(systemSvc))
+	authed.Handle("GET /api/v1/system/info", HandleSystemInfo(systemInfo))
+	authed.Handle("GET /api/v1/system/config", HandleSystemConfig(runtimeCfg))
 
 	if cp != nil {
 		// System config mutations.
