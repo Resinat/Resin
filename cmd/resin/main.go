@@ -665,20 +665,17 @@ func (c compositeEmitter) EmitRequestLog(ev proxy.RequestLogEntry) {
 	c.logSvc.EmitRequestLog(ev)
 }
 
-// bootstrapNodes loads cached node data from persistence for bootstrap recovery.
-// Steps: static nodes → subscription bindings → dynamic state → latency tables.
-func bootstrapNodes(
+func loadBootstrapNodeStatics(
 	engine *state.StateEngine,
 	pool *topology.GlobalNodePool,
-	subManager *topology.SubscriptionManager,
-	outboundMgr *outbound.OutboundManager,
 	envCfg *config.EnvConfig,
-) error {
-	// Step 3: Load static nodes.
+) ([]node.Hash, error) {
 	statics, err := engine.LoadAllNodesStatic()
 	if err != nil {
-		return fmt.Errorf("load nodes_static: %w", err)
+		return nil, fmt.Errorf("load nodes_static: %w", err)
 	}
+
+	hashes := make([]node.Hash, 0, len(statics))
 	for _, ns := range statics {
 		hash, err := node.ParseHex(ns.Hash)
 		if err != nil {
@@ -692,43 +689,54 @@ func bootstrapNodes(
 		}
 		entry.LatencyTable = node.NewLatencyTable(envCfg.MaxLatencyTableEntries)
 		pool.LoadNodeFromBootstrap(entry)
+		hashes = append(hashes, hash)
 	}
 	log.Printf("Loaded %d static nodes from cache.db", len(statics))
+	return hashes, nil
+}
 
-	// Parallel outbound init for bootstrapped nodes.
-	if len(statics) > 0 {
-		workers := runtime.GOMAXPROCS(0)
-		if workers < 1 {
-			workers = 1
-		}
-		hashCh := make(chan node.Hash, len(statics))
-		for _, ns := range statics {
-			hash, err := node.ParseHex(ns.Hash)
-			if err != nil {
-				continue
-			}
-			hashCh <- hash
-		}
-		close(hashCh)
-		var wg sync.WaitGroup
-		for i := 0; i < workers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for h := range hashCh {
-					outboundMgr.EnsureNodeOutbound(h)
-				}
-			}()
-		}
-		wg.Wait()
-		log.Printf("Parallel outbound init complete (%d workers)", workers)
+func warmupBootstrapOutbounds(
+	hashes []node.Hash,
+	outboundMgr *outbound.OutboundManager,
+) {
+	if len(hashes) == 0 {
+		return
 	}
 
-	// Step 4: Load subscription-node bindings.
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	hashCh := make(chan node.Hash, len(hashes))
+	for _, h := range hashes {
+		hashCh <- h
+	}
+	close(hashCh)
+
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for h := range hashCh {
+				outboundMgr.EnsureNodeOutbound(h)
+			}
+		}()
+	}
+	wg.Wait()
+	log.Printf("Parallel outbound init complete (%d workers)", workers)
+}
+
+func restoreBootstrapSubscriptionBindings(
+	engine *state.StateEngine,
+	pool *topology.GlobalNodePool,
+	subManager *topology.SubscriptionManager,
+) error {
 	subNodes, err := engine.LoadAllSubscriptionNodes()
 	if err != nil {
 		return fmt.Errorf("load subscription_nodes: %w", err)
 	}
+
 	// Group by subscription ID for batch processing.
 	subNodeMap := make(map[string][]model.SubscriptionNode)
 	for _, sn := range subNodes {
@@ -759,12 +767,18 @@ func bootstrapNodes(
 		sub.SwapManagedNodes(managed)
 	}
 	log.Printf("Loaded %d subscription-node bindings from cache.db", len(subNodes))
+	return nil
+}
 
-	// Step 5: Load dynamic state (failure count, circuit breaker, egress IP).
+func restoreBootstrapNodeDynamics(
+	engine *state.StateEngine,
+	pool *topology.GlobalNodePool,
+) error {
 	dynamics, err := engine.LoadAllNodesDynamic()
 	if err != nil {
 		return fmt.Errorf("load nodes_dynamic: %w", err)
 	}
+
 	for _, nd := range dynamics {
 		hash, err := node.ParseHex(nd.Hash)
 		if err != nil {
@@ -784,28 +798,60 @@ func bootstrapNodes(
 		}
 	}
 	log.Printf("Loaded %d node dynamic states from cache.db", len(dynamics))
+	return nil
+}
 
-	// Step 6: Load latency tables.
+func restoreBootstrapNodeLatencies(
+	engine *state.StateEngine,
+	pool *topology.GlobalNodePool,
+) error {
 	latencies, err := engine.LoadAllNodeLatency()
 	if err != nil {
 		return fmt.Errorf("load node_latency: %w", err)
 	}
+
 	for _, nl := range latencies {
 		hash, err := node.ParseHex(nl.NodeHash)
 		if err != nil {
 			continue
 		}
 		entry, ok := pool.GetEntry(hash)
-		if !ok {
+		if !ok || entry.LatencyTable == nil {
 			continue
 		}
-		if entry.LatencyTable != nil {
-			entry.LatencyTable.LoadEntry(nl.Domain, node.DomainLatencyStats{
-				Ewma:        time.Duration(nl.EwmaNs),
-				LastUpdated: time.Unix(0, nl.LastUpdatedNs),
-			})
-		}
+		entry.LatencyTable.LoadEntry(nl.Domain, node.DomainLatencyStats{
+			Ewma:        time.Duration(nl.EwmaNs),
+			LastUpdated: time.Unix(0, nl.LastUpdatedNs),
+		})
 	}
 	log.Printf("Loaded %d latency entries from cache.db", len(latencies))
+	return nil
+}
+
+// bootstrapNodes loads cached node data from persistence for bootstrap recovery.
+// Steps: static nodes → subscription bindings → dynamic state → latency tables.
+func bootstrapNodes(
+	engine *state.StateEngine,
+	pool *topology.GlobalNodePool,
+	subManager *topology.SubscriptionManager,
+	outboundMgr *outbound.OutboundManager,
+	envCfg *config.EnvConfig,
+) error {
+	hashes, err := loadBootstrapNodeStatics(engine, pool, envCfg)
+	if err != nil {
+		return err
+	}
+
+	warmupBootstrapOutbounds(hashes, outboundMgr)
+
+	if err := restoreBootstrapSubscriptionBindings(engine, pool, subManager); err != nil {
+		return err
+	}
+	if err := restoreBootstrapNodeDynamics(engine, pool); err != nil {
+		return err
+	}
+	if err := restoreBootstrapNodeLatencies(engine, pool); err != nil {
+		return err
+	}
 	return nil
 }
