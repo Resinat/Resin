@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -300,11 +301,21 @@ func main() {
 		metricsManager,
 	)
 
+	serverErrCh := make(chan error, 1)
+	reportServerErr := func(name string, err error) {
+		if err == nil || errors.Is(err, http.ErrServerClosed) {
+			return
+		}
+		wrapped := fmt.Errorf("%s: %w", name, err)
+		select {
+		case serverErrCh <- wrapped:
+		default:
+		}
+	}
+
 	go func() {
 		log.Printf("Resin API server starting on :%d", envCfg.APIPort)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("API server error: %v", err)
-		}
+		reportServerErr("api server", srv.ListenAndServe())
 	}()
 
 	// Composite emitter: requestlog handles EmitRequestLog, metricsManager handles EmitRequestFinished.
@@ -347,9 +358,7 @@ func main() {
 	forwardSrv := &http.Server{Handler: forwardProxy}
 	go func() {
 		log.Printf("Forward proxy starting on :%d", envCfg.ForwardProxyPort)
-		if err := forwardSrv.Serve(forwardLn); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Forward proxy error: %v", err)
-		}
+		reportServerErr("forward proxy", forwardSrv.Serve(forwardLn))
 	}()
 
 	reverseProxy := proxy.NewReverseProxy(proxy.ReverseProxyConfig{
@@ -370,15 +379,21 @@ func main() {
 	reverseSrv := &http.Server{Handler: reverseProxy}
 	go func() {
 		log.Printf("Reverse proxy starting on :%d", envCfg.ReverseProxyPort)
-		if err := reverseSrv.Serve(reverseLn); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Reverse proxy error: %v", err)
-		}
+		reportServerErr("reverse proxy", reverseSrv.Serve(reverseLn))
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	log.Printf("Received signal %s, shutting down...", sig)
+	defer signal.Stop(quit)
+
+	var runtimeErr error
+	select {
+	case sig := <-quit:
+		log.Printf("Received signal %s, shutting down...", sig)
+	case err := <-serverErrCh:
+		runtimeErr = err
+		log.Printf("Received server runtime error (%v), shutting down...", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -439,6 +454,10 @@ func main() {
 
 	flushWorker.Stop() // final cache flush before DB close
 	log.Println("Server stopped")
+	if runtimeErr != nil {
+		_ = dbCloser.Close()
+		fatalf("runtime server error: %v", runtimeErr)
+	}
 }
 
 func fatalf(format string, args ...any) {
