@@ -132,29 +132,16 @@ type metricsManagerSettings struct {
 }
 
 func deriveMetricsManagerSettings(envCfg *config.EnvConfig) metricsManagerSettings {
-	throughputInterval := envCfg.MetricThroughputIntervalSeconds
-	if throughputInterval <= 0 {
-		throughputInterval = 1
-	}
-	connectionsInterval := envCfg.MetricConnectionsIntervalSeconds
-	if connectionsInterval <= 0 {
-		connectionsInterval = 5
-	}
-	leasesInterval := envCfg.MetricLeasesIntervalSeconds
-	if leasesInterval <= 0 {
-		leasesInterval = 5
-	}
-
 	return metricsManagerSettings{
 		LatencyBinMs:                envCfg.MetricLatencyBinWidthMS,
 		LatencyOverflowMs:           envCfg.MetricLatencyBinOverflowMS,
 		BucketSeconds:               envCfg.MetricBucketSeconds,
-		ThroughputIntervalSec:       throughputInterval,
-		ThroughputRealtimeCapacity:  realtimeCapacity(envCfg.MetricThroughputRetentionSeconds, throughputInterval),
-		ConnectionsIntervalSec:      connectionsInterval,
-		ConnectionsRealtimeCapacity: realtimeCapacity(envCfg.MetricConnectionsRetentionSeconds, connectionsInterval),
-		LeasesIntervalSec:           leasesInterval,
-		LeasesRealtimeCapacity:      realtimeCapacity(envCfg.MetricLeasesRetentionSeconds, leasesInterval),
+		ThroughputIntervalSec:       envCfg.MetricThroughputIntervalSeconds,
+		ThroughputRealtimeCapacity:  realtimeCapacity(envCfg.MetricThroughputRetentionSeconds, envCfg.MetricThroughputIntervalSeconds),
+		ConnectionsIntervalSec:      envCfg.MetricConnectionsIntervalSeconds,
+		ConnectionsRealtimeCapacity: realtimeCapacity(envCfg.MetricConnectionsRetentionSeconds, envCfg.MetricConnectionsIntervalSeconds),
+		LeasesIntervalSec:           envCfg.MetricLeasesIntervalSeconds,
+		LeasesRealtimeCapacity:      realtimeCapacity(envCfg.MetricLeasesRetentionSeconds, envCfg.MetricLeasesIntervalSeconds),
 	}
 }
 
