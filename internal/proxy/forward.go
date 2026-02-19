@@ -92,14 +92,7 @@ func (p *ForwardProxy) authenticate(r *http.Request) (string, string, *ProxyErro
 		return "", "", ErrAuthFailed
 	}
 
-	// Parse pass as Platform:Account (split on first ":").
-	platName, account := "", ""
-	if idx := strings.IndexByte(pass, ':'); idx >= 0 {
-		platName = pass[:idx]
-		account = pass[idx+1:]
-	} else {
-		platName = pass
-	}
+	platName, account := parsePlatformAccount(pass)
 	return platName, account, nil
 }
 

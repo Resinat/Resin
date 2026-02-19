@@ -21,11 +21,11 @@ func newCacheRepo(db *sql.DB) *CacheRepo {
 
 // BulkUpsertNodesStatic batch-inserts or updates node static records.
 func (r *CacheRepo) BulkUpsertNodesStatic(nodes []model.NodeStatic) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		upsertNodesStaticSQL,
-		len(nodes),
-		func(stmt *sql.Stmt, i int) error {
-			n := nodes[i]
+		nodes,
+		func(stmt *sql.Stmt, n model.NodeStatic) error {
 			_, err := stmt.Exec(n.Hash, n.RawOptionsJSON, n.CreatedAtNs)
 			return err
 		},
@@ -34,11 +34,12 @@ func (r *CacheRepo) BulkUpsertNodesStatic(nodes []model.NodeStatic) error {
 
 // BulkDeleteNodesStatic batch-deletes node static records by hash.
 func (r *CacheRepo) BulkDeleteNodesStatic(hashes []string) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		deleteNodesStaticSQL,
-		len(hashes),
-		func(stmt *sql.Stmt, i int) error {
-			_, err := stmt.Exec(hashes[i])
+		hashes,
+		func(stmt *sql.Stmt, hash string) error {
+			_, err := stmt.Exec(hash)
 			return err
 		},
 	)
@@ -67,11 +68,11 @@ func (r *CacheRepo) LoadAllNodesStatic() ([]model.NodeStatic, error) {
 
 // BulkUpsertNodesDynamic batch-inserts or updates node dynamic records.
 func (r *CacheRepo) BulkUpsertNodesDynamic(nodes []model.NodeDynamic) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		upsertNodesDynamicSQL,
-		len(nodes),
-		func(stmt *sql.Stmt, i int) error {
-			n := nodes[i]
+		nodes,
+		func(stmt *sql.Stmt, n model.NodeDynamic) error {
 			_, err := stmt.Exec(n.Hash, n.FailureCount, n.CircuitOpenSince, n.EgressIP, n.EgressUpdatedAtNs)
 			return err
 		},
@@ -80,11 +81,12 @@ func (r *CacheRepo) BulkUpsertNodesDynamic(nodes []model.NodeDynamic) error {
 
 // BulkDeleteNodesDynamic batch-deletes node dynamic records by hash.
 func (r *CacheRepo) BulkDeleteNodesDynamic(hashes []string) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		deleteNodesDynamicSQL,
-		len(hashes),
-		func(stmt *sql.Stmt, i int) error {
-			_, err := stmt.Exec(hashes[i])
+		hashes,
+		func(stmt *sql.Stmt, hash string) error {
+			_, err := stmt.Exec(hash)
 			return err
 		},
 	)
@@ -113,11 +115,11 @@ func (r *CacheRepo) LoadAllNodesDynamic() ([]model.NodeDynamic, error) {
 
 // BulkUpsertNodeLatency batch-inserts or updates node latency records.
 func (r *CacheRepo) BulkUpsertNodeLatency(entries []model.NodeLatency) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		upsertNodeLatencySQL,
-		len(entries),
-		func(stmt *sql.Stmt, i int) error {
-			e := entries[i]
+		entries,
+		func(stmt *sql.Stmt, e model.NodeLatency) error {
 			_, err := stmt.Exec(e.NodeHash, e.Domain, e.EwmaNs, e.LastUpdatedNs)
 			return err
 		},
@@ -126,11 +128,12 @@ func (r *CacheRepo) BulkUpsertNodeLatency(entries []model.NodeLatency) error {
 
 // BulkDeleteNodeLatency batch-deletes node latency records by composite key.
 func (r *CacheRepo) BulkDeleteNodeLatency(keys []model.NodeLatencyKey) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		deleteNodeLatencySQL,
-		len(keys),
-		func(stmt *sql.Stmt, i int) error {
-			_, err := stmt.Exec(keys[i].NodeHash, keys[i].Domain)
+		keys,
+		func(stmt *sql.Stmt, key model.NodeLatencyKey) error {
+			_, err := stmt.Exec(key.NodeHash, key.Domain)
 			return err
 		},
 	)
@@ -159,11 +162,11 @@ func (r *CacheRepo) LoadAllNodeLatency() ([]model.NodeLatency, error) {
 
 // BulkUpsertLeases batch-inserts or updates lease records.
 func (r *CacheRepo) BulkUpsertLeases(leases []model.Lease) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		upsertLeasesSQL,
-		len(leases),
-		func(stmt *sql.Stmt, i int) error {
-			l := leases[i]
+		leases,
+		func(stmt *sql.Stmt, l model.Lease) error {
 			_, err := stmt.Exec(l.PlatformID, l.Account, l.NodeHash, l.EgressIP, l.CreatedAtNs, l.ExpiryNs, l.LastAccessedNs)
 			return err
 		},
@@ -172,11 +175,12 @@ func (r *CacheRepo) BulkUpsertLeases(leases []model.Lease) error {
 
 // BulkDeleteLeases batch-deletes lease records by composite key.
 func (r *CacheRepo) BulkDeleteLeases(keys []model.LeaseKey) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		deleteLeasesSQL,
-		len(keys),
-		func(stmt *sql.Stmt, i int) error {
-			_, err := stmt.Exec(keys[i].PlatformID, keys[i].Account)
+		keys,
+		func(stmt *sql.Stmt, key model.LeaseKey) error {
+			_, err := stmt.Exec(key.PlatformID, key.Account)
 			return err
 		},
 	)
@@ -205,11 +209,11 @@ func (r *CacheRepo) LoadAllLeases() ([]model.Lease, error) {
 
 // BulkUpsertSubscriptionNodes batch-inserts or updates subscription-node links.
 func (r *CacheRepo) BulkUpsertSubscriptionNodes(nodes []model.SubscriptionNode) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		upsertSubscriptionNodesSQL,
-		len(nodes),
-		func(stmt *sql.Stmt, i int) error {
-			sn := nodes[i]
+		nodes,
+		func(stmt *sql.Stmt, sn model.SubscriptionNode) error {
 			_, err := stmt.Exec(sn.SubscriptionID, sn.NodeHash, sn.TagsJSON)
 			return err
 		},
@@ -218,11 +222,12 @@ func (r *CacheRepo) BulkUpsertSubscriptionNodes(nodes []model.SubscriptionNode) 
 
 // BulkDeleteSubscriptionNodes batch-deletes subscription-node links by composite key.
 func (r *CacheRepo) BulkDeleteSubscriptionNodes(keys []model.SubscriptionNodeKey) error {
-	return r.bulkExec(
+	return bulkExecRows(
+		r,
 		deleteSubscriptionNodesSQL,
-		len(keys),
-		func(stmt *sql.Stmt, i int) error {
-			_, err := stmt.Exec(keys[i].SubscriptionID, keys[i].NodeHash)
+		keys,
+		func(stmt *sql.Stmt, key model.SubscriptionNodeKey) error {
+			_, err := stmt.Exec(key.SubscriptionID, key.NodeHash)
 			return err
 		},
 	)
@@ -286,6 +291,17 @@ func (r *CacheRepo) bulkExec(query string, n int, execFn func(stmt *sql.Stmt, i 
 		return err
 	}
 	return tx.Commit()
+}
+
+func bulkExecRows[T any](
+	r *CacheRepo,
+	query string,
+	rows []T,
+	execFn func(stmt *sql.Stmt, row T) error,
+) error {
+	return r.bulkExec(query, len(rows), func(stmt *sql.Stmt, i int) error {
+		return execFn(stmt, rows[i])
+	})
 }
 
 // FlushOps holds all upsert/delete slices for a single-transaction cache flush.

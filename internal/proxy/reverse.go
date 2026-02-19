@@ -145,13 +145,7 @@ func (p *ReverseProxy) parsePath(rawPath string) (*parsedPath, *ProxyError) {
 	if perr != nil {
 		return nil, perr
 	}
-	platName, account := "", ""
-	if idx := strings.IndexByte(identity, ':'); idx >= 0 {
-		platName = identity[:idx]
-		account = identity[idx+1:]
-	} else {
-		platName = identity
-	}
+	platName, account := parsePlatformAccount(identity)
 
 	// Third segment: protocol.
 	protocolSeg, perr := decodePathSegment(segments[2])
