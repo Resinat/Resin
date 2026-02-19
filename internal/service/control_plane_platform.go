@@ -159,8 +159,12 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 	missAction := s.EnvCfg.DefaultPlatformReverseProxyMissAction
 	if req.ReverseProxyMissAction != nil {
 		ma := *req.ReverseProxyMissAction
-		if ma != "RANDOM" && ma != "REJECT" {
-			return nil, invalidArg("reverse_proxy_miss_action: must be RANDOM or REJECT")
+		if !platform.ReverseProxyMissAction(ma).IsValid() {
+			return nil, invalidArg(fmt.Sprintf(
+				"reverse_proxy_miss_action: must be %s or %s",
+				platform.ReverseProxyMissActionRandom,
+				platform.ReverseProxyMissActionReject,
+			))
 		}
 		missAction = ma
 	}
@@ -296,8 +300,15 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	missAction := current.ReverseProxyMissAction
 	if v, ok := patch["reverse_proxy_miss_action"]; ok {
 		ma, ok := v.(string)
-		if !ok || (ma != "RANDOM" && ma != "REJECT") {
-			return nil, invalidArg("reverse_proxy_miss_action: must be RANDOM or REJECT")
+		if !ok {
+			return nil, invalidArg("reverse_proxy_miss_action: must be a string")
+		}
+		if !platform.ReverseProxyMissAction(ma).IsValid() {
+			return nil, invalidArg(fmt.Sprintf(
+				"reverse_proxy_miss_action: must be %s or %s",
+				platform.ReverseProxyMissActionRandom,
+				platform.ReverseProxyMissActionReject,
+			))
 		}
 		missAction = ma
 	}

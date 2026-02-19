@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/robfig/cron/v3"
 )
 
@@ -85,7 +86,10 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.DefaultPlatformStickyTTL = envDuration("RESIN_DEFAULT_PLATFORM_STICKY_TTL", 7*24*time.Hour, &errs)
 	cfg.DefaultPlatformRegexFilters = envStringSlice("RESIN_DEFAULT_PLATFORM_REGEX_FILTERS", []string{}, &errs)
 	cfg.DefaultPlatformRegionFilters = envStringSlice("RESIN_DEFAULT_PLATFORM_REGION_FILTERS", []string{}, &errs)
-	cfg.DefaultPlatformReverseProxyMissAction = envStr("RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION", "RANDOM")
+	cfg.DefaultPlatformReverseProxyMissAction = envStr(
+		"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION",
+		string(platform.ReverseProxyMissActionRandom),
+	)
 	cfg.DefaultPlatformAllocationPolicy = envStr("RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY", "BALANCED")
 	cfg.ProbeTimeout = envDuration("RESIN_PROBE_TIMEOUT", 15*time.Second, &errs)
 	cfg.ResourceFetchTimeout = envDuration("RESIN_RESOURCE_FETCH_TIMEOUT", 30*time.Second, &errs)
@@ -147,10 +151,13 @@ func LoadEnvConfig() (*EnvConfig, error) {
 			errs = append(errs, fmt.Sprintf("RESIN_DEFAULT_PLATFORM_REGION_FILTERS: invalid region %q (must be lowercase ISO 3166-1 alpha-2)", region))
 		}
 	}
-	switch cfg.DefaultPlatformReverseProxyMissAction {
-	case "RANDOM", "REJECT":
-	default:
-		errs = append(errs, fmt.Sprintf("RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION: invalid value %q (allowed: RANDOM, REJECT)", cfg.DefaultPlatformReverseProxyMissAction))
+	if !platform.ReverseProxyMissAction(cfg.DefaultPlatformReverseProxyMissAction).IsValid() {
+		errs = append(errs, fmt.Sprintf(
+			"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION: invalid value %q (allowed: %s, %s)",
+			cfg.DefaultPlatformReverseProxyMissAction,
+			platform.ReverseProxyMissActionRandom,
+			platform.ReverseProxyMissActionReject,
+		))
 	}
 	switch cfg.DefaultPlatformAllocationPolicy {
 	case "BALANCED", "PREFER_LOW_LATENCY", "PREFER_IDLE_IP":

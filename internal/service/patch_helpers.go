@@ -112,10 +112,10 @@ func (p mergePatch) optionalDurationString(field string) (time.Duration, bool, *
 	return d, true, nil
 }
 
-func validateHTTPAbsoluteURL(field, value string) *ServiceError {
+func parseHTTPAbsoluteURL(field, value string) (*url.URL, *ServiceError) {
 	u, err := url.ParseRequestURI(value)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return invalidArg(fmt.Sprintf("%s: must be an http/https absolute URL", field))
+		return nil, invalidArg(fmt.Sprintf("%s: must be an http/https absolute URL", field))
 	}
-	return nil
+	return u, nil
 }

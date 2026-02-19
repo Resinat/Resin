@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -189,9 +188,9 @@ func (s *ControlPlaneService) PatchRuntimeConfig(patchJSON json.RawMessage) (*co
 
 func validateRuntimeConfig(cfg *config.RuntimeConfig) *ServiceError {
 	latencyURL := strings.TrimSpace(cfg.LatencyTestURL)
-	u, err := url.ParseRequestURI(latencyURL)
-	if latencyURL == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return invalidArg("latency_test_url: must be an http/https absolute URL")
+	u, verr := parseHTTPAbsoluteURL("latency_test_url", latencyURL)
+	if verr != nil {
+		return verr
 	}
 	latencyDomain := strings.ToLower(netutil.ExtractDomain(u.Host))
 	if cfg.MaxConsecutiveFailures < 0 {

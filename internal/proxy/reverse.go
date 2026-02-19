@@ -264,7 +264,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Look up default platform for miss-action check.
 			plat = p.resolveDefaultPlatform()
 		}
-		if plat != nil && plat.ReverseProxyMissAction == "REJECT" {
+		if plat != nil && plat.ReverseProxyMissAction == string(platform.ReverseProxyMissActionReject) {
 			lifecycle.setHTTPStatus(ErrAccountRejected.HTTPCode)
 			writeProxyError(w, ErrAccountRejected)
 			return

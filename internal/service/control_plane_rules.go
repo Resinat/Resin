@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/url"
 	"strings"
 	"time"
 
@@ -156,9 +155,9 @@ func (s *ControlPlaneService) ResolveAccountHeaderRule(rawURL string) (*ResolveR
 	if rawURL == "" {
 		return nil, invalidArg("url is required")
 	}
-	u, err := url.ParseRequestURI(rawURL)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return nil, invalidArg("url: must be an http/https absolute URL")
+	u, verr := parseHTTPAbsoluteURL("url", rawURL)
+	if verr != nil {
+		return nil, verr
 	}
 
 	if s.MatcherRuntime == nil {

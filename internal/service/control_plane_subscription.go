@@ -101,7 +101,7 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 		return nil, invalidArg("url is required")
 	}
 	subURL := *req.URL
-	if verr := validateHTTPAbsoluteURL("url", subURL); verr != nil {
+	if _, verr := parseHTTPAbsoluteURL("url", subURL); verr != nil {
 		return nil, verr
 	}
 
@@ -190,7 +190,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	if urlStr, ok, err := patch.optionalString("url"); err != nil {
 		return nil, err
 	} else if ok {
-		if verr := validateHTTPAbsoluteURL("url", urlStr); verr != nil {
+		if _, verr := parseHTTPAbsoluteURL("url", urlStr); verr != nil {
 			return nil, verr
 		}
 		newURL = urlStr
