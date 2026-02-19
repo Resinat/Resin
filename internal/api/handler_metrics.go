@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/resin-proxy/resin/internal/metrics"
@@ -65,6 +64,60 @@ func rejectUnsupportedPlatformDimension(w http.ResponseWriter, r *http.Request) 
 	return false
 }
 
+func formatTimestamp(ts time.Time) string {
+	return ts.UTC().Format(time.RFC3339Nano)
+}
+
+func bucketWindow(bucketStartUnix int64, bucketSeconds int) (string, string) {
+	start := formatTimestamp(time.Unix(bucketStartUnix, 0))
+	end := formatTimestamp(time.Unix(bucketStartUnix+int64(bucketSeconds), 0))
+	return start, end
+}
+
+func mapItems[T any](src []T, mapFn func(T) map[string]any) []map[string]any {
+	items := make([]map[string]any, 0, len(src))
+	for _, item := range src {
+		items = append(items, mapFn(item))
+	}
+	return items
+}
+
+func requiredPlatformID(mgr *metrics.Manager, w http.ResponseWriter, r *http.Request) (string, bool) {
+	platformID := r.URL.Query().Get("platform_id")
+	if platformID == "" {
+		WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "platform_id is required")
+		return "", false
+	}
+	if !ensureMetricsPlatformExists(mgr, w, platformID) {
+		return "", false
+	}
+	return platformID, true
+}
+
+func splitOverflowBucket(bucketCounts []int64) ([]int64, int64) {
+	if len(bucketCounts) < 2 {
+		return bucketCounts, 0
+	}
+	return bucketCounts[:len(bucketCounts)-1], bucketCounts[len(bucketCounts)-1]
+}
+
+func buildLatencyHistogram(regularBuckets []int64, overflowCount int64, binMs, overMs int) ([]map[string]any, int64) {
+	sampleCount := overflowCount
+	histBuckets := make([]map[string]any, 0, len(regularBuckets))
+	for i, c := range regularBuckets {
+		sampleCount += c
+		leMs := (i + 1) * binMs
+		if leMs > overMs {
+			leMs = overMs
+		}
+		histBuckets = append(histBuckets, map[string]any{
+			"le_ms": leMs,
+			"count": c,
+		})
+	}
+	return histBuckets, sampleCount
+}
+
 // ========================================================================
 // Realtime endpoints (ring buffer)
 // ========================================================================
@@ -80,15 +133,14 @@ func HandleRealtimeThroughput(mgr *metrics.Manager) http.Handler {
 			return
 		}
 		samples := mgr.ThroughputRing().Query(from, to)
-		items := make([]map[string]interface{}, 0, len(samples))
-		for _, s := range samples {
-			items = append(items, map[string]interface{}{
-				"ts":          s.Timestamp.UTC().Format(time.RFC3339Nano),
+		items := mapItems(samples, func(s metrics.RealtimeSample) map[string]any {
+			return map[string]any{
+				"ts":          formatTimestamp(s.Timestamp),
 				"ingress_bps": s.IngressBPS,
 				"egress_bps":  s.EgressBPS,
-			})
-		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
+			}
+		})
+		WriteJSON(w, http.StatusOK, map[string]any{
 			"step_seconds": mgr.ThroughputIntervalSeconds(),
 			"items":        items,
 		})
@@ -106,15 +158,14 @@ func HandleRealtimeConnections(mgr *metrics.Manager) http.Handler {
 			return
 		}
 		samples := mgr.ConnectionsRing().Query(from, to)
-		items := make([]map[string]interface{}, 0, len(samples))
-		for _, s := range samples {
-			items = append(items, map[string]interface{}{
-				"ts":                   s.Timestamp.UTC().Format(time.RFC3339Nano),
+		items := mapItems(samples, func(s metrics.RealtimeSample) map[string]any {
+			return map[string]any{
+				"ts":                   formatTimestamp(s.Timestamp),
 				"inbound_connections":  s.InboundConns,
 				"outbound_connections": s.OutboundConns,
-			})
-		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
+			}
+		})
+		WriteJSON(w, http.StatusOK, map[string]any{
 			"step_seconds": mgr.ConnectionsIntervalSeconds(),
 			"items":        items,
 		})
@@ -124,12 +175,8 @@ func HandleRealtimeConnections(mgr *metrics.Manager) http.Handler {
 // HandleRealtimeLeases handles GET /api/v1/metrics/realtime/leases.
 func HandleRealtimeLeases(mgr *metrics.Manager) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		platformID := r.URL.Query().Get("platform_id")
-		if platformID == "" {
-			WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "platform_id is required")
-			return
-		}
-		if !ensureMetricsPlatformExists(mgr, w, platformID) {
+		platformID, ok := requiredPlatformID(mgr, w, r)
+		if !ok {
 			return
 		}
 		from, to, ok := parseMetricsTimeRange(w, r)
@@ -137,18 +184,17 @@ func HandleRealtimeLeases(mgr *metrics.Manager) http.Handler {
 			return
 		}
 		samples := mgr.LeasesRing().Query(from, to)
-		items := make([]map[string]interface{}, 0, len(samples))
-		for _, s := range samples {
+		items := mapItems(samples, func(s metrics.RealtimeSample) map[string]any {
 			count := 0
 			if s.LeasesByPlatform != nil {
 				count = s.LeasesByPlatform[platformID]
 			}
-			items = append(items, map[string]interface{}{
-				"ts":            s.Timestamp.UTC().Format(time.RFC3339Nano),
+			return map[string]any{
+				"ts":            formatTimestamp(s.Timestamp),
 				"active_leases": count,
-			})
-		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
+			}
+		})
+		WriteJSON(w, http.StatusOK, map[string]any{
 			"platform_id":  platformID,
 			"step_seconds": mgr.LeasesIntervalSeconds(),
 			"items":        items,
@@ -177,17 +223,18 @@ func HandleHistoryTraffic(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
-		items := make([]map[string]interface{}, 0, len(rows))
-		for _, row := range rows {
-			items = append(items, map[string]interface{}{
-				"bucket_start":  time.Unix(row.BucketStartUnix, 0).UTC().Format(time.RFC3339Nano),
-				"bucket_end":    time.Unix(row.BucketStartUnix+int64(mgr.BucketSeconds()), 0).UTC().Format(time.RFC3339Nano),
+		bucketSeconds := mgr.BucketSeconds()
+		items := mapItems(rows, func(row metrics.TrafficBucketRow) map[string]any {
+			bucketStart, bucketEnd := bucketWindow(row.BucketStartUnix, bucketSeconds)
+			return map[string]any{
+				"bucket_start":  bucketStart,
+				"bucket_end":    bucketEnd,
 				"ingress_bytes": row.IngressBytes,
 				"egress_bytes":  row.EgressBytes,
-			})
-		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
-			"bucket_seconds": mgr.BucketSeconds(),
+			}
+		})
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"bucket_seconds": bucketSeconds,
 			"items":          items,
 		})
 	})
@@ -210,22 +257,23 @@ func HandleHistoryRequests(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
-		items := make([]map[string]interface{}, 0, len(rows))
-		for _, row := range rows {
+		bucketSeconds := mgr.BucketSeconds()
+		items := mapItems(rows, func(row metrics.RequestBucketRow) map[string]any {
 			var rate float64
 			if row.TotalRequests > 0 {
 				rate = float64(row.SuccessRequests) / float64(row.TotalRequests)
 			}
-			items = append(items, map[string]interface{}{
-				"bucket_start":     time.Unix(row.BucketStartUnix, 0).UTC().Format(time.RFC3339Nano),
-				"bucket_end":       time.Unix(row.BucketStartUnix+int64(mgr.BucketSeconds()), 0).UTC().Format(time.RFC3339Nano),
+			bucketStart, bucketEnd := bucketWindow(row.BucketStartUnix, bucketSeconds)
+			return map[string]any{
+				"bucket_start":     bucketStart,
+				"bucket_end":       bucketEnd,
 				"total_requests":   row.TotalRequests,
 				"success_requests": row.SuccessRequests,
 				"success_rate":     rate,
-			})
-		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
-			"bucket_seconds": mgr.BucketSeconds(),
+			}
+		})
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"bucket_seconds": bucketSeconds,
 			"items":          items,
 		})
 	})
@@ -250,46 +298,27 @@ func HandleHistoryAccessLatency(mgr *metrics.Manager) http.Handler {
 		}
 
 		snap := mgr.Collector().Snapshot()
-		items := make([]map[string]interface{}, 0, len(rows))
-		for _, row := range rows {
+		bucketSeconds := mgr.BucketSeconds()
+		items := mapItems(rows, func(row metrics.AccessLatencyBucketRow) map[string]any {
 			// Parse buckets_json into []int64.
 			var bucketCounts []int64
 			if row.BucketsJSON != "" {
 				_ = json.Unmarshal([]byte(row.BucketsJSON), &bucketCounts)
 			}
 
-			regularBuckets := bucketCounts
-			var overflowCount int64
-			// Storage keeps the overflow bucket as the last element.
-			if len(bucketCounts) >= 2 {
-				regularBuckets = bucketCounts[:len(bucketCounts)-1]
-				overflowCount = bucketCounts[len(bucketCounts)-1]
-			}
-
-			sampleCount := overflowCount
-			histBuckets := make([]map[string]interface{}, 0, len(regularBuckets))
-			for i, c := range regularBuckets {
-				sampleCount += c
-				leMs := (i + 1) * snap.LatencyBinMs
-				if leMs > snap.LatencyOverMs {
-					leMs = snap.LatencyOverMs
-				}
-				histBuckets = append(histBuckets, map[string]interface{}{
-					"le_ms": leMs,
-					"count": c,
-				})
-			}
-
-			items = append(items, map[string]interface{}{
-				"bucket_start":   time.Unix(row.BucketStartUnix, 0).UTC().Format(time.RFC3339Nano),
-				"bucket_end":     time.Unix(row.BucketStartUnix+int64(mgr.BucketSeconds()), 0).UTC().Format(time.RFC3339Nano),
+			regularBuckets, overflowCount := splitOverflowBucket(bucketCounts)
+			histBuckets, sampleCount := buildLatencyHistogram(regularBuckets, overflowCount, snap.LatencyBinMs, snap.LatencyOverMs)
+			bucketStart, bucketEnd := bucketWindow(row.BucketStartUnix, bucketSeconds)
+			return map[string]any{
+				"bucket_start":   bucketStart,
+				"bucket_end":     bucketEnd,
 				"sample_count":   sampleCount,
 				"buckets":        histBuckets,
 				"overflow_count": overflowCount,
-			})
-		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
-			"bucket_seconds": mgr.BucketSeconds(),
+			}
+		})
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"bucket_seconds": bucketSeconds,
 			"bin_width_ms":   snap.LatencyBinMs,
 			"overflow_ms":    snap.LatencyOverMs,
 			"items":          items,
@@ -313,16 +342,17 @@ func HandleHistoryProbes(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
-		items := make([]map[string]interface{}, 0, len(rows))
-		for _, row := range rows {
-			items = append(items, map[string]interface{}{
-				"bucket_start": time.Unix(row.BucketStartUnix, 0).UTC().Format(time.RFC3339Nano),
-				"bucket_end":   time.Unix(row.BucketStartUnix+int64(mgr.BucketSeconds()), 0).UTC().Format(time.RFC3339Nano),
+		bucketSeconds := mgr.BucketSeconds()
+		items := mapItems(rows, func(row metrics.ProbeBucketRow) map[string]any {
+			bucketStart, bucketEnd := bucketWindow(row.BucketStartUnix, bucketSeconds)
+			return map[string]any{
+				"bucket_start": bucketStart,
+				"bucket_end":   bucketEnd,
 				"total_count":  row.TotalCount,
-			})
-		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
-			"bucket_seconds": mgr.BucketSeconds(),
+			}
+		})
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"bucket_seconds": bucketSeconds,
 			"items":          items,
 		})
 	})
@@ -344,18 +374,19 @@ func HandleHistoryNodePool(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
-		items := make([]map[string]interface{}, 0, len(rows))
-		for _, row := range rows {
-			items = append(items, map[string]interface{}{
-				"bucket_start":    time.Unix(row.BucketStartUnix, 0).UTC().Format(time.RFC3339Nano),
-				"bucket_end":      time.Unix(row.BucketStartUnix+int64(mgr.BucketSeconds()), 0).UTC().Format(time.RFC3339Nano),
+		bucketSeconds := mgr.BucketSeconds()
+		items := mapItems(rows, func(row metrics.NodePoolBucketRow) map[string]any {
+			bucketStart, bucketEnd := bucketWindow(row.BucketStartUnix, bucketSeconds)
+			return map[string]any{
+				"bucket_start":    bucketStart,
+				"bucket_end":      bucketEnd,
 				"total_nodes":     row.TotalNodes,
 				"healthy_nodes":   row.HealthyNodes,
 				"egress_ip_count": row.EgressIPCount,
-			})
-		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
-			"bucket_seconds": mgr.BucketSeconds(),
+			}
+		})
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"bucket_seconds": bucketSeconds,
 			"items":          items,
 		})
 	})
@@ -364,12 +395,8 @@ func HandleHistoryNodePool(mgr *metrics.Manager) http.Handler {
 // HandleHistoryLeaseLifetime handles GET /api/v1/metrics/history/lease-lifetime.
 func HandleHistoryLeaseLifetime(mgr *metrics.Manager) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		platformID := r.URL.Query().Get("platform_id")
-		if platformID == "" {
-			WriteError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "platform_id is required")
-			return
-		}
-		if !ensureMetricsPlatformExists(mgr, w, platformID) {
+		platformID, ok := requiredPlatformID(mgr, w, r)
+		if !ok {
 			return
 		}
 		from, to, ok := parseMetricsTimeRange(w, r)
@@ -382,20 +409,21 @@ func HandleHistoryLeaseLifetime(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
-		items := make([]map[string]interface{}, 0, len(rows))
-		for _, row := range rows {
-			items = append(items, map[string]interface{}{
-				"bucket_start": time.Unix(row.BucketStartUnix, 0).UTC().Format(time.RFC3339Nano),
-				"bucket_end":   time.Unix(row.BucketStartUnix+int64(mgr.BucketSeconds()), 0).UTC().Format(time.RFC3339Nano),
+		bucketSeconds := mgr.BucketSeconds()
+		items := mapItems(rows, func(row metrics.LeaseLifetimeBucketRow) map[string]any {
+			bucketStart, bucketEnd := bucketWindow(row.BucketStartUnix, bucketSeconds)
+			return map[string]any{
+				"bucket_start": bucketStart,
+				"bucket_end":   bucketEnd,
 				"sample_count": row.SampleCount,
 				"p1_ms":        row.P1Ms,
 				"p5_ms":        row.P5Ms,
 				"p50_ms":       row.P50Ms,
-			})
-		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
+			}
+		})
+		WriteJSON(w, http.StatusOK, map[string]any{
 			"platform_id":    platformID,
-			"bucket_seconds": mgr.BucketSeconds(),
+			"bucket_seconds": bucketSeconds,
 			"items":          items,
 		})
 	})
@@ -416,8 +444,8 @@ func HandleSnapshotNodePool(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusServiceUnavailable, "UNAVAILABLE", "node pool stats not available")
 			return
 		}
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
-			"generated_at":    time.Now().UTC().Format(time.RFC3339Nano),
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"generated_at":    formatTimestamp(time.Now()),
 			"total_nodes":     stats.TotalNodes(),
 			"healthy_nodes":   stats.HealthyNodes(),
 			"egress_ip_count": stats.EgressIPCount(),
@@ -444,8 +472,8 @@ func HandleSnapshotPlatformNodePool(mgr *metrics.Manager) http.Handler {
 			return
 		}
 		egressCount, _ := psp.PlatformEgressIPCount(platformID)
-		WriteJSON(w, http.StatusOK, map[string]interface{}{
-			"generated_at":        time.Now().UTC().Format(time.RFC3339Nano),
+		WriteJSON(w, http.StatusOK, map[string]any{
+			"generated_at":        formatTimestamp(time.Now()),
 			"platform_id":         platformID,
 			"routable_node_count": routable,
 			"egress_ip_count":     egressCount,
@@ -510,22 +538,10 @@ func HandleSnapshotNodeLatencyDistribution(mgr *metrics.Manager) http.Handler {
 			bucketCounts[idx]++
 		}
 
-		sampleCount := overflowCount
-		histBuckets := make([]map[string]interface{}, 0, regularBins)
-		for i, c := range bucketCounts {
-			sampleCount += c
-			leMs := (i + 1) * binMs
-			if leMs > overMs {
-				leMs = overMs
-			}
-			histBuckets = append(histBuckets, map[string]interface{}{
-				"le_ms": leMs,
-				"count": c,
-			})
-		}
+		histBuckets, sampleCount := buildLatencyHistogram(bucketCounts, overflowCount, binMs, overMs)
 
-		resp := map[string]interface{}{
-			"generated_at":   time.Now().UTC().Format(time.RFC3339Nano),
+		resp := map[string]any{
+			"generated_at":   formatTimestamp(time.Now()),
 			"scope":          scope,
 			"bin_width_ms":   binMs,
 			"overflow_ms":    overMs,
@@ -539,17 +555,4 @@ func HandleSnapshotNodeLatencyDistribution(mgr *metrics.Manager) http.Handler {
 
 		WriteJSON(w, http.StatusOK, resp)
 	})
-}
-
-// ---- helper to parse int query param ----
-func queryInt(r *http.Request, param string, defaultVal int) int {
-	v := r.URL.Query().Get(param)
-	if v == "" {
-		return defaultVal
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return defaultVal
-	}
-	return n
 }
