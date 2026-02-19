@@ -2,7 +2,9 @@ package requestlog
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -140,11 +142,14 @@ func (r *Repo) InsertBatch(entries []LogRow) (int, error) {
 			boolToInt(e.RespHeadersTruncated), boolToInt(e.RespBodyTruncated),
 		)
 		if err != nil {
+			log.Printf("[requestlog] warning: skip log row id=%q insert failed: %v", e.ID, err)
 			continue // skip individual row errors
 		}
 
 		if hasPayload == 1 {
-			_, _ = insertPayload.Exec(e.ID, e.ReqHeaders, e.ReqBody, e.RespHeaders, e.RespBody)
+			if _, err := insertPayload.Exec(e.ID, e.ReqHeaders, e.ReqBody, e.RespHeaders, e.RespBody); err != nil {
+				log.Printf("[requestlog] warning: payload insert failed for id=%q: %v", e.ID, err)
+			}
 		}
 		inserted++
 	}
@@ -272,11 +277,15 @@ func (r *Repo) List(f ListFilter) ([]LogSummary, error) {
 	for i := len(files) - 1; i >= 0; i-- {
 		db, err := r.openReadOnly(files[i])
 		if err != nil {
+			log.Printf("[requestlog] warning: list open db failed path=%q: %v", files[i], err)
 			continue
 		}
 		rows, err := r.queryLogs(db, f, fetchLimit)
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("[requestlog] warning: list close db failed path=%q: %v", files[i], closeErr)
+		}
 		if err != nil {
+			log.Printf("[requestlog] warning: list query failed path=%q: %v", files[i], err)
 			continue
 		}
 		results = append(results, rows...)
@@ -310,10 +319,16 @@ func (r *Repo) GetByID(id string) (*LogSummary, error) {
 	for i := len(files) - 1; i >= 0; i-- {
 		db, err := r.openReadOnly(files[i])
 		if err != nil {
+			log.Printf("[requestlog] warning: get_by_id open db failed path=%q id=%q: %v", files[i], id, err)
 			continue
 		}
 		row, err := r.queryLogByID(db, id)
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("[requestlog] warning: get_by_id close db failed path=%q id=%q: %v", files[i], id, closeErr)
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			log.Printf("[requestlog] warning: get_by_id query failed path=%q id=%q: %v", files[i], id, err)
+		}
 		if err == nil && row != nil {
 			return row, nil
 		}
@@ -331,10 +346,16 @@ func (r *Repo) GetPayloads(logID string) (*PayloadRow, error) {
 	for i := len(files) - 1; i >= 0; i-- {
 		db, err := r.openReadOnly(files[i])
 		if err != nil {
+			log.Printf("[requestlog] warning: get_payloads open db failed path=%q log_id=%q: %v", files[i], logID, err)
 			continue
 		}
 		row, err := r.queryPayload(db, logID)
-		db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("[requestlog] warning: get_payloads close db failed path=%q log_id=%q: %v", files[i], logID, closeErr)
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			log.Printf("[requestlog] warning: get_payloads query failed path=%q log_id=%q: %v", files[i], logID, err)
+		}
 		if err == nil && row != nil {
 			return row, nil
 		}
@@ -377,6 +398,7 @@ func (r *Repo) maybeRotate() error {
 	}
 	totalSize, err := sqliteFilesSize(r.activePath)
 	if err != nil {
+		log.Printf("[requestlog] warning: stat active db failed path=%q: %v", r.activePath, err)
 		return nil // can't stat; skip rotation check
 	}
 	if totalSize >= r.maxBytes {
@@ -541,6 +563,7 @@ func scanLogSummaries(rows *sql.Rows) ([]LogSummary, error) {
 			&rht, &rbt, &rsht, &rsbt,
 		)
 		if err != nil {
+			log.Printf("[requestlog] warning: skip malformed log row during scan: %v", err)
 			continue
 		}
 		s.NetOK = netOK != 0
