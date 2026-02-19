@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -34,16 +33,13 @@ func normalizeRulePrefix(prefix string) (string, *ServiceError) {
 }
 
 func ruleToResponse(r model.AccountHeaderRule) (RuleResponse, error) {
-	var headers []string
-	if err := json.Unmarshal([]byte(r.HeadersJSON), &headers); err != nil {
-		return RuleResponse{}, fmt.Errorf("decode headers_json: %w", err)
-	}
+	headers := append([]string(nil), r.Headers...)
 	for i, h := range headers {
 		if strings.TrimSpace(h) == "" {
-			return RuleResponse{}, fmt.Errorf("invalid headers_json[%d]: empty header name", i)
+			return RuleResponse{}, fmt.Errorf("invalid headers[%d]: empty header name", i)
 		}
 		if !httpguts.ValidHeaderFieldName(h) {
-			return RuleResponse{}, fmt.Errorf("invalid headers_json[%d] %q", i, h)
+			return RuleResponse{}, fmt.Errorf("invalid headers[%d] %q", i, h)
 		}
 	}
 	if headers == nil {
@@ -92,12 +88,11 @@ func (s *ControlPlaneService) UpsertAccountHeaderRule(prefix string, headers []s
 		}
 	}
 
-	headersJSON, _ := json.Marshal(headers)
 	now := time.Now().UnixNano()
 
 	rule := model.AccountHeaderRule{
 		URLPrefix:   normalizedPrefix,
-		HeadersJSON: string(headersJSON),
+		Headers:     append([]string(nil), headers...),
 		UpdatedAtNs: now,
 	}
 	created, err := s.Engine.UpsertAccountHeaderRuleWithCreated(rule)

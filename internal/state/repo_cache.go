@@ -2,6 +2,7 @@ package state
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/resin-proxy/resin/internal/model"
@@ -26,7 +27,7 @@ func (r *CacheRepo) BulkUpsertNodesStatic(nodes []model.NodeStatic) error {
 		upsertNodesStaticSQL,
 		nodes,
 		func(stmt *sql.Stmt, n model.NodeStatic) error {
-			_, err := stmt.Exec(n.Hash, n.RawOptionsJSON, n.CreatedAtNs)
+			_, err := stmt.Exec(n.Hash, string(n.RawOptions), n.CreatedAtNs)
 			return err
 		},
 	)
@@ -56,9 +57,11 @@ func (r *CacheRepo) LoadAllNodesStatic() ([]model.NodeStatic, error) {
 	var result []model.NodeStatic
 	for rows.Next() {
 		var n model.NodeStatic
-		if err := rows.Scan(&n.Hash, &n.RawOptionsJSON, &n.CreatedAtNs); err != nil {
+		var rawOptionsJSON string
+		if err := rows.Scan(&n.Hash, &rawOptionsJSON, &n.CreatedAtNs); err != nil {
 			return nil, err
 		}
+		n.RawOptions = json.RawMessage(rawOptionsJSON)
 		result = append(result, n)
 	}
 	return result, rows.Err()
@@ -214,7 +217,11 @@ func (r *CacheRepo) BulkUpsertSubscriptionNodes(nodes []model.SubscriptionNode) 
 		upsertSubscriptionNodesSQL,
 		nodes,
 		func(stmt *sql.Stmt, sn model.SubscriptionNode) error {
-			_, err := stmt.Exec(sn.SubscriptionID, sn.NodeHash, sn.TagsJSON)
+			tagsJSON, err := encodeStringSliceJSON(sn.Tags)
+			if err != nil {
+				return fmt.Errorf("encode subscription node tags: %w", err)
+			}
+			_, err = stmt.Exec(sn.SubscriptionID, sn.NodeHash, tagsJSON)
 			return err
 		},
 	)
@@ -244,9 +251,15 @@ func (r *CacheRepo) LoadAllSubscriptionNodes() ([]model.SubscriptionNode, error)
 	var result []model.SubscriptionNode
 	for rows.Next() {
 		var sn model.SubscriptionNode
-		if err := rows.Scan(&sn.SubscriptionID, &sn.NodeHash, &sn.TagsJSON); err != nil {
+		var tagsJSON string
+		if err := rows.Scan(&sn.SubscriptionID, &sn.NodeHash, &tagsJSON); err != nil {
 			return nil, err
 		}
+		tags, err := decodeStringSliceJSON(tagsJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode subscription node tags_json: %w", err)
+		}
+		sn.Tags = tags
 		result = append(result, sn)
 	}
 	return result, rows.Err()
@@ -338,12 +351,16 @@ func (r *CacheRepo) FlushTx(ops FlushOps) error {
 	}{
 		{"upsert_nodes_static", upsertNodesStaticSQL, len(ops.UpsertNodesStatic), func(s *sql.Stmt, i int) error {
 			n := ops.UpsertNodesStatic[i]
-			_, err := s.Exec(n.Hash, n.RawOptionsJSON, n.CreatedAtNs)
+			_, err := s.Exec(n.Hash, string(n.RawOptions), n.CreatedAtNs)
 			return err
 		}},
 		{"upsert_subscription_nodes", upsertSubscriptionNodesSQL, len(ops.UpsertSubscriptionNodes), func(s *sql.Stmt, i int) error {
 			sn := ops.UpsertSubscriptionNodes[i]
-			_, err := s.Exec(sn.SubscriptionID, sn.NodeHash, sn.TagsJSON)
+			tagsJSON, err := encodeStringSliceJSON(sn.Tags)
+			if err != nil {
+				return fmt.Errorf("encode subscription node tags: %w", err)
+			}
+			_, err = s.Exec(sn.SubscriptionID, sn.NodeHash, tagsJSON)
 			return err
 		}},
 		{"upsert_nodes_dynamic", upsertNodesDynamicSQL, len(ops.UpsertNodesDynamic), func(s *sql.Stmt, i int) error {

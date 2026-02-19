@@ -32,32 +32,13 @@ type PlatformResponse struct {
 	UpdatedAt              string   `json:"updated_at"`
 }
 
-func decodePlatformStringSliceJSON(raw, field string) ([]string, error) {
-	var out []string
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return nil, fmt.Errorf("decode %s: %w", field, err)
-	}
-	if out == nil {
-		out = []string{}
-	}
-	return out, nil
-}
-
 func platformToResponse(p model.Platform) (PlatformResponse, error) {
-	regexes, err := decodePlatformStringSliceJSON(p.RegexFiltersJSON, "regex_filters_json")
-	if err != nil {
-		return PlatformResponse{}, err
-	}
-	regions, err := decodePlatformStringSliceJSON(p.RegionFiltersJSON, "region_filters_json")
-	if err != nil {
-		return PlatformResponse{}, err
-	}
 	return PlatformResponse{
 		ID:                     p.ID,
 		Name:                   p.Name,
 		StickyTTL:              time.Duration(p.StickyTTLNs).String(),
-		RegexFilters:           regexes,
-		RegionFilters:          regions,
+		RegexFilters:           append([]string(nil), p.RegexFilters...),
+		RegionFilters:          append([]string(nil), p.RegionFilters...),
 		ReverseProxyMissAction: p.ReverseProxyMissAction,
 		AllocationPolicy:       p.AllocationPolicy,
 		UpdatedAt:              time.Unix(0, p.UpdatedAtNs).UTC().Format(time.RFC3339Nano),
@@ -85,27 +66,14 @@ func (s *ControlPlaneService) defaultPlatformConfig(name string) platformConfig 
 }
 
 func platformConfigFromModel(mp model.Platform) (platformConfig, error) {
-	regexFilters, err := decodePlatformStringSliceJSON(mp.RegexFiltersJSON, "regex_filters_json")
-	if err != nil {
-		return platformConfig{}, internal(fmt.Sprintf("decode platform %s", mp.ID), err)
-	}
-	regionFilters, err := decodePlatformStringSliceJSON(mp.RegionFiltersJSON, "region_filters_json")
-	if err != nil {
-		return platformConfig{}, internal(fmt.Sprintf("decode platform %s", mp.ID), err)
-	}
 	return platformConfig{
 		Name:                   mp.Name,
 		StickyTTLNs:            mp.StickyTTLNs,
-		RegexFilters:           regexFilters,
-		RegionFilters:          regionFilters,
+		RegexFilters:           append([]string(nil), mp.RegexFilters...),
+		RegionFilters:          append([]string(nil), mp.RegionFilters...),
 		ReverseProxyMissAction: mp.ReverseProxyMissAction,
 		AllocationPolicy:       mp.AllocationPolicy,
 	}, nil
-}
-
-func encodePlatformStringSliceJSON(in []string) string {
-	out, _ := json.Marshal(in)
-	return string(out)
 }
 
 func (cfg platformConfig) toModel(id string, updatedAtNs int64) model.Platform {
@@ -113,8 +81,8 @@ func (cfg platformConfig) toModel(id string, updatedAtNs int64) model.Platform {
 		ID:                     id,
 		Name:                   cfg.Name,
 		StickyTTLNs:            cfg.StickyTTLNs,
-		RegexFiltersJSON:       encodePlatformStringSliceJSON(cfg.RegexFilters),
-		RegionFiltersJSON:      encodePlatformStringSliceJSON(cfg.RegionFilters),
+		RegexFilters:           append([]string(nil), cfg.RegexFilters...),
+		RegionFilters:          append([]string(nil), cfg.RegionFilters...),
 		ReverseProxyMissAction: cfg.ReverseProxyMissAction,
 		AllocationPolicy:       cfg.AllocationPolicy,
 		UpdatedAtNs:            updatedAtNs,
@@ -407,12 +375,7 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 
 // DeletePlatform deletes a platform.
 func (s *ControlPlaneService) DeletePlatform(id string) error {
-	// Check if it's the Default platform.
-	current, err := s.getPlatformModel(id)
-	if err != nil {
-		return err
-	}
-	if current.ID == platform.DefaultPlatformID {
+	if id == platform.DefaultPlatformID {
 		return conflict("cannot delete Default platform")
 	}
 
@@ -428,15 +391,19 @@ func (s *ControlPlaneService) DeletePlatform(id string) error {
 
 // ResetPlatformToDefault resets a platform to env defaults.
 func (s *ControlPlaneService) ResetPlatformToDefault(id string) (*PlatformResponse, error) {
-	current, err := s.getPlatformModel(id)
-	if err != nil {
-		return nil, err
-	}
-	if current.ID == platform.DefaultPlatformID {
+	if id == platform.DefaultPlatformID {
 		return nil, conflict("cannot reset Default platform to defaults")
 	}
 
-	cfg := s.defaultPlatformConfig(current.Name)
+	name, err := s.Engine.GetPlatformName(id)
+	if err != nil {
+		if errors.Is(err, state.ErrNotFound) {
+			return nil, notFound("platform not found")
+		}
+		return nil, internal("get platform", err)
+	}
+
+	cfg := s.defaultPlatformConfig(name)
 	plat, err := cfg.toRuntime(id)
 	if err != nil {
 		// Environment defaults should be validated on process startup.

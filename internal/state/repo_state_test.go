@@ -81,7 +81,7 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 
 	p := model.Platform{
 		ID: "plat-1", Name: "Default", StickyTTLNs: 1000,
-		RegexFiltersJSON: "[]", RegionFiltersJSON: "[]",
+		RegexFilters: []string{}, RegionFilters: []string{},
 		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: now,
 	}
@@ -141,7 +141,7 @@ func TestStateRepo_Platform_NameUniqueViolation(t *testing.T) {
 
 	p1 := model.Platform{
 		ID: "plat-1", Name: "SameName", StickyTTLNs: 1000,
-		RegexFiltersJSON: "[]", RegionFiltersJSON: "[]",
+		RegexFilters: []string{}, RegionFilters: []string{},
 		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: now,
 	}
@@ -173,35 +173,28 @@ func TestStateRepo_Platform_ValidationRejectsInvalidRegex(t *testing.T) {
 
 	base := model.Platform{
 		ID: "plat-1", Name: "Test", StickyTTLNs: 1000,
-		RegexFiltersJSON: "[]", RegionFiltersJSON: "[]",
+		RegexFilters: []string{}, RegionFilters: []string{},
 		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: now,
 	}
 
-	// Non-array regex_filters_json.
-	bad := base
-	bad.RegexFiltersJSON = `"not-an-array"`
-	if err := repo.UpsertPlatform(bad); err == nil {
-		t.Fatal("expected error for non-array regex_filters_json")
-	}
-
 	// Uncompilable regex.
-	bad = base
-	bad.RegexFiltersJSON = `["(unclosed"]`
+	bad := base
+	bad.RegexFilters = []string{"(unclosed"}
 	if err := repo.UpsertPlatform(bad); err == nil {
 		t.Fatal("expected error for uncompilable regex")
 	}
 
-	// Non-array region_filters_json.
+	// Invalid region_filters.
 	bad = base
-	bad.RegionFiltersJSON = `123`
+	bad.RegionFilters = []string{""}
 	if err := repo.UpsertPlatform(bad); err == nil {
-		t.Fatal("expected error for non-array region_filters_json")
+		t.Fatal("expected error for invalid region_filters")
 	}
 
 	// Valid config should still succeed.
-	base.RegexFiltersJSON = `["^ss$","vmess"]`
-	base.RegionFiltersJSON = `["us","jp"]`
+	base.RegexFilters = []string{"^ss$", "vmess"}
+	base.RegionFilters = []string{"us", "jp"}
 	if err := repo.UpsertPlatform(base); err != nil {
 		t.Fatalf("valid platform rejected: %v", err)
 	}
@@ -302,7 +295,7 @@ func TestStateRepo_AccountHeaderRules_CRUD(t *testing.T) {
 	now := time.Now().UnixNano()
 
 	r := model.AccountHeaderRule{
-		URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`, UpdatedAtNs: now,
+		URLPrefix: "api.example.com/v1", Headers: []string{"Authorization"}, UpdatedAtNs: now,
 	}
 	if _, err := repo.UpsertAccountHeaderRuleWithCreated(r); err != nil {
 		t.Fatal(err)
@@ -312,18 +305,18 @@ func TestStateRepo_AccountHeaderRules_CRUD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(list) != 1 || list[0].HeadersJSON != `["Authorization"]` {
+	if len(list) != 1 || len(list[0].Headers) != 1 || list[0].Headers[0] != "Authorization" {
 		t.Fatalf("unexpected list: %+v", list)
 	}
 
 	// Update.
-	r.HeadersJSON = `["x-api-key"]`
+	r.Headers = []string{"x-api-key"}
 	if _, err := repo.UpsertAccountHeaderRuleWithCreated(r); err != nil {
 		t.Fatal(err)
 	}
 	list, _ = repo.ListAccountHeaderRules()
-	if list[0].HeadersJSON != `["x-api-key"]` {
-		t.Fatalf("expected updated headers, got %s", list[0].HeadersJSON)
+	if len(list[0].Headers) != 1 || list[0].Headers[0] != "x-api-key" {
+		t.Fatalf("expected updated headers, got %v", list[0].Headers)
 	}
 
 	// Delete.
@@ -342,7 +335,7 @@ func TestStateRepo_AccountHeaderRules_UpsertCreatedFlag(t *testing.T) {
 
 	r := model.AccountHeaderRule{
 		URLPrefix:   "api.example.com/v1",
-		HeadersJSON: `["Authorization"]`,
+		Headers:     []string{"Authorization"},
 		UpdatedAtNs: now,
 	}
 	created, err := repo.UpsertAccountHeaderRuleWithCreated(r)
@@ -353,7 +346,7 @@ func TestStateRepo_AccountHeaderRules_UpsertCreatedFlag(t *testing.T) {
 		t.Fatal("expected first upsert to report created=true")
 	}
 
-	r.HeadersJSON = `["x-api-key"]`
+	r.Headers = []string{"x-api-key"}
 	r.UpdatedAtNs = now + 1
 	created, err = repo.UpsertAccountHeaderRuleWithCreated(r)
 	if err != nil {
@@ -376,7 +369,7 @@ func TestStateRepo_ConcurrentWrites(t *testing.T) {
 		go func(i int) {
 			p := model.Platform{
 				ID: "plat-" + itoa(i), Name: "Platform-" + itoa(i),
-				StickyTTLNs: 1000, RegexFiltersJSON: "[]", RegionFiltersJSON: "[]",
+				StickyTTLNs: 1000, RegexFilters: []string{}, RegionFilters: []string{},
 				ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
 				UpdatedAtNs: now,
 			}

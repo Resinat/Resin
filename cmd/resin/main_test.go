@@ -86,20 +86,11 @@ func TestBootstrapTopology_CreatesDefaultPlatformWhenMissing(t *testing.T) {
 		t.Fatalf("allocation_policy: got %q, want %q", defaultPlat.AllocationPolicy, "PREFER_LOW_LATENCY")
 	}
 
-	var regexFilters []string
-	if err := json.Unmarshal([]byte(defaultPlat.RegexFiltersJSON), &regexFilters); err != nil {
-		t.Fatalf("unmarshal regex_filters_json: %v", err)
+	if !reflect.DeepEqual(defaultPlat.RegexFilters, []string{`^Provider/.*`}) {
+		t.Fatalf("regex_filters: got %v", defaultPlat.RegexFilters)
 	}
-	if !reflect.DeepEqual(regexFilters, []string{`^Provider/.*`}) {
-		t.Fatalf("regex_filters_json: got %v", regexFilters)
-	}
-
-	var regionFilters []string
-	if err := json.Unmarshal([]byte(defaultPlat.RegionFiltersJSON), &regionFilters); err != nil {
-		t.Fatalf("unmarshal region_filters_json: %v", err)
-	}
-	if !reflect.DeepEqual(regionFilters, []string{"us", "hk"}) {
-		t.Fatalf("region_filters_json: got %v", regionFilters)
+	if !reflect.DeepEqual(defaultPlat.RegionFilters, []string{"us", "hk"}) {
+		t.Fatalf("region_filters: got %v", defaultPlat.RegionFilters)
 	}
 
 	if _, ok := pool.GetPlatform(platform.DefaultPlatformID); !ok {
@@ -152,8 +143,8 @@ func TestBootstrapTopology_DefaultPlatformByNameDoesNotSatisfyDefaultID(t *testi
 		ID:                     "legacy-default-id",
 		Name:                   platform.DefaultPlatformName,
 		StickyTTLNs:            int64(time.Hour),
-		RegexFiltersJSON:       `[]`,
-		RegionFiltersJSON:      `[]`,
+		RegexFilters:           []string{},
+		RegionFilters:          []string{},
 		ReverseProxyMissAction: "RANDOM",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            now,
@@ -190,8 +181,8 @@ func TestBootstrapTopology_FailsFastOnCorruptPlatformFilters(t *testing.T) {
 		ID:                     "plat-1",
 		Name:                   "BrokenOnRead",
 		StickyTTLNs:            int64(time.Hour),
-		RegexFiltersJSON:       `["^ok$"]`,
-		RegionFiltersJSON:      `["us"]`,
+		RegexFilters:           []string{`^ok$`},
+		RegionFilters:          []string{"us"},
 		ReverseProxyMissAction: "RANDOM",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            now,
@@ -217,7 +208,7 @@ func TestBootstrapTopology_FailsFastOnCorruptPlatformFilters(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected bootstrapTopology to fail on corrupt platform filters")
 	}
-	if !strings.Contains(err.Error(), "regex_filters_json") {
+	if !strings.Contains(err.Error(), "regex_filters") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -247,9 +238,9 @@ func TestMarkNodeRemovedDirty_DeletesStaticDynamicAndLatency(t *testing.T) {
 				return nil
 			}
 			return &model.NodeStatic{
-				Hash:           hashHex,
-				RawOptionsJSON: string(raw),
-				CreatedAtNs:    entry.CreatedAt.UnixNano(),
+				Hash:        hashHex,
+				RawOptions:  append(json.RawMessage(nil), raw...),
+				CreatedAtNs: entry.CreatedAt.UnixNano(),
 			}
 		},
 		ReadNodeDynamic: func(h string) *model.NodeDynamic {

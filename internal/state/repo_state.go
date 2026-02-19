@@ -27,6 +27,28 @@ func newStateRepo(db *sql.DB) *StateRepo {
 	return &StateRepo{db: db}
 }
 
+func encodeStringSliceJSON(values []string) (string, error) {
+	if values == nil {
+		values = []string{}
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func decodeStringSliceJSON(raw string) ([]string, error) {
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []string{}
+	}
+	return out, nil
+}
+
 // --- system_config ---
 
 // GetSystemConfig loads the runtime config and version from state.db.
@@ -74,18 +96,20 @@ func (r *StateRepo) SaveSystemConfig(cfg *config.RuntimeConfig, version int, upd
 // UpsertPlatform inserts or updates a platform by ID.
 // If the name collides with a different platform's name, ErrConflict is returned.
 func (r *StateRepo) UpsertPlatform(p model.Platform) error {
-	// Validate regex_filters_json.
-	if _, err := platform.DecodeRegexFiltersJSON(p.ID, p.RegexFiltersJSON); err != nil {
+	// Validate strongly-typed filters before persistence.
+	if _, err := platform.CompileRegexFilters(p.RegexFilters); err != nil {
 		return err
 	}
-
-	// Validate region_filters_json.
-	regions, err := platform.DecodeRegionFiltersJSON(p.ID, p.RegionFiltersJSON)
+	if err := platform.ValidateRegionFilters(p.RegionFilters); err != nil {
+		return err
+	}
+	regexFiltersJSON, err := encodeStringSliceJSON(p.RegexFilters)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode platform %s regex_filters: %w", p.ID, err)
 	}
-	if err := platform.ValidateRegionFilters(regions); err != nil {
-		return err
+	regionFiltersJSON, err := encodeStringSliceJSON(p.RegionFilters)
+	if err != nil {
+		return fmt.Errorf("encode platform %s region_filters: %w", p.ID, err)
 	}
 
 	r.mu.Lock()
@@ -103,7 +127,7 @@ func (r *StateRepo) UpsertPlatform(p model.Platform) error {
 			reverse_proxy_miss_action = excluded.reverse_proxy_miss_action,
 			allocation_policy        = excluded.allocation_policy,
 			updated_at_ns            = excluded.updated_at_ns
-	`, p.ID, p.Name, p.StickyTTLNs, p.RegexFiltersJSON, p.RegionFiltersJSON,
+		`, p.ID, p.Name, p.StickyTTLNs, regexFiltersJSON, regionFiltersJSON,
 		p.ReverseProxyMissAction, p.AllocationPolicy, p.UpdatedAtNs)
 	if err != nil {
 		if isSQLiteUniqueConstraint(err) {
@@ -142,20 +166,44 @@ func (r *StateRepo) DeletePlatform(id string) error {
 	return nil
 }
 
+// GetPlatformName returns platform name by ID without decoding filter columns.
+func (r *StateRepo) GetPlatformName(id string) (string, error) {
+	row := r.db.QueryRow(`SELECT name FROM platforms WHERE id = ?`, id)
+	var name string
+	if err := row.Scan(&name); err != nil {
+		if err == sql.ErrNoRows {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return name, nil
+}
+
 // GetPlatform returns one platform by ID.
 func (r *StateRepo) GetPlatform(id string) (*model.Platform, error) {
 	row := r.db.QueryRow(`SELECT id, name, sticky_ttl_ns, regex_filters_json, region_filters_json,
-		reverse_proxy_miss_action, allocation_policy, updated_at_ns
-		FROM platforms WHERE id = ?`, id)
+			reverse_proxy_miss_action, allocation_policy, updated_at_ns
+			FROM platforms WHERE id = ?`, id)
 
 	var p model.Platform
-	if err := row.Scan(&p.ID, &p.Name, &p.StickyTTLNs, &p.RegexFiltersJSON,
-		&p.RegionFiltersJSON, &p.ReverseProxyMissAction, &p.AllocationPolicy, &p.UpdatedAtNs); err != nil {
+	var regexFiltersJSON, regionFiltersJSON string
+	if err := row.Scan(&p.ID, &p.Name, &p.StickyTTLNs, &regexFiltersJSON,
+		&regionFiltersJSON, &p.ReverseProxyMissAction, &p.AllocationPolicy, &p.UpdatedAtNs); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
+	regexFilters, err := decodeStringSliceJSON(regexFiltersJSON)
+	if err != nil {
+		return nil, fmt.Errorf("decode platform %s regex_filters_json: %w", p.ID, err)
+	}
+	regionFilters, err := decodeStringSliceJSON(regionFiltersJSON)
+	if err != nil {
+		return nil, fmt.Errorf("decode platform %s region_filters_json: %w", p.ID, err)
+	}
+	p.RegexFilters = regexFilters
+	p.RegionFilters = regionFilters
 	return &p, nil
 }
 
@@ -170,10 +218,21 @@ func (r *StateRepo) ListPlatforms() ([]model.Platform, error) {
 	var result []model.Platform
 	for rows.Next() {
 		var p model.Platform
-		if err := rows.Scan(&p.ID, &p.Name, &p.StickyTTLNs, &p.RegexFiltersJSON,
-			&p.RegionFiltersJSON, &p.ReverseProxyMissAction, &p.AllocationPolicy, &p.UpdatedAtNs); err != nil {
+		var regexFiltersJSON, regionFiltersJSON string
+		if err := rows.Scan(&p.ID, &p.Name, &p.StickyTTLNs, &regexFiltersJSON,
+			&regionFiltersJSON, &p.ReverseProxyMissAction, &p.AllocationPolicy, &p.UpdatedAtNs); err != nil {
 			return nil, err
 		}
+		regexFilters, err := decodeStringSliceJSON(regexFiltersJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode platform %s regex_filters_json: %w", p.ID, err)
+		}
+		regionFilters, err := decodeStringSliceJSON(regionFiltersJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode platform %s region_filters_json: %w", p.ID, err)
+		}
+		p.RegexFilters = regexFilters
+		p.RegionFilters = regionFilters
 		result = append(result, p)
 	}
 	return result, rows.Err()
@@ -251,6 +310,11 @@ func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 // UpsertAccountHeaderRuleWithCreated inserts or updates a rule by url_prefix and
 // reports whether the row was newly created.
 func (r *StateRepo) UpsertAccountHeaderRuleWithCreated(rule model.AccountHeaderRule) (bool, error) {
+	headersJSON, err := encodeStringSliceJSON(rule.Headers)
+	if err != nil {
+		return false, fmt.Errorf("encode account header rule %q headers: %w", rule.URLPrefix, err)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -264,7 +328,7 @@ func (r *StateRepo) UpsertAccountHeaderRuleWithCreated(rule model.AccountHeaderR
 		INSERT INTO account_header_rules (url_prefix, headers_json, updated_at_ns)
 		VALUES (?, ?, ?)
 		ON CONFLICT(url_prefix) DO NOTHING
-	`, rule.URLPrefix, rule.HeadersJSON, rule.UpdatedAtNs)
+	`, rule.URLPrefix, headersJSON, rule.UpdatedAtNs)
 	if err != nil {
 		return false, err
 	}
@@ -275,10 +339,10 @@ func (r *StateRepo) UpsertAccountHeaderRuleWithCreated(rule model.AccountHeaderR
 	} else {
 		// Existing row: apply update path.
 		if _, err := tx.Exec(`
-			UPDATE account_header_rules
-			SET headers_json = ?, updated_at_ns = ?
-			WHERE url_prefix = ?
-		`, rule.HeadersJSON, rule.UpdatedAtNs, rule.URLPrefix); err != nil {
+				UPDATE account_header_rules
+				SET headers_json = ?, updated_at_ns = ?
+				WHERE url_prefix = ?
+			`, headersJSON, rule.UpdatedAtNs, rule.URLPrefix); err != nil {
 			return false, err
 		}
 	}
@@ -316,9 +380,15 @@ func (r *StateRepo) ListAccountHeaderRules() ([]model.AccountHeaderRule, error) 
 	var result []model.AccountHeaderRule
 	for rows.Next() {
 		var rule model.AccountHeaderRule
-		if err := rows.Scan(&rule.URLPrefix, &rule.HeadersJSON, &rule.UpdatedAtNs); err != nil {
+		var headersJSON string
+		if err := rows.Scan(&rule.URLPrefix, &headersJSON, &rule.UpdatedAtNs); err != nil {
 			return nil, err
 		}
+		headers, err := decodeStringSliceJSON(headersJSON)
+		if err != nil {
+			return nil, fmt.Errorf("decode account header rule %q headers_json: %w", rule.URLPrefix, err)
+		}
+		rule.Headers = headers
 		result = append(result, rule)
 	}
 	return result, rows.Err()

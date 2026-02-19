@@ -1,7 +1,9 @@
 package state
 
 import (
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -70,7 +72,7 @@ func TestEngine_StrongPersist_PlatformSurvivesRestart(t *testing.T) {
 
 	p := model.Platform{
 		ID: "p1", Name: "MyPlatform", StickyTTLNs: 5000,
-		RegexFiltersJSON: "[]", RegionFiltersJSON: "[]",
+		RegexFilters: []string{}, RegionFilters: []string{},
 		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: time.Now().UnixNano(),
 	}
@@ -113,20 +115,20 @@ func TestEngine_WeakPersist_CacheDataSurvivesRestart(t *testing.T) {
 	})
 	engine1.UpsertPlatform(model.Platform{
 		ID: "p1", Name: "P1", StickyTTLNs: 1000,
-		RegexFiltersJSON: "[]", RegionFiltersJSON: "[]",
+		RegexFilters: []string{}, RegionFilters: []string{},
 		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: 1,
 	})
 
 	// In-memory stores.
 	nodeStore := map[string]*model.NodeStatic{
-		"n1": {Hash: "n1", RawOptionsJSON: `{"type":"ss"}`, CreatedAtNs: 100},
+		"n1": {Hash: "n1", RawOptions: json.RawMessage(`{"type":"ss"}`), CreatedAtNs: 100},
 	}
 	dynamicStore := map[string]*model.NodeDynamic{
 		"n1": {Hash: "n1", FailureCount: 5, EgressIP: "10.0.0.1"},
 	}
 	subNodeStore := map[model.SubscriptionNodeKey]*model.SubscriptionNode{
-		{SubscriptionID: "s1", NodeHash: "n1"}: {SubscriptionID: "s1", NodeHash: "n1", TagsJSON: `["fast"]`},
+		{SubscriptionID: "s1", NodeHash: "n1"}: {SubscriptionID: "s1", NodeHash: "n1", Tags: []string{"fast"}},
 	}
 	latencyStore := map[model.NodeLatencyKey]*model.NodeLatency{
 		{NodeHash: "n1", Domain: "google.com"}: {NodeHash: "n1", Domain: "google.com", EwmaNs: 42000, LastUpdatedNs: 999},
@@ -169,7 +171,7 @@ func TestEngine_WeakPersist_CacheDataSurvivesRestart(t *testing.T) {
 	}
 
 	sns, _ := engine2.LoadAllSubscriptionNodes()
-	if len(sns) != 1 || sns[0].TagsJSON != `["fast"]` {
+	if len(sns) != 1 || !reflect.DeepEqual(sns[0].Tags, []string{"fast"}) {
 		t.Fatalf("subscription_nodes did not survive restart: %+v", sns)
 	}
 
@@ -194,11 +196,11 @@ func TestEngine_WeakPersist_FlushAndLoad(t *testing.T) {
 
 	// Simulate in-memory store.
 	nodeStore := map[string]*model.NodeStatic{
-		"hash-a": {Hash: "hash-a", RawOptionsJSON: `{"type":"ss"}`, CreatedAtNs: 100},
-		"hash-b": {Hash: "hash-b", RawOptionsJSON: `{"type":"vmess"}`, CreatedAtNs: 200},
+		"hash-a": {Hash: "hash-a", RawOptions: json.RawMessage(`{"type":"ss"}`), CreatedAtNs: 100},
+		"hash-b": {Hash: "hash-b", RawOptions: json.RawMessage(`{"type":"vmess"}`), CreatedAtNs: 200},
 	}
 	subNodeStore := map[model.SubscriptionNodeKey]*model.SubscriptionNode{
-		{SubscriptionID: "s1", NodeHash: "hash-a"}: {SubscriptionID: "s1", NodeHash: "hash-a", TagsJSON: `["tag1"]`},
+		{SubscriptionID: "s1", NodeHash: "hash-a"}: {SubscriptionID: "s1", NodeHash: "hash-a", Tags: []string{"tag1"}},
 	}
 	dynamicStore := map[string]*model.NodeDynamic{
 		"hash-a": {Hash: "hash-a", FailureCount: 2, EgressIP: "1.1.1.1"},
@@ -252,7 +254,7 @@ func TestEngine_WeakPersist_DeleteFlush(t *testing.T) {
 	engine, _, _ := newTestEngine(t)
 
 	nodeStore := map[string]*model.NodeStatic{
-		"hash-a": {Hash: "hash-a", RawOptionsJSON: `{}`, CreatedAtNs: 100},
+		"hash-a": {Hash: "hash-a", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 100},
 	}
 
 	readers := CacheReaders{
@@ -288,7 +290,7 @@ func TestEngine_WeakPersist_UpsertMissTreatedAsDelete(t *testing.T) {
 
 	// Insert a node first.
 	nodeStore := map[string]*model.NodeStatic{
-		"hash-a": {Hash: "hash-a", RawOptionsJSON: `{}`, CreatedAtNs: 100},
+		"hash-a": {Hash: "hash-a", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 100},
 	}
 	readers := CacheReaders{
 		ReadNodeStatic:       func(h string) *model.NodeStatic { return nodeStore[h] },
@@ -321,7 +323,7 @@ func TestEngine_ConcurrentMarkAndFlush(t *testing.T) {
 	nodeStore := make(map[string]*model.NodeStatic)
 	for i := 0; i < 100; i++ {
 		h := fmt.Sprintf("node-%d", i)
-		nodeStore[h] = &model.NodeStatic{Hash: h, RawOptionsJSON: `{}`, CreatedAtNs: int64(i)}
+		nodeStore[h] = &model.NodeStatic{Hash: h, RawOptions: json.RawMessage(`{}`), CreatedAtNs: int64(i)}
 	}
 
 	readers := CacheReaders{

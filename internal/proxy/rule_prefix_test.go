@@ -65,10 +65,10 @@ func TestNormalizeRulePrefix(t *testing.T) {
 func TestBuildAccountMatcher_UsesSharedRulePrefixNormalization(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
 		// Leading/trailing spaces should be normalized by shared helper.
-		{URLPrefix: "  API.Example.COM/v1  ", HeadersJSON: `["x-good"]`, UpdatedAtNs: 10},
+		{URLPrefix: "  API.Example.COM/v1  ", Headers: []string{"x-good"}, UpdatedAtNs: 10},
 		// Invalid prefix with query should be ignored by matcher build path.
-		{URLPrefix: "api.example.com/v1?x=1", HeadersJSON: `["x-bad"]`, UpdatedAtNs: 20},
-		{URLPrefix: "*", HeadersJSON: `["x-fallback"]`, UpdatedAtNs: 1},
+		{URLPrefix: "api.example.com/v1?x=1", Headers: []string{"x-bad"}, UpdatedAtNs: 20},
+		{URLPrefix: "*", Headers: []string{"x-fallback"}, UpdatedAtNs: 1},
 	})
 
 	prefix, headers := m.MatchWithPrefix("api.example.com", "/v1/orders")

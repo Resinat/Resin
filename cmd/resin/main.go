@@ -384,21 +384,12 @@ func ensureDefaultPlatform(
 		return nil
 	}
 
-	regexJSON, err := json.Marshal(envCfg.DefaultPlatformRegexFilters)
-	if err != nil {
-		return fmt.Errorf("marshal default regex_filters: %w", err)
-	}
-	regionJSON, err := json.Marshal(envCfg.DefaultPlatformRegionFilters)
-	if err != nil {
-		return fmt.Errorf("marshal default region_filters: %w", err)
-	}
-
 	defaultPlatform := model.Platform{
 		ID:                     platform.DefaultPlatformID,
 		Name:                   platform.DefaultPlatformName,
 		StickyTTLNs:            int64(envCfg.DefaultPlatformStickyTTL),
-		RegexFiltersJSON:       string(regexJSON),
-		RegionFiltersJSON:      string(regionJSON),
+		RegexFilters:           append([]string(nil), envCfg.DefaultPlatformRegexFilters...),
+		RegionFilters:          append([]string(nil), envCfg.DefaultPlatformRegionFilters...),
 		ReverseProxyMissAction: envCfg.DefaultPlatformReverseProxyMissAction,
 		AllocationPolicy:       envCfg.DefaultPlatformAllocationPolicy,
 		UpdatedAtNs:            time.Now().UnixNano(),
@@ -426,9 +417,9 @@ func newFlushReaders(
 				return nil
 			}
 			return &model.NodeStatic{
-				Hash:           hash,
-				RawOptionsJSON: string(entry.RawOptions),
-				CreatedAtNs:    entry.CreatedAt.UnixNano(),
+				Hash:        hash,
+				RawOptions:  append(json.RawMessage(nil), entry.RawOptions...),
+				CreatedAtNs: entry.CreatedAt.UnixNano(),
 			}
 		},
 		ReadNodeDynamic: func(hash string) *model.NodeDynamic {
@@ -489,11 +480,10 @@ func newFlushReaders(
 			if !ok {
 				return nil
 			}
-			tagsJSONBytes, _ := json.Marshal(tags)
 			return &model.SubscriptionNode{
 				SubscriptionID: key.SubscriptionID,
 				NodeHash:       key.NodeHash,
-				TagsJSON:       string(tagsJSONBytes),
+				Tags:           append([]string(nil), tags...),
 			}
 		},
 	}
@@ -684,7 +674,7 @@ func loadBootstrapNodeStatics(
 		}
 		entry := &node.NodeEntry{
 			Hash:       hash,
-			RawOptions: json.RawMessage(ns.RawOptionsJSON),
+			RawOptions: append(json.RawMessage(nil), ns.RawOptions...),
 			CreatedAt:  time.Unix(0, ns.CreatedAtNs),
 		}
 		entry.LatencyTable = node.NewLatencyTable(envCfg.MaxLatencyTableEntries)
@@ -754,11 +744,7 @@ func restoreBootstrapSubscriptionBindings(
 			if err != nil {
 				continue
 			}
-			var tags []string
-			if sn.TagsJSON != "" {
-				_ = json.Unmarshal([]byte(sn.TagsJSON), &tags)
-			}
-			managed.Store(hash, tags)
+			managed.Store(hash, append([]string(nil), sn.Tags...))
 			// Also set the node's subscription ID reference.
 			if entry, ok := pool.GetEntry(hash); ok {
 				entry.AddSubscriptionID(subID)

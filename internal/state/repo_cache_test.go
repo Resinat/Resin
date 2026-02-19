@@ -1,6 +1,8 @@
 package state
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/resin-proxy/resin/internal/model"
@@ -26,8 +28,8 @@ func TestCacheRepo_NodesStatic_BulkUpsertAndLoad(t *testing.T) {
 	repo := newTestCacheRepo(t)
 
 	nodes := []model.NodeStatic{
-		{Hash: "aaa", RawOptionsJSON: `{"type":"ss"}`, CreatedAtNs: 100},
-		{Hash: "bbb", RawOptionsJSON: `{"type":"vmess"}`, CreatedAtNs: 200},
+		{Hash: "aaa", RawOptions: json.RawMessage(`{"type":"ss"}`), CreatedAtNs: 100},
+		{Hash: "bbb", RawOptions: json.RawMessage(`{"type":"vmess"}`), CreatedAtNs: 200},
 	}
 	if err := repo.BulkUpsertNodesStatic(nodes); err != nil {
 		t.Fatal(err)
@@ -42,14 +44,14 @@ func TestCacheRepo_NodesStatic_BulkUpsertAndLoad(t *testing.T) {
 	}
 
 	// Idempotent upsert: update existing.
-	nodes[0].RawOptionsJSON = `{"type":"ss","updated":true}`
+	nodes[0].RawOptions = json.RawMessage(`{"type":"ss","updated":true}`)
 	if err := repo.BulkUpsertNodesStatic(nodes[:1]); err != nil {
 		t.Fatal(err)
 	}
 	loaded, _ = repo.LoadAllNodesStatic()
 	for _, n := range loaded {
-		if n.Hash == "aaa" && n.RawOptionsJSON != `{"type":"ss","updated":true}` {
-			t.Fatalf("expected updated options, got %s", n.RawOptionsJSON)
+		if n.Hash == "aaa" && string(n.RawOptions) != `{"type":"ss","updated":true}` {
+			t.Fatalf("expected updated options, got %s", string(n.RawOptions))
 		}
 	}
 }
@@ -58,8 +60,8 @@ func TestCacheRepo_NodesStatic_BulkDelete(t *testing.T) {
 	repo := newTestCacheRepo(t)
 
 	nodes := []model.NodeStatic{
-		{Hash: "aaa", RawOptionsJSON: "{}", CreatedAtNs: 100},
-		{Hash: "bbb", RawOptionsJSON: "{}", CreatedAtNs: 200},
+		{Hash: "aaa", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 100},
+		{Hash: "bbb", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 200},
 	}
 	repo.BulkUpsertNodesStatic(nodes)
 
@@ -195,8 +197,8 @@ func TestCacheRepo_SubscriptionNodes_BulkUpsertAndLoad(t *testing.T) {
 	repo := newTestCacheRepo(t)
 
 	sns := []model.SubscriptionNode{
-		{SubscriptionID: "s1", NodeHash: "n1", TagsJSON: `["tag1","tag2"]`},
-		{SubscriptionID: "s1", NodeHash: "n2", TagsJSON: `["tag3"]`},
+		{SubscriptionID: "s1", NodeHash: "n1", Tags: []string{"tag1", "tag2"}},
+		{SubscriptionID: "s1", NodeHash: "n2", Tags: []string{"tag3"}},
 	}
 	if err := repo.BulkUpsertSubscriptionNodes(sns); err != nil {
 		t.Fatal(err)
@@ -211,12 +213,12 @@ func TestCacheRepo_SubscriptionNodes_BulkUpsertAndLoad(t *testing.T) {
 	}
 
 	// Idempotent upsert: update tags.
-	sns[0].TagsJSON = `["tag1-updated"]`
+	sns[0].Tags = []string{"tag1-updated"}
 	repo.BulkUpsertSubscriptionNodes(sns[:1])
 	loaded, _ = repo.LoadAllSubscriptionNodes()
 	for _, sn := range loaded {
-		if sn.NodeHash == "n1" && sn.TagsJSON != `["tag1-updated"]` {
-			t.Fatalf("expected updated tags, got %s", sn.TagsJSON)
+		if sn.NodeHash == "n1" && !reflect.DeepEqual(sn.Tags, []string{"tag1-updated"}) {
+			t.Fatalf("expected updated tags, got %+v", sn.Tags)
 		}
 	}
 }
@@ -225,8 +227,8 @@ func TestCacheRepo_SubscriptionNodes_BulkDelete(t *testing.T) {
 	repo := newTestCacheRepo(t)
 
 	repo.BulkUpsertSubscriptionNodes([]model.SubscriptionNode{
-		{SubscriptionID: "s1", NodeHash: "n1", TagsJSON: "[]"},
-		{SubscriptionID: "s1", NodeHash: "n2", TagsJSON: "[]"},
+		{SubscriptionID: "s1", NodeHash: "n1", Tags: []string{}},
+		{SubscriptionID: "s1", NodeHash: "n2", Tags: []string{}},
 	})
 	repo.BulkDeleteSubscriptionNodes([]model.SubscriptionNodeKey{{SubscriptionID: "s1", NodeHash: "n1"}})
 
@@ -282,7 +284,7 @@ func TestCacheRepo_FlushTx_RollbackOnFailure(t *testing.T) {
 
 	// Seed: insert a node_static that should survive the failed FlushTx.
 	seed := []model.NodeStatic{
-		{Hash: "pre-existing", RawOptionsJSON: `{"seed":true}`, CreatedAtNs: 1},
+		{Hash: "pre-existing", RawOptions: json.RawMessage(`{"seed":true}`), CreatedAtNs: 1},
 	}
 	if err := repo.BulkUpsertNodesStatic(seed); err != nil {
 		t.Fatal(err)
@@ -297,7 +299,7 @@ func TestCacheRepo_FlushTx_RollbackOnFailure(t *testing.T) {
 	// Build a FlushOps that has work for both nodes_static and node_latency.
 	ops := FlushOps{
 		UpsertNodesStatic: []model.NodeStatic{
-			{Hash: "new-node", RawOptionsJSON: `{"new":true}`, CreatedAtNs: 2},
+			{Hash: "new-node", RawOptions: json.RawMessage(`{"new":true}`), CreatedAtNs: 2},
 		},
 		UpsertNodeLatency: []model.NodeLatency{
 			{NodeHash: "aaa", Domain: "example.com", EwmaNs: 100, LastUpdatedNs: 200},

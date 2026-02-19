@@ -1,7 +1,6 @@
 package platform
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 
@@ -54,39 +53,22 @@ func NewConfiguredPlatform(
 	return plat
 }
 
-// DecodeRegexFiltersJSON decodes and compiles platform regex filters from JSON.
-func DecodeRegexFiltersJSON(platformID, raw string) ([]*regexp.Regexp, error) {
-	var regexStrs []string
-	if err := json.Unmarshal([]byte(raw), &regexStrs); err != nil {
-		return nil, fmt.Errorf("decode platform %s regex_filters_json: %w", platformID, err)
-	}
-	compiled, err := CompileRegexFilters(regexStrs)
+// CompileModelRegexFilters compiles regex filters from persisted model values.
+func CompileModelRegexFilters(platformID string, regexFilters []string) ([]*regexp.Regexp, error) {
+	compiled, err := CompileRegexFilters(regexFilters)
 	if err != nil {
-		return nil, fmt.Errorf("decode platform %s regex_filters_json: %w", platformID, err)
+		return nil, fmt.Errorf("decode platform %s regex_filters: %w", platformID, err)
 	}
 	return compiled, nil
 }
 
-// DecodeRegionFiltersJSON decodes platform region filters from JSON.
-func DecodeRegionFiltersJSON(platformID, raw string) ([]string, error) {
-	var regionFilters []string
-	if err := json.Unmarshal([]byte(raw), &regionFilters); err != nil {
-		return nil, fmt.Errorf("decode platform %s region_filters_json: %w", platformID, err)
-	}
-	if regionFilters == nil {
-		regionFilters = []string{}
-	}
-	return regionFilters, nil
-}
-
 // BuildFromModel builds a runtime platform from a persisted model.Platform.
 func BuildFromModel(mp model.Platform) (*Platform, error) {
-	regexFilters, err := DecodeRegexFiltersJSON(mp.ID, mp.RegexFiltersJSON)
+	regexFilters, err := CompileModelRegexFilters(mp.ID, mp.RegexFilters)
 	if err != nil {
 		return nil, err
 	}
-	regionFilters, err := DecodeRegionFiltersJSON(mp.ID, mp.RegionFiltersJSON)
-	if err != nil {
+	if err := ValidateRegionFilters(mp.RegionFilters); err != nil {
 		return nil, err
 	}
 
@@ -94,7 +76,7 @@ func BuildFromModel(mp model.Platform) (*Platform, error) {
 		mp.ID,
 		mp.Name,
 		regexFilters,
-		regionFilters,
+		append([]string(nil), mp.RegionFilters...),
 		mp.StickyTTLNs,
 		mp.ReverseProxyMissAction,
 		mp.AllocationPolicy,

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -9,10 +10,18 @@ import (
 	"github.com/resin-proxy/resin/internal/model"
 )
 
+func mustHeaders(raw string) []string {
+	var headers []string
+	if err := json.Unmarshal([]byte(raw), &headers); err != nil {
+		panic(err)
+	}
+	return headers
+}
+
 func TestAccountMatcher_ExactMatch(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`},
-		{URLPrefix: "api.example.com/v2", HeadersJSON: `["x-api-key"]`},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["Authorization"]`)},
+		{URLPrefix: "api.example.com/v2", Headers: mustHeaders(`["x-api-key"]`)},
 	})
 
 	h := m.Match("api.example.com", "/v1/users")
@@ -28,9 +37,9 @@ func TestAccountMatcher_ExactMatch(t *testing.T) {
 
 func TestAccountMatcher_LongestPrefix(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com", HeadersJSON: `["Authorization"]`},
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-api-key"]`},
-		{URLPrefix: "api.example.com/v1/admin", HeadersJSON: `["x-admin-key"]`},
+		{URLPrefix: "api.example.com", Headers: mustHeaders(`["Authorization"]`)},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["x-api-key"]`)},
+		{URLPrefix: "api.example.com/v1/admin", Headers: mustHeaders(`["x-admin-key"]`)},
 	})
 
 	// /v1/admin/users → longest match is api.example.com/v1/admin
@@ -54,8 +63,8 @@ func TestAccountMatcher_LongestPrefix(t *testing.T) {
 
 func TestAccountMatcher_WildcardFallback(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-api-key"]`},
-		{URLPrefix: "*", HeadersJSON: `["Authorization", "x-api-key"]`},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["x-api-key"]`)},
+		{URLPrefix: "*", Headers: mustHeaders(`["Authorization", "x-api-key"]`)},
 	})
 
 	// Known prefix.
@@ -73,7 +82,7 @@ func TestAccountMatcher_WildcardFallback(t *testing.T) {
 
 func TestAccountMatcher_CaseInsensitive(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "Api.Example.COM/V1", HeadersJSON: `["Authorization"]`},
+		{URLPrefix: "Api.Example.COM/V1", Headers: mustHeaders(`["Authorization"]`)},
 	})
 
 	h := m.Match("API.EXAMPLE.COM", "/V1/users")
@@ -84,12 +93,12 @@ func TestAccountMatcher_CaseInsensitive(t *testing.T) {
 
 func TestBuildAccountMatcher_NormalizedConflictPrefersLatestUpdatedAt(t *testing.T) {
 	rulesA := []model.AccountHeaderRule{
-		{URLPrefix: "API.Example.com/v1", HeadersJSON: `["x-old"]`, UpdatedAtNs: 10},
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-new"]`, UpdatedAtNs: 20},
+		{URLPrefix: "API.Example.com/v1", Headers: mustHeaders(`["x-old"]`), UpdatedAtNs: 10},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["x-new"]`), UpdatedAtNs: 20},
 	}
 	rulesB := []model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-new"]`, UpdatedAtNs: 20},
-		{URLPrefix: "API.Example.com/v1", HeadersJSON: `["x-old"]`, UpdatedAtNs: 10},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["x-new"]`), UpdatedAtNs: 20},
+		{URLPrefix: "API.Example.com/v1", Headers: mustHeaders(`["x-old"]`), UpdatedAtNs: 10},
 	}
 
 	m1 := BuildAccountMatcher(rulesA)
@@ -108,12 +117,12 @@ func TestBuildAccountMatcher_NormalizedConflictPrefersLatestUpdatedAt(t *testing
 
 func TestBuildAccountMatcher_NormalizedConflictTieIsDeterministic(t *testing.T) {
 	rulesA := []model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-b"]`, UpdatedAtNs: 100},
-		{URLPrefix: "Api.Example.com/v1", HeadersJSON: `["x-a"]`, UpdatedAtNs: 100},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["x-b"]`), UpdatedAtNs: 100},
+		{URLPrefix: "Api.Example.com/v1", Headers: mustHeaders(`["x-a"]`), UpdatedAtNs: 100},
 	}
 	rulesB := []model.AccountHeaderRule{
-		{URLPrefix: "Api.Example.com/v1", HeadersJSON: `["x-a"]`, UpdatedAtNs: 100},
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-b"]`, UpdatedAtNs: 100},
+		{URLPrefix: "Api.Example.com/v1", Headers: mustHeaders(`["x-a"]`), UpdatedAtNs: 100},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["x-b"]`), UpdatedAtNs: 100},
 	}
 
 	m1 := BuildAccountMatcher(rulesA)
@@ -129,7 +138,7 @@ func TestBuildAccountMatcher_NormalizedConflictTieIsDeterministic(t *testing.T) 
 
 func TestAccountMatcher_HostWithPort(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["Authorization"]`)},
 	})
 
 	h := m.Match("api.example.com:443", "/v1/users")
@@ -140,7 +149,7 @@ func TestAccountMatcher_HostWithPort(t *testing.T) {
 
 func TestAccountMatcher_IPv6HostWithPort(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "::1/v1", HeadersJSON: `["Authorization"]`},
+		{URLPrefix: "::1/v1", Headers: mustHeaders(`["Authorization"]`)},
 	})
 
 	h := m.Match("[::1]:443", "/v1/users")
@@ -151,7 +160,7 @@ func TestAccountMatcher_IPv6HostWithPort(t *testing.T) {
 
 func TestAccountMatcher_BareIPv6NoPort(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "2001:db8::1/v1", HeadersJSON: `["Authorization"]`},
+		{URLPrefix: "2001:db8::1/v1", Headers: mustHeaders(`["Authorization"]`)},
 	})
 
 	h := m.Match("2001:db8::1", "/v1/users")
@@ -162,7 +171,7 @@ func TestAccountMatcher_BareIPv6NoPort(t *testing.T) {
 
 func TestAccountMatcher_NoMatch(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["Authorization"]`)},
 	})
 
 	h := m.Match("unknown.com", "/anything")
@@ -173,7 +182,7 @@ func TestAccountMatcher_NoMatch(t *testing.T) {
 
 func TestAccountMatcher_QueryStripped(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["Authorization"]`)},
 	})
 
 	h := m.Match("api.example.com", "/v1/users?key=val")
@@ -184,9 +193,9 @@ func TestAccountMatcher_QueryStripped(t *testing.T) {
 
 func TestAccountMatcher_MatchWithPrefix(t *testing.T) {
 	m := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-base"]`},
-		{URLPrefix: "api.example.com/v1/team%2Fa", HeadersJSON: `["x-special"]`},
-		{URLPrefix: "*", HeadersJSON: `["Authorization"]`},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["x-base"]`)},
+		{URLPrefix: "api.example.com/v1/team%2Fa", Headers: mustHeaders(`["x-special"]`)},
+		{URLPrefix: "*", Headers: mustHeaders(`["Authorization"]`)},
 	})
 
 	prefix, h := m.MatchWithPrefix("api.example.com:443", "/v1/team%2Fa/profile?x=1")
@@ -208,7 +217,7 @@ func TestAccountMatcher_MatchWithPrefix(t *testing.T) {
 
 func TestAccountMatcherRuntime_Swap(t *testing.T) {
 	initial := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["Authorization"]`},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["Authorization"]`)},
 	})
 	rt := NewAccountMatcherRuntime(initial)
 
@@ -218,7 +227,7 @@ func TestAccountMatcherRuntime_Swap(t *testing.T) {
 	}
 
 	next := BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-api-key"]`},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["x-api-key"]`)},
 	})
 	rt.Swap(next)
 
@@ -236,7 +245,7 @@ func TestAccountMatcherRuntime_ReplaceRules(t *testing.T) {
 	}
 
 	rt.ReplaceRules([]model.AccountHeaderRule{
-		{URLPrefix: "*", HeadersJSON: `["Authorization", "x-api-key"]`},
+		{URLPrefix: "*", Headers: mustHeaders(`["Authorization", "x-api-key"]`)},
 	})
 	h := rt.Match("unknown.com", "/anything")
 	if len(h) != 2 || h[0] != "Authorization" || h[1] != "x-api-key" {
@@ -246,7 +255,7 @@ func TestAccountMatcherRuntime_ReplaceRules(t *testing.T) {
 
 func TestAccountMatcherRuntime_MatchWithPrefix(t *testing.T) {
 	rt := NewAccountMatcherRuntime(BuildAccountMatcher([]model.AccountHeaderRule{
-		{URLPrefix: "api.example.com/v1", HeadersJSON: `["x-api-key"]`},
+		{URLPrefix: "api.example.com/v1", Headers: mustHeaders(`["x-api-key"]`)},
 	}))
 
 	prefix, headers := rt.MatchWithPrefix("api.example.com", "/v1/users")

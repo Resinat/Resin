@@ -78,6 +78,11 @@ func (e *StateEngine) DeletePlatform(id string) error {
 	return e.stateRepo.DeletePlatform(id)
 }
 
+// GetPlatformName reads a platform name by ID without decoding filter columns.
+func (e *StateEngine) GetPlatformName(id string) (string, error) {
+	return e.stateRepo.GetPlatformName(id)
+}
+
 // GetPlatform reads one platform by ID.
 func (e *StateEngine) GetPlatform(id string) (*model.Platform, error) {
 	return e.stateRepo.GetPlatform(id)

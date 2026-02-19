@@ -1,13 +1,15 @@
 // Package model defines domain structs shared across the persistence layer.
 package model
 
+import "encoding/json"
+
 // Platform represents a routing platform.
 type Platform struct {
 	ID                     string `json:"id"`
 	Name                   string `json:"name"`
 	StickyTTLNs            int64  `json:"sticky_ttl_ns"`
-	RegexFiltersJSON       string `json:"regex_filters_json"`
-	RegionFiltersJSON      string `json:"region_filters_json"`
+	RegexFilters           []string
+	RegionFilters          []string
 	ReverseProxyMissAction string `json:"reverse_proxy_miss_action"`
 	AllocationPolicy       string `json:"allocation_policy"`
 	UpdatedAtNs            int64  `json:"updated_at_ns"`
@@ -28,15 +30,15 @@ type Subscription struct {
 // AccountHeaderRule defines header extraction rules for reverse proxy account matching.
 type AccountHeaderRule struct {
 	URLPrefix   string `json:"url_prefix"`
-	HeadersJSON string `json:"headers_json"`
-	UpdatedAtNs int64  `json:"updated_at_ns"`
+	Headers     []string
+	UpdatedAtNs int64 `json:"updated_at_ns"`
 }
 
 // NodeStatic holds the immutable portion of a node's data.
 type NodeStatic struct {
-	Hash           string `json:"hash"`
-	RawOptionsJSON string `json:"raw_options_json"`
-	CreatedAtNs    int64  `json:"created_at_ns"`
+	Hash        string          `json:"hash"`
+	RawOptions  json.RawMessage `json:"raw_options_json"`
+	CreatedAtNs int64           `json:"created_at_ns"`
 }
 
 // NodeDynamic holds the mutable runtime state of a node.
@@ -83,7 +85,7 @@ type LeaseKey struct {
 type SubscriptionNode struct {
 	SubscriptionID string `json:"subscription_id"`
 	NodeHash       string `json:"node_hash"`
-	TagsJSON       string `json:"tags_json"`
+	Tags           []string
 }
 
 // SubscriptionNodeKey is the composite primary key for subscription_nodes.

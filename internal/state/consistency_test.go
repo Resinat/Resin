@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"testing"
 
@@ -25,7 +26,7 @@ func TestRepairConsistency_RemovesOrphans(t *testing.T) {
 	stateRepo := newStateRepo(sdb)
 	stateRepo.UpsertPlatform(model.Platform{
 		ID: "p1", Name: "P1", StickyTTLNs: 1000,
-		RegexFiltersJSON: "[]", RegionFiltersJSON: "[]",
+		RegexFilters: []string{}, RegionFilters: []string{},
 		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: 1,
 	})
@@ -46,13 +47,13 @@ func TestRepairConsistency_RemovesOrphans(t *testing.T) {
 
 	// Valid node (referenced by valid subscription_node).
 	cacheRepo.BulkUpsertNodesStatic([]model.NodeStatic{
-		{Hash: "valid-node", RawOptionsJSON: `{}`, CreatedAtNs: 1},
-		{Hash: "orphan-node", RawOptionsJSON: `{}`, CreatedAtNs: 2}, // no subscription_node ref
+		{Hash: "valid-node", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 1},
+		{Hash: "orphan-node", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 2}, // no subscription_node ref
 	})
 	cacheRepo.BulkUpsertSubscriptionNodes([]model.SubscriptionNode{
-		{SubscriptionID: "s1", NodeHash: "valid-node", TagsJSON: "[]"},               // valid
-		{SubscriptionID: "s-missing", NodeHash: "valid-node", TagsJSON: "[]"},        // orphan: sub doesn't exist
-		{SubscriptionID: "s1", NodeHash: "node-missing-from-static", TagsJSON: "[]"}, // orphan: node doesn't exist in static
+		{SubscriptionID: "s1", NodeHash: "valid-node", Tags: []string{}},               // valid
+		{SubscriptionID: "s-missing", NodeHash: "valid-node", Tags: []string{}},        // orphan: sub doesn't exist
+		{SubscriptionID: "s1", NodeHash: "node-missing-from-static", Tags: []string{}}, // orphan: node doesn't exist in static
 	})
 	cacheRepo.BulkUpsertNodesDynamic([]model.NodeDynamic{
 		{Hash: "valid-node"},
@@ -121,7 +122,7 @@ func TestRepairConsistency_ValidRecordsSurvive(t *testing.T) {
 	stateRepo := newStateRepo(sdb)
 	stateRepo.UpsertPlatform(model.Platform{
 		ID: "p1", Name: "P1", StickyTTLNs: 1000,
-		RegexFiltersJSON: "[]", RegionFiltersJSON: "[]",
+		RegexFilters: []string{}, RegionFilters: []string{},
 		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: 1,
 	})
@@ -136,10 +137,10 @@ func TestRepairConsistency_ValidRecordsSurvive(t *testing.T) {
 
 	cacheRepo := newCacheRepo(cdb)
 	cacheRepo.BulkUpsertNodesStatic([]model.NodeStatic{
-		{Hash: "n1", RawOptionsJSON: `{}`, CreatedAtNs: 1},
+		{Hash: "n1", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 1},
 	})
 	cacheRepo.BulkUpsertSubscriptionNodes([]model.SubscriptionNode{
-		{SubscriptionID: "s1", NodeHash: "n1", TagsJSON: `["t1"]`},
+		{SubscriptionID: "s1", NodeHash: "n1", Tags: []string{"t1"}},
 	})
 	cacheRepo.BulkUpsertNodesDynamic([]model.NodeDynamic{
 		{Hash: "n1", FailureCount: 1},

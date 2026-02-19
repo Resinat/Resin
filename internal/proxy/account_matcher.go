@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"encoding/json"
 	"net"
 	"net/http"
 	"net/netip"
@@ -39,7 +38,7 @@ type normalizedRule struct {
 	normalizedPrefix string
 	rawPrefix        string
 	headers          []string
-	headersJSON      string
+	headersKey       string
 	updatedAtNs      int64
 }
 
@@ -50,7 +49,11 @@ func shouldReplaceRule(next, current normalizedRule) bool {
 	if next.rawPrefix != current.rawPrefix {
 		return next.rawPrefix < current.rawPrefix
 	}
-	return next.headersJSON < current.headersJSON
+	return next.headersKey < current.headersKey
+}
+
+func headersTieBreakKey(headers []string) string {
+	return strings.Join(headers, "\x00")
 }
 
 // BuildAccountMatcher constructs a matcher from persisted rules.
@@ -58,10 +61,7 @@ func BuildAccountMatcher(rules []model.AccountHeaderRule) *AccountMatcher {
 	m := &AccountMatcher{root: &matcherNode{}}
 	winners := make(map[string]normalizedRule)
 	for _, r := range rules {
-		var headers []string
-		if err := json.Unmarshal([]byte(r.HeadersJSON), &headers); err != nil {
-			continue
-		}
+		headers := append([]string(nil), r.Headers...)
 		normPrefix, err := NormalizeRulePrefix(r.URLPrefix)
 		if err != nil {
 			continue
@@ -70,7 +70,7 @@ func BuildAccountMatcher(rules []model.AccountHeaderRule) *AccountMatcher {
 			normalizedPrefix: normPrefix,
 			rawPrefix:        r.URLPrefix,
 			headers:          headers,
-			headersJSON:      r.HeadersJSON,
+			headersKey:       headersTieBreakKey(headers),
 			updatedAtNs:      r.UpdatedAtNs,
 		}
 		if current, ok := winners[normPrefix]; !ok || shouldReplaceRule(candidate, current) {

@@ -12,8 +12,8 @@ func TestBuildFromModel_Success(t *testing.T) {
 		ID:                     "plat-1",
 		Name:                   "Platform-1",
 		StickyTTLNs:            3600,
-		RegexFiltersJSON:       `["^us-.*$"]`,
-		RegionFiltersJSON:      `["us","jp"]`,
+		RegexFilters:           []string{`^us-.*$`},
+		RegionFilters:          []string{"us", "jp"},
 		ReverseProxyMissAction: "REJECT",
 		AllocationPolicy:       "PREFER_LOW_LATENCY",
 	}
@@ -45,28 +45,27 @@ func TestBuildFromModel_Success(t *testing.T) {
 
 func TestBuildFromModel_InvalidRegex(t *testing.T) {
 	_, err := BuildFromModel(model.Platform{
-		ID:                "plat-1",
-		RegexFiltersJSON:  `["(broken"]`,
-		RegionFiltersJSON: `[]`,
+		ID:           "plat-1",
+		RegexFilters: []string{`(broken`},
 	})
 	if err == nil {
 		t.Fatal("expected regex decode error")
 	}
-	if !strings.Contains(err.Error(), "regex_filters_json") {
+	if !strings.Contains(err.Error(), "regex_filters") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestBuildFromModel_InvalidRegionJSON(t *testing.T) {
+func TestBuildFromModel_InvalidRegionFilters(t *testing.T) {
 	_, err := BuildFromModel(model.Platform{
-		ID:                "plat-1",
-		RegexFiltersJSON:  `[]`,
-		RegionFiltersJSON: `{"bad":"shape"}`,
+		ID:            "plat-1",
+		RegexFilters:  []string{},
+		RegionFilters: []string{"US"},
 	})
 	if err == nil {
 		t.Fatal("expected region decode error")
 	}
-	if !strings.Contains(err.Error(), "region_filters_json") {
+	if !strings.Contains(err.Error(), "region_filters[0]") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,9 +13,9 @@ func TestFlushWorker_ThresholdTriggered(t *testing.T) {
 	engine, _, _ := newTestEngine(t)
 
 	nodeStore := map[string]*model.NodeStatic{
-		"n1": {Hash: "n1", RawOptionsJSON: `{}`, CreatedAtNs: 1},
-		"n2": {Hash: "n2", RawOptionsJSON: `{}`, CreatedAtNs: 2},
-		"n3": {Hash: "n3", RawOptionsJSON: `{}`, CreatedAtNs: 3},
+		"n1": {Hash: "n1", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 1},
+		"n2": {Hash: "n2", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 2},
+		"n3": {Hash: "n3", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 3},
 	}
 	readers := CacheReaders{
 		ReadNodeStatic:       func(h string) *model.NodeStatic { return nodeStore[h] },
@@ -60,7 +61,7 @@ func TestFlushWorker_PeriodicTriggered(t *testing.T) {
 	engine, _, _ := newTestEngine(t)
 
 	nodeStore := map[string]*model.NodeStatic{
-		"n1": {Hash: "n1", RawOptionsJSON: `{}`, CreatedAtNs: 1},
+		"n1": {Hash: "n1", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 1},
 	}
 	readers := CacheReaders{
 		ReadNodeStatic:       func(h string) *model.NodeStatic { return nodeStore[h] },
@@ -129,7 +130,7 @@ func TestFlushWorker_StopFinalFlush(t *testing.T) {
 	engine, _, _ := newTestEngine(t)
 
 	nodeStore := map[string]*model.NodeStatic{
-		"n1": {Hash: "n1", RawOptionsJSON: `{}`, CreatedAtNs: 1},
+		"n1": {Hash: "n1", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 1},
 	}
 	readers := CacheReaders{
 		ReadNodeStatic:       func(h string) *model.NodeStatic { return nodeStore[h] },
@@ -174,7 +175,7 @@ func TestFlushWorker_DynamicConfigPulled(t *testing.T) {
 	engine, _, _ := newTestEngine(t)
 
 	nodeStore := map[string]*model.NodeStatic{
-		"n1": {Hash: "n1", RawOptionsJSON: `{}`, CreatedAtNs: 1},
+		"n1": {Hash: "n1", RawOptions: json.RawMessage(`{}`), CreatedAtNs: 1},
 	}
 	readers := CacheReaders{
 		ReadNodeStatic:       func(h string) *model.NodeStatic { return nodeStore[h] },

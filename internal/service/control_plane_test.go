@@ -238,12 +238,12 @@ func TestResolveAccountHeaderRule_UsesEscapedPathSegments(t *testing.T) {
 
 	rules := []model.AccountHeaderRule{
 		{
-			URLPrefix:   "api.example.com/v1",
-			HeadersJSON: `["x-base"]`,
+			URLPrefix: "api.example.com/v1",
+			Headers:   []string{"x-base"},
 		},
 		{
-			URLPrefix:   "api.example.com/v1/team%2Fa",
-			HeadersJSON: `["x-special"]`,
+			URLPrefix: "api.example.com/v1/team%2Fa",
+			Headers:   []string{"x-special"},
 		},
 	}
 	for _, rule := range rules {
@@ -339,7 +339,7 @@ func TestDeleteAccountHeaderRule_DoesNotFallbackForLegacyMixedCaseRows(t *testin
 
 	legacy := model.AccountHeaderRule{
 		URLPrefix:   "API.Example.COM/v1",
-		HeadersJSON: `["Authorization"]`,
+		Headers:     []string{"Authorization"},
 		UpdatedAtNs: time.Now().UnixNano(),
 	}
 	if _, err := engine.UpsertAccountHeaderRuleWithCreated(legacy); err != nil {
@@ -521,8 +521,8 @@ func TestListPlatforms_FailsFastOnCorruptPersistedFiltersJSON(t *testing.T) {
 		ID:                     "plat-1",
 		Name:                   "broken-platform",
 		StickyTTLNs:            int64(time.Hour),
-		RegexFiltersJSON:       `["^ok$"]`,
-		RegionFiltersJSON:      `["us"]`,
+		RegexFilters:           []string{`^ok$`},
+		RegionFilters:          []string{"us"},
 		ReverseProxyMissAction: "RANDOM",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            now,
@@ -556,8 +556,8 @@ func TestListPlatforms_FailsFastOnCorruptPersistedFiltersJSON(t *testing.T) {
 	if serviceErr.Code != "INTERNAL" {
 		t.Fatalf("service error code = %q, want INTERNAL", serviceErr.Code)
 	}
-	if !strings.Contains(serviceErr.Message, "decode platform") {
-		t.Fatalf("unexpected service error message: %q", serviceErr.Message)
+	if serviceErr.Err == nil || !strings.Contains(serviceErr.Err.Error(), "decode platform") {
+		t.Fatalf("unexpected wrapped service error: %v", serviceErr.Err)
 	}
 }
 
@@ -577,8 +577,8 @@ func TestGetPlatform_FailsFastOnCorruptPersistedFiltersJSON(t *testing.T) {
 		ID:                     "plat-1",
 		Name:                   "broken-platform",
 		StickyTTLNs:            int64(time.Hour),
-		RegexFiltersJSON:       `["^ok$"]`,
-		RegionFiltersJSON:      `["us"]`,
+		RegexFilters:           []string{`^ok$`},
+		RegionFilters:          []string{"us"},
 		ReverseProxyMissAction: "RANDOM",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            now,
@@ -612,8 +612,8 @@ func TestGetPlatform_FailsFastOnCorruptPersistedFiltersJSON(t *testing.T) {
 	if serviceErr.Code != "INTERNAL" {
 		t.Fatalf("service error code = %q, want INTERNAL", serviceErr.Code)
 	}
-	if !strings.Contains(serviceErr.Message, "decode platform") {
-		t.Fatalf("unexpected service error message: %q", serviceErr.Message)
+	if serviceErr.Err == nil || !strings.Contains(serviceErr.Err.Error(), "decode platform") {
+		t.Fatalf("unexpected wrapped service error: %v", serviceErr.Err)
 	}
 }
 
@@ -632,8 +632,8 @@ func TestDeletePlatform_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
 		ID:                     "plat-delete-corrupt",
 		Name:                   "delete-corrupt",
 		StickyTTLNs:            int64(time.Hour),
-		RegexFiltersJSON:       `["^ok$"]`,
-		RegionFiltersJSON:      `["us"]`,
+		RegexFilters:           []string{`^ok$`},
+		RegionFilters:          []string{"us"},
 		ReverseProxyMissAction: "RANDOM",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            time.Now().UnixNano(),
@@ -704,8 +704,8 @@ func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *test
 		ID:                     "plat-reset-corrupt",
 		Name:                   "reset-corrupt",
 		StickyTTLNs:            int64(time.Hour),
-		RegexFiltersJSON:       `["^ok$"]`,
-		RegionFiltersJSON:      `["us"]`,
+		RegexFilters:           []string{`^ok$`},
+		RegionFilters:          []string{"us"},
 		ReverseProxyMissAction: "RANDOM",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            time.Now().UnixNano(),
@@ -794,7 +794,7 @@ func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *test
 	}
 }
 
-func TestListAccountHeaderRules_FailsFastOnCorruptPersistedHeadersJSON(t *testing.T) {
+func TestListAccountHeaderRules_FailsFastOnCorruptPersistedHeadersColumn(t *testing.T) {
 	dir := t.TempDir()
 	stateDir := filepath.Join(dir, "state")
 	cacheDir := filepath.Join(dir, "cache")
@@ -807,7 +807,7 @@ func TestListAccountHeaderRules_FailsFastOnCorruptPersistedHeadersJSON(t *testin
 
 	rule := model.AccountHeaderRule{
 		URLPrefix:   "api.example.com/v1",
-		HeadersJSON: `["Authorization"]`,
+		Headers:     []string{"Authorization"},
 		UpdatedAtNs: time.Now().UnixNano(),
 	}
 	if _, err := engine.UpsertAccountHeaderRuleWithCreated(rule); err != nil {
@@ -839,7 +839,7 @@ func TestListAccountHeaderRules_FailsFastOnCorruptPersistedHeadersJSON(t *testin
 	if serviceErr.Code != "INTERNAL" {
 		t.Fatalf("service error code = %q, want INTERNAL", serviceErr.Code)
 	}
-	if !strings.Contains(serviceErr.Message, "decode rule") {
-		t.Fatalf("unexpected service error message: %q", serviceErr.Message)
+	if serviceErr.Err == nil || !strings.Contains(serviceErr.Err.Error(), "decode account header rule") {
+		t.Fatalf("unexpected wrapped service error: %v", serviceErr.Err)
 	}
 }
