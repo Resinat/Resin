@@ -1,6 +1,8 @@
 // Package metrics implements the metrics collection, aggregation, and storage subsystem.
 package metrics
 
+import "github.com/resin-proxy/resin/internal/proxy"
+
 // ProbeKind represents the type of probe that was executed.
 type ProbeKind string
 
@@ -17,35 +19,48 @@ type TrafficDeltaEvent struct {
 }
 
 // ConnectionOp is the operation type for a connection lifecycle event.
-type ConnectionOp int
+type ConnectionOp = proxy.ConnectionOp
 
 const (
-	ConnOpen  ConnectionOp = iota
-	ConnClose
+	ConnOpen  ConnectionOp = proxy.ConnectionOpen
+	ConnClose ConnectionOp = proxy.ConnectionClose
 )
 
 // ConnectionDirection indicates inbound vs outbound.
-type ConnectionDirection int
+type ConnectionDirection = proxy.ConnectionDirection
 
 const (
-	ConnInbound  ConnectionDirection = iota
-	ConnOutbound
+	ConnInbound  ConnectionDirection = proxy.ConnectionInbound
+	ConnOutbound ConnectionDirection = proxy.ConnectionOutbound
 )
 
 // ConnectionLifecycleEvent tracks connection open/close.
-type ConnectionLifecycleEvent struct {
-	Op        ConnectionOp
-	Direction ConnectionDirection
-}
+type ConnectionLifecycleEvent = proxy.ConnectionLifecycleEvent
 
 // ProbeEvent is emitted on every probe attempt.
 type ProbeEvent struct {
 	Kind ProbeKind
 }
 
+// LeaseOp is the operation type for a lease lifecycle event.
+type LeaseOp int
+
+const (
+	LeaseOpCreate LeaseOp = iota
+	LeaseOpTouch
+	LeaseOpReplace
+	LeaseOpRemove
+	LeaseOpExpire
+)
+
+// HasLifetimeSample reports whether this op can carry a lease lifetime sample.
+func (op LeaseOp) HasLifetimeSample() bool {
+	return op == LeaseOpRemove || op == LeaseOpExpire
+}
+
 // LeaseMetricEvent carries lease state changes for metrics aggregation.
 type LeaseMetricEvent struct {
-	PlatformID  string
-	Op          string // "create", "replace", "remove", "expire"
-	LifetimeNs  int64  // lifetime of removed/expired leases, 0 otherwise
+	PlatformID string
+	Op         LeaseOp
+	LifetimeNs int64 // lifetime of removed/expired leases, 0 otherwise
 }

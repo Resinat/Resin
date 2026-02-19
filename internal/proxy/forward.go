@@ -253,7 +253,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	// Wrap with counting conn for traffic/connection metrics.
 	var upstreamBase net.Conn = rawConn
 	if p.metricsSink != nil {
-		p.metricsSink.OnConnectionLifecycle("outbound", "open")
+		p.metricsSink.OnConnectionLifecycle(ConnectionOutbound, ConnectionOpen)
 		upstreamBase = newCountingConn(rawConn, p.metricsSink, routed.Route.PlatformID)
 	}
 

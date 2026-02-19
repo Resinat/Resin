@@ -19,9 +19,7 @@ type MetricsEventSink interface {
 	// OnTrafficDelta reports a traffic byte count delta for a platform.
 	OnTrafficDelta(platformID string, ingressBytes, egressBytes int64)
 	// OnConnectionLifecycle reports a connection open/close event.
-	// direction: "inbound" or "outbound"
-	// op: "open" or "close"
-	OnConnectionLifecycle(direction, op string)
+	OnConnectionLifecycle(direction ConnectionDirection, op ConnectionOp)
 }
 
 // countingConn wraps a net.Conn, counting bytes read/written.
@@ -83,7 +81,7 @@ func (c *countingConn) Close() error {
 	if pendR > 0 || pendW > 0 {
 		c.sink.OnTrafficDelta(c.platformID, pendR, pendW)
 	}
-	c.sink.OnConnectionLifecycle("outbound", "close")
+	c.sink.OnConnectionLifecycle(ConnectionOutbound, ConnectionClose)
 	return c.Conn.Close()
 }
 
@@ -107,7 +105,7 @@ func (cl *countingListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	cl.sink.OnConnectionLifecycle("inbound", "open")
+	cl.sink.OnConnectionLifecycle(ConnectionInbound, ConnectionOpen)
 	return &connCloseNotifier{Conn: conn, sink: cl.sink}, nil
 }
 
@@ -120,7 +118,7 @@ type connCloseNotifier struct {
 
 func (c *connCloseNotifier) Close() error {
 	if c.closed.CompareAndSwap(false, true) {
-		c.sink.OnConnectionLifecycle("inbound", "close")
+		c.sink.OnConnectionLifecycle(ConnectionInbound, ConnectionClose)
 	}
 	return c.Conn.Close()
 }

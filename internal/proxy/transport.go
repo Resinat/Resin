@@ -17,7 +17,7 @@ func newOutboundTransport(ob adapter.Outbound, sink MetricsEventSink, platformID
 				return nil, err
 			}
 			if sink != nil {
-				sink.OnConnectionLifecycle("outbound", "open")
+				sink.OnConnectionLifecycle(ConnectionOutbound, ConnectionOpen)
 				conn = newCountingConn(conn, sink, platformID)
 			}
 			return conn, nil

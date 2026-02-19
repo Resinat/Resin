@@ -223,19 +223,17 @@ func (m *Manager) OnTrafficDelta(platformID string, ingressBytes, egressBytes in
 }
 
 // OnConnectionLifecycle records connection open/close (implements proxy.MetricsEventSink).
-// direction: "inbound" or "outbound"; op: "open" or "close".
-func (m *Manager) OnConnectionLifecycle(direction, op string) {
-	var delta int64 = 1
-	if op == "close" {
+func (m *Manager) OnConnectionLifecycle(direction proxy.ConnectionDirection, op proxy.ConnectionOp) {
+	var delta int64
+	switch op {
+	case proxy.ConnectionOpen:
+		delta = 1
+	case proxy.ConnectionClose:
 		delta = -1
+	default:
+		return
 	}
-	var dir ConnectionDirection
-	if direction == "inbound" {
-		dir = ConnInbound
-	} else {
-		dir = ConnOutbound
-	}
-	m.collector.RecordConnection(dir, delta)
+	m.collector.RecordConnection(direction, delta)
 }
 
 // OnProbeEvent records a probe attempt.
@@ -245,7 +243,7 @@ func (m *Manager) OnProbeEvent(ev ProbeEvent) {
 
 // OnLeaseEvent records lease lifecycle for metrics.
 func (m *Manager) OnLeaseEvent(ev LeaseMetricEvent) {
-	if (ev.Op == "remove" || ev.Op == "expire") && ev.LifetimeNs > 0 {
+	if ev.Op.HasLifetimeSample() && ev.LifetimeNs > 0 {
 		select {
 		case m.leaseSamplesCh <- leaseLifetimeSample{
 			PlatformID: ev.PlatformID,

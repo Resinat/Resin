@@ -7,6 +7,28 @@ const (
 	ProxyTypeReverse ProxyType = 2
 )
 
+// ConnectionDirection indicates inbound vs outbound connection flow.
+type ConnectionDirection int
+
+const (
+	ConnectionInbound ConnectionDirection = iota
+	ConnectionOutbound
+)
+
+// ConnectionOp is the operation type for a connection lifecycle event.
+type ConnectionOp int
+
+const (
+	ConnectionOpen ConnectionOp = iota
+	ConnectionClose
+)
+
+// ConnectionLifecycleEvent tracks connection open/close.
+type ConnectionLifecycleEvent struct {
+	Direction ConnectionDirection
+	Op        ConnectionOp
+}
+
 // RequestFinishedEvent is emitted when a proxy request completes.
 // Used by the metrics subsystem (Phase 8).
 type RequestFinishedEvent struct {

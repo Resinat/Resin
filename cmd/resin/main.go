@@ -107,26 +107,25 @@ func main() {
 				engine.MarkLeaseDelete(e.PlatformID, e.Account)
 			}
 			if sink := leaseEventMetricsSink.Load(); sink != nil {
-				op := "touch"
+				op := metrics.LeaseOpTouch
 				switch e.Type {
 				case routing.LeaseCreate:
-					op = "create"
-				case routing.LeaseRemove:
-					op = "remove"
-				case routing.LeaseExpire:
-					op = "expire"
+					op = metrics.LeaseOpCreate
 				case routing.LeaseReplace:
-					op = "replace"
+					op = metrics.LeaseOpReplace
+				case routing.LeaseRemove:
+					op = metrics.LeaseOpRemove
+				case routing.LeaseExpire:
+					op = metrics.LeaseOpExpire
+				}
+				lifetimeNs := int64(0)
+				if e.CreatedAtNs > 0 && op.HasLifetimeSample() {
+					lifetimeNs = time.Now().UnixNano() - e.CreatedAtNs
 				}
 				(*sink).OnLeaseEvent(metrics.LeaseMetricEvent{
 					PlatformID: e.PlatformID,
 					Op:         op,
-					LifetimeNs: func() int64 {
-						if e.CreatedAtNs > 0 && (op == "remove" || op == "expire") {
-							return time.Now().UnixNano() - e.CreatedAtNs
-						}
-						return 0
-					}(),
+					LifetimeNs: lifetimeNs,
 				})
 			}
 		},
@@ -647,7 +646,12 @@ func newTopologyRuntime(
 				RequireStatusOK: false,
 				OnConnLifecycle: func(op string) {
 					if sink := leaseEventMetricsSink.Load(); sink != nil {
-						(*sink).OnConnectionLifecycle("outbound", op)
+						switch op {
+						case "open":
+							(*sink).OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionOpen)
+						case "close":
+							(*sink).OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionClose)
+						}
 					}
 				},
 			})

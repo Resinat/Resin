@@ -73,9 +73,9 @@ func TestTakeSample_ConnectionsAndLeasesUseDedicatedRings(t *testing.T) {
 		},
 	})
 
-	mgr.OnConnectionLifecycle("inbound", "open")
-	mgr.OnConnectionLifecycle("outbound", "open")
-	mgr.OnConnectionLifecycle("outbound", "open")
+	mgr.OnConnectionLifecycle(proxy.ConnectionInbound, proxy.ConnectionOpen)
+	mgr.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionOpen)
+	mgr.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionOpen)
 
 	mgr.takeConnectionsSample(time.Unix(10, 0))
 	connSample, ok := mgr.ConnectionsRing().Latest()
@@ -102,9 +102,9 @@ func TestOnLeaseEvent_IgnoresNonPositiveLifetimeSamples(t *testing.T) {
 		LeasesIntervalSec:      5,
 	})
 
-	mgr.OnLeaseEvent(LeaseMetricEvent{PlatformID: "p1", Op: "remove", LifetimeNs: 0})
-	mgr.OnLeaseEvent(LeaseMetricEvent{PlatformID: "p1", Op: "expire", LifetimeNs: -1})
-	mgr.OnLeaseEvent(LeaseMetricEvent{PlatformID: "p1", Op: "remove", LifetimeNs: 1})
+	mgr.OnLeaseEvent(LeaseMetricEvent{PlatformID: "p1", Op: LeaseOpRemove, LifetimeNs: 0})
+	mgr.OnLeaseEvent(LeaseMetricEvent{PlatformID: "p1", Op: LeaseOpExpire, LifetimeNs: -1})
+	mgr.OnLeaseEvent(LeaseMetricEvent{PlatformID: "p1", Op: LeaseOpRemove, LifetimeNs: 1})
 	mgr.drainLeaseLifetimeSamples()
 
 	data := mgr.bucket.ForceFlush()

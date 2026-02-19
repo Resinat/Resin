@@ -330,7 +330,7 @@ func TestBootstrapRestart_RecoversObservabilityPersistence(t *testing.T) {
 	metricsMgr1.OnProbeEvent(metrics.ProbeEvent{Kind: metrics.ProbeKindEgress})
 	metricsMgr1.OnLeaseEvent(metrics.LeaseMetricEvent{
 		PlatformID: platformID,
-		Op:         "remove",
+		Op:         metrics.LeaseOpRemove,
 		LifetimeNs: int64(30 * time.Second),
 	})
 	metricsMgr1.ThroughputRing().Push(metrics.RealtimeSample{

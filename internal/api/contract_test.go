@@ -359,7 +359,7 @@ func seedObservabilityData(
 	metricsManager.OnProbeEvent(metrics.ProbeEvent{Kind: metrics.ProbeKindEgress})
 	metricsManager.OnLeaseEvent(metrics.LeaseMetricEvent{
 		PlatformID: platformID,
-		Op:         "remove",
+		Op:         metrics.LeaseOpRemove,
 		LifetimeNs: int64(30 * time.Second),
 	})
 	metricsManager.Stop() // ForceFlush bucket data without starting background loops.
