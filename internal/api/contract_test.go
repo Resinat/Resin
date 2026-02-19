@@ -843,21 +843,52 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	srv, requestlogRepo, metricsManager, platformID := newObservabilityTestServer(t)
 	logID := seedObservabilityData(t, requestlogRepo, metricsManager, platformID)
 
-	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs?platform_id="+platformID+"&limit=10", nil, true)
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs?platform_id="+platformID+"&limit=1", nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list request logs status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body := decodeJSONMap(t, rec)
-	if body["limit"] != float64(10) {
-		t.Fatalf("list limit: got %v, want 10", body["limit"])
+	if body["limit"] != float64(1) {
+		t.Fatalf("list limit: got %v, want 1", body["limit"])
+	}
+	if body["has_more"] != true {
+		t.Fatalf("list has_more: got %v, want true", body["has_more"])
+	}
+	nextCursor, ok := body["next_cursor"].(string)
+	if !ok || nextCursor == "" {
+		t.Fatalf("list next_cursor: got %T value=%v, want non-empty string", body["next_cursor"], body["next_cursor"])
 	}
 	itemsRaw, ok := body["items"]
 	if !ok {
 		t.Fatalf("missing items field: body=%s", rec.Body.String())
 	}
 	items, ok := itemsRaw.([]any)
-	if !ok || len(items) < 2 {
-		t.Fatalf("items: got %T len=%d, want >=2", itemsRaw, len(items))
+	if !ok || len(items) != 1 {
+		t.Fatalf("items: got %T len=%d, want 1", itemsRaw, len(items))
+	}
+
+	rec = doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/request-logs?platform_id="+platformID+"&limit=1&cursor="+url.QueryEscape(nextCursor),
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list request logs cursor status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if body["has_more"] != false {
+		t.Fatalf("cursor page has_more: got %v, want false", body["has_more"])
+	}
+	itemsRaw, ok = body["items"]
+	if !ok {
+		t.Fatalf("cursor page missing items field: body=%s", rec.Body.String())
+	}
+	items, ok = itemsRaw.([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("cursor page items: got %T len=%d, want 1", itemsRaw, len(items))
 	}
 
 	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs/"+logID, nil, true)
@@ -900,8 +931,8 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	invalidCases := []string{
 		"/api/v1/request-logs?limit=bad",
 		"/api/v1/request-logs?limit=10001",
-		"/api/v1/request-logs?offset=bad",
-		"/api/v1/request-logs?offset=-1",
+		"/api/v1/request-logs?offset=1",
+		"/api/v1/request-logs?cursor=not-base64",
 		"/api/v1/request-logs?proxy_type=3",
 		"/api/v1/request-logs?net_ok=2",
 		"/api/v1/request-logs?net_ok=1",

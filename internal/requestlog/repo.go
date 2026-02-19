@@ -248,15 +248,22 @@ type ListFilter struct {
 	Before     int64 // ts_ns < Before (0 means no upper bound)
 	After      int64 // ts_ns > After (0 means no lower bound)
 	Limit      int
-	Offset     int
+	Cursor     *ListCursor
+}
+
+// ListCursor encodes a request-log pagination position.
+// Ordering is ts_ns DESC then id ASC.
+type ListCursor struct {
+	TsNs int64
+	ID   string
 }
 
 // List queries all retained DBs and returns a page of matching log summaries
-// ordered by ts_ns DESC, plus the total matched rows before pagination.
-func (r *Repo) List(f ListFilter) ([]LogSummary, int, error) {
+// ordered by ts_ns DESC, same ts_ns by id ASC.
+func (r *Repo) List(f ListFilter) ([]LogSummary, bool, *ListCursor, error) {
 	files, err := r.listDBFiles()
 	if err != nil {
-		return nil, 0, err
+		return nil, false, nil, err
 	}
 
 	limit := f.Limit
@@ -266,13 +273,8 @@ func (r *Repo) List(f ListFilter) ([]LogSummary, int, error) {
 	if limit > 10000 {
 		limit = 10000
 	}
-	offset := f.Offset
-	if offset < 0 {
-		offset = 0
-	}
-
-	// Fetch limit+offset total rows then skip first offset.
-	fetchLimit := limit + offset
+	// Fetch one extra row across retained DBs to derive has_more.
+	fetchLimit := limit + 1
 	var results []LogSummary
 	// Iterate every retained DB, then globally merge-sort.
 	// We must not early-stop by file order because request ts_ns can be out-of-order
@@ -301,20 +303,21 @@ func (r *Repo) List(f ListFilter) ([]LogSummary, int, error) {
 		}
 		return results[i].ID < results[j].ID
 	})
-	total := len(results)
-	if total == 0 {
-		return []LogSummary{}, 0, nil
+	if len(results) == 0 {
+		return []LogSummary{}, false, nil, nil
 	}
 
-	// Apply offset.
-	if offset >= total {
-		return []LogSummary{}, total, nil
-	}
-	results = results[offset:]
-	if len(results) > limit {
+	hasMore := len(results) > limit
+	if hasMore {
 		results = results[:limit]
 	}
-	return results, total, nil
+
+	var nextCursor *ListCursor
+	if hasMore && len(results) > 0 {
+		last := results[len(results)-1]
+		nextCursor = &ListCursor{TsNs: last.TsNs, ID: last.ID}
+	}
+	return results, hasMore, nextCursor, nil
 }
 
 // GetByID looks up a single log entry across all retained DBs.
@@ -519,6 +522,12 @@ func (r *Repo) queryLogs(db *sql.DB, f ListFilter, limit int) ([]LogSummary, err
 	if f.After > 0 {
 		where = append(where, "ts_ns > ?")
 		args = append(args, f.After)
+	}
+	if f.Cursor != nil {
+		// Pagination condition for ORDER BY ts_ns DESC, id ASC:
+		// next rows are strictly "after" the cursor in that ordering.
+		where = append(where, "(ts_ns < ? OR (ts_ns = ? AND id > ?))")
+		args = append(args, f.Cursor.TsNs, f.Cursor.TsNs, f.Cursor.ID)
 	}
 
 	q := "SELECT " + logSummarySelectColumns + " FROM request_logs"

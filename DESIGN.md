@@ -1556,7 +1556,7 @@ Query（建议）：
 * `from`: 时间窗起始，可选，RFC3339Nano
 * `to`: 时间窗结束，可选，RFC3339Nano
 * `limit`: 分页大小，可选，默认 50，最大 10000
-* `offset`: 分页偏移，可选，默认 0
+* `cursor`: 游标分页位置，可选。由上一页返回的 `next_cursor` 透传。
 * `platform_id`: 平台ID，可选
 * `account`: 账号，可选
 * `target_host`: 目标主机，可选
@@ -1569,6 +1569,9 @@ Query（建议）：
 
 ```json
 {
+  "limit": 50,
+  "has_more": true,
+  "next_cursor": "Mzc2MDkzNDA3MDAwMDAwMDA6Y2RjYjVkZmQtMDQ2MC00ZjIzLWFlZWEtMWEzMjE2NmY2Y2I4",
   "items": [
     {
       "id": "uuid",

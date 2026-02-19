@@ -67,12 +67,15 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 		t.Fatalf("inserted: got %d, want %d", inserted, 2)
 	}
 
-	list, total, err := repo.List(ListFilter{Limit: 10})
+	list, hasMore, nextCursor, err := repo.List(ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatalf("repo.List: %v", err)
 	}
-	if total != 2 {
-		t.Fatalf("list total: got %d, want %d", total, 2)
+	if hasMore {
+		t.Fatalf("hasMore: got true, want false")
+	}
+	if nextCursor != nil {
+		t.Fatalf("nextCursor: got %+v, want nil", nextCursor)
 	}
 	if len(list) != 2 {
 		t.Fatalf("list len: got %d, want %d", len(list), 2)
@@ -81,12 +84,15 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 		t.Fatalf("list order (ts desc, id asc tie-break): got [%s, %s]", list[0].ID, list[1].ID)
 	}
 
-	filtered, total, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
+	filtered, hasMore, nextCursor, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
 	if err != nil {
 		t.Fatalf("repo.List filtered: %v", err)
 	}
-	if total != 1 {
-		t.Fatalf("filtered total: got %d, want %d", total, 1)
+	if hasMore {
+		t.Fatalf("filtered hasMore: got true, want false")
+	}
+	if nextCursor != nil {
+		t.Fatalf("filtered nextCursor: got %+v, want nil", nextCursor)
 	}
 	if len(filtered) != 1 || filtered[0].ID != "log-a" {
 		t.Fatalf("filtered list: got %+v", filtered)
@@ -167,7 +173,7 @@ func TestService_FlushesByBatchSize(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		rows, _, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
+		rows, _, _, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
 		if err != nil {
 			t.Fatalf("repo.List: %v", err)
 		}
@@ -217,18 +223,67 @@ func TestRepo_ListAcrossDBsUsesGlobalTsOrdering(t *testing.T) {
 		t.Fatalf("insert second db row: %v", err)
 	}
 
-	rows, total, err := repo.List(ListFilter{Limit: 1})
+	rows, hasMore, nextCursor, err := repo.List(ListFilter{Limit: 1})
 	if err != nil {
 		t.Fatalf("repo.List: %v", err)
-	}
-	if total != 2 {
-		t.Fatalf("rows total: got %d, want %d", total, 2)
 	}
 	if len(rows) != 1 {
 		t.Fatalf("rows len: got %d, want 1", len(rows))
 	}
+	if !hasMore {
+		t.Fatalf("hasMore: got false, want true")
+	}
+	if nextCursor == nil {
+		t.Fatal("nextCursor: got nil, want non-nil")
+	}
 	if rows[0].ID != "old-file-new-ts" {
 		t.Fatalf("top row id: got %q, want %q", rows[0].ID, "old-file-new-ts")
+	}
+}
+
+func TestRepo_ListCursorPagination(t *testing.T) {
+	repo := NewRepo(t.TempDir(), 1<<20, 5)
+	if err := repo.Open(); err != nil {
+		t.Fatalf("repo.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	// Same ts to verify id ASC tie-break within ts.
+	rows := []LogRow{
+		{ID: "a", TsNs: 300, ProxyType: int(proxy.ProxyTypeForward)},
+		{ID: "b", TsNs: 300, ProxyType: int(proxy.ProxyTypeForward)},
+		{ID: "c", TsNs: 200, ProxyType: int(proxy.ProxyTypeForward)},
+	}
+	if _, err := repo.InsertBatch(rows); err != nil {
+		t.Fatalf("repo.InsertBatch: %v", err)
+	}
+
+	page1, hasMore1, next1, err := repo.List(ListFilter{Limit: 2})
+	if err != nil {
+		t.Fatalf("repo.List page1: %v", err)
+	}
+	if len(page1) != 2 || page1[0].ID != "a" || page1[1].ID != "b" {
+		t.Fatalf("page1 rows: got %+v", page1)
+	}
+	if !hasMore1 || next1 == nil {
+		t.Fatalf("page1 pagination: hasMore=%v next=%+v", hasMore1, next1)
+	}
+
+	page2, hasMore2, next2, err := repo.List(ListFilter{
+		Limit:  2,
+		Cursor: next1,
+	})
+	if err != nil {
+		t.Fatalf("repo.List page2: %v", err)
+	}
+	if len(page2) != 1 || page2[0].ID != "c" {
+		t.Fatalf("page2 rows: got %+v", page2)
+	}
+	if hasMore2 {
+		t.Fatalf("page2 hasMore: got true, want false")
+	}
+	if next2 != nil {
+		t.Fatalf("page2 next: got %+v, want nil", next2)
 	}
 }
 

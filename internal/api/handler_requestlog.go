@@ -4,17 +4,28 @@ import (
 	"encoding/base64"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/resin-proxy/resin/internal/requestlog"
 )
 
 // HandleListRequestLogs handles GET /api/v1/request-logs.
-// Query params: from, to (RFC3339Nano), limit, offset,
+// Query params: from, to (RFC3339Nano), limit, cursor,
 // platform_id, account, target_host, egress_ip, proxy_type, net_ok, http_status.
 func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		pg, ok := parsePaginationOrWriteInvalid(w, r)
+		if r.URL.Query().Get("offset") != "" {
+			writeInvalidArgument(w, "offset: not supported for request-logs; use cursor")
+			return
+		}
+
+		limit, ok := parseRequestLogLimitQuery(w, r)
+		if !ok {
+			return
+		}
+
+		cursor, ok := parseRequestLogCursorQuery(w, r)
 		if !ok {
 			return
 		}
@@ -25,8 +36,8 @@ func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 			Account:    q.Get("account"),
 			TargetHost: q.Get("target_host"),
 			EgressIP:   q.Get("egress_ip"),
-			Limit:      pg.Limit,
-			Offset:     pg.Offset,
+			Limit:      limit,
+			Cursor:     cursor,
 		}
 
 		if v := q.Get("from"); v != "" {
@@ -68,7 +79,7 @@ func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 		}
 		f.HTTPStatus = httpStatus
 
-		rows, total, err := repo.List(f)
+		rows, hasMore, nextCursor, err := repo.List(f)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
@@ -79,13 +90,75 @@ func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 			items = append(items, toLogListItem(row))
 		}
 
-		WriteJSON(w, http.StatusOK, PageResponse[logListItem]{
-			Items:  items,
-			Total:  total,
-			Limit:  pg.Limit,
-			Offset: pg.Offset,
-		})
+		resp := requestLogPageResponse{
+			Items:   items,
+			Limit:   limit,
+			HasMore: hasMore,
+		}
+		if nextCursor != nil {
+			resp.NextCursor = encodeRequestLogCursor(*nextCursor)
+		}
+		WriteJSON(w, http.StatusOK, resp)
 	})
+}
+
+func parseRequestLogLimitQuery(w http.ResponseWriter, r *http.Request) (int, bool) {
+	limit := defaultPageLimit
+	v := r.URL.Query().Get("limit")
+	if v == "" {
+		return limit, true
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		writeInvalidArgument(w, "limit: must be a non-negative integer")
+		return 0, false
+	}
+	if n > maxPageLimit {
+		writeInvalidArgument(w, "limit: must be <= 10000")
+		return 0, false
+	}
+	if n > 0 {
+		limit = n
+	}
+	return limit, true
+}
+
+func parseRequestLogCursorQuery(w http.ResponseWriter, r *http.Request) (*requestlog.ListCursor, bool) {
+	v := r.URL.Query().Get("cursor")
+	if v == "" {
+		return nil, true
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(v)
+	if err != nil {
+		writeInvalidArgument(w, "cursor: invalid format")
+		return nil, false
+	}
+	parts := strings.SplitN(string(raw), ":", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		writeInvalidArgument(w, "cursor: invalid format")
+		return nil, false
+	}
+	tsNs, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		writeInvalidArgument(w, "cursor: invalid format")
+		return nil, false
+	}
+	return &requestlog.ListCursor{
+		TsNs: tsNs,
+		ID:   parts[1],
+	}, true
+}
+
+func encodeRequestLogCursor(c requestlog.ListCursor) string {
+	raw := strconv.FormatInt(c.TsNs, 10) + ":" + c.ID
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+type requestLogPageResponse struct {
+	Items      []logListItem `json:"items"`
+	Limit      int           `json:"limit"`
+	HasMore    bool          `json:"has_more"`
+	NextCursor string        `json:"next_cursor,omitempty"`
 }
 
 // HandleGetRequestLog handles GET /api/v1/request-logs/{log_id}.
