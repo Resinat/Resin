@@ -3,6 +3,7 @@ package requestlog
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -305,5 +306,59 @@ func TestRepo_MaybeRotateCountsWalAndShmSize(t *testing.T) {
 	}
 	if repo.activePath == before {
 		t.Fatal("expected rotation when wal size exceeds threshold")
+	}
+}
+
+func TestRepo_InsertBatchRecoversAfterActiveDBLost(t *testing.T) {
+	repo := NewRepo(t.TempDir(), 1<<20, 5)
+	if err := repo.Open(); err != nil {
+		t.Fatalf("repo.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	if repo.activeDB == nil || repo.activePath == "" {
+		t.Fatalf("repo should have active db after open")
+	}
+
+	// Simulate a failed rotation aftermath:
+	// old DB handle is gone, but activePath still points to the old DB file.
+	if err := repo.activeDB.Close(); err != nil {
+		t.Fatalf("close active db: %v", err)
+	}
+	repo.activeDB = nil
+
+	inserted, err := repo.InsertBatch([]LogRow{{
+		ID:        "recovered-insert",
+		TsNs:      time.Now().UnixNano(),
+		ProxyType: int(proxy.ProxyTypeForward),
+	}})
+	if err != nil {
+		t.Fatalf("repo.InsertBatch recover path: %v", err)
+	}
+	if inserted != 1 {
+		t.Fatalf("inserted: got %d, want 1", inserted)
+	}
+
+	row, err := repo.GetByID("recovered-insert")
+	if err != nil {
+		t.Fatalf("repo.GetByID: %v", err)
+	}
+	if row == nil {
+		t.Fatal("expected inserted row after recovery")
+	}
+}
+
+func TestRepo_InsertBatchWithoutOpenReturnsNoActiveDB(t *testing.T) {
+	repo := NewRepo(t.TempDir(), 1<<20, 5)
+	_, err := repo.InsertBatch([]LogRow{{
+		ID:        "without-open",
+		TsNs:      time.Now().UnixNano(),
+		ProxyType: int(proxy.ProxyTypeForward),
+	}})
+	if err == nil {
+		t.Fatal("expected error when InsertBatch is called before Open")
+	}
+	if !strings.Contains(err.Error(), "no active db") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

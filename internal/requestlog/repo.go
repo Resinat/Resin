@@ -85,7 +85,9 @@ func (r *Repo) Close() error {
 // transaction. Returns the number of rows successfully inserted.
 func (r *Repo) InsertBatch(entries []LogRow) (int, error) {
 	if r.activeDB == nil {
-		return 0, fmt.Errorf("requestlog repo: no active db")
+		if err := r.recoverActiveDB(); err != nil {
+			return 0, err
+		}
 	}
 
 	// Check if rotation is needed before insert.
@@ -160,6 +162,23 @@ func (r *Repo) InsertBatch(entries []LogRow) (int, error) {
 		return 0, fmt.Errorf("requestlog repo commit: %w", err)
 	}
 	return inserted, nil
+}
+
+// recoverActiveDB attempts to recover from a missing active DB handle.
+// This can happen if a previous rotation closed the old DB but failed
+// to open a new one. We keep the documented rotation semantics (close then create)
+// and only recover on subsequent writes.
+func (r *Repo) recoverActiveDB() error {
+	if r.activeDB != nil {
+		return nil
+	}
+	if r.activePath == "" {
+		return fmt.Errorf("requestlog repo: no active db")
+	}
+	if err := r.rotateDB(); err != nil {
+		return fmt.Errorf("requestlog repo recover active db: %w", err)
+	}
+	return nil
 }
 
 // LogRow is the internal representation of a request log entry ready for DB insertion.
