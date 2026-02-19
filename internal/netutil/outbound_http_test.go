@@ -2,9 +2,12 @@ package netutil
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/resin-proxy/resin/internal/testutil"
@@ -51,5 +54,33 @@ func TestHTTPGetViaOutbound_AllowNon200(t *testing.T) {
 	}
 	if string(body) != "probe-body" {
 		t.Fatalf("unexpected body %q", string(body))
+	}
+}
+
+func TestConnCloseHook_CloseIsIdempotentAndConcurrentSafe(t *testing.T) {
+	client, server := net.Pipe()
+	defer server.Close()
+
+	var onCloseCount atomic.Int32
+	hook := &connCloseHook{
+		Conn: client,
+		onClose: func() {
+			onCloseCount.Add(1)
+		},
+	}
+
+	const closers = 32
+	var wg sync.WaitGroup
+	wg.Add(closers)
+	for i := 0; i < closers; i++ {
+		go func() {
+			defer wg.Done()
+			_ = hook.Close()
+		}()
+	}
+	wg.Wait()
+
+	if got := onCloseCount.Load(); got != 1 {
+		t.Fatalf("onClose called %d times, want 1", got)
 	}
 }

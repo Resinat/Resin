@@ -3,6 +3,7 @@ package metrics
 import (
 	"fmt"
 	"log"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -269,10 +270,6 @@ func (m *Manager) ConnectionsRing() *RealtimeRing { return m.connectionsRing }
 // LeasesRing returns the realtime leases ring buffer.
 func (m *Manager) LeasesRing() *RealtimeRing { return m.leasesRing }
 
-// Ring returns the realtime throughput ring buffer.
-// Deprecated: use ThroughputRing/ConnectionsRing/LeasesRing.
-func (m *Manager) Ring() *RealtimeRing { return m.throughputRing }
-
 // Repo returns the metrics repo for historical queries.
 func (m *Manager) Repo() *MetricsRepo { return m.repo }
 
@@ -287,10 +284,6 @@ func (m *Manager) ConnectionsIntervalSeconds() int { return int(m.connectionsInt
 
 // LeasesIntervalSeconds returns the configured leases realtime interval in seconds.
 func (m *Manager) LeasesIntervalSeconds() int { return int(m.leasesInterval.Seconds()) }
-
-// SampleIntervalSeconds returns the configured throughput realtime interval in seconds.
-// Deprecated: use ThroughputIntervalSeconds/ConnectionsIntervalSeconds/LeasesIntervalSeconds.
-func (m *Manager) SampleIntervalSeconds() int { return m.ThroughputIntervalSeconds() }
 
 // NodePoolStats returns the node pool stats provider.
 func (m *Manager) NodePoolStats() NodePoolStatsProvider { return m.nodePoolStats }
@@ -419,20 +412,13 @@ func (m *Manager) takeConnectionsSample(ts time.Time) {
 func (m *Manager) takeLeasesSample(ts time.Time) {
 	var leases map[string]int
 	if m.leaseCountProvider != nil {
-		leases = cloneLeaseCounts(m.leaseCountProvider.LeaseCountsByPlatform())
+		leases = maps.Clone(m.leaseCountProvider.LeaseCountsByPlatform())
 	}
 
 	m.leasesRing.Push(RealtimeSample{
 		Timestamp:        ts,
 		LeasesByPlatform: leases,
 	})
-}
-
-func (m *Manager) takeSample() {
-	ts := time.Now()
-	m.takeThroughputSample(ts)
-	m.takeConnectionsSample(ts)
-	m.takeLeasesSample(ts)
 }
 
 func (m *Manager) flushBucket() {
@@ -564,17 +550,6 @@ func nonNegativeDelta(current, previous int64) int64 {
 		return 0
 	}
 	return delta
-}
-
-func cloneLeaseCounts(src map[string]int) map[string]int {
-	if len(src) == 0 {
-		return nil
-	}
-	dst := make(map[string]int, len(src))
-	for platformID, count := range src {
-		dst[platformID] = count
-	}
-	return dst
 }
 
 func (m *Manager) buildPersistTask(data *BucketFlushData) *persistTask {

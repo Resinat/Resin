@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"sync"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -104,14 +105,17 @@ func HTTPGetViaOutbound(
 // connCloseHook wraps a net.Conn and calls onClose exactly once on Close.
 type connCloseHook struct {
 	net.Conn
-	onClose func()
-	closed  bool
+	onClose   func()
+	closeOnce sync.Once
+	closeErr  error
 }
 
 func (c *connCloseHook) Close() error {
-	if !c.closed {
-		c.closed = true
-		c.onClose()
-	}
-	return c.Conn.Close()
+	c.closeOnce.Do(func() {
+		if c.onClose != nil {
+			c.onClose()
+		}
+		c.closeErr = c.Conn.Close()
+	})
+	return c.closeErr
 }
