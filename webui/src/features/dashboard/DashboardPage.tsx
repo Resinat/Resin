@@ -116,33 +116,6 @@ function latestValue(values: number[]): number {
   return values[values.length - 1];
 }
 
-function previousValue(values: number[]): number {
-  if (values.length <= 1) {
-    return 0;
-  }
-  return values[values.length - 2];
-}
-
-function percentDelta(values: number[]): number | null {
-  if (values.length <= 1) {
-    return null;
-  }
-  const prev = previousValue(values);
-  const curr = latestValue(values);
-  if (prev === 0) {
-    return null;
-  }
-  return ((curr - prev) / prev) * 100;
-}
-
-function formatDelta(value: number | null): string {
-  if (value === null) {
-    return "--";
-  }
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(1)}%`;
-}
-
 function formatCount(value: number): string {
   return new Intl.NumberFormat("zh-CN").format(Math.round(value));
 }
@@ -579,13 +552,6 @@ function successRate(total: number, success: number): number {
   return success / total;
 }
 
-function kpiTone(delta: number | null): "success" | "warning" | "neutral" {
-  if (delta === null) {
-    return "neutral";
-  }
-  return delta >= 0 ? "success" : "warning";
-}
-
 function normalizePositiveSeconds(seconds: number | undefined): number | null {
   if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
     return null;
@@ -750,9 +716,6 @@ export function DashboardPage() {
 
   const activeLatencyHistogram = globalData?.snapshot_latency_global.buckets ?? [];
 
-  const throughputDelta = percentDelta(throughputIngress.map((value, index) => value + (throughputEgress[index] ?? 0)));
-  const connectionDelta = percentDelta(connectionsInbound.map((value, index) => value + (connectionsOutbound[index] ?? 0)));
-  const leasesDelta = percentDelta(leasesValues);
   return (
     <section className="dashboard-page">
       <header className="module-header">
@@ -794,7 +757,6 @@ export function DashboardPage() {
               ingress {formatBps(latestIngress)} · egress {formatBps(latestEgress)}
             </p>
           </div>
-          <Badge variant={kpiTone(throughputDelta)}>{formatDelta(throughputDelta)}</Badge>
         </Card>
 
         <Card className="dashboard-kpi-card">
@@ -808,7 +770,6 @@ export function DashboardPage() {
               inbound {formatCount(latestValue(connectionsInbound))} · outbound {formatCount(latestValue(connectionsOutbound))}
             </p>
           </div>
-          <Badge variant={kpiTone(connectionDelta)}>{formatDelta(connectionDelta)}</Badge>
         </Card>
 
         <Card className="dashboard-kpi-card">
@@ -834,7 +795,6 @@ export function DashboardPage() {
             <p className="dashboard-kpi-value">{formatCount(latestLeases)}</p>
             <p className="dashboard-kpi-sub">来自所有平台租约总和</p>
           </div>
-          <Badge variant={kpiTone(leasesDelta)}>{formatDelta(leasesDelta)}</Badge>
         </Card>
       </div>
 

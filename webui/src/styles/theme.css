@@ -464,6 +464,14 @@ a {
   padding: 16px;
 }
 
+.platform-directory-card {
+  padding: 16px;
+  background:
+    radial-gradient(circle at 12% 4%, rgba(20, 112, 255, 0.12), transparent 36%),
+    radial-gradient(circle at 88% 100%, rgba(4, 136, 103, 0.08), transparent 40%),
+    var(--surface);
+}
+
 .rules-list-card,
 .rules-editor-card,
 .rules-resolve-card {
@@ -945,6 +953,90 @@ a {
 .platform-row-meta.wrap {
   justify-content: flex-start;
   flex-wrap: wrap;
+}
+
+.platform-card-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.platform-tile {
+  text-align: left;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.platform-tile:hover {
+  border-color: rgba(20, 112, 255, 0.32);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(18, 62, 122, 0.12);
+}
+
+.platform-tile-active {
+  border-color: rgba(20, 112, 255, 0.44);
+  background: rgba(20, 112, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(20, 112, 255, 0.12);
+}
+
+.platform-tile-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.platform-tile-head p {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.platform-tile-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.platform-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(37, 72, 120, 0.14);
+  background: rgba(255, 255, 255, 0.88);
+  color: #4f5f78;
+  font-size: 12px;
+}
+
+.platform-fact strong {
+  color: #1a3f79;
+  font-size: 12px;
+}
+
+.platform-tile-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(37, 72, 120, 0.16);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.platform-tile-updated {
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .muted {
@@ -1583,6 +1675,62 @@ a {
   padding: 18px;
 }
 
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 29, 53, 0.32);
+  backdrop-filter: blur(3px);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 22;
+}
+
+.drawer-panel {
+  width: min(760px, 100vw);
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+  border-left: 1px solid var(--border);
+  padding: 18px;
+  overflow: auto;
+  animation: drawer-in 0.2s ease-out;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drawer-header h3 {
+  font-size: 18px;
+}
+
+.drawer-header p {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.drawer-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .login-layout {
   min-height: 100vh;
   display: grid;
@@ -1673,6 +1821,14 @@ a {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .platform-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .drawer-panel {
+    width: 100vw;
   }
 
   .stats-grid {
