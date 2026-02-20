@@ -166,7 +166,10 @@ No available proxy nodes
 	* LatencyTable：`otter.Must(&otter.Options[string, DomainLatencyStats]{ MaximumSize: RESIN_MAX_LATENCY_TABLE_ENTRIES })` 类型，使用 eTLD+1 域名作为索引，记录各站点的节点延迟。使用 TD-EWMA 维护。
 		* DomainLatencyStats 包含 Latency 与 LastUpdated 两个字段。
 	* EgressInfo：netip.Addr 类型，节点的出口 IP。
-	* LastEgressUpdate：最后一次更新出口 IP 的时间戳。
+	* LastEgressUpdate：最后一次成功更新出口 IP 的时间戳。
+	* LastLatencyProbeAttempt：最后一次延迟探测尝试时间戳（主动/被动、成功/失败都会更新）。
+	* LastAuthorityLatencyProbeAttempt：最后一次权威域名延迟探测尝试时间戳（主动/被动、成功/失败都会更新）。
+	* LastEgressUpdateAttempt：最后一次出口 IP 探测尝试时间戳（成功/失败都会更新）。
   * CircuitOpenSince：空表示节点未熔断；非空则表示进入熔断状态，具体值是熔断开始的时间。
 	* --- Static information ---
 	* NodeHash：节点的 Hash。
@@ -272,8 +275,8 @@ Platform 过滤时，通过 `NodeEntry.MatchRegexs` 方法，反向查询 Refere
 * `RecordResult(id NodeHash, success bool)`：提交节点的一次网络请求结果。
 	* `success=true`：重置连续失败计数 (`FailureCount = 0`)。若节点当前处于熔断状态，立即恢复（`清空 CircuitOpenSince`）。
 	* `success=false`：原子递增连续失败计数。若计数达到配置的阈值 (`MaxConsecutiveFailures`)，触发熔断（`CircuitOpenSince = 当前时间`）。
-* `RecordLatency(id NodeHash, domain string, latency Duration)`：提交节点对特定域名的延迟数据。内部使用 TD-EWMA 算法更新该域名下的延迟统计。如果调用本次 `RecordLatency` 之前，节点的 `LatencyTable` 为空，需要通知各 Platform 重新过滤这个节点。
-* `UpdateNodeEgressIP(id NodeHash, ip netip.Addr)`：更新节点的出口 IP。若信息发生变更，需要通知各 Platform 重新过滤这个节点。
+* `RecordLatency(id NodeHash, domain string, latency *Duration)`：提交节点对特定域名的延迟探测尝试。`latency=nil` 表示“仅记录本次探测尝试，不写延迟样本”；`latency!=nil` 时按 TD-EWMA 更新延迟统计。无论 `latency` 是否为空，都会更新 `LastLatencyProbeAttempt`，若域名属于 `LatencyAuthorities` 还会更新 `LastAuthorityLatencyProbeAttempt`。如果调用本次 `RecordLatency` 之前，节点的 `LatencyTable` 为空，需要通知各 Platform 重新过滤这个节点。
+* `UpdateNodeEgressIP(id NodeHash, ip *netip.Addr)`：记录一次出口 IP 探测尝试并可选更新出口 IP。`ip=nil` 表示“仅记录尝试”；`ip!=nil` 时更新出口 IP（若变更则触发 Platform 脏更新）。无论 `ip` 是否为空，都会更新 `LastEgressUpdateAttempt`。
 
 ### 熔断与恢复机制
 Resin 使用计数器熔断机制保护系统稳定性。
@@ -293,24 +296,24 @@ Resin 使用计数器熔断机制保护系统稳定性。
 #### 出口探测
 * 目标：全局节点池所有节点。
 * 职责：定期刷新节点的出口 IP 与地区信息，确保路由策略（如同 IP 关联、地区过滤）的准确性。
-* 探测时机与调度策略：每隔 13～17 秒全局扫描一次。对未来 15 秒内将会或者已经超过 MaxEgressTestInterval 没探测的节点进行探测。另外，新的节点加入全局节点池时，需要立即进行一次出口探测。
+* 探测时机与调度策略：每隔 13～17 秒全局扫描一次。调度依据是 `LastEgressUpdateAttempt`：对未来 15 秒内将会或者已经超过 `MaxEgressTestInterval` 的节点进行探测。另外，新的节点加入全局节点池时，需要立即进行一次出口探测。
 * 探测动作：通过节点请求 `https://cloudflare.com/cdn-cgi/trace` (GET)。
 * 结果处理：
 	* 记录本次网络请求的结果。调用 `RecordResult(id, true/false)`。
-  * 如果成功，作为副作用，会更新对 Cloudflare 的延迟统计，调用 RecordLatency(id, "cloudflare.com", latency)。
-	* 如果成功，解析响应中的 `ip=...` 字段，使用 UpdateNodeEgressIP 更新节点信息。
+  * 如果成功，作为副作用，会更新对 Cloudflare 的延迟统计，调用 `RecordLatency(id, "cloudflare.com", &latency)`。
+	* 无论成功或失败，都会调用 `UpdateNodeEgressIP` 记录尝试时间；成功时携带解析后的 `ip`，失败时传 `nil`。
 
 #### 主动延迟探测
 * 目标：全局节点池所有节点。
 * 职责：确保节点对关键域名的延迟数据保持鲜活。
 * 探测时机：以下情况，需要对一个节点进行主动延迟探测：
-	* 一个节点的延迟表没有任何 MaxLatencyTestInterval 时间内的记录
-	* 一个节点的延迟表没有任何权威网站（全局配置 LatencyAuthorities 定义）有 MaxAuthorityLatencyTestInterval 时间内的记录
+	* `LastLatencyProbeAttempt` 已超过 `MaxLatencyTestInterval`
+	* `LastAuthorityLatencyProbeAttempt` 已超过 `MaxAuthorityLatencyTestInterval`
 * 调度策略：每隔 13～17 秒全局扫描一次，对未来 15 秒内将会或者已经满足探测时机的节点进行探测。
 * 探测动作：对全局配置的延迟探测站点发起 HTTP GET 请求，优先测量 **TLS Handshake** 耗时；若未产生 TLS 握手事件（如连接复用或明文 HTTP），回退为请求级 RTT（请求发起到首字节/请求完成）。
 * 结果处理：
-    * 成功：先调用 `RecordResult(true)`；仅当采样延迟 `> 0` 时调用 `RecordLatency`。
-    * 失败：调用 `RecordResult(false)`。连续失败将导致节点熔断。
+    * 成功：先调用 `RecordResult(true)`；调用 `RecordLatency(..., &latency)`（`latency<=0` 时仅记录尝试，不写样本）。
+    * 失败：调用 `RecordResult(false)` 与 `RecordLatency(..., nil)`。连续失败将导致节点熔断。
 
 #### 主动探测的并发控制
 ProbeManager 采用 **SPSC (Single Producer Single Consumer)** 变体模型进行调度：
@@ -335,6 +338,10 @@ ProbeManager 采用 **SPSC (Single Producer Single Consumer)** 变体模型进�
 #### 采样与反馈
 为避免阻塞数据链路，所有被动探测数据的记录均为**异步**执行。
 * **采样率**：100%。由于被动反馈极其廉价（仅为内存计数与原子操作），系统对所有业务流量进行采样。
+* **尝试时间戳更新规则**：
+    * 普通站点访问：更新 `LastLatencyProbeAttempt`。
+    * 权威站点访问：更新 `LastLatencyProbeAttempt` 与 `LastAuthorityLatencyProbeAttempt`。
+    * 访问失败时仍会记录尝试（`RecordLatency(..., nil)`）。
 * **反馈回路**：
     1. 流量经过代理。
     2. 代理捕获连接状态与握手耗时。
@@ -480,7 +487,7 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 
 #### cache.db
 * nodes_static(hash PK, raw_options_json, created_at_ns)
-* nodes_dynamic(hash PK, failure_count, circuit_open_since, egress_ip, egress_updated_at_ns)
+* nodes_dynamic(hash PK, failure_count, circuit_open_since, egress_ip, egress_updated_at_ns, last_latency_probe_attempt_ns, last_authority_latency_probe_attempt_ns, last_egress_update_attempt_ns)
 * node_latency(node_hash, domain, ewma_ns, last_updated_ns, PK(node_hash,domain))。
 * leases(platform_id, account, node_hash, egress_ip, expiry_ns, last_accessed_ns, PK(platform_id,account))。
 * subscription_nodes(subscription_id, node_hash, tags_json, PK(subscription_id,node_hash))
@@ -536,7 +543,7 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
         * 将 Subscription ID 加入 Node 的 `SubscriptionIDs` 集合。
 
 5. 加载节点动态状态
-    * 从 `cache.db` 加载 `nodes_dynamic`，更新节点的 熔断状态、失败计数、出口 IP。
+    * 从 `cache.db` 加载 `nodes_dynamic`，更新节点的熔断状态、失败计数、出口 IP、探测尝试时间戳。
     * 加载 `node_latency`，恢复节点的延迟统计表。
 
 6. 重建 Platform 可路由视图
@@ -1368,6 +1375,9 @@ Body：
   "failure_count": 0,
   "circuit_open_since": null,
   "last_egress_update": "2026-02-10T12:20:00Z",
+  "last_latency_probe_attempt": "2026-02-10T12:21:00Z",
+  "last_authority_latency_probe_attempt": "2026-02-10T12:21:00Z",
+  "last_egress_update_attempt": "2026-02-10T12:20:00Z",
   "subscriptions": ["uuid1","uuid2"],
   "last_error": "..."
 }
@@ -1394,7 +1404,7 @@ Query：
 * `circuit_open`：true|false（可选）
 * `has_outbound`：true|false（可选）
 * `egress_ip`：IP 地址（可选）
-* `updated_since`：RFC3339Nano（可选）
+* `probed_since`：RFC3339Nano（可选），按节点 `LastLatencyProbeAttempt` 过滤
 * `sort_by`：排序字段（可选）
 * `sort_order`：`asc` 或 `desc`（可选）
 
@@ -1416,6 +1426,9 @@ Response：
       "egress_ip": "1.2.3.4",
       "region": "us",
       "last_egress_update": "2026-02-10T12:20:00Z",
+      "last_latency_probe_attempt": "2026-02-10T12:21:00Z",
+      "last_authority_latency_probe_attempt": "2026-02-10T12:21:00Z",
+      "last_egress_update_attempt": "2026-02-10T12:20:00Z",
 
       "tags": [
         {
@@ -2151,8 +2164,8 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
             TLSHandshakeDone: func(cs tls.ConnectionState, err error) {
                 if err == nil && !tlsStart.IsZero() {
                     latency := time.Since(tlsStart)
-                    // 异步记录延迟
-                    go p.platformManager.NodeManager().RecordLatency(result.NodeID, domain, latency, p.config.Load().LatencyDecayWindow)
+                    // 异步记录延迟（latency=nil 时仅记录尝试）
+                    go p.health.RecordLatency(result.NodeID, domain, &latency)
                 }
             },
         }

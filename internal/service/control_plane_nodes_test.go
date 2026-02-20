@@ -179,3 +179,53 @@ func TestGetNode_TagIncludesSubscriptionNamePrefix(t *testing.T) {
 		t.Fatalf("tag = %q, want %q", got.Tags[0].Tag, "sub-a/tag")
 	}
 }
+
+func TestListNodes_ProbedSinceUsesLastLatencyProbeAttempt(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := newNodeListTestPool(subMgr)
+
+	sub := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subMgr.Register(sub)
+
+	hash := addRoutableNodeForSubscription(
+		t,
+		pool,
+		sub,
+		[]byte(`{"type":"ss","server":"1.1.1.1","port":443}`),
+		"203.0.113.30",
+	)
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing", hash.Hex())
+	}
+
+	latencyAttempt := time.Now().Add(-2 * time.Minute).UnixNano()
+	entry.LastLatencyProbeAttempt.Store(latencyAttempt)
+	// Keep egress update older to ensure filter is using LastLatencyProbeAttempt.
+	entry.LastEgressUpdate.Store(time.Now().Add(-10 * time.Minute).UnixNano())
+
+	cp := &ControlPlaneService{
+		Pool:   pool,
+		SubMgr: subMgr,
+		GeoIP:  &geoip.Service{},
+	}
+
+	before := time.Unix(0, latencyAttempt).Add(-1 * time.Minute)
+	nodes, err := cp.ListNodes(NodeFilters{ProbedSince: &before})
+	if err != nil {
+		t.Fatalf("ListNodes(before): %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("ListNodes(before) len = %d, want 1", len(nodes))
+	}
+
+	after := time.Unix(0, latencyAttempt).Add(1 * time.Minute)
+	nodes, err = cp.ListNodes(NodeFilters{ProbedSince: &after})
+	if err != nil {
+		t.Fatalf("ListNodes(after): %v", err)
+	}
+	if len(nodes) != 0 {
+		t.Fatalf("ListNodes(after) len = %d, want 0", len(nodes))
+	}
+}

@@ -420,16 +420,19 @@ type PlatformSpecFilter struct {
 
 // NodeSummary is the API response for a node.
 type NodeSummary struct {
-	NodeHash         string    `json:"node_hash"`
-	CreatedAt        string    `json:"created_at"`
-	HasOutbound      bool      `json:"has_outbound"`
-	LastError        string    `json:"last_error,omitempty"`
-	CircuitOpenSince *string   `json:"circuit_open_since"`
-	FailureCount     int       `json:"failure_count"`
-	EgressIP         string    `json:"egress_ip,omitempty"`
-	Region           string    `json:"region,omitempty"`
-	LastEgressUpdate string    `json:"last_egress_update,omitempty"`
-	Tags             []NodeTag `json:"tags"`
+	NodeHash                         string    `json:"node_hash"`
+	CreatedAt                        string    `json:"created_at"`
+	HasOutbound                      bool      `json:"has_outbound"`
+	LastError                        string    `json:"last_error,omitempty"`
+	CircuitOpenSince                 *string   `json:"circuit_open_since"`
+	FailureCount                     int       `json:"failure_count"`
+	EgressIP                         string    `json:"egress_ip,omitempty"`
+	Region                           string    `json:"region,omitempty"`
+	LastEgressUpdate                 string    `json:"last_egress_update,omitempty"`
+	LastLatencyProbeAttempt          string    `json:"last_latency_probe_attempt,omitempty"`
+	LastAuthorityLatencyProbeAttempt string    `json:"last_authority_latency_probe_attempt,omitempty"`
+	LastEgressUpdateAttempt          string    `json:"last_egress_update_attempt,omitempty"`
+	Tags                             []NodeTag `json:"tags"`
 }
 
 type NodeTag struct {
@@ -461,6 +464,15 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 
 	if leu := entry.LastEgressUpdate.Load(); leu > 0 {
 		ns.LastEgressUpdate = time.Unix(0, leu).UTC().Format(time.RFC3339Nano)
+	}
+	if lastAny := entry.LastLatencyProbeAttempt.Load(); lastAny > 0 {
+		ns.LastLatencyProbeAttempt = time.Unix(0, lastAny).UTC().Format(time.RFC3339Nano)
+	}
+	if lastAuthority := entry.LastAuthorityLatencyProbeAttempt.Load(); lastAuthority > 0 {
+		ns.LastAuthorityLatencyProbeAttempt = time.Unix(0, lastAuthority).UTC().Format(time.RFC3339Nano)
+	}
+	if lastEgressAttempt := entry.LastEgressUpdateAttempt.Load(); lastEgressAttempt > 0 {
+		ns.LastEgressUpdateAttempt = time.Unix(0, lastEgressAttempt).UTC().Format(time.RFC3339Nano)
 	}
 
 	// Build tags.

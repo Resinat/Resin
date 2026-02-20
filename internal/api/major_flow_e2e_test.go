@@ -79,8 +79,10 @@ func newMajorFlowHarness(t *testing.T, subscriptionUserAgent string) *majorFlowH
 	// dynamic properties (egress + latency) become routable.
 	pool.SetOnNodeAdded(func(hash node.Hash) {
 		outboundMgr.EnsureNodeOutbound(hash)
-		pool.UpdateNodeEgressIP(hash, netip.MustParseAddr("203.0.113.55"))
-		pool.RecordLatency(hash, "example.com", 25*time.Millisecond)
+		ip := netip.MustParseAddr("203.0.113.55")
+		pool.UpdateNodeEgressIP(hash, &ip)
+		latency := 25 * time.Millisecond
+		pool.RecordLatency(hash, "example.com", &latency)
 	})
 	pool.SetOnNodeRemoved(func(_ node.Hash, entry *node.NodeEntry) {
 		outboundMgr.RemoveNodeOutbound(entry)

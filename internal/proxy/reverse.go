@@ -276,6 +276,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	nodeHashRaw := routed.Route.NodeHash
 	domain := netutil.ExtractDomain(parsed.Host)
+	go p.health.RecordLatency(nodeHashRaw, domain, nil)
 
 	target, targetErr := buildReverseTargetURL(parsed, r.URL.RawQuery)
 	if targetErr != nil {
@@ -303,7 +304,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
 						if err == nil && !tlsStart.IsZero() {
 							latency := time.Since(tlsStart)
-							go p.health.RecordLatency(nodeHashRaw, domain, latency)
+							go p.health.RecordLatency(nodeHashRaw, domain, &latency)
 						}
 					},
 				}

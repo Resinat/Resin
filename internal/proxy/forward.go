@@ -162,6 +162,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lifecycle.setRouteResult(routed.Route)
+	go p.health.RecordLatency(routed.Route.NodeHash, netutil.ExtractDomain(r.Host), nil)
 
 	transport := newOutboundTransport(routed.Outbound, p.metricsSink, routed.Route.PlatformID)
 
@@ -226,6 +227,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	// Wrap the dialed connection with tlsLatencyConn for passive TLS latency.
 	domain := netutil.ExtractDomain(target)
 	nodeHashRaw := routed.Route.NodeHash
+	go p.health.RecordLatency(nodeHashRaw, domain, nil)
 
 	rawConn, err := routed.Outbound.DialContext(r.Context(), "tcp", M.ParseSocksaddr(target))
 	if err != nil {
@@ -252,7 +254,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 
 	// Wrap with TLS latency measurement.
 	upstreamConn := newTLSLatencyConn(upstreamBase, func(latency time.Duration) {
-		p.health.RecordLatency(nodeHashRaw, domain, latency)
+		p.health.RecordLatency(nodeHashRaw, domain, &latency)
 	})
 
 	// Hijack the client connection.

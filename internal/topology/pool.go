@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/netip"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,6 +48,7 @@ type GlobalNodePool struct {
 	maxLatencyTableEntries int
 	maxConsecutiveFailures func() int
 	latencyDecayWindow     func() time.Duration
+	latencyAuthorities     func() []string
 }
 
 // PoolConfig configures the GlobalNodePool.
@@ -61,6 +63,7 @@ type PoolConfig struct {
 	MaxLatencyTableEntries int
 	MaxConsecutiveFailures func() int
 	LatencyDecayWindow     func() time.Duration
+	LatencyAuthorities     func() []string
 }
 
 var (
@@ -89,6 +92,7 @@ func NewGlobalNodePool(cfg PoolConfig) *GlobalNodePool {
 		maxLatencyTableEntries: cfg.MaxLatencyTableEntries,
 		maxConsecutiveFailures: maxConsecutiveFailuresFn,
 		latencyDecayWindow:     cfg.LatencyDecayWindow,
+		latencyAuthorities:     cfg.LatencyAuthorities,
 		platformByID:           make(map[string]*platform.Platform),
 		platformByName:         make(map[string]*platform.Platform),
 	}
@@ -460,15 +464,29 @@ func (p *GlobalNodePool) currentMaxConsecutiveFailures() int {
 	return p.maxConsecutiveFailures()
 }
 
-// RecordLatency records a latency observation for the given node and raw target.
-// rawTarget is passed through ExtractDomain internally for eTLD+1 normalization.
-func (p *GlobalNodePool) RecordLatency(hash node.Hash, rawTarget string, latency time.Duration) {
+// RecordLatency records a latency probe attempt for the given node and raw target.
+// rawTarget is normalized through ExtractDomain (eTLD+1). latency may be nil,
+// which means "attempt only" without latency sample writeback.
+func (p *GlobalNodePool) RecordLatency(hash node.Hash, rawTarget string, latency *time.Duration) {
 	entry, ok := p.nodes.Load(hash)
-	if !ok || entry.LatencyTable == nil {
+	if !ok {
 		return
 	}
 
 	domain := netutil.ExtractDomain(rawTarget)
+	nowNs := time.Now().UnixNano()
+	entry.LastLatencyProbeAttempt.Store(nowNs)
+	if p.isAuthorityDomain(domain) {
+		entry.LastAuthorityLatencyProbeAttempt.Store(nowNs)
+	}
+	if p.onNodeDynamicChanged != nil {
+		p.onNodeDynamicChanged(hash)
+	}
+
+	if latency == nil || *latency <= 0 || entry.LatencyTable == nil {
+		return
+	}
+
 	var decayWindow time.Duration
 	if p.latencyDecayWindow != nil {
 		decayWindow = p.latencyDecayWindow()
@@ -477,7 +495,7 @@ func (p *GlobalNodePool) RecordLatency(hash node.Hash, rawTarget string, latency
 		decayWindow = 30 * time.Second // default
 	}
 
-	wasEmpty := entry.LatencyTable.Update(domain, latency, decayWindow)
+	wasEmpty := entry.LatencyTable.Update(domain, *latency, decayWindow)
 
 	// If the table transitioned from empty to non-empty, the node might
 	// now satisfy the HasLatency filter — notify platforms.
@@ -490,27 +508,51 @@ func (p *GlobalNodePool) RecordLatency(hash node.Hash, rawTarget string, latency
 	}
 }
 
-// UpdateNodeEgressIP updates the node's egress IP if it changed.
-// Always updates LastEgressUpdate to record a successful egress-IP sample time.
-// Fires OnNodeDynamicChanged and notifies platforms only on actual IP change.
-func (p *GlobalNodePool) UpdateNodeEgressIP(hash node.Hash, ip netip.Addr) {
+// UpdateNodeEgressIP records an egress probe attempt and optionally updates
+// the node's egress IP when ip != nil.
+func (p *GlobalNodePool) UpdateNodeEgressIP(hash node.Hash, ip *netip.Addr) {
 	entry, ok := p.nodes.Load(hash)
 	if !ok {
 		return
 	}
 
-	// Record successful egress-IP sample timestamp.
-	entry.LastEgressUpdate.Store(time.Now().UnixNano())
+	nowNs := time.Now().UnixNano()
+	entry.LastEgressUpdateAttempt.Store(nowNs)
 
-	old := entry.GetEgressIP()
-	if old == ip {
-		return // no IP change — skip notifications
+	if ip == nil {
+		if p.onNodeDynamicChanged != nil {
+			p.onNodeDynamicChanged(hash)
+		}
+		return
 	}
 
-	entry.SetEgressIP(ip)
+	// Record successful egress-IP sample timestamp.
+	entry.LastEgressUpdate.Store(nowNs)
+	old := entry.GetEgressIP()
+	if old == *ip {
+		if p.onNodeDynamicChanged != nil {
+			p.onNodeDynamicChanged(hash)
+		}
+		return // no IP change — skip platform notifications
+	}
+
+	entry.SetEgressIP(*ip)
 
 	p.notifyAllPlatformsDirty(hash)
 	if p.onNodeDynamicChanged != nil {
 		p.onNodeDynamicChanged(hash)
 	}
+}
+
+func (p *GlobalNodePool) isAuthorityDomain(domain string) bool {
+	if domain == "" || p.latencyAuthorities == nil {
+		return false
+	}
+	authorities := p.latencyAuthorities()
+	for _, authority := range authorities {
+		if strings.EqualFold(strings.TrimSpace(authority), domain) {
+			return true
+		}
+	}
+	return false
 }

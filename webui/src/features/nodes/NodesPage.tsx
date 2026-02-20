@@ -18,7 +18,7 @@ type NodeFilterDraft = {
   subscription_id: string;
   region: string;
   egress_ip: string;
-  updated_since_local: string;
+  probed_since_local: string;
   circuit_open: BoolFilter;
   has_outbound: BoolFilter;
 };
@@ -28,7 +28,7 @@ const defaultFilterDraft: NodeFilterDraft = {
   subscription_id: "",
   region: "",
   egress_ip: "",
-  updated_since_local: "",
+  probed_since_local: "",
   circuit_open: "all",
   has_outbound: "all",
 };
@@ -72,7 +72,7 @@ function draftToActiveFilters(draft: NodeFilterDraft): NodeListFilters {
     subscription_id: draft.subscription_id,
     region: draft.region,
     egress_ip: draft.egress_ip,
-    updated_since: toRFC3339(draft.updated_since_local),
+    probed_since: toRFC3339(draft.probed_since_local),
     circuit_open: boolFromFilter(draft.circuit_open),
     has_outbound: boolFromFilter(draft.has_outbound),
   };
@@ -315,14 +315,14 @@ export function NodesPage() {
           </div>
 
           <div className="field-group">
-            <label className="field-label" htmlFor="node-updated-since">
-              Updated Since
+            <label className="field-label" htmlFor="node-probed-since">
+              Probed Since
             </label>
             <Input
-              id="node-updated-since"
+              id="node-probed-since"
               type="datetime-local"
-              value={draftFilters.updated_since_local}
-              onChange={(event) => setDraftFilters((prev) => ({ ...prev, updated_since_local: event.target.value }))}
+              value={draftFilters.probed_since_local}
+              onChange={(event) => setDraftFilters((prev) => ({ ...prev, probed_since_local: event.target.value }))}
             />
           </div>
 
@@ -412,7 +412,6 @@ export function NodesPage() {
                       <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
                     </button>
                   </th>
-                  <th>Node Hash</th>
                   <th>
                     <button type="button" className="table-sort-btn" onClick={() => changeSort("region")}>
                       Region
@@ -420,6 +419,7 @@ export function NodesPage() {
                     </button>
                   </th>
                   <th>Egress IP</th>
+                  <th>上次探测</th>
                   <th>
                     <button type="button" className="table-sort-btn" onClick={() => changeSort("failure_count")}>
                       Failure
@@ -454,13 +454,9 @@ export function NodesPage() {
                           {tagExtra > 0 ? <small>+{tagExtra}</small> : null}
                         </div>
                       </td>
-                      <td>
-                        <code className="nodes-cell-hash" title={node.node_hash}>
-                          {node.node_hash}
-                        </code>
-                      </td>
                       <td>{node.region || "-"}</td>
                       <td>{node.egress_ip || "-"}</td>
+                      <td>{formatDateTime(node.last_latency_probe_attempt || "")}</td>
                       <td>{node.failure_count}</td>
                       <td>
                         <Badge variant={node.has_outbound ? "success" : "warning"}>
@@ -570,8 +566,8 @@ export function NodesPage() {
               <p>{detailNode.region || "-"}</p>
             </div>
             <div>
-              <span>Last Egress Update</span>
-              <p>{formatDateTime(detailNode.last_egress_update || "")}</p>
+              <span>上次探测</span>
+              <p>{formatDateTime(detailNode.last_latency_probe_attempt || "")}</p>
             </div>
           </div>
 

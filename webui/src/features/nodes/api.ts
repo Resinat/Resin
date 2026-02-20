@@ -16,6 +16,9 @@ type ApiNodeSummary = Omit<NodeSummary, "tags"> & {
   egress_ip?: string | null;
   region?: string | null;
   last_egress_update?: string | null;
+  last_latency_probe_attempt?: string | null;
+  last_authority_latency_probe_attempt?: string | null;
+  last_egress_update_attempt?: string | null;
 };
 
 function normalizeNode(raw: ApiNodeSummary): NodeSummary {
@@ -27,6 +30,9 @@ function normalizeNode(raw: ApiNodeSummary): NodeSummary {
     egress_ip: raw.egress_ip || "",
     region: raw.region || "",
     last_egress_update: raw.last_egress_update || "",
+    last_latency_probe_attempt: raw.last_latency_probe_attempt || "",
+    last_authority_latency_probe_attempt: raw.last_authority_latency_probe_attempt || "",
+    last_egress_update_attempt: raw.last_egress_update_attempt || "",
   };
 }
 
@@ -53,7 +59,7 @@ export async function listNodes(filters: NodeListQuery): Promise<PageResponse<No
   appendIfNotEmpty("subscription_id", filters.subscription_id);
   appendIfNotEmpty("region", filters.region);
   appendIfNotEmpty("egress_ip", filters.egress_ip);
-  appendIfNotEmpty("updated_since", filters.updated_since);
+  appendIfNotEmpty("probed_since", filters.probed_since);
 
   if (filters.circuit_open !== undefined) {
     query.set("circuit_open", String(filters.circuit_open));

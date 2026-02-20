@@ -14,6 +14,9 @@ export type NodeSummary = {
   egress_ip?: string;
   region?: string;
   last_egress_update?: string;
+  last_latency_probe_attempt?: string;
+  last_authority_latency_probe_attempt?: string;
+  last_egress_update_attempt?: string;
   tags: NodeTag[];
 };
 
@@ -32,7 +35,7 @@ export type NodeListFilters = {
   subscription_id?: string;
   region?: string;
   egress_ip?: string;
-  updated_since?: string;
+  probed_since?: string;
   circuit_open?: boolean;
   has_outbound?: boolean;
 };

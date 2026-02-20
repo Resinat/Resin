@@ -57,7 +57,7 @@ func (m *mockHealthRecorder) RecordResult(hash node.Hash, success bool) {
 	}
 }
 
-func (m *mockHealthRecorder) RecordLatency(hash node.Hash, rawTarget string, latency time.Duration) {
+func (m *mockHealthRecorder) RecordLatency(hash node.Hash, rawTarget string, latency *time.Duration) {
 	m.latencyCalls.Add(1)
 }
 
@@ -718,7 +718,8 @@ func TestHealthRecorderAsyncCall(t *testing.T) {
 	// Simulate async dispatch as done in proxy code.
 	go h.RecordResult(hash, true)
 	go h.RecordResult(hash, false)
-	go h.RecordLatency(hash, "example.com", 10*time.Millisecond)
+	latency := 10 * time.Millisecond
+	go h.RecordLatency(hash, "example.com", &latency)
 
 	// Give goroutines time to complete.
 	time.Sleep(50 * time.Millisecond)

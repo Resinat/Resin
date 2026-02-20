@@ -288,8 +288,8 @@ func (m *ProbeManager) scanEgress() {
 			return true // skip nil outbound
 		}
 
-		// Check if due: lastCheck + interval - lookahead <= now.
-		lastCheck := entry.LastEgressUpdate.Load()
+		// Check if due: lastAttempt + interval - lookahead <= now.
+		lastCheck := entry.LastEgressUpdateAttempt.Load()
 		if lastCheck > 0 {
 			nextDue := time.Unix(0, lastCheck).Add(interval).Add(-lookahead)
 			if now.Before(nextDue) {
@@ -366,10 +366,8 @@ func (m *ProbeManager) scanLatency() {
 	})
 }
 
-// isLatencyProbeDue checks whether a node needs a latency probe.
-// Returns true if:
-//   - the node has no recent latency record (within MaxLatencyTestInterval), OR
-//   - no authority domain has a recent record (within MaxAuthorityLatencyTestInterval).
+// isLatencyProbeDue checks whether a node needs a latency probe, based on
+// last probe-attempt timestamps (not latency-table timestamps).
 func (m *ProbeManager) isLatencyProbeDue(
 	entry *node.NodeEntry,
 	now time.Time,
@@ -377,38 +375,25 @@ func (m *ProbeManager) isLatencyProbeDue(
 	authorities []string,
 	lookahead time.Duration,
 ) bool {
-	if entry.LatencyTable == nil || entry.LatencyTable.Size() == 0 {
-		return true // no entries at all
-	}
-
-	// Check if any entry is recent enough.
-	hasRecentAny := false
-	entry.LatencyTable.Range(func(_ string, stats node.DomainLatencyStats) bool {
-		deadline := stats.LastUpdated.Add(maxLatencyInterval).Add(-lookahead)
-		if now.Before(deadline) {
-			hasRecentAny = true
-			return false // found recent, stop
-		}
+	lastAny := entry.LastLatencyProbeAttempt.Load()
+	if lastAny == 0 {
 		return true
-	})
-	if !hasRecentAny {
-		return true // all entries are stale
+	}
+	anyDeadline := time.Unix(0, lastAny).Add(maxLatencyInterval).Add(-lookahead)
+	if !now.Before(anyDeadline) {
+		return true
 	}
 
-	// Check if any authority domain has a recent record.
 	if len(authorities) == 0 {
-		return false // no authorities configured — any recent record is enough
+		return false
 	}
-	for _, auth := range authorities {
-		stats, ok := entry.LatencyTable.GetDomainStats(auth)
-		if ok {
-			deadline := stats.LastUpdated.Add(maxAuthorityInterval).Add(-lookahead)
-			if now.Before(deadline) {
-				return false // found recent authority record
-			}
-		}
+
+	lastAuthority := entry.LastAuthorityLatencyProbeAttempt.Load()
+	if lastAuthority == 0 {
+		return true
 	}
-	return true // no recent authority record
+	authorityDeadline := time.Unix(0, lastAuthority).Add(maxAuthorityInterval).Add(-lookahead)
+	return !now.Before(authorityDeadline)
 }
 
 // probeEgress performs a single egress probe against a node via Cloudflare trace.
@@ -464,33 +449,35 @@ func (m *ProbeManager) performEgressProbe(hash node.Hash) (netip.Addr, egressPro
 	body, latency, err := m.fetcher(hash, egressTraceURL)
 	if err != nil {
 		m.pool.RecordResult(hash, false)
+		m.pool.UpdateNodeEgressIP(hash, nil)
 		return netip.Addr{}, egressProbeFetchError, err
 	}
 
 	m.pool.RecordResult(hash, true)
 	if latency > 0 {
-		m.pool.RecordLatency(hash, egressTraceDomain, latency)
+		m.pool.RecordLatency(hash, egressTraceDomain, &latency)
 	}
 
 	ip, err := ParseCloudflareTrace(body)
 	if err != nil {
+		m.pool.UpdateNodeEgressIP(hash, nil)
 		return netip.Addr{}, egressProbeParseError, err
 	}
-	m.pool.UpdateNodeEgressIP(hash, ip)
+	m.pool.UpdateNodeEgressIP(hash, &ip)
 	return ip, egressProbeNoError, nil
 }
 
 func (m *ProbeManager) performLatencyProbe(hash node.Hash, testURL string) error {
+	domain := netutil.ExtractDomain(testURL)
 	_, latency, err := m.fetcher(hash, testURL)
 	if err != nil {
 		m.pool.RecordResult(hash, false)
+		m.pool.RecordLatency(hash, domain, nil)
 		return err
 	}
 
 	m.pool.RecordResult(hash, true)
-	if latency > 0 {
-		m.pool.RecordLatency(hash, netutil.ExtractDomain(testURL), latency)
-	}
+	m.pool.RecordLatency(hash, domain, &latency)
 	return nil
 }
 

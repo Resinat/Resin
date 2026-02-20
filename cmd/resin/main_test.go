@@ -229,6 +229,9 @@ func TestMarkNodeRemovedDirty_DeletesStaticDynamicAndLatency(t *testing.T) {
 	entry.CircuitOpenSince.Store(time.Now().Add(-time.Minute).UnixNano())
 	entry.SetEgressIP(netip.MustParseAddr("203.0.113.50"))
 	entry.LastEgressUpdate.Store(time.Now().UnixNano())
+	entry.LastEgressUpdateAttempt.Store(time.Now().UnixNano())
+	entry.LastLatencyProbeAttempt.Store(time.Now().UnixNano())
+	entry.LastAuthorityLatencyProbeAttempt.Store(time.Now().UnixNano())
 	entry.LatencyTable.Update("example.com", 55*time.Millisecond, 5*time.Minute)
 	entry.LatencyTable.Update("cloudflare.com", 65*time.Millisecond, 5*time.Minute)
 
@@ -248,11 +251,14 @@ func TestMarkNodeRemovedDirty_DeletesStaticDynamicAndLatency(t *testing.T) {
 				return nil
 			}
 			return &model.NodeDynamic{
-				Hash:              hashHex,
-				FailureCount:      int(entry.FailureCount.Load()),
-				CircuitOpenSince:  entry.CircuitOpenSince.Load(),
-				EgressIP:          entry.GetEgressIP().String(),
-				EgressUpdatedAtNs: entry.LastEgressUpdate.Load(),
+				Hash:                               hashHex,
+				FailureCount:                       int(entry.FailureCount.Load()),
+				CircuitOpenSince:                   entry.CircuitOpenSince.Load(),
+				EgressIP:                           entry.GetEgressIP().String(),
+				EgressUpdatedAtNs:                  entry.LastEgressUpdate.Load(),
+				LastLatencyProbeAttemptNs:          entry.LastLatencyProbeAttempt.Load(),
+				LastAuthorityLatencyProbeAttemptNs: entry.LastAuthorityLatencyProbeAttempt.Load(),
+				LastEgressUpdateAttemptNs:          entry.LastEgressUpdateAttempt.Load(),
 			}
 		},
 		ReadNodeLatency: func(key model.NodeLatencyKey) *model.NodeLatency {

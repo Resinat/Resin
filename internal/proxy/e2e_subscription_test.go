@@ -70,8 +70,10 @@ func newProxyE2EEnvFromSubscriptionURL(t *testing.T, subURL string) *proxyE2EEnv
 			t.Fatalf("node %s outbound not initialized", hash.Hex())
 		}
 
-		pool.UpdateNodeEgressIP(hash, netip.MustParseAddr("203.0.113.10"))
-		pool.RecordLatency(hash, "example.com", 20*time.Millisecond)
+		ip := netip.MustParseAddr("203.0.113.10")
+		pool.UpdateNodeEgressIP(hash, &ip)
+		latency := 20 * time.Millisecond
+		pool.RecordLatency(hash, "example.com", &latency)
 		return true
 	})
 	if nodeCount == 0 {

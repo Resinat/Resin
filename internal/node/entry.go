@@ -34,7 +34,12 @@ type NodeEntry struct {
 	CircuitOpenSince atomic.Int64               // unix-nano; 0 = not open
 	egressIP         atomic.Pointer[netip.Addr] // nil before first store
 	LastEgressUpdate atomic.Int64               // unix-nano of last successful egress-IP sample
-	LatencyTable     *LatencyTable              // per-domain latency stats; nil if not initialized
+	// Probe-attempt timestamps (unix-nano). These are updated regardless of
+	// probe success/failure, and are used by probe schedulers.
+	LastLatencyProbeAttempt          atomic.Int64
+	LastAuthorityLatencyProbeAttempt atomic.Int64
+	LastEgressUpdateAttempt          atomic.Int64
+	LatencyTable                     *LatencyTable // per-domain latency stats; nil if not initialized
 
 	// Outbound instance for this node.
 	Outbound atomic.Pointer[adapter.Outbound]

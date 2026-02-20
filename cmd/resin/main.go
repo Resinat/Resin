@@ -216,6 +216,9 @@ func newTopologyRuntime(
 		LatencyDecayWindow: func() time.Duration {
 			return time.Duration(runtimeConfigSnapshot(runtimeCfg).LatencyDecayWindow)
 		},
+		LatencyAuthorities: func() []string {
+			return runtimeConfigSnapshot(runtimeCfg).LatencyAuthorities
+		},
 	})
 	log.Println("Topology: GlobalNodePool initialized")
 
@@ -424,11 +427,14 @@ func newFlushReaders(
 				egressStr = egressIP.String()
 			}
 			return &model.NodeDynamic{
-				Hash:              hash,
-				FailureCount:      int(entry.FailureCount.Load()),
-				CircuitOpenSince:  entry.CircuitOpenSince.Load(),
-				EgressIP:          egressStr,
-				EgressUpdatedAtNs: entry.LastEgressUpdate.Load(),
+				Hash:                               hash,
+				FailureCount:                       int(entry.FailureCount.Load()),
+				CircuitOpenSince:                   entry.CircuitOpenSince.Load(),
+				EgressIP:                           egressStr,
+				EgressUpdatedAtNs:                  entry.LastEgressUpdate.Load(),
+				LastLatencyProbeAttemptNs:          entry.LastLatencyProbeAttempt.Load(),
+				LastAuthorityLatencyProbeAttemptNs: entry.LastAuthorityLatencyProbeAttempt.Load(),
+				LastEgressUpdateAttemptNs:          entry.LastEgressUpdateAttempt.Load(),
 			}
 		},
 		ReadNodeLatency: func(key model.NodeLatencyKey) *model.NodeLatency {
@@ -749,12 +755,15 @@ func restoreBootstrapNodeDynamics(
 		}
 		entry.FailureCount.Store(int32(nd.FailureCount))
 		entry.CircuitOpenSince.Store(nd.CircuitOpenSince)
+		entry.LastLatencyProbeAttempt.Store(nd.LastLatencyProbeAttemptNs)
+		entry.LastAuthorityLatencyProbeAttempt.Store(nd.LastAuthorityLatencyProbeAttemptNs)
+		entry.LastEgressUpdateAttempt.Store(nd.LastEgressUpdateAttemptNs)
 		if nd.EgressIP != "" {
 			if ip, err := netip.ParseAddr(nd.EgressIP); err == nil {
 				entry.SetEgressIP(ip)
-				entry.LastEgressUpdate.Store(nd.EgressUpdatedAtNs)
 			}
 		}
+		entry.LastEgressUpdate.Store(nd.EgressUpdatedAtNs)
 	}
 	log.Printf("Loaded %d node dynamic states from cache.db", len(dynamics))
 	return nil

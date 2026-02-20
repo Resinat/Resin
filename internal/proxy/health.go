@@ -10,5 +10,5 @@ import (
 // topology.GlobalNodePool satisfies this interface.
 type HealthRecorder interface {
 	RecordResult(hash node.Hash, success bool)
-	RecordLatency(hash node.Hash, rawTarget string, latency time.Duration)
+	RecordLatency(hash node.Hash, rawTarget string, latency *time.Duration)
 }

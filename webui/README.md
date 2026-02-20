@@ -49,7 +49,7 @@ VITE_DEV_API_TARGET=http://127.0.0.1:2620 npm run dev
   - 删除 Subscription
   - 手动刷新 Subscription
 - 已完成：`Nodes` 页面
-  - 服务端筛选（platform/subscription/region/egress/circuit/outbound/updated_since）
+  - 服务端筛选（platform/subscription/region/egress/circuit/outbound/probed_since）
   - 列表检索与详情展示
   - 触发出口探测
   - 触发延迟探测

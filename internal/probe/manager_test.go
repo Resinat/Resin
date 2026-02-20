@@ -488,6 +488,32 @@ func TestProbeSync_EmitsProbeEvents(t *testing.T) {
 	}
 }
 
+func TestIsLatencyProbeDue_UsesAttemptTimestamps(t *testing.T) {
+	mgr := NewProbeManager(ProbeConfig{})
+	hash := node.HashFromRawOptions([]byte(`{"type":"due-check"}`))
+	entry := node.NewNodeEntry(hash, []byte(`{"type":"due-check"}`), time.Now(), 16)
+	now := time.Now()
+
+	// Seed a very recent latency-table sample; due-check should ignore this and
+	// rely on attempt timestamps.
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        20 * time.Millisecond,
+		LastUpdated: now,
+	})
+
+	entry.LastLatencyProbeAttempt.Store(now.Add(-10 * time.Minute).UnixNano())
+	entry.LastAuthorityLatencyProbeAttempt.Store(now.Add(-10 * time.Minute).UnixNano())
+	if !mgr.isLatencyProbeDue(entry, now, 5*time.Minute, 1*time.Hour, []string{"example.com"}, 15*time.Second) {
+		t.Fatal("expected due=true when last latency attempt is stale")
+	}
+
+	entry.LastLatencyProbeAttempt.Store(now.Add(-1 * time.Minute).UnixNano())
+	entry.LastAuthorityLatencyProbeAttempt.Store(now.Add(-2 * time.Hour).UnixNano())
+	if !mgr.isLatencyProbeDue(entry, now, 5*time.Minute, 1*time.Hour, []string{"example.com"}, 15*time.Second) {
+		t.Fatal("expected due=true when authority attempt is stale")
+	}
+}
+
 // TestParseCloudflareTrace_Success verifies IP extraction from trace body.
 func TestParseCloudflareTrace_Success(t *testing.T) {
 	body := []byte("fl=abc\nip=1.2.3.4\nts=12345")

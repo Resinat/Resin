@@ -191,7 +191,8 @@ func TestRecordLatency_NormalizesDomain(t *testing.T) {
 	h := addTestNode(pool, sub, `{"type":"ss","n":"lat"}`)
 
 	// Pass raw target with subdomain+port — should normalize to eTLD+1.
-	pool.RecordLatency(h, "www.example.com:443", 100*time.Millisecond)
+	latency := 100 * time.Millisecond
+	pool.RecordLatency(h, "www.example.com:443", &latency)
 
 	entry, _ := pool.GetEntry(h)
 	stats, ok := entry.LatencyTable.GetDomainStats("example.com")
@@ -220,9 +221,46 @@ func TestRecordLatency_FirstRecord_PlatformDirty(t *testing.T) {
 	h := addTestNode(pool, sub, `{"type":"ss","n":"first"}`)
 
 	// First record → wasEmpty=true → platform dirty.
-	pool.RecordLatency(h, "example.com", 50*time.Millisecond)
+	latency := 50 * time.Millisecond
+	pool.RecordLatency(h, "example.com", &latency)
 	if latencyCBCount.Load() != 1 {
 		t.Fatalf("expected 1 latency callback, got %d", latencyCBCount.Load())
+	}
+}
+
+func TestRecordLatency_AttemptOnly_UpdatesAttemptTimestamps(t *testing.T) {
+	var dynamicCBCount atomic.Int32
+	pool := NewGlobalNodePool(PoolConfig{
+		SubLookup:              NewSubscriptionManager().Lookup,
+		GeoLookup:              func(netip.Addr) string { return "" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+		LatencyAuthorities:     func() []string { return []string{"example.com"} },
+		OnNodeDynamicChanged:   func(hash node.Hash) { dynamicCBCount.Add(1) },
+	})
+
+	raw := `{"type":"ss","n":"attempt-only"}`
+	h := node.HashFromRawOptions([]byte(raw))
+	pool.AddNodeFromSub(h, []byte(raw), "s1")
+
+	entry, _ := pool.GetEntry(h)
+	if entry.LastLatencyProbeAttempt.Load() != 0 || entry.LastAuthorityLatencyProbeAttempt.Load() != 0 {
+		t.Fatalf("attempt timestamps should start at 0: %+v", entry)
+	}
+
+	pool.RecordLatency(h, "www.example.com:443", nil)
+
+	if entry.LastLatencyProbeAttempt.Load() == 0 {
+		t.Fatal("LastLatencyProbeAttempt should be updated")
+	}
+	if entry.LastAuthorityLatencyProbeAttempt.Load() == 0 {
+		t.Fatal("LastAuthorityLatencyProbeAttempt should be updated for authority domain")
+	}
+	if entry.HasLatency() {
+		t.Fatal("attempt-only RecordLatency(nil) must not write latency sample")
+	}
+	if dynamicCBCount.Load() != 1 {
+		t.Fatalf("expected 1 dynamic callback, got %d", dynamicCBCount.Load())
 	}
 }
 
@@ -243,7 +281,7 @@ func TestUpdateNodeEgressIP_Change(t *testing.T) {
 	pool.AddNodeFromSub(h, []byte(raw), "s1")
 
 	ip1 := netip.MustParseAddr("1.2.3.4")
-	pool.UpdateNodeEgressIP(h, ip1)
+	pool.UpdateNodeEgressIP(h, &ip1)
 	if dynamicCount.Load() != 1 {
 		t.Fatalf("expected 1 callback on first IP set, got %d", dynamicCount.Load())
 	}
@@ -253,16 +291,16 @@ func TestUpdateNodeEgressIP_Change(t *testing.T) {
 		t.Fatalf("expected %v, got %v", ip1, entry.GetEgressIP())
 	}
 
-	// Same IP → no callback.
-	pool.UpdateNodeEgressIP(h, ip1)
-	if dynamicCount.Load() != 1 {
-		t.Fatalf("expected no callback on same IP, got %d", dynamicCount.Load())
+	// Same IP still updates probe-attempt timestamp.
+	pool.UpdateNodeEgressIP(h, &ip1)
+	if dynamicCount.Load() != 2 {
+		t.Fatalf("expected callback on same IP attempt, got %d", dynamicCount.Load())
 	}
 
 	// Different IP → callback.
 	ip2 := netip.MustParseAddr("5.6.7.8")
-	pool.UpdateNodeEgressIP(h, ip2)
-	if dynamicCount.Load() != 2 {
-		t.Fatalf("expected 2 callbacks after IP change, got %d", dynamicCount.Load())
+	pool.UpdateNodeEgressIP(h, &ip2)
+	if dynamicCount.Load() != 3 {
+		t.Fatalf("expected 3 callbacks after IP change, got %d", dynamicCount.Load())
 	}
 }

@@ -91,13 +91,13 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 		}
 		filters.HasOutbound = hasOutbound
 
-		if v := q.Get("updated_since"); v != "" {
+		if v := q.Get("probed_since"); v != "" {
 			t, err := time.Parse(time.RFC3339Nano, v)
 			if err != nil {
-				writeInvalidArgument(w, "updated_since: invalid RFC3339 timestamp")
+				writeInvalidArgument(w, "probed_since: invalid RFC3339 timestamp")
 				return
 			}
-			filters.UpdatedSince = &t
+			filters.ProbedSince = &t
 		}
 
 		nodes, err := cp.ListNodes(filters)

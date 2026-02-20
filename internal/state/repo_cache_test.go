@@ -80,7 +80,16 @@ func TestCacheRepo_NodesDynamic_BulkUpsertAndLoad(t *testing.T) {
 	repo := newTestCacheRepo(t)
 
 	nodes := []model.NodeDynamic{
-		{Hash: "aaa", FailureCount: 3, CircuitOpenSince: 1000, EgressIP: "1.2.3.4", EgressUpdatedAtNs: 500},
+		{
+			Hash:                               "aaa",
+			FailureCount:                       3,
+			CircuitOpenSince:                   1000,
+			EgressIP:                           "1.2.3.4",
+			EgressUpdatedAtNs:                  500,
+			LastLatencyProbeAttemptNs:          700,
+			LastAuthorityLatencyProbeAttemptNs: 800,
+			LastEgressUpdateAttemptNs:          900,
+		},
 	}
 	if err := repo.BulkUpsertNodesDynamic(nodes); err != nil {
 		t.Fatal(err)
@@ -92,6 +101,11 @@ func TestCacheRepo_NodesDynamic_BulkUpsertAndLoad(t *testing.T) {
 	}
 	if len(loaded) != 1 || loaded[0].FailureCount != 3 {
 		t.Fatalf("unexpected: %+v", loaded)
+	}
+	if loaded[0].LastLatencyProbeAttemptNs != 700 ||
+		loaded[0].LastAuthorityLatencyProbeAttemptNs != 800 ||
+		loaded[0].LastEgressUpdateAttemptNs != 900 {
+		t.Fatalf("unexpected probe attempt fields: %+v", loaded[0])
 	}
 
 	// Update.

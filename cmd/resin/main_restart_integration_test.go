@@ -42,6 +42,9 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 	hash := node.HashFromRawOptions(raw)
 	egressIP := netip.MustParseAddr("203.0.113.9")
 	egressUpdatedAt := time.Now().UnixNano()
+	egressAttemptAt := egressUpdatedAt - int64(5*time.Second)
+	latencyAttemptAt := egressUpdatedAt - int64(3*time.Second)
+	authorityAttemptAt := egressUpdatedAt - int64(2*time.Second)
 
 	engine1, closer1, err := state.PersistenceBootstrap(stateDir, cacheDir)
 	if err != nil {
@@ -100,6 +103,9 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 
 	entry1.SetEgressIP(egressIP)
 	entry1.LastEgressUpdate.Store(egressUpdatedAt)
+	entry1.LastEgressUpdateAttempt.Store(egressAttemptAt)
+	entry1.LastLatencyProbeAttempt.Store(latencyAttemptAt)
+	entry1.LastAuthorityLatencyProbeAttempt.Store(authorityAttemptAt)
 	entry1.FailureCount.Store(2)
 	if entry1.LatencyTable == nil {
 		t.Fatal("node latency table should be initialized")
@@ -223,6 +229,15 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 	}
 	if got := entry2.LastEgressUpdate.Load(); got != egressUpdatedAt {
 		t.Fatalf("egress_updated_at_ns: got %d, want %d", got, egressUpdatedAt)
+	}
+	if got := entry2.LastEgressUpdateAttempt.Load(); got != egressAttemptAt {
+		t.Fatalf("last_egress_update_attempt_ns: got %d, want %d", got, egressAttemptAt)
+	}
+	if got := entry2.LastLatencyProbeAttempt.Load(); got != latencyAttemptAt {
+		t.Fatalf("last_latency_probe_attempt_ns: got %d, want %d", got, latencyAttemptAt)
+	}
+	if got := entry2.LastAuthorityLatencyProbeAttempt.Load(); got != authorityAttemptAt {
+		t.Fatalf("last_authority_latency_probe_attempt_ns: got %d, want %d", got, authorityAttemptAt)
 	}
 	if entry2.LatencyTable == nil {
 		t.Fatal("latency table should be restored")

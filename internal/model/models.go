@@ -43,11 +43,14 @@ type NodeStatic struct {
 
 // NodeDynamic holds the mutable runtime state of a node.
 type NodeDynamic struct {
-	Hash              string `json:"hash"`
-	FailureCount      int    `json:"failure_count"`
-	CircuitOpenSince  int64  `json:"circuit_open_since"`
-	EgressIP          string `json:"egress_ip"`
-	EgressUpdatedAtNs int64  `json:"egress_updated_at_ns"`
+	Hash                               string `json:"hash"`
+	FailureCount                       int    `json:"failure_count"`
+	CircuitOpenSince                   int64  `json:"circuit_open_since"`
+	EgressIP                           string `json:"egress_ip"`
+	EgressUpdatedAtNs                  int64  `json:"egress_updated_at_ns"`
+	LastLatencyProbeAttemptNs          int64  `json:"last_latency_probe_attempt_ns"`
+	LastAuthorityLatencyProbeAttemptNs int64  `json:"last_authority_latency_probe_attempt_ns"`
+	LastEgressUpdateAttemptNs          int64  `json:"last_egress_update_attempt_ns"`
 }
 
 // NodeLatency holds per-domain latency statistics for a node.

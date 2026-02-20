@@ -19,7 +19,7 @@ type NodeFilters struct {
 	CircuitOpen    *bool
 	HasOutbound    *bool
 	EgressIP       *string
-	UpdatedSince   *time.Time
+	ProbedSince    *time.Time
 }
 
 // ListNodes returns nodes from the pool with optional filters.
@@ -136,10 +136,10 @@ func (s *ControlPlaneService) nodeEntryMatchesFilters(entry *node.NodeEntry, fil
 			return false
 		}
 	}
-	// Updated since filter.
-	if filters.UpdatedSince != nil {
-		lastUpdate := entry.LastEgressUpdate.Load()
-		if lastUpdate < filters.UpdatedSince.UnixNano() {
+	// Probed since filter.
+	if filters.ProbedSince != nil {
+		lastUpdate := entry.LastLatencyProbeAttempt.Load()
+		if lastUpdate < filters.ProbedSince.UnixNano() {
 			return false
 		}
 	}
