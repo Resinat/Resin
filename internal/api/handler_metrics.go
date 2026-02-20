@@ -131,6 +131,40 @@ func buildLatencyHistogram(regularBuckets []int64, overflowCount int64, binMs, o
 	return histBuckets, sampleCount
 }
 
+func bucketInRange(bucketStartUnix, fromUnix, toUnix int64) bool {
+	return bucketStartUnix >= fromUnix && bucketStartUnix <= toUnix
+}
+
+func decodeLatencyBuckets(raw string) []int64 {
+	if raw == "" {
+		return nil
+	}
+	var buckets []int64
+	_ = json.Unmarshal([]byte(raw), &buckets)
+	return buckets
+}
+
+func encodeLatencyBuckets(buckets []int64) string {
+	payload, err := json.Marshal(buckets)
+	if err != nil {
+		return "[]"
+	}
+	return string(payload)
+}
+
+func mergeLatencyBucketCounts(base, delta []int64) []int64 {
+	size := len(base)
+	if len(delta) > size {
+		size = len(delta)
+	}
+	out := make([]int64, size)
+	copy(out, base)
+	for i := range delta {
+		out[i] += delta[i]
+	}
+	return out
+}
+
 // ========================================================================
 // Realtime endpoints (ring buffer)
 // ========================================================================
@@ -299,6 +333,33 @@ func HandleHistoryRequests(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
+		currentBucketStart, currentTotal, currentSuccess := mgr.SnapshotCurrentRequestsBucket(platformID)
+		if bucketInRange(currentBucketStart, from.Unix(), to.Unix()) {
+			merged := false
+			for i := range rows {
+				if rows[i].BucketStartUnix != currentBucketStart {
+					continue
+				}
+				rows[i].TotalRequests += currentTotal
+				rows[i].SuccessRequests += currentSuccess
+				if rows[i].SuccessRequests > rows[i].TotalRequests {
+					rows[i].SuccessRequests = rows[i].TotalRequests
+				}
+				merged = true
+				break
+			}
+			if !merged {
+				rows = append(rows, metrics.RequestBucketRow{
+					BucketStartUnix: currentBucketStart,
+					PlatformID:      platformID,
+					TotalRequests:   currentTotal,
+					SuccessRequests: currentSuccess,
+				})
+				sort.Slice(rows, func(i, j int) bool {
+					return rows[i].BucketStartUnix < rows[j].BucketStartUnix
+				})
+			}
+		}
 		bucketSeconds := mgr.BucketSeconds()
 		items := mapItems(rows, func(row metrics.RequestBucketRow) map[string]any {
 			var rate float64
@@ -338,15 +399,34 @@ func HandleHistoryAccessLatency(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
+		currentBucketStart, currentBuckets := mgr.SnapshotCurrentAccessLatencyBucket(platformID)
+		if bucketInRange(currentBucketStart, from.Unix(), to.Unix()) {
+			merged := false
+			for i := range rows {
+				if rows[i].BucketStartUnix != currentBucketStart {
+					continue
+				}
+				persisted := decodeLatencyBuckets(rows[i].BucketsJSON)
+				rows[i].BucketsJSON = encodeLatencyBuckets(mergeLatencyBucketCounts(persisted, currentBuckets))
+				merged = true
+				break
+			}
+			if !merged {
+				rows = append(rows, metrics.AccessLatencyBucketRow{
+					BucketStartUnix: currentBucketStart,
+					PlatformID:      platformID,
+					BucketsJSON:     encodeLatencyBuckets(currentBuckets),
+				})
+				sort.Slice(rows, func(i, j int) bool {
+					return rows[i].BucketStartUnix < rows[j].BucketStartUnix
+				})
+			}
+		}
 
 		snap := mgr.Collector().Snapshot()
 		bucketSeconds := mgr.BucketSeconds()
 		items := mapItems(rows, func(row metrics.AccessLatencyBucketRow) map[string]any {
-			// Parse buckets_json into []int64.
-			var bucketCounts []int64
-			if row.BucketsJSON != "" {
-				_ = json.Unmarshal([]byte(row.BucketsJSON), &bucketCounts)
-			}
+			bucketCounts := decodeLatencyBuckets(row.BucketsJSON)
 
 			regularBuckets, overflowCount := splitOverflowBucket(bucketCounts)
 			histBuckets, sampleCount := buildLatencyHistogram(regularBuckets, overflowCount, snap.LatencyBinMs, snap.LatencyOverMs)
@@ -384,6 +464,27 @@ func HandleHistoryProbes(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
+		currentBucketStart, currentTotal := mgr.SnapshotCurrentProbeBucket()
+		if bucketInRange(currentBucketStart, from.Unix(), to.Unix()) {
+			merged := false
+			for i := range rows {
+				if rows[i].BucketStartUnix != currentBucketStart {
+					continue
+				}
+				rows[i].TotalCount += currentTotal
+				merged = true
+				break
+			}
+			if !merged {
+				rows = append(rows, metrics.ProbeBucketRow{
+					BucketStartUnix: currentBucketStart,
+					TotalCount:      currentTotal,
+				})
+				sort.Slice(rows, func(i, j int) bool {
+					return rows[i].BucketStartUnix < rows[j].BucketStartUnix
+				})
+			}
+		}
 		bucketSeconds := mgr.BucketSeconds()
 		items := mapItems(rows, func(row metrics.ProbeBucketRow) map[string]any {
 			bucketStart, bucketEnd := bucketWindow(row.BucketStartUnix, bucketSeconds)
@@ -415,6 +516,32 @@ func HandleHistoryNodePool(mgr *metrics.Manager) http.Handler {
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
+		}
+		currentBucketStart, totalNodes, healthyNodes, egressIPCount, ok := mgr.SnapshotCurrentNodePoolBucket()
+		if ok && bucketInRange(currentBucketStart, from.Unix(), to.Unix()) {
+			merged := false
+			for i := range rows {
+				if rows[i].BucketStartUnix != currentBucketStart {
+					continue
+				}
+				// Node-pool is a point-in-time snapshot, so latest in-memory values replace persisted row.
+				rows[i].TotalNodes = totalNodes
+				rows[i].HealthyNodes = healthyNodes
+				rows[i].EgressIPCount = egressIPCount
+				merged = true
+				break
+			}
+			if !merged {
+				rows = append(rows, metrics.NodePoolBucketRow{
+					BucketStartUnix: currentBucketStart,
+					TotalNodes:      totalNodes,
+					HealthyNodes:    healthyNodes,
+					EgressIPCount:   egressIPCount,
+				})
+				sort.Slice(rows, func(i, j int) bool {
+					return rows[i].BucketStartUnix < rows[j].BucketStartUnix
+				})
+			}
 		}
 		bucketSeconds := mgr.BucketSeconds()
 		items := mapItems(rows, func(row metrics.NodePoolBucketRow) map[string]any {
@@ -450,6 +577,36 @@ func HandleHistoryLeaseLifetime(mgr *metrics.Manager) http.Handler {
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
+		}
+		currentBucketStart, currentSampleCount, currentP1, currentP5, currentP50 := mgr.SnapshotCurrentLeaseLifetimeBucket(platformID)
+		if bucketInRange(currentBucketStart, from.Unix(), to.Unix()) {
+			merged := false
+			for i := range rows {
+				if rows[i].BucketStartUnix != currentBucketStart {
+					continue
+				}
+				if rows[i].SampleCount == 0 && currentSampleCount > 0 {
+					rows[i].SampleCount = currentSampleCount
+					rows[i].P1Ms = currentP1
+					rows[i].P5Ms = currentP5
+					rows[i].P50Ms = currentP50
+				}
+				merged = true
+				break
+			}
+			if !merged {
+				rows = append(rows, metrics.LeaseLifetimeBucketRow{
+					BucketStartUnix: currentBucketStart,
+					PlatformID:      platformID,
+					SampleCount:     currentSampleCount,
+					P1Ms:            currentP1,
+					P5Ms:            currentP5,
+					P50Ms:           currentP50,
+				})
+				sort.Slice(rows, func(i, j int) bool {
+					return rows[i].BucketStartUnix < rows[j].BucketStartUnix
+				})
+			}
 		}
 		bucketSeconds := mgr.BucketSeconds()
 		items := mapItems(rows, func(row metrics.LeaseLifetimeBucketRow) map[string]any {

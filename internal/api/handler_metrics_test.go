@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/resin-proxy/resin/internal/metrics"
+	"github.com/resin-proxy/resin/internal/proxy"
 )
 
 type testPlatformStats struct {
@@ -557,5 +558,209 @@ func TestMetricsHandlers_HistoryTraffic_MergesPersistedAndCurrentBucket(t *testi
 	}
 	if item["egress_bytes"] != float64(270) {
 		t.Fatalf("egress_bytes: got %v, want 270", item["egress_bytes"])
+	}
+}
+
+func TestMetricsHandlers_HistoryRequests_IncludesCurrentUnflushedBucket(t *testing.T) {
+	mgr := newTestMetricsManager(t, "existing-platform")
+	mgr.OnRequestFinished(proxy.RequestFinishedEvent{
+		PlatformID: "existing-platform",
+		NetOK:      true,
+		DurationNs: int64(120 * time.Millisecond),
+	})
+	mgr.OnRequestFinished(proxy.RequestFinishedEvent{
+		PlatformID: "existing-platform",
+		NetOK:      false,
+		DurationNs: int64(240 * time.Millisecond),
+	})
+
+	now := time.Now().UTC()
+	from := url.QueryEscape(now.Add(-2 * time.Hour).Format(time.RFC3339Nano))
+	to := url.QueryEscape(now.Add(1 * time.Minute).Format(time.RFC3339Nano))
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/metrics/history/requests?platform_id=existing-platform&from="+from+"&to="+to,
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	HandleHistoryRequests(mgr).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["total_requests"] != float64(2) {
+		t.Fatalf("total_requests: got %v, want 2", item["total_requests"])
+	}
+	if item["success_requests"] != float64(1) {
+		t.Fatalf("success_requests: got %v, want 1", item["success_requests"])
+	}
+}
+
+func TestMetricsHandlers_HistoryAccessLatency_IncludesCurrentUnflushedBucket(t *testing.T) {
+	mgr := newTestMetricsManager(t, "existing-platform")
+	mgr.OnRequestFinished(proxy.RequestFinishedEvent{
+		PlatformID: "existing-platform",
+		NetOK:      true,
+		DurationNs: int64(120 * time.Millisecond),
+	})
+	mgr.OnRequestFinished(proxy.RequestFinishedEvent{
+		PlatformID: "existing-platform",
+		NetOK:      false,
+		DurationNs: int64(240 * time.Millisecond),
+	})
+
+	now := time.Now().UTC()
+	from := url.QueryEscape(now.Add(-2 * time.Hour).Format(time.RFC3339Nano))
+	to := url.QueryEscape(now.Add(1 * time.Minute).Format(time.RFC3339Nano))
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/metrics/history/access-latency?platform_id=existing-platform&from="+from+"&to="+to,
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	HandleHistoryAccessLatency(mgr).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["sample_count"] != float64(2) {
+		t.Fatalf("sample_count: got %v, want 2", item["sample_count"])
+	}
+	if item["overflow_count"] != float64(0) {
+		t.Fatalf("overflow_count: got %v, want 0", item["overflow_count"])
+	}
+}
+
+func TestMetricsHandlers_HistoryProbes_IncludesCurrentUnflushedBucket(t *testing.T) {
+	mgr := newTestMetricsManager(t, "existing-platform")
+	mgr.OnProbeEvent(metrics.ProbeEvent{Kind: metrics.ProbeKindEgress})
+	mgr.OnProbeEvent(metrics.ProbeEvent{Kind: metrics.ProbeKindLatency})
+
+	now := time.Now().UTC()
+	from := url.QueryEscape(now.Add(-2 * time.Hour).Format(time.RFC3339Nano))
+	to := url.QueryEscape(now.Add(1 * time.Minute).Format(time.RFC3339Nano))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/history/probes?from="+from+"&to="+to, nil)
+	rec := httptest.NewRecorder()
+	HandleHistoryProbes(mgr).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["total_count"] != float64(2) {
+		t.Fatalf("total_count: got %v, want 2", item["total_count"])
+	}
+}
+
+func TestMetricsHandlers_HistoryNodePool_IncludesCurrentUnflushedBucket(t *testing.T) {
+	mgr := newTestMetricsManager(t, "existing-platform")
+
+	now := time.Now().UTC()
+	from := url.QueryEscape(now.Add(-2 * time.Hour).Format(time.RFC3339Nano))
+	to := url.QueryEscape(now.Add(1 * time.Minute).Format(time.RFC3339Nano))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/history/node-pool?from="+from+"&to="+to, nil)
+	rec := httptest.NewRecorder()
+	HandleHistoryNodePool(mgr).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["total_nodes"] != float64(0) {
+		t.Fatalf("total_nodes: got %v, want 0", item["total_nodes"])
+	}
+	if item["healthy_nodes"] != float64(0) {
+		t.Fatalf("healthy_nodes: got %v, want 0", item["healthy_nodes"])
+	}
+	if item["egress_ip_count"] != float64(0) {
+		t.Fatalf("egress_ip_count: got %v, want 0", item["egress_ip_count"])
+	}
+}
+
+func TestMetricsHandlers_HistoryLeaseLifetime_IncludesCurrentUnflushedBucket(t *testing.T) {
+	mgr := newTestMetricsManager(t, "existing-platform")
+	mgr.OnLeaseEvent(metrics.LeaseMetricEvent{
+		PlatformID: "existing-platform",
+		Op:         metrics.LeaseOpRemove,
+		LifetimeNs: int64(30 * time.Second),
+	})
+
+	now := time.Now().UTC()
+	from := url.QueryEscape(now.Add(-2 * time.Hour).Format(time.RFC3339Nano))
+	to := url.QueryEscape(now.Add(1 * time.Minute).Format(time.RFC3339Nano))
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/metrics/history/lease-lifetime?platform_id=existing-platform&from="+from+"&to="+to,
+		nil,
+	)
+	rec := httptest.NewRecorder()
+	HandleHistoryLeaseLifetime(mgr).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["sample_count"] != float64(1) {
+		t.Fatalf("sample_count: got %v, want 1", item["sample_count"])
+	}
+	if item["p50_ms"] != float64(30000) {
+		t.Fatalf("p50_ms: got %v, want 30000", item["p50_ms"])
 	}
 }

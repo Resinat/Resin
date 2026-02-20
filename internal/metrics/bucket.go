@@ -101,6 +101,26 @@ func (b *BucketAggregator) SnapshotTraffic(platformID string) (bucketStartUnix, 
 	return b.currentStart, acc.IngressBytes, acc.EgressBytes
 }
 
+// CurrentBucketStartUnix returns the current in-progress bucket start timestamp.
+func (b *BucketAggregator) CurrentBucketStartUnix() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.currentStart
+}
+
+// SnapshotRequests returns the current bucket's request counters for a scope.
+// platformID="" means global scope.
+func (b *BucketAggregator) SnapshotRequests(platformID string) (bucketStartUnix, total, success int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	acc, exists := b.requests[platformID]
+	if !exists {
+		return b.currentStart, 0, 0
+	}
+	return b.currentStart, acc.Total, acc.Success
+}
+
 // AddRequestCounts records aggregated request counts into the current bucket.
 func (b *BucketAggregator) AddRequestCounts(platformID string, total, success int64) {
 	if total <= 0 {
@@ -127,15 +147,6 @@ func (b *BucketAggregator) AddRequestCounts(platformID string, total, success in
 	}
 }
 
-// AddRequest records a completed request into the current bucket.
-func (b *BucketAggregator) AddRequest(platformID string, success bool) {
-	successCount := int64(0)
-	if success {
-		successCount = 1
-	}
-	b.AddRequestCounts(platformID, 1, successCount)
-}
-
 // AddProbeCount records aggregated probe attempts.
 func (b *BucketAggregator) AddProbeCount(total int64) {
 	if total <= 0 {
@@ -146,9 +157,11 @@ func (b *BucketAggregator) AddProbeCount(total int64) {
 	b.probes.Total += total
 }
 
-// AddProbe records a probe attempt.
-func (b *BucketAggregator) AddProbe() {
-	b.AddProbeCount(1)
+// SnapshotProbes returns the current bucket's global probe count.
+func (b *BucketAggregator) SnapshotProbes() (bucketStartUnix, total int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.currentStart, b.probes.Total
 }
 
 // AddLeaseLifetime records a lease lifetime sample on removal/expiry.
@@ -162,6 +175,21 @@ func (b *BucketAggregator) AddLeaseLifetime(platformID string, lifetimeNs int64)
 		b.leaseLife[platformID] = acc
 	}
 	acc.Samples = append(acc.Samples, lifetimeNs)
+}
+
+// SnapshotLeaseLifetimeSamples returns a copy of current bucket lease lifetime
+// samples for a platform.
+func (b *BucketAggregator) SnapshotLeaseLifetimeSamples(platformID string) (bucketStartUnix int64, samples []int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	acc, ok := b.leaseLife[platformID]
+	if !ok || len(acc.Samples) == 0 {
+		return b.currentStart, nil
+	}
+	out := make([]int64, len(acc.Samples))
+	copy(out, acc.Samples)
+	return b.currentStart, out
 }
 
 // MaybeFlush checks if the current time has moved past the current bucket boundary.

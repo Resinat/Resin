@@ -109,7 +109,7 @@ func TestOnLeaseEvent_IgnoresNonPositiveLifetimeSamples(t *testing.T) {
 	mgr.OnLeaseEvent(LeaseMetricEvent{PlatformID: "p1", Op: LeaseOpRemove, LifetimeNs: 0})
 	mgr.OnLeaseEvent(LeaseMetricEvent{PlatformID: "p1", Op: LeaseOpExpire, LifetimeNs: -1})
 	mgr.OnLeaseEvent(LeaseMetricEvent{PlatformID: "p1", Op: LeaseOpRemove, LifetimeNs: 1})
-	mgr.drainLeaseLifetimeSamples()
+	mgr.syncCurrentBucketState()
 
 	data := mgr.bucket.ForceFlush()
 	if data == nil {

@@ -64,6 +64,7 @@ type Manager struct {
 	// Baselines used to derive per-bucket deltas from cumulative collector counters.
 	prevBucketGlobal    bucketCounterBaseline
 	prevBucketPlatforms map[string]bucketCounterBaseline
+	stateMu             sync.Mutex
 
 	// Lease lifetime samples are queued from routing hot-path and drained by
 	// bucket loop to avoid lock contention in synchronous route handling.
@@ -164,8 +165,7 @@ func (m *Manager) Stop() {
 	m.wg.Wait()
 
 	// Aggregate any final deltas into current in-memory bucket before force flush.
-	m.aggregateCollectorDeltasIntoBucket()
-	m.drainLeaseLifetimeSamples()
+	m.syncCurrentBucketState()
 
 	// Final bucket flush on shutdown (enqueue; drain below with bounded retry).
 	if data := m.bucket.ForceFlush(); data != nil {
@@ -259,6 +259,63 @@ func (m *Manager) RuntimeStats() RuntimeStatsProvider { return m.runtimeStats }
 // platformID="" means global scope.
 func (m *Manager) SnapshotCurrentTrafficBucket(platformID string) (bucketStartUnix, ingressBytes, egressBytes int64) {
 	return m.bucket.SnapshotTraffic(platformID)
+}
+
+// SnapshotCurrentRequestsBucket returns unflushed requests in current bucket.
+// platformID="" means global scope.
+func (m *Manager) SnapshotCurrentRequestsBucket(platformID string) (bucketStartUnix, totalRequests, successRequests int64) {
+	m.syncCurrentBucketState()
+	return m.bucket.SnapshotRequests(platformID)
+}
+
+// SnapshotCurrentProbeBucket returns unflushed probe count in current bucket.
+func (m *Manager) SnapshotCurrentProbeBucket() (bucketStartUnix, totalCount int64) {
+	m.syncCurrentBucketState()
+	return m.bucket.SnapshotProbes()
+}
+
+// SnapshotCurrentAccessLatencyBucket returns the in-progress latency histogram
+// for current bucket. platformID="" means global scope.
+func (m *Manager) SnapshotCurrentAccessLatencyBucket(platformID string) (bucketStartUnix int64, buckets []int64) {
+	bucketStartUnix = m.bucket.CurrentBucketStartUnix()
+
+	if platformID == "" {
+		snap := m.collector.Snapshot()
+		return bucketStartUnix, append([]int64(nil), snap.LatencyBuckets...)
+	}
+
+	snap, ok := m.collector.PlatformSnapshot(platformID)
+	if !ok {
+		globalSnap := m.collector.Snapshot()
+		return bucketStartUnix, make([]int64, len(globalSnap.LatencyBuckets))
+	}
+	return bucketStartUnix, append([]int64(nil), snap.LatencyBuckets...)
+}
+
+// SnapshotCurrentNodePoolBucket returns a node-pool snapshot for current bucket.
+func (m *Manager) SnapshotCurrentNodePoolBucket() (bucketStartUnix int64, totalNodes, healthyNodes, egressIPCount int, ok bool) {
+	bucketStartUnix = m.bucket.CurrentBucketStartUnix()
+
+	if m.runtimeStats == nil {
+		return bucketStartUnix, 0, 0, 0, false
+	}
+	return bucketStartUnix, m.runtimeStats.TotalNodes(), m.runtimeStats.HealthyNodes(), m.runtimeStats.EgressIPCount(), true
+}
+
+// SnapshotCurrentLeaseLifetimeBucket returns lease lifetime percentiles for the
+// in-progress current bucket and platform.
+func (m *Manager) SnapshotCurrentLeaseLifetimeBucket(platformID string) (
+	bucketStartUnix int64,
+	sampleCount int,
+	p1Ms, p5Ms, p50Ms float64,
+) {
+	m.syncCurrentBucketState()
+	bucketStartUnix, samples := m.bucket.SnapshotLeaseLifetimeSamples(platformID)
+	if len(samples) == 0 {
+		return bucketStartUnix, 0, 0, 0, 0
+	}
+	p1Ms, p5Ms, p50Ms = computePercentiles(samples)
+	return bucketStartUnix, len(samples), p1Ms, p5Ms, p50Ms
 }
 
 // --- Background loops ---
@@ -389,8 +446,7 @@ func (m *Manager) takeLeasesSample(ts time.Time) {
 }
 
 func (m *Manager) flushBucket() {
-	m.aggregateCollectorDeltasIntoBucket()
-	m.drainLeaseLifetimeSamples()
+	m.syncCurrentBucketState()
 
 	now := time.Now()
 	data := m.bucket.MaybeFlush(now)
@@ -410,7 +466,7 @@ func (m *Manager) flushBucket() {
 	}
 }
 
-func (m *Manager) aggregateCollectorDeltasIntoBucket() {
+func (m *Manager) aggregateCollectorDeltasIntoBucketLocked() {
 	currentGlobal := m.collector.Snapshot()
 	globalBase := m.prevBucketGlobal
 	globalCurrent := baselineFromSnapshot(currentGlobal)
@@ -467,7 +523,7 @@ func (m *Manager) aggregateCollectorDeltasIntoBucket() {
 	m.prevBucketPlatforms = nextPlatformBaseline
 }
 
-func (m *Manager) drainLeaseLifetimeSamples() {
+func (m *Manager) drainLeaseLifetimeSamplesLocked() {
 	for {
 		select {
 		case sample := <-m.leaseSamplesCh:
@@ -480,6 +536,13 @@ func (m *Manager) drainLeaseLifetimeSamples() {
 			return
 		}
 	}
+}
+
+func (m *Manager) syncCurrentBucketState() {
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+	m.aggregateCollectorDeltasIntoBucketLocked()
+	m.drainLeaseLifetimeSamplesLocked()
 }
 
 func baselineFromSnapshot(s CountersSnapshot) bucketCounterBaseline {
