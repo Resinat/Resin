@@ -425,8 +425,7 @@ export function NodesPage() {
                       <span>{sortIndicator(sortBy === "failure_count", sortOrder)}</span>
                     </button>
                   </th>
-                  <th>Outbound</th>
-                  <th>Circuit</th>
+                  <th>状态</th>
                   <th>
                     <button type="button" className="table-sort-btn" onClick={() => changeSort("created_at")}>
                       Created
@@ -458,15 +457,12 @@ export function NodesPage() {
                       <td>{formatDateTime(node.last_latency_probe_attempt || "")}</td>
                       <td>{node.failure_count}</td>
                       <td>
-                        <Badge variant={node.has_outbound ? "success" : "warning"}>
-                          {node.has_outbound ? "ready" : "none"}
-                        </Badge>
-                      </td>
-                      <td>
-                        {node.circuit_open_since ? (
-                          <Badge variant="warning">open</Badge>
+                        {!node.has_outbound ? (
+                          <Badge variant="danger">错误</Badge>
+                        ) : node.circuit_open_since ? (
+                          <Badge variant="warning">熔断</Badge>
                         ) : (
-                          <Badge variant="success">ok</Badge>
+                          <Badge variant="success">健康</Badge>
                         )}
                       </td>
                       <td>{formatDateTime(node.created_at)}</td>
@@ -538,8 +534,8 @@ export function NodesPage() {
               <h3>{firstTag(detailNode)}</h3>
               <p>{detailNode.node_hash}</p>
             </div>
-            <Badge variant={detailNode.circuit_open_since ? "warning" : "success"}>
-              {detailNode.circuit_open_since ? "Circuit Open" : "Healthy"}
+            <Badge variant={!detailNode.has_outbound ? "danger" : detailNode.circuit_open_since ? "warning" : "success"}>
+              {!detailNode.has_outbound ? "错误" : detailNode.circuit_open_since ? "熔断" : "健康"}
             </Badge>
           </div>
 
@@ -553,8 +549,8 @@ export function NodesPage() {
               <p>{detailNode.failure_count}</p>
             </div>
             <div>
-              <span>Has Outbound</span>
-              <p>{detailNode.has_outbound ? "true" : "false"}</p>
+              <span>状态</span>
+              <p>{!detailNode.has_outbound ? "错误" : detailNode.circuit_open_since ? "熔断" : "健康"}</p>
             </div>
             <div>
               <span>Egress IP</span>
