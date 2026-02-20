@@ -175,6 +175,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	// Track what changed for side-effects.
 	nameChanged := false
 	enabledChanged := false
+	urlChanged := false
 
 	newName := sub.Name()
 	if nameStr, ok, err := patch.optionalNonEmptyString("name"); err != nil {
@@ -194,6 +195,9 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 			return nil, verr
 		}
 		newURL = urlStr
+		if newURL != sub.URL() {
+			urlChanged = true
+		}
 	}
 
 	newInterval := sub.UpdateIntervalNs()
@@ -248,6 +252,9 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	}
 	if enabledChanged {
 		s.Scheduler.SetSubscriptionEnabled(sub, newEnabled)
+	}
+	if urlChanged {
+		go s.Scheduler.UpdateSubscription(sub)
 	}
 
 	r := subToResponse(sub)
