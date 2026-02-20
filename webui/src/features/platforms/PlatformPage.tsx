@@ -302,10 +302,6 @@ export function PlatformPage() {
           <h2>Platform 管理</h2>
           <p className="module-description">管理平台的过滤策略、分配策略，并执行重建/重置等运维动作。</p>
         </div>
-        <Button onClick={() => setCreateModalOpen(true)}>
-          <Plus size={16} />
-          新建 Platform
-        </Button>
       </header>
 
       {message ? (
@@ -318,28 +314,38 @@ export function PlatformPage() {
         <div className="list-card-header">
           <div>
             <h3>平台列表</h3>
-            <p>共 {platforms.length} 个平台，点击卡片在右侧编辑</p>
+            <p>共 {platforms.length} 个平台</p>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => platformsQuery.refetch()}
-            disabled={platformsQuery.isFetching}
-          >
-            <RefreshCw size={14} className={platformsQuery.isFetching ? "spin" : undefined} />
-            刷新
-          </Button>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <label className="search-box" htmlFor="platform-search" style={{ maxWidth: 180, margin: 0, gap: 6 }}>
+              <Search size={14} />
+              <Input
+                id="platform-search"
+                placeholder="搜索平台"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                style={{ padding: "6px 10px", borderRadius: 8 }}
+              />
+            </label>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCreateModalOpen(true)}
+            >
+              <Plus size={14} />
+              新建
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => platformsQuery.refetch()}
+              disabled={platformsQuery.isFetching}
+            >
+              <RefreshCw size={14} className={platformsQuery.isFetching ? "spin" : undefined} />
+              刷新
+            </Button>
+          </div>
         </div>
-
-        <label className="search-box" htmlFor="platform-search">
-          <Search size={14} />
-          <Input
-            id="platform-search"
-            placeholder="按名称 / ID / 区域过滤"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
 
         {platformsQuery.isLoading ? <p className="muted">正在加载平台数据...</p> : null}
 
