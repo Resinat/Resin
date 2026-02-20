@@ -433,96 +433,135 @@ export function PlatformPage() {
               </div>
             </div>
 
-            <form className="form-grid" onSubmit={onEditSubmit}>
-              <div className="field-group">
-                <label className="field-label" htmlFor="edit-name">
-                  名称
-                </label>
-                <Input id="edit-name" invalid={Boolean(editForm.formState.errors.name)} {...editForm.register("name")} />
-                {editForm.formState.errors.name?.message ? (
-                  <p className="field-error">{editForm.formState.errors.name.message}</p>
-                ) : null}
-              </div>
+            <div className="platform-drawer-layout">
+              <section className="platform-drawer-section">
+                <div className="platform-drawer-section-head">
+                  <h4>平台配置</h4>
+                  <p>修改平台配置后，点击右下角保存。</p>
+                </div>
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="edit-sticky">
-                  Sticky TTL
-                </label>
-                <Input
-                  id="edit-sticky"
-                  placeholder="例如 168h"
-                  invalid={Boolean(editForm.formState.errors.sticky_ttl)}
-                  {...editForm.register("sticky_ttl")}
-                />
-              </div>
+                <form className="form-grid platform-config-form" onSubmit={onEditSubmit}>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-name">
+                      名称
+                    </label>
+                    <Input id="edit-name" invalid={Boolean(editForm.formState.errors.name)} {...editForm.register("name")} />
+                    {editForm.formState.errors.name?.message ? (
+                      <p className="field-error">{editForm.formState.errors.name.message}</p>
+                    ) : null}
+                  </div>
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="edit-miss-action">
-                  Reverse Proxy Miss Action
-                </label>
-                <Select id="edit-miss-action" {...editForm.register("reverse_proxy_miss_action")}>
-                  {missActions.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-sticky">
+                      Sticky TTL
+                    </label>
+                    <Input
+                      id="edit-sticky"
+                      placeholder="例如 168h"
+                      invalid={Boolean(editForm.formState.errors.sticky_ttl)}
+                      {...editForm.register("sticky_ttl")}
+                    />
+                  </div>
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="edit-policy">
-                  Allocation Policy
-                </label>
-                <Select id="edit-policy" {...editForm.register("allocation_policy")}>
-                  {allocationPolicies.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-miss-action">
+                      Reverse Proxy Miss Action
+                    </label>
+                    <Select id="edit-miss-action" {...editForm.register("reverse_proxy_miss_action")}>
+                      {missActions.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="edit-regex">
-                  Regex Filters
-                </label>
-                <Textarea id="edit-regex" rows={4} placeholder="每行一条或使用逗号分隔" {...editForm.register("regex_filters_text")} />
-              </div>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-policy">
+                      Allocation Policy
+                    </label>
+                    <Select id="edit-policy" {...editForm.register("allocation_policy")}>
+                      {allocationPolicies.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="edit-region">
-                  Region Filters
-                </label>
-                <Textarea id="edit-region" rows={4} placeholder="每行一条，如 hk / us" {...editForm.register("region_filters_text")} />
-              </div>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-regex">
+                      Regex Filters
+                    </label>
+                    <Textarea id="edit-regex" rows={4} placeholder="每行一条或使用逗号分隔" {...editForm.register("regex_filters_text")} />
+                  </div>
 
-              <div className="detail-actions">
-                <Button type="submit" disabled={updateMutation.isPending}>
-                  保存修改
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => void rebuildMutation.mutateAsync(selectedPlatform)}
-                  disabled={rebuildMutation.isPending}
-                >
-                  重建 Routable View
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => void resetMutation.mutateAsync(selectedPlatform)}
-                  disabled={resetMutation.isPending}
-                >
-                  重置为默认
-                </Button>
-                <Button
-                  variant="danger"
-                  onClick={() => void handleDelete(selectedPlatform)}
-                  disabled={deleteMutation.isPending}
-                >
-                  删除平台
-                </Button>
-              </div>
-            </form>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-region">
+                      Region Filters
+                    </label>
+                    <Textarea id="edit-region" rows={4} placeholder="每行一条，如 hk / us" {...editForm.register("region_filters_text")} />
+                  </div>
+
+                  <div className="platform-config-actions">
+                    <Button type="submit" disabled={updateMutation.isPending}>
+                      {updateMutation.isPending ? "保存中..." : "保存配置"}
+                    </Button>
+                  </div>
+                </form>
+              </section>
+
+              <section className="platform-drawer-section platform-ops-section">
+                <div className="platform-drawer-section-head">
+                  <h4>运维操作</h4>
+                  <p>以下操作会直接作用于当前平台，请谨慎执行。</p>
+                </div>
+
+                <div className="platform-ops-list">
+                  <div className="platform-op-item">
+                    <div className="platform-op-copy">
+                      <h5>重建路由池</h5>
+                      <p className="platform-op-hint">重新构建当前平台的路由视图与可用节点池，不改变配置项。</p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void rebuildMutation.mutateAsync(selectedPlatform)}
+                      disabled={rebuildMutation.isPending}
+                    >
+                      {rebuildMutation.isPending ? "重建中..." : "重建路由池"}
+                    </Button>
+                  </div>
+
+                  <div className="platform-op-item">
+                    <div className="platform-op-copy">
+                      <h5>重置为默认配置</h5>
+                      <p className="platform-op-hint">恢复平台默认策略，并覆盖当前自定义配置。</p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void resetMutation.mutateAsync(selectedPlatform)}
+                      disabled={resetMutation.isPending}
+                    >
+                      {resetMutation.isPending ? "重置中..." : "重置为默认配置"}
+                    </Button>
+                  </div>
+
+                  <div className="platform-op-item">
+                    <div className="platform-op-copy">
+                      <h5>删除平台</h5>
+                      <p className="platform-op-hint">永久删除当前平台及其配置，操作不可撤销。</p>
+                    </div>
+                    <Button
+                      variant="danger"
+                      onClick={() => void handleDelete(selectedPlatform)}
+                      disabled={deleteMutation.isPending}
+                    >
+                      {deleteMutation.isPending ? "删除中..." : "删除平台"}
+                    </Button>
+                  </div>
+                </div>
+              </section>
+            </div>
           </Card>
         </div>
       ) : null}

@@ -1720,6 +1720,91 @@ a {
   gap: 8px;
 }
 
+.platform-drawer-layout {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.platform-drawer-section {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.74);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.platform-drawer-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.platform-drawer-section-head h4 {
+  font-size: 14px;
+}
+
+.platform-drawer-section-head p {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.platform-config-form {
+  margin-top: 0;
+}
+
+.platform-config-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.platform-ops-list {
+  --platform-op-btn-width: 164px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.platform-op-item {
+  border: 1px solid rgba(37, 72, 120, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.84);
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.platform-op-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.platform-op-copy h5 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.platform-op-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.platform-op-item .btn {
+  width: var(--platform-op-btn-width);
+  max-width: 100%;
+  flex-shrink: 0;
+}
+
 @keyframes drawer-in {
   from {
     opacity: 0;
@@ -1829,6 +1914,15 @@ a {
 
   .drawer-panel {
     width: 100vw;
+  }
+
+  .platform-op-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .platform-op-item .btn {
+    width: 100%;
   }
 
   .stats-grid {
