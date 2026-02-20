@@ -91,6 +91,7 @@ const MIN_HISTORY_REFRESH_MS = 15_000;
 const MAX_HISTORY_REFRESH_MS = 300_000;
 const SNAPSHOT_REFRESH_MS = 5_000;
 const MAX_TREND_POINTS = 480;
+const MAX_HISTOGRAM_BUCKETS = 120;
 
 function fromApiError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -458,7 +459,7 @@ function HistogramTooltipContent({ active, payload }: HistogramTooltipContentPro
   );
 }
 
-function compressHistogram(buckets: LatencyBucket[], limit = 28): LatencyBucket[] {
+function compressHistogram(buckets: LatencyBucket[], limit = MAX_HISTOGRAM_BUCKETS): LatencyBucket[] {
   if (buckets.length <= limit) {
     return buckets;
   }
@@ -509,7 +510,7 @@ function Histogram({ buckets }: { buckets: LatencyBucket[] }) {
             lower_ms: lower,
             upper_ms: upperInclusive,
             count: Math.max(0, bucket.count),
-            label: `${upperInclusive}`,
+            label: `${lower}`,
           },
         ],
       };
