@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Plus, RefreshCw, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, Plus, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -8,9 +8,10 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
+import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
 import { ApiError } from "../../lib/api-client";
-import { formatDateTime } from "../../lib/time";
+import { formatDateTime, formatGoDuration } from "../../lib/time";
 import {
   createSubscription,
   deleteSubscription,
@@ -41,6 +42,7 @@ const subscriptionEditSchema = subscriptionCreateSchema;
 type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 
 function fromApiError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -75,7 +77,10 @@ function parseEnabledFilter(value: EnabledFilter): boolean | undefined {
 export function SubscriptionPage() {
   const [enabledFilter, setEnabledFilter] = useState<EnabledFilter>("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(20);
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
 
@@ -105,12 +110,25 @@ export function SubscriptionPage() {
     });
   }, [subscriptions, search]);
 
+  const maxPage = Math.max(0, Math.ceil(visibleSubscriptions.length / pageSize) - 1);
+  const currentPage = Math.min(page, maxPage);
+
+  const pagedSubscriptions = useMemo(() => {
+    const start = currentPage * pageSize;
+    return visibleSubscriptions.slice(start, start + pageSize);
+  }, [currentPage, pageSize, visibleSubscriptions]);
+
+  const totalVisible = visibleSubscriptions.length;
+  const totalPages = Math.max(1, maxPage + 1);
+
   const selectedSubscription = useMemo(() => {
-    if (!subscriptions.length) {
+    if (!selectedSubscriptionId) {
       return null;
     }
-    return subscriptions.find((item) => item.id === selectedSubscriptionId) ?? subscriptions[0];
-  }, [subscriptions, selectedSubscriptionId]);
+    return subscriptions.find((item) => item.id === selectedSubscriptionId) ?? null;
+  }, [selectedSubscriptionId, subscriptions]);
+
+  const drawerVisible = drawerOpen && Boolean(selectedSubscription);
 
   const createForm = useForm<SubscriptionCreateForm>({
     resolver: zodResolver(subscriptionCreateSchema),
@@ -141,6 +159,22 @@ export function SubscriptionPage() {
     editForm.reset(subscriptionToEditForm(selectedSubscription));
   }, [selectedSubscription, editForm]);
 
+  useEffect(() => {
+    if (!drawerVisible) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      setDrawerOpen(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [drawerVisible]);
+
   const invalidateSubscriptions = async () => {
     await queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
   };
@@ -150,6 +184,7 @@ export function SubscriptionPage() {
     onSuccess: async (created) => {
       await invalidateSubscriptions();
       setSelectedSubscriptionId(created.id);
+      setDrawerOpen(true);
       setCreateModalOpen(false);
       createForm.reset({
         name: "",
@@ -196,6 +231,10 @@ export function SubscriptionPage() {
     },
     onSuccess: async (deleted) => {
       await invalidateSubscriptions();
+      if (selectedSubscriptionId === deleted.id) {
+        setSelectedSubscriptionId("");
+        setDrawerOpen(false);
+      }
       setMessage({ tone: "success", text: `订阅 ${deleted.name} 已删除` });
     },
     onError: (error) => {
@@ -239,6 +278,16 @@ export function SubscriptionPage() {
     await deleteMutation.mutateAsync(subscription);
   };
 
+  const openDrawer = (subscription: Subscription) => {
+    setSelectedSubscriptionId(subscription.id);
+    setDrawerOpen(true);
+  };
+
+  const changePageSize = (next: number) => {
+    setPageSize(next);
+    setPage(0);
+  };
+
   return (
     <section className="platform-page">
       <header className="module-header">
@@ -258,105 +307,190 @@ export function SubscriptionPage() {
         </div>
       ) : null}
 
-      <div className="platform-grid">
-        <Card className="platform-list-card">
-          <div className="list-card-header">
-            <div>
-              <h3>订阅列表</h3>
-              <p>共 {subscriptions.length} 个订阅</p>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => subscriptionsQuery.refetch()}
-              disabled={subscriptionsQuery.isFetching}
-            >
-              <RefreshCw size={14} className={subscriptionsQuery.isFetching ? "spin" : undefined} />
-              刷新
-            </Button>
+      <Card className="platform-list-card subscriptions-table-card">
+        <div className="list-card-header">
+          <div>
+            <h3>订阅列表</h3>
+            <p>共 {subscriptions.length} 个订阅</p>
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => subscriptionsQuery.refetch()}
+            disabled={subscriptionsQuery.isFetching}
+          >
+            <RefreshCw size={14} className={subscriptionsQuery.isFetching ? "spin" : undefined} />
+            刷新
+          </Button>
+        </div>
 
-          <div className="row-gap-sm">
-            <label className="field-label" htmlFor="sub-status-filter">
-              状态筛选
-            </label>
-            <Select
-              id="sub-status-filter"
-              value={enabledFilter}
-              onChange={(event) => setEnabledFilter(event.target.value as EnabledFilter)}
-            >
-              <option value="all">全部</option>
-              <option value="enabled">仅启用</option>
-              <option value="disabled">仅禁用</option>
-            </Select>
-          </div>
-
-          <label className="search-box" htmlFor="subscription-search">
-            <Search size={14} />
-            <Input
-              id="subscription-search"
-              placeholder="按名称 / URL / ID 过滤"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
-
-          {subscriptionsQuery.isLoading ? <p className="muted">正在加载订阅数据...</p> : null}
-
-          {subscriptionsQuery.isError ? (
-            <div className="callout callout-error">
-              <AlertTriangle size={14} />
-              <span>{fromApiError(subscriptionsQuery.error)}</span>
-            </div>
-          ) : null}
-
-          {!subscriptionsQuery.isLoading && !visibleSubscriptions.length ? (
-            <div className="empty-box">
-              <Sparkles size={16} />
-              <p>没有匹配的订阅</p>
-            </div>
-          ) : null}
-
-          <div className="platform-list">
-            {visibleSubscriptions.map((subscription) => (
-              <button
-                key={subscription.id}
-                type="button"
-                className={`platform-row ${subscription.id === selectedSubscription?.id ? "platform-row-active" : ""}`}
-                onClick={() => setSelectedSubscriptionId(subscription.id)}
+        <div className="subscriptions-toolbar">
+          <div className="subscriptions-toolbar-filters">
+            <label className="subscription-inline-filter" htmlFor="sub-status-filter">
+              <span>状态</span>
+              <Select
+                id="sub-status-filter"
+                value={enabledFilter}
+                onChange={(event) => {
+                  setEnabledFilter(event.target.value as EnabledFilter);
+                  setPage(0);
+                }}
               >
-                <div className="platform-row-main">
-                  <p>{subscription.name}</p>
-                  <span>{subscription.url}</span>
-                </div>
-                <div className="platform-row-meta wrap">
-                  <Badge variant={subscription.enabled ? "success" : "warning"}>
-                    {subscription.enabled ? "已启用" : "已禁用"}
-                  </Badge>
-                  {subscription.ephemeral ? <Badge variant="neutral">Ephemeral</Badge> : null}
-                </div>
-              </button>
-            ))}
-          </div>
-        </Card>
+                <option value="all">全部</option>
+                <option value="enabled">仅启用</option>
+                <option value="disabled">仅禁用</option>
+              </Select>
+            </label>
 
-        <Card className="platform-detail-card">
-          {!selectedSubscription ? (
-            <div className="empty-box full-height">
-              <Sparkles size={18} />
-              <p>请选择一个订阅开始编辑</p>
-            </div>
-          ) : (
-            <>
-              <div className="detail-header">
-                <div>
-                  <h3>{selectedSubscription.name}</h3>
-                  <p>{selectedSubscription.id}</p>
-                </div>
+            <label className="search-box subscription-search-box" htmlFor="subscription-search">
+              <Search size={14} />
+              <Input
+                id="subscription-search"
+                placeholder="按名称 / URL / ID 过滤"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(0);
+                }}
+              />
+            </label>
+          </div>
+
+          <p className="subscriptions-count">
+            当前匹配 {totalVisible} 条
+          </p>
+        </div>
+
+        {subscriptionsQuery.isLoading ? <p className="muted">正在加载订阅数据...</p> : null}
+
+        {subscriptionsQuery.isError ? (
+          <div className="callout callout-error">
+            <AlertTriangle size={14} />
+            <span>{fromApiError(subscriptionsQuery.error)}</span>
+          </div>
+        ) : null}
+
+        {!subscriptionsQuery.isLoading && !totalVisible ? (
+          <div className="empty-box">
+            <Sparkles size={16} />
+            <p>没有匹配的订阅</p>
+          </div>
+        ) : null}
+
+        {pagedSubscriptions.length ? (
+          <div className="nodes-table-wrap">
+            <table className="nodes-table subscriptions-table">
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>URL</th>
+                  <th>Update Interval</th>
+                  <th>状态</th>
+                  <th>上次检查</th>
+                  <th>上次更新</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedSubscriptions.map((subscription) => (
+                  <tr key={subscription.id}>
+                    <td>
+                      <div className="subscriptions-name-cell">
+                        <p>{subscription.name}</p>
+                        <code>{subscription.id}</code>
+                      </div>
+                    </td>
+                    <td>
+                      <p className="subscriptions-url-cell" title={subscription.url}>
+                        {subscription.url}
+                      </p>
+                    </td>
+                    <td>{formatGoDuration(subscription.update_interval)}</td>
+                    <td>
+                      <div className="subscriptions-status-cell">
+                        <Badge variant={subscription.enabled ? "success" : "warning"}>
+                          {subscription.enabled ? "已启用" : "已禁用"}
+                        </Badge>
+                        {subscription.ephemeral ? <Badge variant="neutral">Ephemeral</Badge> : null}
+                      </div>
+                    </td>
+                    <td>{formatDateTime(subscription.last_checked || "")}</td>
+                    <td>{formatDateTime(subscription.last_updated || "")}</td>
+                    <td>
+                      <div className="subscriptions-row-actions">
+                        <Button size="sm" variant="secondary" onClick={() => openDrawer(subscription)}>
+                          编辑
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void refreshMutation.mutateAsync(subscription)}
+                          disabled={refreshMutation.isPending}
+                        >
+                          刷新
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => void handleDelete(subscription)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        <OffsetPagination
+          page={currentPage}
+          totalPages={totalPages}
+          totalItems={totalVisible}
+          pageSize={pageSize}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          onPageChange={setPage}
+          onPageSizeChange={changePageSize}
+        />
+      </Card>
+
+      {drawerVisible && selectedSubscription ? (
+        <div
+          className="drawer-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`编辑订阅 ${selectedSubscription.name}`}
+          onClick={() => setDrawerOpen(false)}
+        >
+          <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-header">
+              <div>
+                <h3>{selectedSubscription.name}</h3>
+                <p>{selectedSubscription.id}</p>
+              </div>
+              <div className="drawer-header-actions">
                 <Badge variant={selectedSubscription.enabled ? "success" : "warning"}>
                   {selectedSubscription.enabled ? "运行中" : "已停用"}
                 </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="关闭编辑面板"
+                  onClick={() => setDrawerOpen(false)}
+                >
+                  <X size={16} />
+                </Button>
               </div>
+            </div>
+            <div className="platform-drawer-layout">
+              <section className="platform-drawer-section">
+                <div className="platform-drawer-section-head">
+                  <h4>订阅配置</h4>
+                  <p>更新 URL、刷新周期与状态开关后点击保存。</p>
+                </div>
 
               <div className="stats-grid">
                 <div>
@@ -430,30 +564,54 @@ export function SubscriptionPage() {
                   </label>
                 </div>
 
-                <div className="detail-actions">
+                <div className="platform-config-actions">
                   <Button type="submit" disabled={updateMutation.isPending}>
-                    保存修改
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => void refreshMutation.mutateAsync(selectedSubscription)}
-                    disabled={refreshMutation.isPending}
-                  >
-                    手动刷新
-                  </Button>
-                  <Button
-                    variant="danger"
-                    onClick={() => void handleDelete(selectedSubscription)}
-                    disabled={deleteMutation.isPending}
-                  >
-                    删除订阅
+                    {updateMutation.isPending ? "保存中..." : "保存配置"}
                   </Button>
                 </div>
               </form>
-            </>
-          )}
-        </Card>
-      </div>
+              </section>
+
+              <section className="platform-drawer-section platform-ops-section">
+                <div className="platform-drawer-section-head">
+                  <h4>运维操作</h4>
+                  <p>对当前订阅执行刷新或删除。</p>
+                </div>
+
+                <div className="platform-ops-list">
+                  <div className="platform-op-item">
+                    <div className="platform-op-copy">
+                      <h5>手动刷新</h5>
+                      <p className="platform-op-hint">立即触发一次订阅源拉取并刷新对应节点。</p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void refreshMutation.mutateAsync(selectedSubscription)}
+                      disabled={refreshMutation.isPending}
+                    >
+                      {refreshMutation.isPending ? "刷新中..." : "立即刷新"}
+                    </Button>
+                  </div>
+
+                  <div className="platform-op-item">
+                    <div className="platform-op-copy">
+                      <h5>删除订阅</h5>
+                      <p className="platform-op-hint">删除订阅并清理关联节点，操作不可撤销。</p>
+                    </div>
+                    <Button
+                      variant="danger"
+                      onClick={() => void handleDelete(selectedSubscription)}
+                      disabled={deleteMutation.isPending}
+                    >
+                      {deleteMutation.isPending ? "删除中..." : "删除订阅"}
+                    </Button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </Card>
+        </div>
+      ) : null}
 
       {createModalOpen ? (
         <div className="modal-overlay" role="dialog" aria-modal="true">

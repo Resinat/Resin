@@ -5,6 +5,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
+import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime } from "../../lib/time";
@@ -159,8 +160,6 @@ export function NodesPage() {
   }, [nodes, search]);
 
   const totalPages = Math.max(1, Math.ceil(nodesPage.total / pageSize));
-  const pageStart = nodesPage.total === 0 ? 0 : nodesPage.offset + 1;
-  const pageEnd = Math.min(nodesPage.offset + nodes.length, nodesPage.total);
 
   const selectedNode = useMemo(() => {
     if (!visibleNodes.length) {
@@ -496,35 +495,15 @@ export function NodesPage() {
           </div>
         ) : null}
 
-        <div className="nodes-pagination">
-          <p className="nodes-pagination-meta">
-            第 {page + 1} / {totalPages} 页 · 显示 {pageStart}-{pageEnd} / {nodesPage.total}
-          </p>
-          <div className="nodes-pagination-controls">
-            <label className="nodes-page-size">
-              <span>每页</span>
-              <Select value={String(pageSize)} onChange={(event) => changePageSize(Number(event.target.value))}>
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </Select>
-            </label>
-
-            <Button variant="secondary" size="sm" onClick={() => setPage((prev) => Math.max(0, prev - 1))} disabled={page <= 0}>
-              上一页
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setPage((prev) => Math.min(totalPages - 1, prev + 1))}
-              disabled={page >= totalPages - 1}
-            >
-              下一页
-            </Button>
-          </div>
-        </div>
+        <OffsetPagination
+          page={page}
+          totalPages={totalPages}
+          totalItems={nodesPage.total}
+          pageSize={pageSize}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          onPageChange={setPage}
+          onPageSizeChange={changePageSize}
+        />
       </Card>
 
       {detailNode ? (
