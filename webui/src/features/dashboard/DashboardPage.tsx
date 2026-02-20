@@ -1211,30 +1211,6 @@ export function DashboardPage() {
           )}
         </Card>
 
-        <Card className="dashboard-panel">
-          <div className="dashboard-panel-header">
-            <h3>系统节点快照</h3>
-            <p>全局节点池状态</p>
-          </div>
-          <div className="dashboard-snapshot-list">
-            <div>
-              <span>Total Nodes</span>
-              <p>{formatCount(snapshotNodePool?.total_nodes ?? 0)}</p>
-            </div>
-            <div>
-              <span>Healthy Nodes</span>
-              <p>{formatCount(snapshotNodePool?.healthy_nodes ?? 0)}</p>
-            </div>
-            <div>
-              <span>Egress IP Count</span>
-              <p>{formatCount(snapshotNodePool?.egress_ip_count ?? 0)}</p>
-            </div>
-            <div>
-              <span>Generated At</span>
-              <p>{formatDateTime(snapshotNodePool?.generated_at ?? "")}</p>
-            </div>
-          </div>
-        </Card>
       </div>
 
       {isInitialLoading ? (
