@@ -978,6 +978,19 @@ func TestAPIContract_MetricsEndpoints(t *testing.T) {
 	checkRealtimeEndpoint("/api/v1/metrics/realtime/throughput?from="+from+"&to="+to, 1)
 	checkRealtimeEndpoint("/api/v1/metrics/realtime/connections?from="+from+"&to="+to, 5)
 	checkRealtimeEndpoint("/api/v1/metrics/realtime/leases?platform_id="+platformID+"&from="+from+"&to="+to, 5)
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/realtime/leases?from="+from+"&to="+to, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("global realtime leases status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["platform_id"] != "" {
+		t.Fatalf("global realtime leases platform_id: got %v, want empty", body["platform_id"])
+	}
+	if items, ok := body["items"].([]any); !ok || len(items) != 1 {
+		t.Fatalf("global realtime leases items: got %T len=%d, want len=1", body["items"], len(items))
+	} else if item, ok := items[0].(map[string]any); !ok || item["active_leases"] != float64(3) {
+		t.Fatalf("global realtime leases active_leases: got %+v, want 3", items[0])
+	}
 	checkItemsEndpoint("/api/v1/metrics/history/traffic?platform_id=" + platformID + "&from=" + from + "&to=" + to)
 	checkItemsEndpoint("/api/v1/metrics/history/requests?platform_id=" + platformID + "&from=" + from + "&to=" + to)
 	checkItemsEndpoint("/api/v1/metrics/history/access-latency?platform_id=" + platformID + "&from=" + from + "&to=" + to)
@@ -986,11 +999,11 @@ func TestAPIContract_MetricsEndpoints(t *testing.T) {
 	checkItemsEndpoint("/api/v1/metrics/history/lease-lifetime?platform_id=" + platformID + "&from=" + from + "&to=" + to)
 
 	// Without platform_id, mixed global+platform rows must not leak through.
-	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/history/traffic?from="+from+"&to="+to, nil, true)
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/history/traffic?from="+from+"&to="+to, nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("global traffic status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	body := decodeJSONMap(t, rec)
+	body = decodeJSONMap(t, rec)
 	if items, ok := body["items"].([]any); !ok || len(items) != 1 {
 		t.Fatalf("global traffic items: got %T len=%d, want len=1", body["items"], len(items))
 	}

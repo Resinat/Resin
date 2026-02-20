@@ -82,6 +82,14 @@ func mapItems[T any](src []T, mapFn func(T) map[string]any) []map[string]any {
 	return items
 }
 
+func sumLeasesByPlatform(leasesByPlatform map[string]int) int {
+	total := 0
+	for _, count := range leasesByPlatform {
+		total += count
+	}
+	return total
+}
+
 func requiredPlatformID(mgr *metrics.Manager, w http.ResponseWriter, r *http.Request) (string, bool) {
 	platformID := r.URL.Query().Get("platform_id")
 	if platformID == "" {
@@ -180,10 +188,11 @@ func HandleRealtimeConnections(mgr *metrics.Manager) http.Handler {
 // HandleRealtimeLeases handles GET /api/v1/metrics/realtime/leases.
 func HandleRealtimeLeases(mgr *metrics.Manager) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		platformID, ok := requiredPlatformID(mgr, w, r)
-		if !ok {
+		platformID := r.URL.Query().Get("platform_id")
+		if platformID != "" && !ensureMetricsPlatformExists(mgr, w, platformID) {
 			return
 		}
+		scopeGlobal := platformID == ""
 		from, to, ok := parseMetricsTimeRange(w, r)
 		if !ok {
 			return
@@ -192,7 +201,11 @@ func HandleRealtimeLeases(mgr *metrics.Manager) http.Handler {
 		items := mapItems(samples, func(s metrics.RealtimeSample) map[string]any {
 			count := 0
 			if s.LeasesByPlatform != nil {
-				count = s.LeasesByPlatform[platformID]
+				if scopeGlobal {
+					count = sumLeasesByPlatform(s.LeasesByPlatform)
+				} else {
+					count = s.LeasesByPlatform[platformID]
+				}
 			}
 			return map[string]any{
 				"ts":            formatTimestamp(s.Timestamp),

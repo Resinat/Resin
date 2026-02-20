@@ -295,6 +295,44 @@ func TestMetricsHandlers_RealtimeStepSecondsMatchMetricIntervals(t *testing.T) {
 	}
 }
 
+func TestMetricsHandlers_RealtimeLeasesWithoutPlatformAggregatesAllPlatforms(t *testing.T) {
+	mgr := newTestMetricsManager(t, "existing-platform")
+	now := time.Now()
+	mgr.LeasesRing().Push(metrics.RealtimeSample{
+		Timestamp: now,
+		LeasesByPlatform: map[string]int{
+			"existing-platform": 5,
+			"other-platform":    7,
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/realtime/leases", nil)
+	rec := httptest.NewRecorder()
+	HandleRealtimeLeases(mgr).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if body["platform_id"] != "" {
+		t.Fatalf("platform_id: got %v, want empty string", body["platform_id"])
+	}
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["active_leases"] != float64(12) {
+		t.Fatalf("active_leases: got %v, want 12", item["active_leases"])
+	}
+}
+
 func TestMetricsHandlers_HistoryAccessLatency_SeparatesOverflowBucket(t *testing.T) {
 	mgr := newTestMetricsManager(t, "existing-platform")
 
