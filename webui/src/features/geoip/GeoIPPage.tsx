@@ -109,7 +109,6 @@ export function GeoIPPage() {
     <section className="geoip-page">
       <header className="module-header">
         <div>
-          <p className="eyebrow">Geo Intelligence</p>
           <h2>GeoIP</h2>
           <p className="module-description">GeoIP 状态、单 IP 与批量查询、数据库立即更新的运维工作台。</p>
         </div>

@@ -252,7 +252,6 @@ export function NodesPage() {
     <section className="nodes-page">
       <header className="module-header">
         <div>
-          <p className="eyebrow">Control Plane</p>
           <h2>节点池</h2>
           <p className="module-description">节点管理主视图采用服务端分页表格，支持表头排序与行内探测动作。</p>
         </div>

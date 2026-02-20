@@ -265,7 +265,6 @@ export function RequestLogsPage() {
     <section className="logs-page">
       <header className="module-header">
         <div>
-          <p className="eyebrow">Observability</p>
           <h2>请求日志</h2>
           <p className="module-description">游标分页日志工作台，支持条件检索、详情分析与 payload 解码查看。</p>
         </div>
@@ -607,8 +606,8 @@ export function RequestLogsPage() {
 
                   const truncated = payloadQuery.data
                     ? payloadQuery.data.truncated[
-                        tab as "req_headers" | "req_body" | "resp_headers" | "resp_body"
-                      ]
+                    tab as "req_headers" | "req_body" | "resp_headers" | "resp_body"
+                    ]
                     : false;
 
                   return (

@@ -324,7 +324,6 @@ export function SystemConfigPage() {
     <section className="syscfg-page">
       <header className="module-header">
         <div>
-          <p className="eyebrow">Runtime</p>
           <h2>系统配置</h2>
           <p className="module-description">分组编辑 RuntimeConfig，保存时仅提交差异字段并展示 PATCH 预览。</p>
         </div>

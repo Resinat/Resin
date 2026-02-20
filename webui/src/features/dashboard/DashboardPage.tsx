@@ -642,9 +642,9 @@ export function DashboardPage() {
     refetchInterval: (query) => {
       const data = query.state.data as
         | Pick<
-            DashboardGlobalData,
-            "history_traffic" | "history_requests" | "history_access_latency" | "history_probes" | "history_node_pool"
-          >
+          DashboardGlobalData,
+          "history_traffic" | "history_requests" | "history_access_latency" | "history_probes" | "history_node_pool"
+        >
         | undefined;
       return historyRefreshMsFromBuckets([
         data?.history_traffic.bucket_seconds,
@@ -783,7 +783,6 @@ export function DashboardPage() {
     <section className="dashboard-page">
       <header className="module-header">
         <div>
-          <p className="eyebrow">Observability</p>
           <h2>Dashboard</h2>
           <p className="module-description">高密度可视化总览全局实时吞吐、连接、租约、节点健康与探测趋势。</p>
         </div>

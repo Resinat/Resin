@@ -65,7 +65,6 @@ export function LoginPage() {
             <ShieldCheck size={18} />
           </div>
           <div>
-            <p className="eyebrow">Resin Control</p>
             <h1 className="login-title">管理员登录</h1>
           </div>
         </div>

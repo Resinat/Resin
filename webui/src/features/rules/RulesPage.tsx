@@ -165,7 +165,6 @@ export function RulesPage() {
     <section className="rules-page">
       <header className="module-header">
         <div>
-          <p className="eyebrow">Control Plane</p>
           <h2>Header 规则</h2>
           <p className="module-description">管理 URL 前缀匹配规则，并实时调试 resolve 结果。</p>
         </div>

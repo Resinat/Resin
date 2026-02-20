@@ -243,7 +243,6 @@ export function SubscriptionPage() {
     <section className="platform-page">
       <header className="module-header">
         <div>
-          <p className="eyebrow">Control Plane</p>
           <h2>订阅管理</h2>
           <p className="module-description">维护订阅源、更新周期与开关状态，并支持手动触发刷新。</p>
         </div>

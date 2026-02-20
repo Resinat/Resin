@@ -298,7 +298,6 @@ export function PlatformPage() {
     <section className="platform-page">
       <header className="module-header">
         <div>
-          <p className="eyebrow">Control Plane</p>
           <h2>Platform 管理</h2>
           <p className="module-description">管理平台的过滤策略、分配策略，并执行重建/重置等运维动作。</p>
         </div>
