@@ -345,7 +345,9 @@ export function PlatformPage() {
             </Button>
           </div>
         </div>
+      </Card>
 
+      <Card className="platform-cards-container">
         {platformsQuery.isLoading ? <p className="muted">正在加载平台数据...</p> : null}
 
         {platformsQuery.isError ? (
