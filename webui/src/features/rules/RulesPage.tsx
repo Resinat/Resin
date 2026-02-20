@@ -6,6 +6,8 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Textarea } from "../../components/ui/Textarea";
+import { ToastContainer } from "../../components/ui/Toast";
+import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime } from "../../lib/time";
 import { deleteRule, listRules, resolveRule, upsertRule } from "./api";
@@ -49,7 +51,7 @@ export function RulesPage() {
   const [formHeadersRaw, setFormHeadersRaw] = useState("");
   const [resolveURL, setResolveURL] = useState("");
   const [resolveOutput, setResolveOutput] = useState<ResolveResult | null>(null);
-  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const { toasts, showToast, dismissToast } = useToast();
 
   const queryClient = useQueryClient();
 
@@ -107,10 +109,10 @@ export function RulesPage() {
     onSuccess: async (rule) => {
       await invalidateRules();
       syncFormFromRule(rule);
-      setMessage({ tone: "success", text: `规则 ${rule.url_prefix} 已保存` });
+      showToast("success", `规则 ${rule.url_prefix} 已保存`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -124,10 +126,10 @@ export function RulesPage() {
       if (selectedPrefix === prefix) {
         setSelectedPrefix("");
       }
-      setMessage({ tone: "success", text: `规则 ${prefix} 已删除` });
+      showToast("success", `规则 ${prefix} 已删除`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -143,7 +145,7 @@ export function RulesPage() {
       setResolveOutput(result);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -174,11 +176,7 @@ export function RulesPage() {
         </Button>
       </header>
 
-      {message ? (
-        <div className={message.tone === "success" ? "callout callout-success" : "callout callout-error"}>
-          {message.text}
-        </div>
-      ) : null}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <div className="rules-layout">
         <Card className="rules-list-card">

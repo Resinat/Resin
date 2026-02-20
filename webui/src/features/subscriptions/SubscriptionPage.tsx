@@ -10,6 +10,8 @@ import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
+import { ToastContainer } from "../../components/ui/Toast";
+import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime, formatGoDuration } from "../../lib/time";
 import {
@@ -82,7 +84,7 @@ export function SubscriptionPage() {
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const { toasts, showToast, dismissToast } = useToast();
 
   const queryClient = useQueryClient();
   const enabledValue = parseEnabledFilter(enabledFilter);
@@ -193,10 +195,10 @@ export function SubscriptionPage() {
         enabled: true,
         ephemeral: false,
       });
-      setMessage({ tone: "success", text: `订阅 ${created.name} 创建成功` });
+      showToast("success", `订阅 ${created.name} 创建成功`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -217,10 +219,10 @@ export function SubscriptionPage() {
     onSuccess: async (updated) => {
       await invalidateSubscriptions();
       setSelectedSubscriptionId(updated.id);
-      setMessage({ tone: "success", text: `订阅 ${updated.name} 已更新` });
+      showToast("success", `订阅 ${updated.name} 已更新`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -235,10 +237,10 @@ export function SubscriptionPage() {
         setSelectedSubscriptionId("");
         setDrawerOpen(false);
       }
-      setMessage({ tone: "success", text: `订阅 ${deleted.name} 已删除` });
+      showToast("success", `订阅 ${deleted.name} 已删除`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -249,10 +251,10 @@ export function SubscriptionPage() {
     },
     onSuccess: async (subscription) => {
       await invalidateSubscriptions();
-      setMessage({ tone: "success", text: `订阅 ${subscription.name} 已手动刷新` });
+      showToast("success", `订阅 ${subscription.name} 已手动刷新`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -301,11 +303,7 @@ export function SubscriptionPage() {
         </Button>
       </header>
 
-      {message ? (
-        <div className={message.tone === "success" ? "callout callout-success" : "callout callout-error"}>
-          {message.text}
-        </div>
-      ) : null}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <Card className="platform-list-card subscriptions-table-card">
         <div className="list-card-header">
@@ -492,84 +490,84 @@ export function SubscriptionPage() {
                   <p>更新 URL、刷新周期与状态开关后点击保存。</p>
                 </div>
 
-              <div className="stats-grid">
-                <div>
-                  <span>创建时间</span>
-                  <p>{formatDateTime(selectedSubscription.created_at)}</p>
-                </div>
-                <div>
-                  <span>上次检查</span>
-                  <p>{formatDateTime(selectedSubscription.last_checked || "")}</p>
-                </div>
-                <div>
-                  <span>上次更新</span>
-                  <p>{formatDateTime(selectedSubscription.last_updated || "")}</p>
-                </div>
-              </div>
-
-              {selectedSubscription.last_error ? (
-                <div className="callout callout-error">Last Error: {selectedSubscription.last_error}</div>
-              ) : (
-                <div className="callout callout-success">最近一次刷新无错误</div>
-              )}
-
-              <form className="form-grid" onSubmit={onEditSubmit}>
-                <div className="field-group">
-                  <label className="field-label" htmlFor="edit-sub-name">
-                    订阅名称
-                  </label>
-                  <Input
-                    id="edit-sub-name"
-                    invalid={Boolean(editForm.formState.errors.name)}
-                    {...editForm.register("name")}
-                  />
-                  {editForm.formState.errors.name?.message ? (
-                    <p className="field-error">{editForm.formState.errors.name.message}</p>
-                  ) : null}
+                <div className="stats-grid">
+                  <div>
+                    <span>创建时间</span>
+                    <p>{formatDateTime(selectedSubscription.created_at)}</p>
+                  </div>
+                  <div>
+                    <span>上次检查</span>
+                    <p>{formatDateTime(selectedSubscription.last_checked || "")}</p>
+                  </div>
+                  <div>
+                    <span>上次更新</span>
+                    <p>{formatDateTime(selectedSubscription.last_updated || "")}</p>
+                  </div>
                 </div>
 
-                <div className="field-group">
-                  <label className="field-label" htmlFor="edit-sub-interval">
-                    Update Interval
-                  </label>
-                  <Input
-                    id="edit-sub-interval"
-                    placeholder="例如 5m"
-                    invalid={Boolean(editForm.formState.errors.update_interval)}
-                    {...editForm.register("update_interval")}
-                  />
-                  {editForm.formState.errors.update_interval?.message ? (
-                    <p className="field-error">{editForm.formState.errors.update_interval.message}</p>
-                  ) : null}
-                </div>
+                {selectedSubscription.last_error ? (
+                  <div className="callout callout-error">Last Error: {selectedSubscription.last_error}</div>
+                ) : (
+                  <div className="callout callout-success">最近一次刷新无错误</div>
+                )}
 
-                <div className="field-group field-span-2">
-                  <label className="field-label" htmlFor="edit-sub-url">
-                    URL
-                  </label>
-                  <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
-                  {editForm.formState.errors.url?.message ? (
-                    <p className="field-error">{editForm.formState.errors.url.message}</p>
-                  ) : null}
-                </div>
+                <form className="form-grid" onSubmit={onEditSubmit}>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-sub-name">
+                      订阅名称
+                    </label>
+                    <Input
+                      id="edit-sub-name"
+                      invalid={Boolean(editForm.formState.errors.name)}
+                      {...editForm.register("name")}
+                    />
+                    {editForm.formState.errors.name?.message ? (
+                      <p className="field-error">{editForm.formState.errors.name.message}</p>
+                    ) : null}
+                  </div>
 
-                <div className="checkbox-group field-span-2">
-                  <label className="checkbox-line">
-                    <input type="checkbox" {...editForm.register("enabled")} />
-                    <span>Enabled</span>
-                  </label>
-                  <label className="checkbox-line">
-                    <input type="checkbox" {...editForm.register("ephemeral")} />
-                    <span>Ephemeral</span>
-                  </label>
-                </div>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-sub-interval">
+                      Update Interval
+                    </label>
+                    <Input
+                      id="edit-sub-interval"
+                      placeholder="例如 5m"
+                      invalid={Boolean(editForm.formState.errors.update_interval)}
+                      {...editForm.register("update_interval")}
+                    />
+                    {editForm.formState.errors.update_interval?.message ? (
+                      <p className="field-error">{editForm.formState.errors.update_interval.message}</p>
+                    ) : null}
+                  </div>
 
-                <div className="platform-config-actions">
-                  <Button type="submit" disabled={updateMutation.isPending}>
-                    {updateMutation.isPending ? "保存中..." : "保存配置"}
-                  </Button>
-                </div>
-              </form>
+                  <div className="field-group field-span-2">
+                    <label className="field-label" htmlFor="edit-sub-url">
+                      URL
+                    </label>
+                    <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
+                    {editForm.formState.errors.url?.message ? (
+                      <p className="field-error">{editForm.formState.errors.url.message}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="checkbox-group field-span-2">
+                    <label className="checkbox-line">
+                      <input type="checkbox" {...editForm.register("enabled")} />
+                      <span>Enabled</span>
+                    </label>
+                    <label className="checkbox-line">
+                      <input type="checkbox" {...editForm.register("ephemeral")} />
+                      <span>Ephemeral</span>
+                    </label>
+                  </div>
+
+                  <div className="platform-config-actions">
+                    <Button type="submit" disabled={updateMutation.isPending}>
+                      {updateMutation.isPending ? "保存中..." : "保存配置"}
+                    </Button>
+                  </div>
+                </form>
               </section>
 
               <section className="platform-drawer-section platform-ops-section">

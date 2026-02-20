@@ -6,6 +6,8 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Textarea } from "../../components/ui/Textarea";
+import { ToastContainer } from "../../components/ui/Toast";
+import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime } from "../../lib/time";
 import { getGeoIPStatus, lookupIP, lookupIPBatch, updateGeoIPNow } from "./api";
@@ -41,7 +43,7 @@ export function GeoIPPage() {
   const [singleResult, setSingleResult] = useState<GeoIPLookupResult | null>(null);
   const [batchRaw, setBatchRaw] = useState("");
   const [batchResults, setBatchResults] = useState<GeoIPLookupResult[]>(EMPTY_RESULTS);
-  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const { toasts, showToast, dismissToast } = useToast();
 
   const statusQuery = useQuery({
     queryKey: ["geoip-status"],
@@ -59,10 +61,9 @@ export function GeoIPPage() {
     },
     onSuccess: (result) => {
       setSingleResult(result);
-      setMessage(null);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -76,10 +77,10 @@ export function GeoIPPage() {
     },
     onSuccess: (results) => {
       setBatchResults(results);
-      setMessage({ tone: "success", text: `批量查询完成：${results.length} 条结果` });
+      showToast("success", `批量查询完成：${results.length} 条结果`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -87,10 +88,10 @@ export function GeoIPPage() {
     mutationFn: updateGeoIPNow,
     onSuccess: async () => {
       await statusQuery.refetch();
-      setMessage({ tone: "success", text: "GeoIP 数据库更新任务已执行" });
+      showToast("success", "GeoIP 数据库更新任务已执行");
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -118,11 +119,7 @@ export function GeoIPPage() {
         </Button>
       </header>
 
-      {message ? (
-        <div className={message.tone === "success" ? "callout callout-success" : "callout callout-error"}>
-          {message.text}
-        </div>
-      ) : null}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <div className="geoip-layout">
         <Card className="geoip-status-card">

@@ -6,6 +6,8 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Textarea } from "../../components/ui/Textarea";
+import { ToastContainer } from "../../components/ui/Toast";
+import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { patchSystemConfig, getSystemConfig } from "./api";
 import type { RuntimeConfig, RuntimeConfigPatch } from "./types";
@@ -220,7 +222,7 @@ function buildPatch(current: RuntimeConfig, next: RuntimeConfig): RuntimeConfigP
 
 export function SystemConfigPage() {
   const [draftForm, setDraftForm] = useState<RuntimeConfigForm | null>(null);
-  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const { toasts, showToast, dismissToast } = useToast();
   const queryClient = useQueryClient();
 
   const configQuery = useQuery({
@@ -276,10 +278,10 @@ export function SystemConfigPage() {
     onSuccess: ({ updated, changedCount }) => {
       queryClient.setQueryData(["system-config"], updated);
       setDraftForm(null);
-      setMessage({ tone: "success", text: `配置已更新（${changedCount} 项变更）` });
+      showToast("success", `配置已更新（${changedCount} 项变更）`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -295,7 +297,7 @@ export function SystemConfigPage() {
 
   const resetDraft = () => {
     setDraftForm(null);
-    setMessage(null);
+
   };
 
   const reloadFromServer = async () => {
@@ -309,7 +311,7 @@ export function SystemConfigPage() {
     setDraftForm(null);
     const result = await configQuery.refetch();
     if (result.data) {
-      setMessage({ tone: "success", text: "已加载服务器最新配置" });
+      showToast("success", "已加载服务器最新配置");
     }
   };
 
@@ -333,11 +335,7 @@ export function SystemConfigPage() {
         </Button>
       </header>
 
-      {message ? (
-        <div className={message.tone === "success" ? "callout callout-success" : "callout callout-error"}>
-          {message.text}
-        </div>
-      ) : null}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       {!form ? (
         <Card className="syscfg-form-card">

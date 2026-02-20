@@ -7,6 +7,8 @@ import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
+import { ToastContainer } from "../../components/ui/Toast";
+import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime } from "../../lib/time";
 import { getNode, listNodes, probeEgress, probeLatency } from "./api";
@@ -116,7 +118,7 @@ export function NodesPage() {
   const [pageSize, setPageSize] = useState<number>(50);
   const [search, setSearch] = useState("");
   const [selectedNodeHash, setSelectedNodeHash] = useState("");
-  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const { toasts, showToast, dismissToast } = useToast();
 
   const queryClient = useQueryClient();
 
@@ -190,13 +192,10 @@ export function NodesPage() {
     mutationFn: async (hash: string) => probeEgress(hash),
     onSuccess: async (result) => {
       await refreshNodes();
-      setMessage({
-        tone: "success",
-        text: `出口探测完成：egress=${result.egress_ip || "-"}，latency=${formatLatency(result.latency_ewma_ms)}`,
-      });
+      showToast("success", `出口探测完成：egress=${result.egress_ip || "-"}，latency=${formatLatency(result.latency_ewma_ms)}`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -204,10 +203,10 @@ export function NodesPage() {
     mutationFn: async (hash: string) => probeLatency(hash),
     onSuccess: async (result) => {
       await refreshNodes();
-      setMessage({ tone: "success", text: `延迟探测完成：latency=${formatLatency(result.latency_ewma_ms)}` });
+      showToast("success", `延迟探测完成：latency=${formatLatency(result.latency_ewma_ms)}`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -260,11 +259,7 @@ export function NodesPage() {
         </Button>
       </header>
 
-      {message ? (
-        <div className={message.tone === "success" ? "callout callout-success" : "callout callout-error"}>
-          {message.text}
-        </div>
-      ) : null}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <Card className="filter-card">
         <div className="filter-grid">

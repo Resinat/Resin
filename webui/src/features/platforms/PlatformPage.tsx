@@ -10,6 +10,8 @@ import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { Textarea } from "../../components/ui/Textarea";
+import { ToastContainer } from "../../components/ui/Toast";
+import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime, formatGoDuration } from "../../lib/time";
 import {
@@ -96,7 +98,7 @@ export function PlatformPage() {
   const [selectedPlatformId, setSelectedPlatformId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const { toasts, showToast, dismissToast } = useToast();
 
   const queryClient = useQueryClient();
 
@@ -189,10 +191,10 @@ export function PlatformPage() {
       setDrawerOpen(true);
       setCreateModalOpen(false);
       createForm.reset();
-      setMessage({ tone: "success", text: `平台 ${created.name} 创建成功` });
+      showToast("success", `平台 ${created.name} 创建成功`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -214,10 +216,10 @@ export function PlatformPage() {
     onSuccess: async (updated) => {
       await invalidatePlatforms();
       setSelectedPlatformId(updated.id);
-      setMessage({ tone: "success", text: `平台 ${updated.name} 已更新` });
+      showToast("success", `平台 ${updated.name} 已更新`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -232,10 +234,10 @@ export function PlatformPage() {
         setDrawerOpen(false);
         setSelectedPlatformId("");
       }
-      setMessage({ tone: "success", text: `平台 ${deleted.name} 已删除` });
+      showToast("success", `平台 ${deleted.name} 已删除`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -246,10 +248,10 @@ export function PlatformPage() {
     onSuccess: async (updated) => {
       await invalidatePlatforms();
       setSelectedPlatformId(updated.id);
-      setMessage({ tone: "success", text: `平台 ${updated.name} 已重置为默认配置` });
+      showToast("success", `平台 ${updated.name} 已重置为默认配置`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -259,10 +261,10 @@ export function PlatformPage() {
       return platform;
     },
     onSuccess: (platform) => {
-      setMessage({ tone: "success", text: `平台 ${platform.name} 已完成路由视图重建` });
+      showToast("success", `平台 ${platform.name} 已完成路由视图重建`);
     },
     onError: (error) => {
-      setMessage({ tone: "error", text: fromApiError(error) });
+      showToast("error", fromApiError(error));
     },
   });
 
@@ -303,11 +305,7 @@ export function PlatformPage() {
         </div>
       </header>
 
-      {message ? (
-        <div className={message.tone === "success" ? "callout callout-success" : "callout callout-error"}>
-          {message.text}
-        </div>
-      ) : null}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <Card className="platform-list-card platform-directory-card">
         <div className="list-card-header">

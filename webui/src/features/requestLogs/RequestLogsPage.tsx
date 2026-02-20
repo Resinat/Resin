@@ -6,6 +6,8 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
+import { ToastContainer } from "../../components/ui/Toast";
+import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime } from "../../lib/time";
 import { getRequestLog, getRequestLogPayloads, listRequestLogs } from "./api";
@@ -123,7 +125,7 @@ export function RequestLogsPage() {
   const [pageIndex, setPageIndex] = useState(0);
   const [search, setSearch] = useState("");
   const [selectedLogId, setSelectedLogId] = useState("");
-  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const { toasts, showToast, dismissToast } = useToast();
   const [payloadForId, setPayloadForId] = useState("");
   const [payloadTab, setPayloadTab] = useState<PayloadTab>("req_headers");
 
@@ -183,12 +185,12 @@ export function RequestLogsPage() {
   const applyFilters = () => {
     const next = buildActiveFilters(draft);
     if (!isFromBeforeTo(next.from, next.to)) {
-      setMessage({ tone: "error", text: "时间范围错误：from 必须早于 to。" });
+      showToast("error", "时间范围错误：from 必须早于 to。");
       return;
     }
 
     if (draft.http_status && next.http_status === undefined) {
-      setMessage({ tone: "error", text: "HTTP Status 必须是 100-599 的整数。" });
+      showToast("error", "HTTP Status 必须是 100-599 的整数。");
       return;
     }
 
@@ -206,7 +208,7 @@ export function RequestLogsPage() {
     setPageIndex(0);
     setSelectedLogId("");
     setPayloadForId("");
-    setMessage(null);
+
   };
 
   const moveNext = () => {
@@ -274,11 +276,7 @@ export function RequestLogsPage() {
         </Button>
       </header>
 
-      {message ? (
-        <div className={message.tone === "success" ? "callout callout-success" : "callout callout-error"}>
-          {message.text}
-        </div>
-      ) : null}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <Card className="filter-card">
         <div className="filter-grid logs-filter-grid">
