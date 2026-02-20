@@ -1,15 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Gauge, Layers, RefreshCw, Server, Shield, Waves } from "lucide-react";
+import { AlertTriangle, Gauge, Layers, Server, Shield, Waves } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Badge } from "../../components/ui/Badge";
-import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
-import { getDashboardGlobalData, getDashboardPlatformData } from "./api";
+import {
+  getDashboardGlobalHistoryData,
+  getDashboardGlobalRealtimeData,
+  getDashboardGlobalSnapshotData,
+  getDashboardPlatformHistoryData,
+  getDashboardPlatformRealtimeData,
+  getDashboardPlatformSnapshotData,
+} from "./api";
 import type { DashboardGlobalData, DashboardPlatformData, LatencyBucket, TimeWindow } from "./types";
 
 type RangeKey = "15m" | "1h" | "6h" | "24h";
@@ -59,13 +65,18 @@ type TrendTooltipContentProps = {
 };
 
 const RANGE_OPTIONS: RangeOption[] = [
-  { key: "15m", label: "最近 15 分钟", ms: 15 * 60 * 1000 },
   { key: "1h", label: "最近 1 小时", ms: 60 * 60 * 1000 },
   { key: "6h", label: "最近 6 小时", ms: 6 * 60 * 60 * 1000 },
   { key: "24h", label: "最近 24 小时", ms: 24 * 60 * 60 * 1000 },
 ];
 
 const GLOBAL_PLATFORM_VALUE = "__global__";
+const DEFAULT_REALTIME_REFRESH_SECONDS = 15;
+const MIN_REALTIME_REFRESH_MS = 1_000;
+const DEFAULT_HISTORY_REFRESH_MS = 60_000;
+const MIN_HISTORY_REFRESH_MS = 15_000;
+const MAX_HISTORY_REFRESH_MS = 300_000;
+const SNAPSHOT_REFRESH_MS = 5_000;
 
 function fromApiError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -483,8 +494,32 @@ function kpiTone(delta: number | null): "success" | "warning" | "neutral" {
   return delta >= 0 ? "success" : "warning";
 }
 
+function normalizePositiveSeconds(seconds: number | undefined): number | null {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) {
+    return null;
+  }
+  return seconds;
+}
+
+function realtimeRefreshMsFromSteps(stepSeconds: Array<number | undefined>): number {
+  const steps = stepSeconds.map(normalizePositiveSeconds).filter((value): value is number => value !== null);
+  if (!steps.length) {
+    return DEFAULT_REALTIME_REFRESH_SECONDS * 1000;
+  }
+  return Math.max(MIN_REALTIME_REFRESH_MS, Math.round(Math.min(...steps) * 1000));
+}
+
+function historyRefreshMsFromBuckets(bucketSeconds: Array<number | undefined>): number {
+  const buckets = bucketSeconds.map(normalizePositiveSeconds).filter((value): value is number => value !== null);
+  if (!buckets.length) {
+    return DEFAULT_HISTORY_REFRESH_MS;
+  }
+  const intervalMs = Math.round(Math.min(...buckets) * 1000);
+  return Math.min(MAX_HISTORY_REFRESH_MS, Math.max(MIN_HISTORY_REFRESH_MS, intervalMs));
+}
+
 export function DashboardPage() {
-  const [rangeKey, setRangeKey] = useState<RangeKey>("1h");
+  const [rangeKey, setRangeKey] = useState<RangeKey>("6h");
   const [selectedPlatformId, setSelectedPlatformId] = useState(GLOBAL_PLATFORM_VALUE);
 
   const platformsQuery = useQuery({
@@ -505,39 +540,159 @@ export function DashboardPage() {
   const isPlatformScope = Boolean(activePlatformId);
   const activePlatformName = activePlatform?.name ?? "全局视角";
 
-  const globalQuery = useQuery({
-    queryKey: ["dashboard-global", rangeKey],
+  const globalRealtimeQuery = useQuery({
+    queryKey: ["dashboard-global-realtime", rangeKey],
     queryFn: async () => {
       const window = getTimeWindow(rangeKey);
-      return getDashboardGlobalData(window);
+      return getDashboardGlobalRealtimeData(window);
     },
-    refetchInterval: 15_000,
+    refetchInterval: (query) => {
+      const data = query.state.data as Pick<DashboardGlobalData, "realtime_throughput" | "realtime_connections"> | undefined;
+      return realtimeRefreshMsFromSteps([data?.realtime_throughput.step_seconds, data?.realtime_connections.step_seconds]);
+    },
     placeholderData: (prev) => prev,
   });
 
-  const platformQuery = useQuery({
-    queryKey: ["dashboard-platform", rangeKey, activePlatformId],
+  const globalHistoryQuery = useQuery({
+    queryKey: ["dashboard-global-history", rangeKey],
     queryFn: async () => {
       const window = getTimeWindow(rangeKey);
-      return getDashboardPlatformData(activePlatformId, window);
+      return getDashboardGlobalHistoryData(window);
+    },
+    refetchInterval: (query) => {
+      const data = query.state.data as
+        | Pick<
+            DashboardGlobalData,
+            "history_traffic" | "history_requests" | "history_access_latency" | "history_probes" | "history_node_pool"
+          >
+        | undefined;
+      return historyRefreshMsFromBuckets([
+        data?.history_traffic.bucket_seconds,
+        data?.history_requests.bucket_seconds,
+        data?.history_access_latency.bucket_seconds,
+        data?.history_probes.bucket_seconds,
+        data?.history_node_pool.bucket_seconds,
+      ]);
+    },
+    placeholderData: (prev) => prev,
+  });
+
+  const globalSnapshotQuery = useQuery({
+    queryKey: ["dashboard-global-snapshot"],
+    queryFn: getDashboardGlobalSnapshotData,
+    refetchInterval: SNAPSHOT_REFRESH_MS,
+    placeholderData: (prev) => prev,
+  });
+
+  const platformRealtimeQuery = useQuery({
+    queryKey: ["dashboard-platform-realtime", rangeKey, activePlatformId],
+    queryFn: async () => {
+      const window = getTimeWindow(rangeKey);
+      return getDashboardPlatformRealtimeData(activePlatformId, window);
     },
     enabled: isPlatformScope,
-    refetchInterval: 15_000,
+    refetchInterval: (query) => {
+      const data = query.state.data as Pick<DashboardPlatformData, "realtime_leases"> | undefined;
+      return realtimeRefreshMsFromSteps([data?.realtime_leases.step_seconds]);
+    },
     placeholderData: (prev) => prev,
   });
 
-  const refreshing = globalQuery.isFetching || platformQuery.isFetching || platformsQuery.isFetching;
+  const platformHistoryQuery = useQuery({
+    queryKey: ["dashboard-platform-history", rangeKey, activePlatformId],
+    queryFn: async () => {
+      const window = getTimeWindow(rangeKey);
+      return getDashboardPlatformHistoryData(activePlatformId, window);
+    },
+    enabled: isPlatformScope,
+    refetchInterval: (query) => {
+      const data = query.state.data as Pick<DashboardPlatformData, "history_lease_lifetime"> | undefined;
+      return historyRefreshMsFromBuckets([data?.history_lease_lifetime.bucket_seconds]);
+    },
+    placeholderData: (prev) => prev,
+  });
 
-  const refreshAll = async () => {
-    await Promise.all([
-      globalQuery.refetch(),
-      platformsQuery.refetch(),
-      isPlatformScope ? platformQuery.refetch() : Promise.resolve(),
-    ]);
-  };
+  const platformSnapshotQuery = useQuery({
+    queryKey: ["dashboard-platform-snapshot", activePlatformId],
+    queryFn: async () => getDashboardPlatformSnapshotData(activePlatformId),
+    enabled: isPlatformScope,
+    refetchInterval: SNAPSHOT_REFRESH_MS,
+    placeholderData: (prev) => prev,
+  });
 
-  const globalData = globalQuery.data as DashboardGlobalData | undefined;
-  const platformData = platformQuery.data as DashboardPlatformData | undefined;
+  const globalData = useMemo<DashboardGlobalData | undefined>(() => {
+    if (!globalRealtimeQuery.data && !globalHistoryQuery.data && !globalSnapshotQuery.data) {
+      return undefined;
+    }
+    return {
+      realtime_throughput: globalRealtimeQuery.data?.realtime_throughput ?? { step_seconds: 0, items: [] },
+      realtime_connections: globalRealtimeQuery.data?.realtime_connections ?? { step_seconds: 0, items: [] },
+      history_traffic: globalHistoryQuery.data?.history_traffic ?? { bucket_seconds: 0, items: [] },
+      history_requests: globalHistoryQuery.data?.history_requests ?? { bucket_seconds: 0, items: [] },
+      history_access_latency: globalHistoryQuery.data?.history_access_latency ?? {
+        bucket_seconds: 0,
+        bin_width_ms: 0,
+        overflow_ms: 0,
+        items: [],
+      },
+      history_probes: globalHistoryQuery.data?.history_probes ?? { bucket_seconds: 0, items: [] },
+      history_node_pool: globalHistoryQuery.data?.history_node_pool ?? { bucket_seconds: 0, items: [] },
+      snapshot_node_pool: globalSnapshotQuery.data?.snapshot_node_pool ?? {
+        generated_at: "",
+        total_nodes: 0,
+        healthy_nodes: 0,
+        egress_ip_count: 0,
+      },
+      snapshot_latency_global: globalSnapshotQuery.data?.snapshot_latency_global ?? {
+        generated_at: "",
+        scope: "global",
+        bin_width_ms: 0,
+        overflow_ms: 0,
+        sample_count: 0,
+        buckets: [],
+        overflow_count: 0,
+      },
+    };
+  }, [globalRealtimeQuery.data, globalHistoryQuery.data, globalSnapshotQuery.data]);
+
+  const platformData = useMemo<DashboardPlatformData | undefined>(() => {
+    if (!platformRealtimeQuery.data && !platformHistoryQuery.data && !platformSnapshotQuery.data) {
+      return undefined;
+    }
+    return {
+      realtime_leases: platformRealtimeQuery.data?.realtime_leases ?? {
+        platform_id: activePlatformId,
+        step_seconds: 0,
+        items: [],
+      },
+      history_lease_lifetime: platformHistoryQuery.data?.history_lease_lifetime ?? {
+        platform_id: activePlatformId,
+        bucket_seconds: 0,
+        items: [],
+      },
+      snapshot_platform_node_pool: platformSnapshotQuery.data?.snapshot_platform_node_pool ?? {
+        generated_at: "",
+        platform_id: activePlatformId,
+        routable_node_count: 0,
+        egress_ip_count: 0,
+      },
+      snapshot_latency_platform: platformSnapshotQuery.data?.snapshot_latency_platform ?? {
+        generated_at: "",
+        scope: "platform",
+        platform_id: activePlatformId || undefined,
+        bin_width_ms: 0,
+        overflow_ms: 0,
+        sample_count: 0,
+        buckets: [],
+        overflow_count: 0,
+      },
+    };
+  }, [activePlatformId, platformRealtimeQuery.data, platformHistoryQuery.data, platformSnapshotQuery.data]);
+
+  const globalError = globalRealtimeQuery.error ?? globalHistoryQuery.error ?? globalSnapshotQuery.error;
+  const platformError = platformRealtimeQuery.error ?? platformHistoryQuery.error ?? platformSnapshotQuery.error;
+  const isInitialLoading =
+    !globalData && (globalRealtimeQuery.isLoading || globalHistoryQuery.isLoading || globalSnapshotQuery.isLoading);
 
   const throughputItems = sortTimeSeriesByTimestamp(globalData?.realtime_throughput.items ?? [], (item) => item.ts);
   const throughputIngress = throughputItems.map((item) => item.ingress_bps);
@@ -603,23 +758,19 @@ export function DashboardPage() {
           <h2>Dashboard</h2>
           <p className="module-description">高密度可视化总览实时吞吐、连接、节点健康、探测与租约延迟分布。</p>
         </div>
-        <Button onClick={() => void refreshAll()} disabled={refreshing}>
-          <RefreshCw size={16} className={refreshing ? "spin" : undefined} />
-          刷新全部
-        </Button>
       </header>
 
-      {globalQuery.isError ? (
+      {globalError ? (
         <div className="callout callout-error">
           <AlertTriangle size={14} />
-          <span>{fromApiError(globalQuery.error)}</span>
+          <span>{fromApiError(globalError)}</span>
         </div>
       ) : null}
 
-      {isPlatformScope && platformQuery.isError ? (
+      {isPlatformScope && platformError ? (
         <div className="callout callout-warning">
           <AlertTriangle size={14} />
-          <span>平台维度指标加载失败：{fromApiError(platformQuery.error)}</span>
+          <span>平台维度指标加载失败：{fromApiError(platformError)}</span>
         </div>
       ) : null}
 
@@ -627,9 +778,6 @@ export function DashboardPage() {
         <div className="dashboard-hero-header">
           <div>
             <p className="dashboard-hero-title">Control Pulse</p>
-            <p className="dashboard-hero-subtitle">
-              上次更新：{globalData ? formatDateTime(globalData.snapshot_node_pool.generated_at) : "加载中"}
-            </p>
           </div>
 
           <div className="dashboard-hero-controls">
@@ -658,11 +806,6 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="dashboard-hero-badges">
-          <Badge variant="success">Global Metrics</Badge>
-          <Badge variant={isPlatformScope ? "success" : "neutral"}>{activePlatformName}</Badge>
-          <Badge variant="neutral">Auto Refresh 15s</Badge>
-        </div>
       </Card>
 
       <div className="dashboard-kpi-grid">
@@ -1003,7 +1146,7 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      {globalQuery.isLoading ? (
+      {isInitialLoading ? (
         <div className="callout callout-warning">
           <Server size={14} />
           <span>Dashboard 数据加载中...</span>

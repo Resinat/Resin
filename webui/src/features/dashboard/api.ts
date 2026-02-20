@@ -263,54 +263,104 @@ async function getSnapshotLatency(platformId?: string): Promise<SnapshotNodeLate
   return normalizeLatencyDistribution(data);
 }
 
-export async function getDashboardGlobalData(window: TimeWindow): Promise<DashboardGlobalData> {
-  const [
-    realtime_throughput,
-    realtime_connections,
-    history_traffic,
-    history_requests,
-    history_access_latency,
-    history_probes,
-    history_node_pool,
-    snapshot_node_pool,
-    snapshot_latency_global,
-  ] = await Promise.all([
+export type DashboardGlobalRealtimeData = Pick<DashboardGlobalData, "realtime_throughput" | "realtime_connections">;
+export type DashboardGlobalHistoryData = Pick<
+  DashboardGlobalData,
+  "history_traffic" | "history_requests" | "history_access_latency" | "history_probes" | "history_node_pool"
+>;
+export type DashboardGlobalSnapshotData = Pick<DashboardGlobalData, "snapshot_node_pool" | "snapshot_latency_global">;
+export type DashboardPlatformRealtimeData = Pick<DashboardPlatformData, "realtime_leases">;
+export type DashboardPlatformHistoryData = Pick<DashboardPlatformData, "history_lease_lifetime">;
+export type DashboardPlatformSnapshotData = Pick<DashboardPlatformData, "snapshot_platform_node_pool" | "snapshot_latency_platform">;
+
+export async function getDashboardGlobalRealtimeData(window: TimeWindow): Promise<DashboardGlobalRealtimeData> {
+  const [realtime_throughput, realtime_connections] = await Promise.all([
     getRealtimeThroughput(window),
     getRealtimeConnections(window),
+  ]);
+
+  return {
+    realtime_throughput,
+    realtime_connections,
+  };
+}
+
+export async function getDashboardGlobalHistoryData(window: TimeWindow): Promise<DashboardGlobalHistoryData> {
+  const [history_traffic, history_requests, history_access_latency, history_probes, history_node_pool] = await Promise.all([
     getHistoryTraffic(window),
     getHistoryRequests(window),
     getHistoryAccessLatency(window),
     getHistoryProbes(window),
     getHistoryNodePool(window),
-    getSnapshotNodePool(),
-    getSnapshotLatency(),
   ]);
 
   return {
-    realtime_throughput,
-    realtime_connections,
     history_traffic,
     history_requests,
     history_access_latency,
     history_probes,
     history_node_pool,
+  };
+}
+
+export async function getDashboardGlobalSnapshotData(): Promise<DashboardGlobalSnapshotData> {
+  const [snapshot_node_pool, snapshot_latency_global] = await Promise.all([getSnapshotNodePool(), getSnapshotLatency()]);
+  return {
     snapshot_node_pool,
     snapshot_latency_global,
   };
 }
 
-export async function getDashboardPlatformData(platformId: string, window: TimeWindow): Promise<DashboardPlatformData> {
-  const [realtime_leases, history_lease_lifetime, snapshot_platform_node_pool, snapshot_latency_platform] = await Promise.all([
-    getRealtimeLeases(platformId, window),
-    getHistoryLeaseLifetime(platformId, window),
+export async function getDashboardPlatformRealtimeData(platformId: string, window: TimeWindow): Promise<DashboardPlatformRealtimeData> {
+  const realtime_leases = await getRealtimeLeases(platformId, window);
+  return {
+    realtime_leases,
+  };
+}
+
+export async function getDashboardPlatformHistoryData(platformId: string, window: TimeWindow): Promise<DashboardPlatformHistoryData> {
+  const history_lease_lifetime = await getHistoryLeaseLifetime(platformId, window);
+  return {
+    history_lease_lifetime,
+  };
+}
+
+export async function getDashboardPlatformSnapshotData(platformId: string): Promise<DashboardPlatformSnapshotData> {
+  const [snapshot_platform_node_pool, snapshot_latency_platform] = await Promise.all([
     getSnapshotPlatformNodePool(platformId),
     getSnapshotLatency(platformId),
   ]);
 
   return {
-    realtime_leases,
-    history_lease_lifetime,
     snapshot_platform_node_pool,
     snapshot_latency_platform,
+  };
+}
+
+export async function getDashboardGlobalData(window: TimeWindow): Promise<DashboardGlobalData> {
+  const [realtime, history, snapshot] = await Promise.all([
+    getDashboardGlobalRealtimeData(window),
+    getDashboardGlobalHistoryData(window),
+    getDashboardGlobalSnapshotData(),
+  ]);
+
+  return {
+    ...realtime,
+    ...history,
+    ...snapshot,
+  };
+}
+
+export async function getDashboardPlatformData(platformId: string, window: TimeWindow): Promise<DashboardPlatformData> {
+  const [realtime, history, snapshot] = await Promise.all([
+    getDashboardPlatformRealtimeData(platformId, window),
+    getDashboardPlatformHistoryData(platformId, window),
+    getDashboardPlatformSnapshotData(platformId),
+  ]);
+
+  return {
+    ...realtime,
+    ...history,
+    ...snapshot,
   };
 }
