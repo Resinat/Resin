@@ -1,5 +1,4 @@
 import {
-  Activity,
   Boxes,
   Globe,
   LayoutDashboard,
@@ -86,17 +85,6 @@ export function AppShell() {
           transition={{ duration: 0.24, ease: "easeOut" }}
           className="content"
         >
-          <header className="topbar">
-            <div>
-              <p className="eyebrow">Resin WebUI · 第一版框架</p>
-              <h1 className="page-title">控制台</h1>
-            </div>
-            <div className="topbar-pill">
-              <Activity size={14} />
-              <span>API 在线</span>
-            </div>
-          </header>
-
           <Outlet />
         </motion.div>
       </main>
