@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Gauge, Layers, RefreshCw, Server, Shield, Waves } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
+import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -30,6 +31,31 @@ type TrendChartProps = {
   labels: string[];
   series: ChartSeries[];
   formatYAxisLabel?: (value: number) => string;
+};
+
+type TrendSeries = ChartSeries & {
+  key: string;
+};
+
+type TrendPoint = {
+  rawLabel: string;
+  displayLabel: string;
+  sortKey: number;
+  order: number;
+  [key: string]: number | string;
+};
+
+type TrendTooltipEntry = {
+  dataKey?: string | number;
+  value?: number | string;
+};
+
+type TrendTooltipContentProps = {
+  active?: boolean;
+  payload?: TrendTooltipEntry[];
+  label?: string;
+  series: TrendSeries[];
+  valueFormatter: (value: number) => string;
 };
 
 const RANGE_OPTIONS: RangeOption[] = [
@@ -115,7 +141,7 @@ function formatBps(value: number): string {
 }
 
 function formatShortBps(value: number): string {
-  const units = ["b", "Kb", "Mb", "Gb", "Tb"];
+  const units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"];
   let next = value;
   let unitIndex = 0;
   while (next >= 1000 && unitIndex < units.length - 1) {
@@ -205,75 +231,113 @@ function sanitizeSeries(series: ChartSeries[]): ChartSeries[] {
   }));
 }
 
-function buildLinePath(
-  values: number[],
-  maxValue: number,
-  width: number,
-  height: number,
-  left: number,
-  right: number,
-  top: number,
-  bottom: number,
-): string {
-  if (!values.length) {
-    return "";
+function parseTrendTimestamp(value: string, fallbackIndex: number): number {
+  if (!value) {
+    return fallbackIndex;
   }
-
-  const chartWidth = width - left - right;
-  const chartHeight = height - top - bottom;
-  const safeMax = maxValue <= 0 ? 1 : maxValue;
-  const denominator = values.length <= 1 ? 1 : values.length - 1;
-
-  const points = values.map((value, index) => {
-    const x = left + chartWidth * (values.length <= 1 ? 0.5 : index / denominator);
-    const y = height - bottom - (value / safeMax) * chartHeight;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
-  });
-
-  return `M ${points.join(" L ")}`;
+  const ts = Date.parse(value);
+  if (Number.isNaN(ts)) {
+    return fallbackIndex;
+  }
+  return ts;
 }
 
-function buildAreaPath(
-  values: number[],
-  maxValue: number,
-  width: number,
-  height: number,
-  left: number,
-  right: number,
-  top: number,
-  bottom: number,
-): string {
-  if (!values.length) {
-    return "";
+function sortTimeSeriesByTimestamp<T>(items: T[], getTimestamp: (item: T) => string): T[] {
+  return items
+    .map((item, index) => ({
+      item,
+      index,
+      sortKey: parseTrendTimestamp(getTimestamp(item), index),
+    }))
+    .sort((left, right) => {
+      if (left.sortKey === right.sortKey) {
+        return left.index - right.index;
+      }
+      return left.sortKey - right.sortKey;
+    })
+    .map((entry) => entry.item);
+}
+
+function normalizeTrendData(labels: string[], series: TrendSeries[]): TrendPoint[] {
+  const pointCount = Math.max(labels.length, ...series.map((item) => item.values.length));
+
+  const points = Array.from({ length: pointCount }, (_, index) => {
+    const rawLabel = labels[index] ?? "";
+    const point: TrendPoint = {
+      rawLabel,
+      displayLabel: formatClock(rawLabel),
+      sortKey: parseTrendTimestamp(rawLabel, index),
+      order: index,
+    };
+
+    series.forEach((item) => {
+      point[item.key] = item.values[index] ?? 0;
+    });
+
+    return point;
+  });
+
+  points.sort((left, right) => {
+    if (left.sortKey === right.sortKey) {
+      return left.order - right.order;
+    }
+    return left.sortKey - right.sortKey;
+  });
+
+  return points;
+}
+
+function TrendTooltipContent({ active, payload, label, series, valueFormatter }: TrendTooltipContentProps) {
+  if (!active || !payload?.length) {
+    return null;
   }
 
-  const linePath = buildLinePath(values, maxValue, width, height, left, right, top, bottom);
-  const chartWidth = width - left - right;
-  const firstX = left + chartWidth * (values.length <= 1 ? 0.5 : 0);
-  const lastX = left + chartWidth;
-  const baseY = height - bottom;
+  return (
+    <div className="trend-tooltip">
+      <p className="trend-tooltip-time">{label ? formatClock(String(label)) : "--"}</p>
+      <div className="trend-tooltip-list">
+        {series.map((item) => {
+          const entry = payload.find((payloadItem) => payloadItem.dataKey === item.key);
+          const value = Number(entry?.value ?? 0);
+          const safeValue = Number.isFinite(value) ? value : 0;
 
-  return `${linePath} L ${lastX.toFixed(2)},${baseY.toFixed(2)} L ${firstX.toFixed(2)},${baseY.toFixed(2)} Z`;
+          return (
+            <p key={item.key} className="trend-tooltip-row">
+              <span>
+                <i style={{ background: item.color }} />
+                {item.name}
+              </span>
+              <b>{valueFormatter(safeValue)}</b>
+            </p>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function TrendChart({ labels, series, formatYAxisLabel }: TrendChartProps) {
-  const width = 120;
-  const height = 52;
-  const left = 16;
-  const right = 3;
-  const top = 3;
-  const bottom = 6;
   const safeSeries = sanitizeSeries(series);
-  const valueCount = safeSeries[0]?.values.length ?? 0;
-  const allValues = safeSeries.flatMap((item) => item.values);
-  const maxValue = Math.max(1, ...allValues);
-  const chartHeight = height - top - bottom;
-  const yTickRatios = [1, 0.75, 0.5, 0.25, 0];
-  const firstLabel = labels[0] ? formatClock(labels[0]) : "";
-  const lastLabel = labels.length ? formatClock(labels[labels.length - 1]) : "";
   const yLabelFormatter = formatYAxisLabel ?? formatShortNumber;
+  const trendSeries: TrendSeries[] = safeSeries.map((item, index) => ({
+    ...item,
+    key: `series_${index}`,
+  }));
+  const data = normalizeTrendData(labels, trendSeries);
+  const valueCount = data.length;
+  const firstLabel = data[0]?.displayLabel ?? "";
+  const lastLabel = data[valueCount - 1]?.displayLabel ?? "";
+  const gradientSeed = useId().replace(/:/g, "");
+  const leadingSeries = trendSeries[0];
+  const gradientId = `trend-gradient-${gradientSeed}`;
+  const chartMargin = {
+    top: 6,
+    right: 8,
+    bottom: 4,
+    left: 8,
+  };
 
-  if (!valueCount || !safeSeries.length) {
+  if (!valueCount || !trendSeries.length) {
     return (
       <div className="empty-box dashboard-empty">
         <AlertTriangle size={14} />
@@ -284,43 +348,67 @@ function TrendChart({ labels, series, formatYAxisLabel }: TrendChartProps) {
 
   return (
     <div className="trend-chart">
-      <svg className="trend-svg" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
-        <line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom} className="trend-axis" />
-        <line x1={left} y1={top} x2={left} y2={height - bottom} className="trend-axis" />
+      <div className="trend-svg">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={data} margin={chartMargin}>
+            {leadingSeries?.fillColor ? (
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={leadingSeries.fillColor} stopOpacity={0.92} />
+                  <stop offset="100%" stopColor={leadingSeries.fillColor} stopOpacity={0.14} />
+                </linearGradient>
+              </defs>
+            ) : null}
 
-        {yTickRatios.map((ratio) => {
-          const y = height - bottom - chartHeight * ratio;
-          const value = maxValue * ratio;
-          return (
-            <g key={ratio}>
-              <line x1={left} y1={y} x2={width - right} y2={y} className="trend-grid" />
-              <text x={left - 0.8} y={y + 1.1} className="trend-y-label" textAnchor="end">
-                {yLabelFormatter(value)}
-              </text>
-            </g>
-          );
-        })}
+            <CartesianGrid stroke="rgba(65, 87, 121, 0.16)" strokeDasharray="2 4" vertical={false} />
+            <XAxis dataKey="rawLabel" hide />
+            <YAxis
+              width="auto"
+              tickMargin={4}
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "#657691", fontSize: 11, fontWeight: 600 }}
+              tickFormatter={(value) => yLabelFormatter(Number(value))}
+              domain={[0, "auto"]}
+            />
+            <Tooltip
+              cursor={{ stroke: "rgba(15, 94, 216, 0.34)", strokeWidth: 1 }}
+              wrapperStyle={{ outline: "none" }}
+              content={<TrendTooltipContent series={trendSeries} valueFormatter={yLabelFormatter} />}
+            />
 
-        {safeSeries[0]?.fillColor ? (
-          <path
-            d={buildAreaPath(safeSeries[0].values, maxValue, width, height, left, right, top, bottom)}
-            fill={safeSeries[0].fillColor}
-            className="trend-area"
-          />
-        ) : null}
+            {leadingSeries?.fillColor ? (
+              <Area
+                type="monotone"
+                dataKey={leadingSeries.key}
+                name={leadingSeries.name}
+                stroke={leadingSeries.color}
+                fill={`url(#${gradientId})`}
+                strokeWidth={1.8}
+                dot={false}
+                activeDot={{ r: 3, stroke: "#ffffff", strokeWidth: 1, fill: leadingSeries.color }}
+                isAnimationActive={false}
+                connectNulls
+              />
+            ) : null}
 
-        {safeSeries.map((item) => (
-          <path
-            key={item.name}
-            d={buildLinePath(item.values, maxValue, width, height, left, right, top, bottom)}
-            fill="none"
-            stroke={item.color}
-            strokeWidth={1.8}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        ))}
-      </svg>
+            {trendSeries.slice(leadingSeries?.fillColor ? 1 : 0).map((item) => (
+              <Line
+                key={item.key}
+                type="monotone"
+                dataKey={item.key}
+                name={item.name}
+                stroke={item.color}
+                strokeWidth={1.8}
+                dot={false}
+                activeDot={{ r: 3, stroke: "#ffffff", strokeWidth: 1, fill: item.color }}
+                isAnimationActive={false}
+                connectNulls
+              />
+            ))}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
 
       <div className="trend-footer">
         <span>{firstLabel}</span>
@@ -451,33 +539,42 @@ export function DashboardPage() {
   const globalData = globalQuery.data as DashboardGlobalData | undefined;
   const platformData = platformQuery.data as DashboardPlatformData | undefined;
 
-  const throughputIngress = globalData?.realtime_throughput.items.map((item) => item.ingress_bps) ?? [];
-  const throughputEgress = globalData?.realtime_throughput.items.map((item) => item.egress_bps) ?? [];
-  const throughputLabels = globalData?.realtime_throughput.items.map((item) => item.ts) ?? [];
+  const throughputItems = sortTimeSeriesByTimestamp(globalData?.realtime_throughput.items ?? [], (item) => item.ts);
+  const throughputIngress = throughputItems.map((item) => item.ingress_bps);
+  const throughputEgress = throughputItems.map((item) => item.egress_bps);
+  const throughputLabels = throughputItems.map((item) => item.ts);
 
-  const connectionsInbound = globalData?.realtime_connections.items.map((item) => item.inbound_connections) ?? [];
-  const connectionsOutbound = globalData?.realtime_connections.items.map((item) => item.outbound_connections) ?? [];
-  const connectionsLabels = globalData?.realtime_connections.items.map((item) => item.ts) ?? [];
+  const connectionItems = sortTimeSeriesByTimestamp(globalData?.realtime_connections.items ?? [], (item) => item.ts);
+  const connectionsInbound = connectionItems.map((item) => item.inbound_connections);
+  const connectionsOutbound = connectionItems.map((item) => item.outbound_connections);
+  const connectionsLabels = connectionItems.map((item) => item.ts);
 
-  const leasesValues = platformData?.realtime_leases.items.map((item) => item.active_leases) ?? [];
-  const trafficIngress = globalData?.history_traffic.items.map((item) => item.ingress_bytes) ?? [];
-  const trafficEgress = globalData?.history_traffic.items.map((item) => item.egress_bytes) ?? [];
-  const trafficLabels = globalData?.history_traffic.items.map((item) => item.bucket_start) ?? [];
+  const leaseRealtimeItems = sortTimeSeriesByTimestamp(platformData?.realtime_leases.items ?? [], (item) => item.ts);
+  const leasesValues = leaseRealtimeItems.map((item) => item.active_leases);
 
-  const requestTotals = globalData?.history_requests.items.map((item) => item.total_requests) ?? [];
-  const requestSuccessRates = globalData?.history_requests.items.map((item) => item.success_rate * 100) ?? [];
-  const requestLabels = globalData?.history_requests.items.map((item) => item.bucket_start) ?? [];
+  const trafficItems = sortTimeSeriesByTimestamp(globalData?.history_traffic.items ?? [], (item) => item.bucket_start);
+  const trafficIngress = trafficItems.map((item) => item.ingress_bytes);
+  const trafficEgress = trafficItems.map((item) => item.egress_bytes);
+  const trafficLabels = trafficItems.map((item) => item.bucket_start);
 
-  const nodeTotal = globalData?.history_node_pool.items.map((item) => item.total_nodes) ?? [];
-  const nodeHealthy = globalData?.history_node_pool.items.map((item) => item.healthy_nodes) ?? [];
-  const nodeLabels = globalData?.history_node_pool.items.map((item) => item.bucket_start) ?? [];
+  const requestItems = sortTimeSeriesByTimestamp(globalData?.history_requests.items ?? [], (item) => item.bucket_start);
+  const requestTotals = requestItems.map((item) => item.total_requests);
+  const requestSuccessRates = requestItems.map((item) => item.success_rate * 100);
+  const requestLabels = requestItems.map((item) => item.bucket_start);
 
-  const probeCounts = globalData?.history_probes.items.map((item) => item.total_count) ?? [];
-  const probeLabels = globalData?.history_probes.items.map((item) => item.bucket_start) ?? [];
+  const nodePoolItems = sortTimeSeriesByTimestamp(globalData?.history_node_pool.items ?? [], (item) => item.bucket_start);
+  const nodeTotal = nodePoolItems.map((item) => item.total_nodes);
+  const nodeHealthy = nodePoolItems.map((item) => item.healthy_nodes);
+  const nodeLabels = nodePoolItems.map((item) => item.bucket_start);
 
-  const leaseP50 = platformData?.history_lease_lifetime.items.map((item) => item.p50_ms) ?? [];
-  const leaseP5 = platformData?.history_lease_lifetime.items.map((item) => item.p5_ms) ?? [];
-  const leaseLabels = platformData?.history_lease_lifetime.items.map((item) => item.bucket_start) ?? [];
+  const probeItems = sortTimeSeriesByTimestamp(globalData?.history_probes.items ?? [], (item) => item.bucket_start);
+  const probeCounts = probeItems.map((item) => item.total_count);
+  const probeLabels = probeItems.map((item) => item.bucket_start);
+
+  const leaseLifetimeItems = sortTimeSeriesByTimestamp(platformData?.history_lease_lifetime.items ?? [], (item) => item.bucket_start);
+  const leaseP50 = leaseLifetimeItems.map((item) => item.p50_ms);
+  const leaseP5 = leaseLifetimeItems.map((item) => item.p5_ms);
+  const leaseLabels = leaseLifetimeItems.map((item) => item.bucket_start);
 
   const latestIngress = latestValue(throughputIngress);
   const latestEgress = latestValue(throughputEgress);
@@ -486,7 +583,7 @@ export function DashboardPage() {
 
   const totalTrafficBytes = sum(trafficIngress) + sum(trafficEgress);
   const totalRequests = sum(requestTotals);
-  const successRequests = globalData?.history_requests.items.reduce((acc, item) => acc + item.success_requests, 0) ?? 0;
+  const successRequests = requestItems.reduce((acc, item) => acc + item.success_requests, 0);
   const aggregatedSuccessRate = successRate(totalRequests, successRequests);
 
   const snapshotNodePool = globalData?.snapshot_node_pool;
@@ -498,7 +595,6 @@ export function DashboardPage() {
   const throughputDelta = percentDelta(throughputIngress.map((value, index) => value + (throughputEgress[index] ?? 0)));
   const connectionDelta = percentDelta(connectionsInbound.map((value, index) => value + (connectionsOutbound[index] ?? 0)));
   const leasesDelta = percentDelta(leasesValues);
-
   return (
     <section className="dashboard-page">
       <header className="module-header">

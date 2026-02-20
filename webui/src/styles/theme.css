@@ -748,31 +748,10 @@ a {
   height: 180px;
   border-radius: 12px;
   border: 1px solid rgba(37, 72, 120, 0.12);
+  overflow: hidden;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(245, 251, 255, 0.95)),
     repeating-linear-gradient(90deg, transparent, transparent 42px, rgba(101, 128, 167, 0.05) 42px, rgba(101, 128, 167, 0.05) 43px);
-}
-
-.trend-axis {
-  stroke: rgba(65, 87, 121, 0.26);
-  stroke-width: 0.4;
-}
-
-.trend-grid {
-  stroke: rgba(65, 87, 121, 0.16);
-  stroke-width: 0.32;
-  stroke-dasharray: 1 1;
-}
-
-.trend-y-label {
-  fill: #657691;
-  font-size: 2.8px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.trend-area {
-  opacity: 0.9;
 }
 
 .trend-footer {
@@ -780,6 +759,57 @@ a {
   justify-content: space-between;
   color: #66758f;
   font-size: 11px;
+}
+
+.trend-tooltip {
+  min-width: 140px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(37, 72, 120, 0.2);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 24px rgba(21, 57, 108, 0.18);
+  backdrop-filter: blur(3px);
+}
+
+.trend-tooltip-time {
+  margin: 0 0 6px;
+  color: #5d6f8d;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.trend-tooltip-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trend-tooltip-row {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #425471;
+  font-size: 11px;
+}
+
+.trend-tooltip-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trend-tooltip-row i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-flex;
+}
+
+.trend-tooltip-row b {
+  color: #163f78;
+  font-weight: 700;
 }
 
 .dashboard-summary-inline {
