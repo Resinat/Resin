@@ -6,16 +6,12 @@ import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
 import { ApiError } from "../../lib/api-client";
-import { listPlatforms } from "../platforms/api";
 import {
   getDashboardGlobalHistoryData,
   getDashboardGlobalRealtimeData,
   getDashboardGlobalSnapshotData,
-  getDashboardPlatformHistoryData,
-  getDashboardPlatformRealtimeData,
-  getDashboardPlatformSnapshotData,
 } from "./api";
-import type { DashboardGlobalData, DashboardPlatformData, LatencyBucket, TimeWindow } from "./types";
+import type { DashboardGlobalData, LatencyBucket, TimeWindow } from "./types";
 
 type RangeKey = "15m" | "1h" | "6h" | "24h";
 
@@ -86,7 +82,6 @@ const RANGE_OPTIONS: RangeOption[] = [
   { key: "24h", label: "最近 24 小时", ms: 24 * 60 * 60 * 1000 },
 ];
 
-const GLOBAL_PLATFORM_VALUE = "__global__";
 const DEFAULT_REALTIME_REFRESH_SECONDS = 15;
 const MIN_REALTIME_REFRESH_MS = 1_000;
 const DEFAULT_HISTORY_REFRESH_MS = 60_000;
@@ -198,23 +193,6 @@ function formatShortBytes(value: number): string {
     unitIndex += 1;
   }
   return `${next.toFixed(next >= 100 ? 0 : 1)}${units[unitIndex]}`;
-}
-
-function formatMilliseconds(value: number): string {
-  if (value <= 0) {
-    return "0 ms";
-  }
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(2)} s`;
-  }
-  return `${value.toFixed(1)} ms`;
-}
-
-function formatShortMilliseconds(value: number): string {
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(1)}s`;
-  }
-  return `${Math.round(value)}ms`;
 }
 
 function formatShortNumber(value: number): string {
@@ -496,6 +474,8 @@ function compressHistogram(buckets: LatencyBucket[], limit = 28): LatencyBucket[
 }
 
 function Histogram({ buckets }: { buckets: LatencyBucket[] }) {
+  const gradientId = `histogram-gradient-${useId().replace(/:/g, "")}`;
+
   if (!buckets.length) {
     return (
       <div className="empty-box dashboard-empty">
@@ -510,20 +490,27 @@ function Histogram({ buckets }: { buckets: LatencyBucket[] }) {
   const isLegacyUpperInclusive =
     compact.length > 0 && inferredStep > 0 && compact[0].le_ms === inferredStep;
 
-  let previousUpper = -1;
-  const data: HistogramPoint[] = compact.map((bucket) => {
-    const lower = Math.max(0, previousUpper + 1);
-    const rawUpper = isLegacyUpperInclusive ? bucket.le_ms - 1 : bucket.le_ms;
-    const upperInclusive = Math.max(lower, rawUpper);
-    previousUpper = upperInclusive;
-    return {
-      lower_ms: lower,
-      upper_ms: upperInclusive,
-      count: Math.max(0, bucket.count),
-      label: `${upperInclusive}`,
-    };
-  });
-  const gradientId = `histogram-gradient-${useId().replace(/:/g, "")}`;
+  const data = compact.reduce<{ points: HistogramPoint[]; previousUpper: number }>(
+    (acc, bucket) => {
+      const lower = Math.max(0, acc.previousUpper + 1);
+      const rawUpper = isLegacyUpperInclusive ? bucket.le_ms - 1 : bucket.le_ms;
+      const upperInclusive = Math.max(lower, rawUpper);
+
+      return {
+        previousUpper: upperInclusive,
+        points: [
+          ...acc.points,
+          {
+            lower_ms: lower,
+            upper_ms: upperInclusive,
+            count: Math.max(0, bucket.count),
+            label: `${upperInclusive}`,
+          },
+        ],
+      };
+    },
+    { points: [], previousUpper: -1 },
+  ).points;
   const chartMargin = {
     top: 6,
     right: 8,
@@ -625,25 +612,6 @@ function historyRefreshMsFromBuckets(bucketSeconds: Array<number | undefined>): 
 
 export function DashboardPage() {
   const [rangeKey, setRangeKey] = useState<RangeKey>("6h");
-  const [selectedPlatformId, setSelectedPlatformId] = useState(GLOBAL_PLATFORM_VALUE);
-
-  const platformsQuery = useQuery({
-    queryKey: ["dashboard-platform-options"],
-    queryFn: listPlatforms,
-    refetchInterval: 60_000,
-  });
-
-  const platforms = useMemo(() => platformsQuery.data ?? [], [platformsQuery.data]);
-  const isGlobalScope = selectedPlatformId === GLOBAL_PLATFORM_VALUE;
-  const activePlatform = useMemo(() => {
-    if (isGlobalScope) {
-      return null;
-    }
-    return platforms.find((item) => item.id === selectedPlatformId) ?? null;
-  }, [isGlobalScope, platforms, selectedPlatformId]);
-  const activePlatformId = activePlatform?.id ?? "";
-  const isPlatformScope = Boolean(activePlatformId);
-  const activePlatformName = activePlatform?.name ?? "全局视角";
 
   const globalRealtimeQuery = useQuery({
     queryKey: ["dashboard-global-realtime", rangeKey],
@@ -652,8 +620,14 @@ export function DashboardPage() {
       return getDashboardGlobalRealtimeData(window);
     },
     refetchInterval: (query) => {
-      const data = query.state.data as Pick<DashboardGlobalData, "realtime_throughput" | "realtime_connections"> | undefined;
-      return realtimeRefreshMsFromSteps([data?.realtime_throughput.step_seconds, data?.realtime_connections.step_seconds]);
+      const data = query.state.data as
+        | Pick<DashboardGlobalData, "realtime_throughput" | "realtime_connections" | "realtime_leases">
+        | undefined;
+      return realtimeRefreshMsFromSteps([
+        data?.realtime_throughput.step_seconds,
+        data?.realtime_connections.step_seconds,
+        data?.realtime_leases.step_seconds,
+      ]);
     },
     placeholderData: (prev) => prev,
   });
@@ -689,42 +663,6 @@ export function DashboardPage() {
     placeholderData: (prev) => prev,
   });
 
-  const platformRealtimeQuery = useQuery({
-    queryKey: ["dashboard-platform-realtime", rangeKey, activePlatformId],
-    queryFn: async () => {
-      const window = getTimeWindow(rangeKey);
-      return getDashboardPlatformRealtimeData(activePlatformId, window);
-    },
-    enabled: isPlatformScope,
-    refetchInterval: (query) => {
-      const data = query.state.data as Pick<DashboardPlatformData, "realtime_leases"> | undefined;
-      return realtimeRefreshMsFromSteps([data?.realtime_leases.step_seconds]);
-    },
-    placeholderData: (prev) => prev,
-  });
-
-  const platformHistoryQuery = useQuery({
-    queryKey: ["dashboard-platform-history", rangeKey, activePlatformId],
-    queryFn: async () => {
-      const window = getTimeWindow(rangeKey);
-      return getDashboardPlatformHistoryData(activePlatformId, window);
-    },
-    enabled: isPlatformScope,
-    refetchInterval: (query) => {
-      const data = query.state.data as Pick<DashboardPlatformData, "history_lease_lifetime"> | undefined;
-      return historyRefreshMsFromBuckets([data?.history_lease_lifetime.bucket_seconds]);
-    },
-    placeholderData: (prev) => prev,
-  });
-
-  const platformSnapshotQuery = useQuery({
-    queryKey: ["dashboard-platform-snapshot", activePlatformId],
-    queryFn: async () => getDashboardPlatformSnapshotData(activePlatformId),
-    enabled: isPlatformScope,
-    refetchInterval: SNAPSHOT_REFRESH_MS,
-    placeholderData: (prev) => prev,
-  });
-
   const globalData = useMemo<DashboardGlobalData | undefined>(() => {
     if (!globalRealtimeQuery.data && !globalHistoryQuery.data && !globalSnapshotQuery.data) {
       return undefined;
@@ -732,6 +670,7 @@ export function DashboardPage() {
     return {
       realtime_throughput: globalRealtimeQuery.data?.realtime_throughput ?? { step_seconds: 0, items: [] },
       realtime_connections: globalRealtimeQuery.data?.realtime_connections ?? { step_seconds: 0, items: [] },
+      realtime_leases: globalRealtimeQuery.data?.realtime_leases ?? { platform_id: "", step_seconds: 0, items: [] },
       history_traffic: globalHistoryQuery.data?.history_traffic ?? { bucket_seconds: 0, items: [] },
       history_requests: globalHistoryQuery.data?.history_requests ?? { bucket_seconds: 0, items: [] },
       history_access_latency: globalHistoryQuery.data?.history_access_latency ?? {
@@ -760,42 +699,7 @@ export function DashboardPage() {
     };
   }, [globalRealtimeQuery.data, globalHistoryQuery.data, globalSnapshotQuery.data]);
 
-  const platformData = useMemo<DashboardPlatformData | undefined>(() => {
-    if (!platformRealtimeQuery.data && !platformHistoryQuery.data && !platformSnapshotQuery.data) {
-      return undefined;
-    }
-    return {
-      realtime_leases: platformRealtimeQuery.data?.realtime_leases ?? {
-        platform_id: activePlatformId,
-        step_seconds: 0,
-        items: [],
-      },
-      history_lease_lifetime: platformHistoryQuery.data?.history_lease_lifetime ?? {
-        platform_id: activePlatformId,
-        bucket_seconds: 0,
-        items: [],
-      },
-      snapshot_platform_node_pool: platformSnapshotQuery.data?.snapshot_platform_node_pool ?? {
-        generated_at: "",
-        platform_id: activePlatformId,
-        routable_node_count: 0,
-        egress_ip_count: 0,
-      },
-      snapshot_latency_platform: platformSnapshotQuery.data?.snapshot_latency_platform ?? {
-        generated_at: "",
-        scope: "platform",
-        platform_id: activePlatformId || undefined,
-        bin_width_ms: 0,
-        overflow_ms: 0,
-        sample_count: 0,
-        buckets: [],
-        overflow_count: 0,
-      },
-    };
-  }, [activePlatformId, platformRealtimeQuery.data, platformHistoryQuery.data, platformSnapshotQuery.data]);
-
   const globalError = globalRealtimeQuery.error ?? globalHistoryQuery.error ?? globalSnapshotQuery.error;
-  const platformError = platformRealtimeQuery.error ?? platformHistoryQuery.error ?? platformSnapshotQuery.error;
   const isInitialLoading =
     !globalData && (globalRealtimeQuery.isLoading || globalHistoryQuery.isLoading || globalSnapshotQuery.isLoading);
 
@@ -809,7 +713,7 @@ export function DashboardPage() {
   const connectionsOutbound = connectionItems.map((item) => item.outbound_connections);
   const connectionsLabels = connectionItems.map((item) => item.ts);
 
-  const leaseRealtimeItems = sortTimeSeriesByTimestamp(platformData?.realtime_leases.items ?? [], (item) => item.ts);
+  const leaseRealtimeItems = sortTimeSeriesByTimestamp(globalData?.realtime_leases.items ?? [], (item) => item.ts);
   const leasesValues = leaseRealtimeItems.map((item) => item.active_leases);
 
   const trafficItems = sortTimeSeriesByTimestamp(globalData?.history_traffic.items ?? [], (item) => item.bucket_start);
@@ -831,11 +735,6 @@ export function DashboardPage() {
   const probeCounts = probeItems.map((item) => item.total_count);
   const probeLabels = probeItems.map((item) => item.bucket_start);
 
-  const leaseLifetimeItems = sortTimeSeriesByTimestamp(platformData?.history_lease_lifetime.items ?? [], (item) => item.bucket_start);
-  const leaseP50 = leaseLifetimeItems.map((item) => item.p50_ms);
-  const leaseP5 = leaseLifetimeItems.map((item) => item.p5_ms);
-  const leaseLabels = leaseLifetimeItems.map((item) => item.bucket_start);
-
   const latestIngress = latestValue(throughputIngress);
   const latestEgress = latestValue(throughputEgress);
   const latestConnections = latestValue(connectionsInbound) + latestValue(connectionsOutbound);
@@ -849,9 +748,7 @@ export function DashboardPage() {
   const snapshotNodePool = globalData?.snapshot_node_pool;
   const nodeHealthRate = snapshotNodePool ? successRate(snapshotNodePool.total_nodes, snapshotNodePool.healthy_nodes) : 0;
 
-  const globalLatencyHistogram = globalData?.snapshot_latency_global.buckets ?? [];
-  const platformLatencyHistogram = platformData?.snapshot_latency_platform.buckets ?? [];
-  const activeLatencyHistogram = isPlatformScope ? platformLatencyHistogram : globalLatencyHistogram;
+  const activeLatencyHistogram = globalData?.snapshot_latency_global.buckets ?? [];
 
   const throughputDelta = percentDelta(throughputIngress.map((value, index) => value + (throughputEgress[index] ?? 0)));
   const connectionDelta = percentDelta(connectionsInbound.map((value, index) => value + (connectionsOutbound[index] ?? 0)));
@@ -862,7 +759,19 @@ export function DashboardPage() {
         <div>
           <p className="eyebrow">Observability</p>
           <h2>Dashboard</h2>
-          <p className="module-description">高密度可视化总览实时吞吐、连接、节点健康、探测与租约延迟分布。</p>
+          <p className="module-description">高密度可视化总览全局实时吞吐、连接、租约、节点健康与探测趋势。</p>
+        </div>
+        <div className="dashboard-header-controls">
+          <label className="dashboard-control">
+            <span>时间范围</span>
+            <Select value={rangeKey} onChange={(event) => setRangeKey(event.target.value as RangeKey)}>
+              {RANGE_OPTIONS.map((item) => (
+                <option key={item.key} value={item.key}>
+                  {item.label}
+                </option>
+              ))}
+            </Select>
+          </label>
         </div>
       </header>
 
@@ -872,47 +781,6 @@ export function DashboardPage() {
           <span>{fromApiError(globalError)}</span>
         </div>
       ) : null}
-
-      {isPlatformScope && platformError ? (
-        <div className="callout callout-warning">
-          <AlertTriangle size={14} />
-          <span>平台维度指标加载失败：{fromApiError(platformError)}</span>
-        </div>
-      ) : null}
-
-      <Card className="dashboard-hero">
-        <div className="dashboard-hero-header">
-          <div>
-            <p className="dashboard-hero-title">Control Pulse</p>
-          </div>
-
-          <div className="dashboard-hero-controls">
-            <label className="dashboard-control">
-              <span>时间范围</span>
-              <Select value={rangeKey} onChange={(event) => setRangeKey(event.target.value as RangeKey)}>
-                {RANGE_OPTIONS.map((item) => (
-                  <option key={item.key} value={item.key}>
-                    {item.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-
-            <label className="dashboard-control">
-              <span>平台维度</span>
-              <Select value={selectedPlatformId} onChange={(event) => setSelectedPlatformId(event.target.value)}>
-                <option value={GLOBAL_PLATFORM_VALUE}>全局视角（不限定平台）</option>
-                {platforms.map((platform) => (
-                  <option key={platform.id} value={platform.id}>
-                    {platform.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          </div>
-        </div>
-
-      </Card>
 
       <div className="dashboard-kpi-grid">
         <Card className="dashboard-kpi-card">
@@ -962,11 +830,11 @@ export function DashboardPage() {
             <Layers size={18} />
           </div>
           <div>
-            <p className="dashboard-kpi-label">平台 Active Leases</p>
-            <p className="dashboard-kpi-value">{isPlatformScope ? formatCount(latestLeases) : "--"}</p>
-            <p className="dashboard-kpi-sub">{isPlatformScope ? activePlatformName : "全局模式下不显示单平台租约"}</p>
+            <p className="dashboard-kpi-label">活跃租约数</p>
+            <p className="dashboard-kpi-value">{formatCount(latestLeases)}</p>
+            <p className="dashboard-kpi-sub">来自所有平台租约总和</p>
           </div>
-          <Badge variant={isPlatformScope ? kpiTone(leasesDelta) : "neutral"}>{isPlatformScope ? formatDelta(leasesDelta) : "N/A"}</Badge>
+          <Badge variant={kpiTone(leasesDelta)}>{formatDelta(leasesDelta)}</Badge>
         </Card>
       </div>
 
@@ -1139,43 +1007,6 @@ export function DashboardPage() {
               },
             ]}
           />
-        </Card>
-
-        <Card className="dashboard-panel">
-          <div className="dashboard-panel-header">
-            <h3>租约寿命分位</h3>
-            <p>{isPlatformScope ? activePlatformName : "请选择平台查看"}</p>
-          </div>
-          {!isPlatformScope ? (
-            <div className="empty-box dashboard-empty">
-              <AlertTriangle size={14} />
-              <p>全局视角下不展示单平台租约寿命分位</p>
-            </div>
-          ) : (
-            <>
-              <TrendChart
-                labels={leaseLabels}
-                formatYAxisLabel={formatShortMilliseconds}
-                series={[
-                  {
-                    name: "P50",
-                    values: leaseP50,
-                    color: "#0a86cf",
-                    fillColor: "rgba(10, 134, 207, 0.14)",
-                  },
-                  {
-                    name: "P5",
-                    values: leaseP5,
-                    color: "#9957e0",
-                  },
-                ]}
-              />
-              <div className="dashboard-summary-inline">
-                <span>P50 {formatMilliseconds(latestValue(leaseP50))}</span>
-                <span>P5 {formatMilliseconds(latestValue(leaseP5))}</span>
-              </div>
-            </>
-          )}
         </Card>
 
       </div>

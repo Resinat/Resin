@@ -122,6 +122,7 @@ export type SnapshotNodeLatencyDistribution = {
 export type DashboardGlobalData = {
   realtime_throughput: RealtimeSeriesResponse<RealtimeThroughputItem>;
   realtime_connections: RealtimeSeriesResponse<RealtimeConnectionsItem>;
+  realtime_leases: RealtimeLeasesResponse;
   history_traffic: HistoryResponse<HistoryTrafficItem>;
   history_requests: HistoryResponse<HistoryRequestsItem>;
   history_access_latency: HistoryAccessLatencyResponse;

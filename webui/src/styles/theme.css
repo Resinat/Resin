@@ -546,56 +546,10 @@ a {
   font-size: 12px;
 }
 
-.dashboard-hero {
-  position: relative;
-  overflow: hidden;
-  padding: 16px;
-  background:
-    radial-gradient(circle at 12% 8%, rgba(20, 112, 255, 0.2), transparent 44%),
-    radial-gradient(circle at 88% 88%, rgba(0, 161, 127, 0.14), transparent 48%),
-    linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(245, 251, 255, 0.94));
-}
-
-.dashboard-hero::after {
-  content: "";
-  position: absolute;
-  right: -80px;
-  top: -90px;
-  width: 240px;
-  height: 240px;
-  border-radius: 50%;
-  border: 1px solid rgba(18, 104, 231, 0.15);
-  background: radial-gradient(circle, rgba(16, 118, 255, 0.15), transparent 68%);
-  pointer-events: none;
-}
-
-.dashboard-hero-header {
-  position: relative;
-  z-index: 1;
+.dashboard-header-controls {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: flex-start;
-  gap: 16px;
-}
-
-.dashboard-hero-title {
-  margin: 0;
-  font-family: "Sora", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-
-.dashboard-hero-subtitle {
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.dashboard-hero-controls {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-  gap: 10px;
 }
 
 .dashboard-control {
@@ -611,15 +565,6 @@ a {
 
 .dashboard-control .select {
   min-width: 190px;
-}
-
-.dashboard-hero-badges {
-  position: relative;
-  z-index: 1;
-  margin-top: 12px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
 }
 
 .dashboard-kpi-grid {
@@ -1726,15 +1671,6 @@ a {
     grid-column: span 2;
   }
 
-  .dashboard-hero-header {
-    flex-direction: column;
-  }
-
-  .dashboard-hero-controls {
-    width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .form-grid {
     grid-template-columns: 1fr;
   }
@@ -1832,8 +1768,9 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .dashboard-hero-controls {
-    grid-template-columns: 1fr;
+  .dashboard-header-controls {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .dashboard-control .select {

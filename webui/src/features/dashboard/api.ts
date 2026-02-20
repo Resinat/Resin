@@ -22,11 +22,11 @@ import type {
 
 const basePath = "/api/v1/metrics";
 
-function withWindow(path: string, window: TimeWindow, params: Record<string, string> = {}): string {
+function withWindow(path: string, window: TimeWindow, params?: Record<string, string>): string {
   const query = new URLSearchParams({
     from: window.from,
     to: window.to,
-    ...params,
+    ...(params ?? {}),
   });
   return `${path}?${query.toString()}`;
 }
@@ -152,10 +152,9 @@ async function getRealtimeConnections(window: TimeWindow): Promise<RealtimeSerie
   };
 }
 
-async function getRealtimeLeases(platformId: string, window: TimeWindow): Promise<RealtimeLeasesResponse> {
-  const data = await apiRequest<RealtimeLeasesResponse>(
-    withWindow(`${basePath}/realtime/leases`, window, { platform_id: platformId }),
-  );
+async function getRealtimeLeases(window: TimeWindow, platformId?: string): Promise<RealtimeLeasesResponse> {
+  const params = platformId ? { platform_id: platformId } : undefined;
+  const data = await apiRequest<RealtimeLeasesResponse>(withWindow(`${basePath}/realtime/leases`, window, params));
   return {
     platform_id: toString(data.platform_id),
     step_seconds: toNumber(data.step_seconds),
@@ -263,7 +262,7 @@ async function getSnapshotLatency(platformId?: string): Promise<SnapshotNodeLate
   return normalizeLatencyDistribution(data);
 }
 
-export type DashboardGlobalRealtimeData = Pick<DashboardGlobalData, "realtime_throughput" | "realtime_connections">;
+export type DashboardGlobalRealtimeData = Pick<DashboardGlobalData, "realtime_throughput" | "realtime_connections" | "realtime_leases">;
 export type DashboardGlobalHistoryData = Pick<
   DashboardGlobalData,
   "history_traffic" | "history_requests" | "history_access_latency" | "history_probes" | "history_node_pool"
@@ -274,14 +273,16 @@ export type DashboardPlatformHistoryData = Pick<DashboardPlatformData, "history_
 export type DashboardPlatformSnapshotData = Pick<DashboardPlatformData, "snapshot_platform_node_pool" | "snapshot_latency_platform">;
 
 export async function getDashboardGlobalRealtimeData(window: TimeWindow): Promise<DashboardGlobalRealtimeData> {
-  const [realtime_throughput, realtime_connections] = await Promise.all([
+  const [realtime_throughput, realtime_connections, realtime_leases] = await Promise.all([
     getRealtimeThroughput(window),
     getRealtimeConnections(window),
+    getRealtimeLeases(window),
   ]);
 
   return {
     realtime_throughput,
     realtime_connections,
+    realtime_leases,
   };
 }
 
@@ -312,7 +313,7 @@ export async function getDashboardGlobalSnapshotData(): Promise<DashboardGlobalS
 }
 
 export async function getDashboardPlatformRealtimeData(platformId: string, window: TimeWindow): Promise<DashboardPlatformRealtimeData> {
-  const realtime_leases = await getRealtimeLeases(platformId, window);
+  const realtime_leases = await getRealtimeLeases(window, platformId);
   return {
     realtime_leases,
   };
