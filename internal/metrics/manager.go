@@ -96,8 +96,6 @@ type nodePoolSnapshot struct {
 type bucketCounterBaseline struct {
 	Requests     int64
 	Success      int64
-	IngressBytes int64
-	EgressBytes  int64
 	ProbeEgress  int64
 	ProbeLatency int64
 }
@@ -259,7 +257,7 @@ func (m *Manager) RuntimeStats() RuntimeStatsProvider { return m.runtimeStats }
 
 // SnapshotCurrentTrafficBucket returns unflushed traffic in current bucket.
 // platformID="" means global scope.
-func (m *Manager) SnapshotCurrentTrafficBucket(platformID string) (bucketStartUnix, ingressBytes, egressBytes int64, ok bool) {
+func (m *Manager) SnapshotCurrentTrafficBucket(platformID string) (bucketStartUnix, ingressBytes, egressBytes int64) {
 	return m.bucket.SnapshotTraffic(platformID)
 }
 
@@ -488,8 +486,6 @@ func baselineFromSnapshot(s CountersSnapshot) bucketCounterBaseline {
 	return bucketCounterBaseline{
 		Requests:     s.Requests,
 		Success:      s.SuccessRequests,
-		IngressBytes: s.IngressBytes,
-		EgressBytes:  s.EgressBytes,
 		ProbeEgress:  s.ProbeEgress,
 		ProbeLatency: s.ProbeLatency,
 	}

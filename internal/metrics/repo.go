@@ -113,52 +113,64 @@ func (r *MetricsRepo) WriteBucket(data *BucketFlushData) error {
 	defer tx.Rollback() //nolint:errcheck
 
 	// Traffic.
+	globalTraffic := trafficAccum{}
+	if t, ok := data.Traffic[""]; ok {
+		globalTraffic = t
+	}
+	_, err = tx.Exec(`INSERT INTO metric_traffic_bucket (bucket_start_unix, platform_id, ingress_bytes, egress_bytes)
+		VALUES (?,NULL,?,?) ON CONFLICT(bucket_start_unix) WHERE platform_id IS NULL
+		DO UPDATE SET ingress_bytes = excluded.ingress_bytes, egress_bytes = excluded.egress_bytes`,
+		data.BucketStartUnix, globalTraffic.IngressBytes, globalTraffic.EgressBytes)
+	if err != nil {
+		return fmt.Errorf("metrics repo upsert global traffic: %w", err)
+	}
+
 	for pid, t := range data.Traffic {
-		var err error
 		if pid == "" {
-			_, err = tx.Exec(`INSERT INTO metric_traffic_bucket (bucket_start_unix, platform_id, ingress_bytes, egress_bytes)
-				VALUES (?,NULL,?,?) ON CONFLICT(bucket_start_unix) WHERE platform_id IS NULL
-				DO UPDATE SET ingress_bytes = excluded.ingress_bytes, egress_bytes = excluded.egress_bytes`,
-				data.BucketStartUnix, t.IngressBytes, t.EgressBytes)
-		} else {
-			_, err = tx.Exec(`INSERT INTO metric_traffic_bucket (bucket_start_unix, platform_id, ingress_bytes, egress_bytes)
-				VALUES (?,?,?,?) ON CONFLICT(bucket_start_unix, platform_id)
-				DO UPDATE SET ingress_bytes = excluded.ingress_bytes, egress_bytes = excluded.egress_bytes`,
-				data.BucketStartUnix, pid, t.IngressBytes, t.EgressBytes)
+			continue
 		}
+		_, err = tx.Exec(`INSERT INTO metric_traffic_bucket (bucket_start_unix, platform_id, ingress_bytes, egress_bytes)
+			VALUES (?,?,?,?) ON CONFLICT(bucket_start_unix, platform_id)
+			DO UPDATE SET ingress_bytes = excluded.ingress_bytes, egress_bytes = excluded.egress_bytes`,
+			data.BucketStartUnix, pid, t.IngressBytes, t.EgressBytes)
 		if err != nil {
 			return fmt.Errorf("metrics repo upsert traffic: %w", err)
 		}
 	}
 
 	// Requests.
+	globalRequests := requestAccum{}
+	if rq, ok := data.Requests[""]; ok {
+		globalRequests = rq
+	}
+	_, err = tx.Exec(`INSERT INTO metric_request_bucket (bucket_start_unix, platform_id, total_requests, success_requests)
+		VALUES (?,NULL,?,?) ON CONFLICT(bucket_start_unix) WHERE platform_id IS NULL
+		DO UPDATE SET total_requests = excluded.total_requests, success_requests = excluded.success_requests`,
+		data.BucketStartUnix, globalRequests.Total, globalRequests.Success)
+	if err != nil {
+		return fmt.Errorf("metrics repo upsert global request: %w", err)
+	}
+
 	for pid, rq := range data.Requests {
-		var err error
 		if pid == "" {
-			_, err = tx.Exec(`INSERT INTO metric_request_bucket (bucket_start_unix, platform_id, total_requests, success_requests)
-				VALUES (?,NULL,?,?) ON CONFLICT(bucket_start_unix) WHERE platform_id IS NULL
-				DO UPDATE SET total_requests = excluded.total_requests, success_requests = excluded.success_requests`,
-				data.BucketStartUnix, rq.Total, rq.Success)
-		} else {
-			_, err = tx.Exec(`INSERT INTO metric_request_bucket (bucket_start_unix, platform_id, total_requests, success_requests)
-				VALUES (?,?,?,?) ON CONFLICT(bucket_start_unix, platform_id)
-				DO UPDATE SET total_requests = excluded.total_requests, success_requests = excluded.success_requests`,
-				data.BucketStartUnix, pid, rq.Total, rq.Success)
+			continue
 		}
+		_, err = tx.Exec(`INSERT INTO metric_request_bucket (bucket_start_unix, platform_id, total_requests, success_requests)
+			VALUES (?,?,?,?) ON CONFLICT(bucket_start_unix, platform_id)
+			DO UPDATE SET total_requests = excluded.total_requests, success_requests = excluded.success_requests`,
+			data.BucketStartUnix, pid, rq.Total, rq.Success)
 		if err != nil {
 			return fmt.Errorf("metrics repo upsert request: %w", err)
 		}
 	}
 
 	// Probes.
-	if data.Probes.Total > 0 {
-		_, err := tx.Exec(`INSERT INTO metric_probe_bucket (bucket_start_unix, total_count)
-			VALUES (?,?) ON CONFLICT(bucket_start_unix)
-			DO UPDATE SET total_count = excluded.total_count`,
-			data.BucketStartUnix, data.Probes.Total)
-		if err != nil {
-			return fmt.Errorf("metrics repo upsert probe: %w", err)
-		}
+	_, err = tx.Exec(`INSERT INTO metric_probe_bucket (bucket_start_unix, total_count)
+		VALUES (?,?) ON CONFLICT(bucket_start_unix)
+		DO UPDATE SET total_count = excluded.total_count`,
+		data.BucketStartUnix, data.Probes.Total)
+	if err != nil {
+		return fmt.Errorf("metrics repo upsert probe: %w", err)
 	}
 
 	// Lease lifetimes.

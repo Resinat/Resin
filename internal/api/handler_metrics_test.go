@@ -443,6 +443,39 @@ func TestMetricsHandlers_HistoryTraffic_IncludesCurrentUnflushedBucket(t *testin
 	}
 }
 
+func TestMetricsHandlers_HistoryTraffic_IncludesCurrentUnflushedZeroBucket(t *testing.T) {
+	mgr := newTestMetricsManager(t, "existing-platform")
+
+	now := time.Now().UTC()
+	from := url.QueryEscape(now.Add(-2 * time.Hour).Format(time.RFC3339Nano))
+	to := url.QueryEscape(now.Add(1 * time.Minute).Format(time.RFC3339Nano))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/history/traffic?from="+from+"&to="+to, nil)
+	rec := httptest.NewRecorder()
+	HandleHistoryTraffic(mgr).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items: got %T len=%d, want len=1", body["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["ingress_bytes"] != float64(0) {
+		t.Fatalf("ingress_bytes: got %v, want 0", item["ingress_bytes"])
+	}
+	if item["egress_bytes"] != float64(0) {
+		t.Fatalf("egress_bytes: got %v, want 0", item["egress_bytes"])
+	}
+}
+
 func TestMetricsHandlers_HistoryTraffic_MergesPersistedAndCurrentBucket(t *testing.T) {
 	mgr := newTestMetricsManager(t, "existing-platform")
 

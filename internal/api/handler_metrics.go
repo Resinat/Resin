@@ -223,8 +223,8 @@ func HandleHistoryTraffic(mgr *metrics.Manager) http.Handler {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
-		currentBucketStart, currentIngress, currentEgress, hasCurrent := mgr.SnapshotCurrentTrafficBucket(platformID)
-		if hasCurrent && currentBucketStart >= from.Unix() && currentBucketStart <= to.Unix() {
+		currentBucketStart, currentIngress, currentEgress := mgr.SnapshotCurrentTrafficBucket(platformID)
+		if currentBucketStart >= from.Unix() && currentBucketStart <= to.Unix() {
 			merged := false
 			for i := range rows {
 				if rows[i].BucketStartUnix != currentBucketStart {

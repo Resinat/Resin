@@ -204,3 +204,61 @@ func TestMetricsRepo_QueryGlobalOnlyWhenPlatformEmpty(t *testing.T) {
 	assertGlobalDimensionStoredAsNULL("metric_request_bucket")
 	assertGlobalDimensionStoredAsNULL("metric_access_latency_bucket")
 }
+
+func TestMetricsRepo_WriteBucket_PersistsGlobalZeroTrafficWhenMissing(t *testing.T) {
+	repo, err := NewMetricsRepo(filepath.Join(t.TempDir(), "metrics.db"))
+	if err != nil {
+		t.Fatalf("NewMetricsRepo: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	bucketStart := time.Now().Add(-time.Minute).Unix()
+	err = repo.WriteBucket(&BucketFlushData{
+		BucketStartUnix: bucketStart,
+		Traffic:         map[string]trafficAccum{},
+		Requests:        map[string]requestAccum{},
+	})
+	if err != nil {
+		t.Fatalf("WriteBucket: %v", err)
+	}
+
+	from, to := bucketStart-1, bucketStart+1
+	rows, err := repo.QueryTraffic(from, to, "")
+	if err != nil {
+		t.Fatalf("QueryTraffic global: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("QueryTraffic global row count: got %d, want 1", len(rows))
+	}
+	if rows[0].IngressBytes != 0 || rows[0].EgressBytes != 0 {
+		t.Fatalf("QueryTraffic global zero row mismatch: %+v", rows[0])
+	}
+	if rows[0].PlatformID != "" {
+		t.Fatalf("QueryTraffic global platform_id: got %q, want empty", rows[0].PlatformID)
+	}
+
+	requestRows, err := repo.QueryRequests(from, to, "")
+	if err != nil {
+		t.Fatalf("QueryRequests global: %v", err)
+	}
+	if len(requestRows) != 1 {
+		t.Fatalf("QueryRequests global row count: got %d, want 1", len(requestRows))
+	}
+	if requestRows[0].TotalRequests != 0 || requestRows[0].SuccessRequests != 0 {
+		t.Fatalf("QueryRequests global zero row mismatch: %+v", requestRows[0])
+	}
+	if requestRows[0].PlatformID != "" {
+		t.Fatalf("QueryRequests global platform_id: got %q, want empty", requestRows[0].PlatformID)
+	}
+
+	probeRows, err := repo.QueryProbes(from, to)
+	if err != nil {
+		t.Fatalf("QueryProbes global: %v", err)
+	}
+	if len(probeRows) != 1 {
+		t.Fatalf("QueryProbes global row count: got %d, want 1", len(probeRows))
+	}
+	if probeRows[0].TotalCount != 0 {
+		t.Fatalf("QueryProbes global zero row mismatch: %+v", probeRows[0])
+	}
+}

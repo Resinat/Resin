@@ -1699,7 +1699,6 @@ API 阻塞到更新完成
 * `platform_id`：
   * 仅在支持 Platform 维度的端点可用。
   * 指定了不存在的平台时返回 `404 NOT_FOUND`。
-* 历史 bucket 类接口仅返回“已完成窗口”（不返回进行中的当前 bucket）。
 
 #### 实时曲线（内存 ring buffer）
 
