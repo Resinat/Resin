@@ -24,8 +24,8 @@ type counters struct {
 	probeLatency    atomic.Int64
 
 	// Latency histogram: fixed-bucket durations.
-	// Each bucket[i] = count of requests with latency in [i*binWidth, (i+1)*binWidth).
-	// The last bucket is overflow (>= overflowMs).
+	// Each regular bucket[i] = count of requests with latency in
+	// [i*binWidth, (i+1)*binWidth). The last bucket is overflow (>= overflowMs).
 	latencyBuckets []atomic.Int64
 	latencyBinMs   int
 	latencyOverMs  int
@@ -111,17 +111,16 @@ func (c *Collector) recordLatency(ct *counters, ms int64) {
 		return
 	}
 
-	// Overflow bucket only counts samples strictly greater than overflow_ms.
-	if ms > int64(ct.latencyOverMs) {
+	// Overflow bucket counts samples >= overflow_ms.
+	if ms >= int64(ct.latencyOverMs) {
 		ct.latencyBuckets[overflowIdx].Add(1)
 		return
 	}
 
-	// Regular buckets are upper-inclusive:
-	// (0,bin] -> idx 0, (bin,2*bin] -> idx 1, ...
+	// Regular buckets are [lower, upper) with bin width.
 	idx := 0
-	if ms > 0 {
-		idx = int((ms - 1) / int64(ct.latencyBinMs))
+	if ms >= 0 {
+		idx = int(ms / int64(ct.latencyBinMs))
 	}
 	if idx >= overflowIdx {
 		idx = overflowIdx - 1

@@ -106,9 +106,14 @@ func buildLatencyHistogram(regularBuckets []int64, overflowCount int64, binMs, o
 	histBuckets := make([]map[string]any, 0, len(regularBuckets))
 	for i, c := range regularBuckets {
 		sampleCount += c
-		leMs := (i + 1) * binMs
-		if leMs > overMs {
-			leMs = overMs
+		// Emit upper-inclusive bucket boundary so UI can show 0-99,100-199...
+		upperExclusive := (i + 1) * binMs
+		if upperExclusive > overMs {
+			upperExclusive = overMs
+		}
+		leMs := upperExclusive - 1
+		if leMs < 0 {
+			leMs = 0
 		}
 		histBuckets = append(histBuckets, map[string]any{
 			"le_ms": leMs,
@@ -534,7 +539,7 @@ func HandleSnapshotNodeLatencyDistribution(mgr *metrics.Manager) http.Handler {
 		if overMs <= 0 {
 			overMs = 5000
 		}
-		regularBins := (overMs + binMs - 1) / binMs // ceil(over/bin)
+		regularBins := (overMs + binMs - 1) / binMs // ceil(over/bin), buckets cover [0, overMs)
 		if regularBins <= 0 {
 			regularBins = 1
 		}
@@ -545,13 +550,13 @@ func HandleSnapshotNodeLatencyDistribution(mgr *metrics.Manager) http.Handler {
 		bucketCounts := make([]int64, regularBins)
 		var overflowCount int64
 		for _, ms := range ewmas {
-			if ms > float64(overMs) {
+			if ms >= float64(overMs) {
 				overflowCount++
 				continue
 			}
 			idx := 0
-			if ms > 0 {
-				idx = int((ms - 1) / float64(binMs))
+			if ms >= 0 {
+				idx = int(ms / float64(binMs))
 			}
 			if idx >= regularBins {
 				idx = regularBins - 1

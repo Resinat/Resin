@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Gauge, Layers, Server, Shield, Waves } from "lucide-react";
 import { useId, useMemo, useState } from "react";
-import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
@@ -62,6 +62,23 @@ type TrendTooltipContentProps = {
   label?: string;
   series: TrendSeries[];
   valueFormatter: (value: number) => string;
+};
+
+type HistogramPoint = {
+  lower_ms: number;
+  upper_ms: number;
+  count: number;
+  label: string;
+};
+
+type HistogramTooltipEntry = {
+  value?: number | string;
+  payload?: HistogramPoint;
+};
+
+type HistogramTooltipContentProps = {
+  active?: boolean;
+  payload?: HistogramTooltipEntry[];
 };
 
 const RANGE_OPTIONS: RangeOption[] = [
@@ -217,6 +234,17 @@ function formatShortNumber(value: number): string {
 
 function formatShortPercent(value: number): string {
   return `${value.toFixed(0)}%`;
+}
+
+function formatLatencyAxisTick(value: number): string {
+  if (!Number.isFinite(value) || value < 0) {
+    return "0ms";
+  }
+  if (value >= 1000) {
+    const seconds = value / 1000;
+    return `${seconds >= 10 ? seconds.toFixed(0) : seconds.toFixed(1)}s`;
+  }
+  return `${Math.round(value)}ms`;
 }
 
 function formatClock(iso: string): string {
@@ -429,6 +457,25 @@ function TrendChart({ labels, series, formatYAxisLabel }: TrendChartProps) {
   );
 }
 
+function HistogramTooltipContent({ active, payload }: HistogramTooltipContentProps) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  const point = payload[0]?.payload;
+  const count = Number(payload[0]?.value ?? point?.count ?? 0);
+  const safeCount = Number.isFinite(count) ? count : 0;
+  const lowerBound = typeof point?.lower_ms === "number" && Number.isFinite(point.lower_ms) ? point.lower_ms : 0;
+  const upperBound = typeof point?.upper_ms === "number" && Number.isFinite(point.upper_ms) ? point.upper_ms : 0;
+
+  return (
+    <div className="histogram-tooltip">
+      <p className="histogram-tooltip-title">{`${formatCount(lowerBound)}～${formatCount(upperBound)} ms`}</p>
+      <p className="histogram-tooltip-value">{`节点数 ${formatCount(safeCount)}`}</p>
+    </div>
+  );
+}
+
 function compressHistogram(buckets: LatencyBucket[], limit = 28): LatencyBucket[] {
   if (buckets.length <= limit) {
     return buckets;
@@ -460,18 +507,77 @@ function Histogram({ buckets }: { buckets: LatencyBucket[] }) {
   }
 
   const compact = compressHistogram(buckets);
-  const maxCount = Math.max(1, ...compact.map((item) => item.count));
+  const inferredStep = compact.length >= 2 ? Math.max(1, compact[1].le_ms - compact[0].le_ms) : 0;
+  const isLegacyUpperInclusive =
+    compact.length > 0 && inferredStep > 0 && compact[0].le_ms === inferredStep;
+
+  let previousUpper = -1;
+  const data: HistogramPoint[] = compact.map((bucket) => {
+    const lower = Math.max(0, previousUpper + 1);
+    const rawUpper = isLegacyUpperInclusive ? bucket.le_ms - 1 : bucket.le_ms;
+    const upperInclusive = Math.max(lower, rawUpper);
+    previousUpper = upperInclusive;
+    return {
+      lower_ms: lower,
+      upper_ms: upperInclusive,
+      count: Math.max(0, bucket.count),
+      label: `${upperInclusive}`,
+    };
+  });
+  const gradientId = `histogram-gradient-${useId().replace(/:/g, "")}`;
+  const chartMargin = {
+    top: 6,
+    right: 8,
+    bottom: 4,
+    left: 8,
+  };
 
   return (
-    <div className="histogram">
-      {compact.map((bucket) => {
-        const ratio = bucket.count / maxCount;
-        return (
-          <div key={`${bucket.le_ms}`} className="histogram-bar" title={`<= ${bucket.le_ms}ms: ${bucket.count}`}>
-            <span style={{ height: `${Math.max(6, ratio * 100)}%` }} />
-          </div>
-        );
-      })}
+    <div className="histogram-chart">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={chartMargin}>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#2388ff" stopOpacity={0.94} />
+              <stop offset="100%" stopColor="#0f5ed8" stopOpacity={0.88} />
+            </linearGradient>
+          </defs>
+
+          <CartesianGrid stroke="rgba(65, 87, 121, 0.16)" strokeDasharray="2 4" vertical={false} />
+          <XAxis
+            dataKey="label"
+            interval="preserveStartEnd"
+            minTickGap={14}
+            tickMargin={4}
+            axisLine={false}
+            tickLine={false}
+            tick={{ fill: "#607191", fontSize: 11, fontWeight: 600 }}
+            tickFormatter={(value) => formatLatencyAxisTick(Number(value))}
+          />
+          <YAxis
+            width="auto"
+            allowDecimals={false}
+            tickMargin={4}
+            axisLine={false}
+            tickLine={false}
+            tick={{ fill: "#607191", fontSize: 11, fontWeight: 600 }}
+            tickFormatter={(value) => formatShortNumber(Number(value))}
+          />
+          <Tooltip
+            cursor={{ fill: "rgba(15, 94, 216, 0.08)" }}
+            wrapperStyle={{ outline: "none" }}
+            content={<HistogramTooltipContent />}
+          />
+          <Bar
+            dataKey="count"
+            fill={`url(#${gradientId})`}
+            radius={[5, 5, 0, 0]}
+            maxBarSize={28}
+            activeBar={{ fill: "#0d63dd", stroke: "#f2f7ff", strokeWidth: 1.2 }}
+            isAnimationActive={false}
+          />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -746,6 +852,7 @@ export function DashboardPage() {
 
   const globalLatencyHistogram = globalData?.snapshot_latency_global.buckets ?? [];
   const platformLatencyHistogram = platformData?.snapshot_latency_platform.buckets ?? [];
+  const activeLatencyHistogram = isPlatformScope ? platformLatencyHistogram : globalLatencyHistogram;
 
   const throughputDelta = percentDelta(throughputIngress.map((value, index) => value + (throughputEgress[index] ?? 0)));
   const connectionDelta = percentDelta(connectionsInbound.map((value, index) => value + (connectionsOutbound[index] ?? 0)));
@@ -1066,26 +1173,10 @@ export function DashboardPage() {
         <Card className="dashboard-panel span-2">
           <div className="dashboard-panel-header">
             <h3>节点延迟分布</h3>
-            <p>{isPlatformScope ? "全局 + 平台直方图（EWMA）" : "全局直方图（EWMA）"}</p>
+            <p>延迟直方图</p>
           </div>
 
-          <div className="dashboard-hist-grid">
-            <div>
-              <p className="dashboard-hist-title">Global</p>
-              <Histogram buckets={globalLatencyHistogram} />
-            </div>
-            <div>
-              <p className="dashboard-hist-title">{isPlatformScope ? activePlatformName : "Platform Scope"}</p>
-              {!isPlatformScope ? (
-                <div className="empty-box dashboard-empty">
-                  <AlertTriangle size={14} />
-                  <p>选择平台后展示平台级延迟分布</p>
-                </div>
-              ) : (
-                <Histogram buckets={platformLatencyHistogram} />
-              )}
-            </div>
-          </div>
+          <Histogram buckets={activeLatencyHistogram} />
         </Card>
 
         <Card className="dashboard-panel">

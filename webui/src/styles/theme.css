@@ -832,30 +832,36 @@ a {
   color: #546684;
 }
 
-.histogram {
-  height: 168px;
+.histogram-chart {
+  height: 226px;
   border: 1px solid rgba(37, 72, 120, 0.12);
   border-radius: 12px;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(245, 251, 255, 0.95)),
     repeating-linear-gradient(0deg, transparent, transparent 28px, rgba(101, 128, 167, 0.07) 28px, rgba(101, 128, 167, 0.07) 29px);
-  padding: 8px;
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
+  padding: 0;
 }
 
-.histogram-bar {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: flex-end;
+.histogram-tooltip {
+  min-width: 124px;
+  border: 1px solid rgba(29, 74, 138, 0.2);
+  border-radius: 11px;
+  background: rgba(252, 254, 255, 0.96);
+  box-shadow: 0 8px 18px rgba(20, 67, 126, 0.16);
+  padding: 8px 10px;
 }
 
-.histogram-bar > span {
-  width: 100%;
-  border-radius: 5px 5px 0 0;
-  background: linear-gradient(180deg, #1f82ff, #0f5ed8);
-  box-shadow: 0 8px 12px rgba(17, 102, 226, 0.2);
+.histogram-tooltip-title {
+  margin: 0;
+  color: #4f6180;
+  font-size: 11px;
+}
+
+.histogram-tooltip-value {
+  margin: 5px 0 0;
+  color: #123f7d;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .dashboard-snapshot-list {
@@ -1836,5 +1842,9 @@ a {
 
   .dashboard-kpi-card {
     grid-template-columns: auto 1fr;
+  }
+
+  .histogram-chart {
+    height: 204px;
   }
 }

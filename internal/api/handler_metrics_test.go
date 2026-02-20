@@ -340,11 +340,11 @@ func TestMetricsHandlers_HistoryAccessLatency_SeparatesOverflowBucket(t *testing
 	if len(buckets) != 2 {
 		t.Fatalf("buckets len: got %d, want 2 (regular buckets only)", len(buckets))
 	}
-	if buckets[0].(map[string]any)["le_ms"] != float64(100) {
-		t.Fatalf("bucket[0].le_ms: got %v, want 100", buckets[0].(map[string]any)["le_ms"])
+	if buckets[0].(map[string]any)["le_ms"] != float64(99) {
+		t.Fatalf("bucket[0].le_ms: got %v, want 99", buckets[0].(map[string]any)["le_ms"])
 	}
-	if buckets[1].(map[string]any)["le_ms"] != float64(200) {
-		t.Fatalf("bucket[1].le_ms: got %v, want 200", buckets[1].(map[string]any)["le_ms"])
+	if buckets[1].(map[string]any)["le_ms"] != float64(199) {
+		t.Fatalf("bucket[1].le_ms: got %v, want 199", buckets[1].(map[string]any)["le_ms"])
 	}
 }
 
@@ -376,36 +376,42 @@ func TestMetricsHandlers_SnapshotNodeLatencyDistribution_NoDuplicateOverflowBoun
 	if body["sample_count"] != float64(3) {
 		t.Fatalf("sample_count: got %v, want 3", body["sample_count"])
 	}
-	if body["overflow_count"] != float64(1) {
-		t.Fatalf("overflow_count: got %v, want 1", body["overflow_count"])
+	if body["overflow_count"] != float64(2) {
+		t.Fatalf("overflow_count: got %v, want 2", body["overflow_count"])
 	}
 
 	buckets, ok := body["buckets"].([]any)
 	if !ok {
 		t.Fatalf("buckets type: got %T", body["buckets"])
 	}
-	le3000Count := 0
-	var countAt100, countAt3000 float64
+	le2999Count := 0
+	var countAt99, countAt199, countAt2999 float64
 	for _, raw := range buckets {
 		b := raw.(map[string]any)
 		le := b["le_ms"].(float64)
 		count := b["count"].(float64)
-		if le == 100 {
-			countAt100 = count
+		if le == 99 {
+			countAt99 = count
 		}
-		if le == 3000 {
-			le3000Count++
-			countAt3000 = count
+		if le == 199 {
+			countAt199 = count
+		}
+		if le == 2999 {
+			le2999Count++
+			countAt2999 = count
 		}
 	}
-	if le3000Count != 1 {
-		t.Fatalf("le_ms=3000 bucket count: got %d, want 1", le3000Count)
+	if le2999Count != 1 {
+		t.Fatalf("le_ms=2999 bucket count: got %d, want 1", le2999Count)
 	}
-	if countAt100 != 1 {
-		t.Fatalf("count at le_ms=100: got %v, want 1", countAt100)
+	if countAt99 != 0 {
+		t.Fatalf("count at le_ms=99: got %v, want 0", countAt99)
 	}
-	if countAt3000 != 1 {
-		t.Fatalf("count at le_ms=3000: got %v, want 1", countAt3000)
+	if countAt199 != 1 {
+		t.Fatalf("count at le_ms=199: got %v, want 1", countAt199)
+	}
+	if countAt2999 != 0 {
+		t.Fatalf("count at le_ms=2999: got %v, want 0", countAt2999)
 	}
 }
 
