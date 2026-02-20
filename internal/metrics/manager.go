@@ -189,6 +189,7 @@ func (m *Manager) OnRequestFinished(ev proxy.RequestFinishedEvent) {
 // OnTrafficDelta records traffic bytes (implements proxy.MetricsEventSink).
 func (m *Manager) OnTrafficDelta(platformID string, ingressBytes, egressBytes int64) {
 	m.collector.RecordTraffic(platformID, ingressBytes, egressBytes)
+	m.bucket.AddTraffic(platformID, ingressBytes, egressBytes)
 }
 
 // OnConnectionLifecycle records connection open/close (implements proxy.MetricsEventSink).
@@ -255,6 +256,12 @@ func (m *Manager) LeasesIntervalSeconds() int { return int(m.leasesInterval.Seco
 
 // RuntimeStats returns the runtime stats provider.
 func (m *Manager) RuntimeStats() RuntimeStatsProvider { return m.runtimeStats }
+
+// SnapshotCurrentTrafficBucket returns unflushed traffic in current bucket.
+// platformID="" means global scope.
+func (m *Manager) SnapshotCurrentTrafficBucket(platformID string) (bucketStartUnix, ingressBytes, egressBytes int64, ok bool) {
+	return m.bucket.SnapshotTraffic(platformID)
+}
 
 // --- Background loops ---
 
@@ -410,8 +417,6 @@ func (m *Manager) aggregateCollectorDeltasIntoBucket() {
 	globalBase := m.prevBucketGlobal
 	globalCurrent := baselineFromSnapshot(currentGlobal)
 
-	globalIngressDelta := nonNegativeDelta(globalCurrent.IngressBytes, globalBase.IngressBytes)
-	globalEgressDelta := nonNegativeDelta(globalCurrent.EgressBytes, globalBase.EgressBytes)
 	globalRequestsDelta := nonNegativeDelta(globalCurrent.Requests, globalBase.Requests)
 	globalSuccessDelta := nonNegativeDelta(globalCurrent.Success, globalBase.Success)
 	if globalSuccessDelta > globalRequestsDelta {
@@ -425,8 +430,6 @@ func (m *Manager) aggregateCollectorDeltasIntoBucket() {
 	currentPlatforms := m.collector.PlatformSnapshots()
 	nextPlatformBaseline := make(map[string]bucketCounterBaseline, len(currentPlatforms))
 
-	var sumPlatformIngress int64
-	var sumPlatformEgress int64
 	var sumPlatformRequests int64
 	var sumPlatformSuccess int64
 
@@ -435,32 +438,18 @@ func (m *Manager) aggregateCollectorDeltasIntoBucket() {
 		prev := m.prevBucketPlatforms[pid]
 		nextPlatformBaseline[pid] = cur
 
-		ingressDelta := nonNegativeDelta(cur.IngressBytes, prev.IngressBytes)
-		egressDelta := nonNegativeDelta(cur.EgressBytes, prev.EgressBytes)
 		requestDelta := nonNegativeDelta(cur.Requests, prev.Requests)
 		successDelta := nonNegativeDelta(cur.Success, prev.Success)
 		if successDelta > requestDelta {
 			successDelta = requestDelta
 		}
 
-		if ingressDelta != 0 || egressDelta != 0 {
-			m.bucket.AddTraffic(pid, ingressDelta, egressDelta)
-		}
 		if requestDelta != 0 {
 			m.bucket.AddRequestCounts(pid, requestDelta, successDelta)
 		}
 
-		sumPlatformIngress += ingressDelta
-		sumPlatformEgress += egressDelta
 		sumPlatformRequests += requestDelta
 		sumPlatformSuccess += successDelta
-	}
-
-	// Account for any global-only events not attributed to a platform.
-	globalOnlyIngress := nonNegativeDelta(globalIngressDelta, sumPlatformIngress)
-	globalOnlyEgress := nonNegativeDelta(globalEgressDelta, sumPlatformEgress)
-	if globalOnlyIngress != 0 || globalOnlyEgress != 0 {
-		m.bucket.AddTraffic("", globalOnlyIngress, globalOnlyEgress)
 	}
 
 	globalOnlyRequests := nonNegativeDelta(globalRequestsDelta, sumPlatformRequests)

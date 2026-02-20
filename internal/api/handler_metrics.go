@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/resin-proxy/resin/internal/metrics"
@@ -221,6 +222,30 @@ func HandleHistoryTraffic(mgr *metrics.Manager) http.Handler {
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
+		}
+		currentBucketStart, currentIngress, currentEgress, hasCurrent := mgr.SnapshotCurrentTrafficBucket(platformID)
+		if hasCurrent && currentBucketStart >= from.Unix() && currentBucketStart <= to.Unix() {
+			merged := false
+			for i := range rows {
+				if rows[i].BucketStartUnix != currentBucketStart {
+					continue
+				}
+				rows[i].IngressBytes += currentIngress
+				rows[i].EgressBytes += currentEgress
+				merged = true
+				break
+			}
+			if !merged {
+				rows = append(rows, metrics.TrafficBucketRow{
+					BucketStartUnix: currentBucketStart,
+					PlatformID:      platformID,
+					IngressBytes:    currentIngress,
+					EgressBytes:     currentEgress,
+				})
+				sort.Slice(rows, func(i, j int) bool {
+					return rows[i].BucketStartUnix < rows[j].BucketStartUnix
+				})
+			}
 		}
 		bucketSeconds := mgr.BucketSeconds()
 		items := mapItems(rows, func(row metrics.TrafficBucketRow) map[string]any {

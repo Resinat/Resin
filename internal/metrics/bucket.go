@@ -88,6 +88,22 @@ func (b *BucketAggregator) AddTraffic(platformID string, ingress, egress int64) 
 	}
 }
 
+// SnapshotTraffic returns the current bucket's traffic for a scope.
+// platformID="" means global scope.
+func (b *BucketAggregator) SnapshotTraffic(platformID string) (bucketStartUnix, ingressBytes, egressBytes int64, ok bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	acc, exists := b.traffic[platformID]
+	if !exists {
+		return b.currentStart, 0, 0, false
+	}
+	if acc.IngressBytes == 0 && acc.EgressBytes == 0 {
+		return b.currentStart, 0, 0, false
+	}
+	return b.currentStart, acc.IngressBytes, acc.EgressBytes, true
+}
+
 // AddRequestCounts records aggregated request counts into the current bucket.
 func (b *BucketAggregator) AddRequestCounts(platformID string, total, success int64) {
 	if total <= 0 {
