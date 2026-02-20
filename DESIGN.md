@@ -1102,7 +1102,6 @@ Body（partial patch 示例）：
 错误码映射（最小集）：
 
 * `404 NOT_FOUND`：`platform_id` 不存在。
-* `409 CONFLICT`：目标为 `Default` 平台。
 
 返回：`200 OK` + 平台对象
 

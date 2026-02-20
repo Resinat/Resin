@@ -689,6 +689,133 @@ func TestDeletePlatform_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
 	}
 }
 
+func TestResetPlatformToDefault_SupportsBuiltInDefaultPlatform(t *testing.T) {
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "state")
+	cacheDir := filepath.Join(dir, "cache")
+
+	engine, closer, err := state.PersistenceBootstrap(stateDir, cacheDir)
+	if err != nil {
+		t.Fatalf("PersistenceBootstrap: %v", err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+
+	defaultRow := model.Platform{
+		ID:                     platform.DefaultPlatformID,
+		Name:                   platform.DefaultPlatformName,
+		StickyTTLNs:            int64(2 * time.Hour),
+		RegexFilters:           []string{`^legacy-`},
+		RegionFilters:          []string{"us"},
+		ReverseProxyMissAction: string(platform.ReverseProxyMissActionRandom),
+		AllocationPolicy:       string(platform.AllocationPolicyBalanced),
+		UpdatedAtNs:            time.Now().UnixNano(),
+	}
+	if err := engine.UpsertPlatform(defaultRow); err != nil {
+		t.Fatalf("UpsertPlatform: %v", err)
+	}
+
+	pool := topology.NewGlobalNodePool(topology.PoolConfig{
+		SubLookup:              nil,
+		GeoLookup:              func(netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+		LatencyDecayWindow:     func() time.Duration { return 10 * time.Minute },
+	})
+	pool.RegisterPlatform(platform.NewConfiguredPlatform(
+		defaultRow.ID,
+		defaultRow.Name,
+		nil,
+		nil,
+		defaultRow.StickyTTLNs,
+		defaultRow.ReverseProxyMissAction,
+		defaultRow.AllocationPolicy,
+	))
+
+	cp := &ControlPlaneService{
+		Engine: engine,
+		Pool:   pool,
+		EnvCfg: &config.EnvConfig{
+			DefaultPlatformStickyTTL:              45 * time.Minute,
+			DefaultPlatformRegexFilters:           []string{"^prod-"},
+			DefaultPlatformRegionFilters:          []string{"jp"},
+			DefaultPlatformReverseProxyMissAction: string(platform.ReverseProxyMissActionReject),
+			DefaultPlatformAllocationPolicy:       string(platform.AllocationPolicyPreferIdleIP),
+		},
+	}
+
+	resp, err := cp.ResetPlatformToDefault(platform.DefaultPlatformID)
+	if err != nil {
+		t.Fatalf("ResetPlatformToDefault: %v", err)
+	}
+	if resp.ID != platform.DefaultPlatformID {
+		t.Fatalf("response id = %q, want %q", resp.ID, platform.DefaultPlatformID)
+	}
+	if resp.Name != platform.DefaultPlatformName {
+		t.Fatalf("response name = %q, want %q", resp.Name, platform.DefaultPlatformName)
+	}
+	if resp.StickyTTL != (45 * time.Minute).String() {
+		t.Fatalf("response sticky_ttl = %q, want %q", resp.StickyTTL, (45 * time.Minute).String())
+	}
+	if !reflect.DeepEqual(resp.RegexFilters, []string{"^prod-"}) {
+		t.Fatalf("response regex_filters = %v, want %v", resp.RegexFilters, []string{"^prod-"})
+	}
+	if !reflect.DeepEqual(resp.RegionFilters, []string{"jp"}) {
+		t.Fatalf("response region_filters = %v, want %v", resp.RegionFilters, []string{"jp"})
+	}
+	if resp.ReverseProxyMissAction != string(platform.ReverseProxyMissActionReject) {
+		t.Fatalf("response reverse_proxy_miss_action = %q, want %q", resp.ReverseProxyMissAction, platform.ReverseProxyMissActionReject)
+	}
+	if resp.AllocationPolicy != string(platform.AllocationPolicyPreferIdleIP) {
+		t.Fatalf("response allocation_policy = %q, want %q", resp.AllocationPolicy, platform.AllocationPolicyPreferIdleIP)
+	}
+
+	stored, err := engine.GetPlatform(platform.DefaultPlatformID)
+	if err != nil {
+		t.Fatalf("GetPlatform: %v", err)
+	}
+	if stored.Name != platform.DefaultPlatformName {
+		t.Fatalf("stored name = %q, want %q", stored.Name, platform.DefaultPlatformName)
+	}
+	if stored.StickyTTLNs != int64(45*time.Minute) {
+		t.Fatalf("stored sticky_ttl_ns = %d, want %d", stored.StickyTTLNs, int64(45*time.Minute))
+	}
+	if !reflect.DeepEqual(stored.RegexFilters, []string{"^prod-"}) {
+		t.Fatalf("stored regex_filters = %v, want %v", stored.RegexFilters, []string{"^prod-"})
+	}
+	if !reflect.DeepEqual(stored.RegionFilters, []string{"jp"}) {
+		t.Fatalf("stored region_filters = %v, want %v", stored.RegionFilters, []string{"jp"})
+	}
+	if stored.ReverseProxyMissAction != string(platform.ReverseProxyMissActionReject) {
+		t.Fatalf("stored reverse_proxy_miss_action = %q, want %q", stored.ReverseProxyMissAction, platform.ReverseProxyMissActionReject)
+	}
+	if stored.AllocationPolicy != string(platform.AllocationPolicyPreferIdleIP) {
+		t.Fatalf("stored allocation_policy = %q, want %q", stored.AllocationPolicy, platform.AllocationPolicyPreferIdleIP)
+	}
+
+	plat, ok := pool.GetPlatform(platform.DefaultPlatformID)
+	if !ok {
+		t.Fatalf("platform %s should remain in pool", platform.DefaultPlatformID)
+	}
+	if plat.Name != platform.DefaultPlatformName {
+		t.Fatalf("pool platform name = %q, want %q", plat.Name, platform.DefaultPlatformName)
+	}
+	if plat.StickyTTLNs != int64(45*time.Minute) {
+		t.Fatalf("pool sticky_ttl_ns = %d, want %d", plat.StickyTTLNs, int64(45*time.Minute))
+	}
+	if len(plat.RegexFilters) != 1 || plat.RegexFilters[0].String() != "^prod-" {
+		t.Fatalf("pool regex_filters = %v, want [%q]", plat.RegexFilters, "^prod-")
+	}
+	if !reflect.DeepEqual(plat.RegionFilters, []string{"jp"}) {
+		t.Fatalf("pool region_filters = %v, want %v", plat.RegionFilters, []string{"jp"})
+	}
+	if plat.ReverseProxyMissAction != string(platform.ReverseProxyMissActionReject) {
+		t.Fatalf("pool reverse_proxy_miss_action = %q, want %q", plat.ReverseProxyMissAction, platform.ReverseProxyMissActionReject)
+	}
+	if plat.AllocationPolicy != platform.AllocationPolicyPreferIdleIP {
+		t.Fatalf("pool allocation_policy = %q, want %q", plat.AllocationPolicy, platform.AllocationPolicyPreferIdleIP)
+	}
+}
+
 func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
 	dir := t.TempDir()
 	stateDir := filepath.Join(dir, "state")

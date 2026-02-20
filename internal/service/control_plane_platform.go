@@ -366,10 +366,6 @@ func (s *ControlPlaneService) DeletePlatform(id string) error {
 
 // ResetPlatformToDefault resets a platform to env defaults.
 func (s *ControlPlaneService) ResetPlatformToDefault(id string) (*PlatformResponse, error) {
-	if id == platform.DefaultPlatformID {
-		return nil, conflict("cannot reset Default platform to defaults")
-	}
-
 	name, err := s.Engine.GetPlatformName(id)
 	if err != nil {
 		if errors.Is(err, state.ErrNotFound) {
