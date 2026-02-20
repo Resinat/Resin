@@ -1,0 +1,918 @@
+import { useQuery } from "@tanstack/react-query";
+import { AlertTriangle, Gauge, Layers, RefreshCw, Server, Shield, Waves } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Badge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { Select } from "../../components/ui/Select";
+import { ApiError } from "../../lib/api-client";
+import { formatDateTime } from "../../lib/time";
+import { listPlatforms } from "../platforms/api";
+import { getDashboardGlobalData, getDashboardPlatformData } from "./api";
+import type { DashboardGlobalData, DashboardPlatformData, LatencyBucket, TimeWindow } from "./types";
+
+type RangeKey = "15m" | "1h" | "6h" | "24h";
+
+type RangeOption = {
+  key: RangeKey;
+  label: string;
+  ms: number;
+};
+
+type ChartSeries = {
+  name: string;
+  values: number[];
+  color: string;
+  fillColor?: string;
+};
+
+type TrendChartProps = {
+  labels: string[];
+  series: ChartSeries[];
+  formatYAxisLabel?: (value: number) => string;
+};
+
+const RANGE_OPTIONS: RangeOption[] = [
+  { key: "15m", label: "最近 15 分钟", ms: 15 * 60 * 1000 },
+  { key: "1h", label: "最近 1 小时", ms: 60 * 60 * 1000 },
+  { key: "6h", label: "最近 6 小时", ms: 6 * 60 * 60 * 1000 },
+  { key: "24h", label: "最近 24 小时", ms: 24 * 60 * 60 * 1000 },
+];
+
+const GLOBAL_PLATFORM_VALUE = "__global__";
+
+function fromApiError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return `${error.code}: ${error.message}`;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "未知错误";
+}
+
+function getTimeWindow(rangeKey: RangeKey): TimeWindow {
+  const option = RANGE_OPTIONS.find((item) => item.key === rangeKey) ?? RANGE_OPTIONS[1];
+  const to = new Date();
+  const from = new Date(to.getTime() - option.ms);
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+  };
+}
+
+function latestValue(values: number[]): number {
+  if (!values.length) {
+    return 0;
+  }
+  return values[values.length - 1];
+}
+
+function previousValue(values: number[]): number {
+  if (values.length <= 1) {
+    return 0;
+  }
+  return values[values.length - 2];
+}
+
+function percentDelta(values: number[]): number | null {
+  if (values.length <= 1) {
+    return null;
+  }
+  const prev = previousValue(values);
+  const curr = latestValue(values);
+  if (prev === 0) {
+    return null;
+  }
+  return ((curr - prev) / prev) * 100;
+}
+
+function formatDelta(value: number | null): string {
+  if (value === null) {
+    return "--";
+  }
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}%`;
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat("zh-CN").format(Math.round(value));
+}
+
+function formatPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatBps(value: number): string {
+  const units = ["bps", "Kbps", "Mbps", "Gbps", "Tbps"];
+  let next = value;
+  let unitIndex = 0;
+  while (next >= 1000 && unitIndex < units.length - 1) {
+    next /= 1000;
+    unitIndex += 1;
+  }
+  return `${next.toFixed(next >= 100 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatShortBps(value: number): string {
+  const units = ["b", "Kb", "Mb", "Gb", "Tb"];
+  let next = value;
+  let unitIndex = 0;
+  while (next >= 1000 && unitIndex < units.length - 1) {
+    next /= 1000;
+    unitIndex += 1;
+  }
+  return `${next.toFixed(next >= 100 ? 0 : 1)}${units[unitIndex]}`;
+}
+
+function formatBytes(value: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let next = value;
+  let unitIndex = 0;
+  while (next >= 1024 && unitIndex < units.length - 1) {
+    next /= 1024;
+    unitIndex += 1;
+  }
+  return `${next.toFixed(next >= 100 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function formatShortBytes(value: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let next = value;
+  let unitIndex = 0;
+  while (next >= 1024 && unitIndex < units.length - 1) {
+    next /= 1024;
+    unitIndex += 1;
+  }
+  return `${next.toFixed(next >= 100 ? 0 : 1)}${units[unitIndex]}`;
+}
+
+function formatMilliseconds(value: number): string {
+  if (value <= 0) {
+    return "0 ms";
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(2)} s`;
+  }
+  return `${value.toFixed(1)} ms`;
+}
+
+function formatShortMilliseconds(value: number): string {
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}s`;
+  }
+  return `${Math.round(value)}ms`;
+}
+
+function formatShortNumber(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(1)}G`;
+  }
+  if (abs >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (abs >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  return `${Math.round(value)}`;
+}
+
+function formatShortPercent(value: number): string {
+  return `${value.toFixed(0)}%`;
+}
+
+function formatClock(iso: string): string {
+  if (!iso) {
+    return "";
+  }
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function sanitizeSeries(series: ChartSeries[]): ChartSeries[] {
+  return series.map((item) => ({
+    ...item,
+    values: item.values.map((value) => (Number.isFinite(value) ? value : 0)),
+  }));
+}
+
+function buildLinePath(
+  values: number[],
+  maxValue: number,
+  width: number,
+  height: number,
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+): string {
+  if (!values.length) {
+    return "";
+  }
+
+  const chartWidth = width - left - right;
+  const chartHeight = height - top - bottom;
+  const safeMax = maxValue <= 0 ? 1 : maxValue;
+  const denominator = values.length <= 1 ? 1 : values.length - 1;
+
+  const points = values.map((value, index) => {
+    const x = left + chartWidth * (values.length <= 1 ? 0.5 : index / denominator);
+    const y = height - bottom - (value / safeMax) * chartHeight;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+
+  return `M ${points.join(" L ")}`;
+}
+
+function buildAreaPath(
+  values: number[],
+  maxValue: number,
+  width: number,
+  height: number,
+  left: number,
+  right: number,
+  top: number,
+  bottom: number,
+): string {
+  if (!values.length) {
+    return "";
+  }
+
+  const linePath = buildLinePath(values, maxValue, width, height, left, right, top, bottom);
+  const chartWidth = width - left - right;
+  const firstX = left + chartWidth * (values.length <= 1 ? 0.5 : 0);
+  const lastX = left + chartWidth;
+  const baseY = height - bottom;
+
+  return `${linePath} L ${lastX.toFixed(2)},${baseY.toFixed(2)} L ${firstX.toFixed(2)},${baseY.toFixed(2)} Z`;
+}
+
+function TrendChart({ labels, series, formatYAxisLabel }: TrendChartProps) {
+  const width = 120;
+  const height = 52;
+  const left = 16;
+  const right = 3;
+  const top = 3;
+  const bottom = 6;
+  const safeSeries = sanitizeSeries(series);
+  const valueCount = safeSeries[0]?.values.length ?? 0;
+  const allValues = safeSeries.flatMap((item) => item.values);
+  const maxValue = Math.max(1, ...allValues);
+  const chartHeight = height - top - bottom;
+  const yTickRatios = [1, 0.75, 0.5, 0.25, 0];
+  const firstLabel = labels[0] ? formatClock(labels[0]) : "";
+  const lastLabel = labels.length ? formatClock(labels[labels.length - 1]) : "";
+  const yLabelFormatter = formatYAxisLabel ?? formatShortNumber;
+
+  if (!valueCount || !safeSeries.length) {
+    return (
+      <div className="empty-box dashboard-empty">
+        <AlertTriangle size={14} />
+        <p>无可视化数据</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="trend-chart">
+      <svg className="trend-svg" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+        <line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom} className="trend-axis" />
+        <line x1={left} y1={top} x2={left} y2={height - bottom} className="trend-axis" />
+
+        {yTickRatios.map((ratio) => {
+          const y = height - bottom - chartHeight * ratio;
+          const value = maxValue * ratio;
+          return (
+            <g key={ratio}>
+              <line x1={left} y1={y} x2={width - right} y2={y} className="trend-grid" />
+              <text x={left - 0.8} y={y + 1.1} className="trend-y-label" textAnchor="end">
+                {yLabelFormatter(value)}
+              </text>
+            </g>
+          );
+        })}
+
+        {safeSeries[0]?.fillColor ? (
+          <path
+            d={buildAreaPath(safeSeries[0].values, maxValue, width, height, left, right, top, bottom)}
+            fill={safeSeries[0].fillColor}
+            className="trend-area"
+          />
+        ) : null}
+
+        {safeSeries.map((item) => (
+          <path
+            key={item.name}
+            d={buildLinePath(item.values, maxValue, width, height, left, right, top, bottom)}
+            fill="none"
+            stroke={item.color}
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ))}
+      </svg>
+
+      <div className="trend-footer">
+        <span>{firstLabel}</span>
+        <span>{lastLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+function compressHistogram(buckets: LatencyBucket[], limit = 28): LatencyBucket[] {
+  if (buckets.length <= limit) {
+    return buckets;
+  }
+
+  const chunkSize = Math.ceil(buckets.length / limit);
+  const grouped: LatencyBucket[] = [];
+
+  for (let index = 0; index < buckets.length; index += chunkSize) {
+    const chunk = buckets.slice(index, index + chunkSize);
+    const total = chunk.reduce((acc, item) => acc + item.count, 0);
+    grouped.push({
+      le_ms: chunk[chunk.length - 1]?.le_ms ?? 0,
+      count: total,
+    });
+  }
+
+  return grouped;
+}
+
+function Histogram({ buckets }: { buckets: LatencyBucket[] }) {
+  if (!buckets.length) {
+    return (
+      <div className="empty-box dashboard-empty">
+        <AlertTriangle size={14} />
+        <p>无分布数据</p>
+      </div>
+    );
+  }
+
+  const compact = compressHistogram(buckets);
+  const maxCount = Math.max(1, ...compact.map((item) => item.count));
+
+  return (
+    <div className="histogram">
+      {compact.map((bucket) => {
+        const ratio = bucket.count / maxCount;
+        return (
+          <div key={`${bucket.le_ms}`} className="histogram-bar" title={`<= ${bucket.le_ms}ms: ${bucket.count}`}>
+            <span style={{ height: `${Math.max(6, ratio * 100)}%` }} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function sum(values: number[]): number {
+  return values.reduce((acc, value) => acc + value, 0);
+}
+
+function successRate(total: number, success: number): number {
+  if (total <= 0) {
+    return 0;
+  }
+  return success / total;
+}
+
+function kpiTone(delta: number | null): "success" | "warning" | "neutral" {
+  if (delta === null) {
+    return "neutral";
+  }
+  return delta >= 0 ? "success" : "warning";
+}
+
+export function DashboardPage() {
+  const [rangeKey, setRangeKey] = useState<RangeKey>("1h");
+  const [selectedPlatformId, setSelectedPlatformId] = useState(GLOBAL_PLATFORM_VALUE);
+
+  const platformsQuery = useQuery({
+    queryKey: ["dashboard-platform-options"],
+    queryFn: listPlatforms,
+    refetchInterval: 60_000,
+  });
+
+  const platforms = useMemo(() => platformsQuery.data ?? [], [platformsQuery.data]);
+  const isGlobalScope = selectedPlatformId === GLOBAL_PLATFORM_VALUE;
+  const activePlatform = useMemo(() => {
+    if (isGlobalScope) {
+      return null;
+    }
+    return platforms.find((item) => item.id === selectedPlatformId) ?? null;
+  }, [isGlobalScope, platforms, selectedPlatformId]);
+  const activePlatformId = activePlatform?.id ?? "";
+  const isPlatformScope = Boolean(activePlatformId);
+  const activePlatformName = activePlatform?.name ?? "全局视角";
+
+  const globalQuery = useQuery({
+    queryKey: ["dashboard-global", rangeKey],
+    queryFn: async () => {
+      const window = getTimeWindow(rangeKey);
+      return getDashboardGlobalData(window);
+    },
+    refetchInterval: 15_000,
+    placeholderData: (prev) => prev,
+  });
+
+  const platformQuery = useQuery({
+    queryKey: ["dashboard-platform", rangeKey, activePlatformId],
+    queryFn: async () => {
+      const window = getTimeWindow(rangeKey);
+      return getDashboardPlatformData(activePlatformId, window);
+    },
+    enabled: isPlatformScope,
+    refetchInterval: 15_000,
+    placeholderData: (prev) => prev,
+  });
+
+  const refreshing = globalQuery.isFetching || platformQuery.isFetching || platformsQuery.isFetching;
+
+  const refreshAll = async () => {
+    await Promise.all([
+      globalQuery.refetch(),
+      platformsQuery.refetch(),
+      isPlatformScope ? platformQuery.refetch() : Promise.resolve(),
+    ]);
+  };
+
+  const globalData = globalQuery.data as DashboardGlobalData | undefined;
+  const platformData = platformQuery.data as DashboardPlatformData | undefined;
+
+  const throughputIngress = globalData?.realtime_throughput.items.map((item) => item.ingress_bps) ?? [];
+  const throughputEgress = globalData?.realtime_throughput.items.map((item) => item.egress_bps) ?? [];
+  const throughputLabels = globalData?.realtime_throughput.items.map((item) => item.ts) ?? [];
+
+  const connectionsInbound = globalData?.realtime_connections.items.map((item) => item.inbound_connections) ?? [];
+  const connectionsOutbound = globalData?.realtime_connections.items.map((item) => item.outbound_connections) ?? [];
+  const connectionsLabels = globalData?.realtime_connections.items.map((item) => item.ts) ?? [];
+
+  const leasesValues = platformData?.realtime_leases.items.map((item) => item.active_leases) ?? [];
+  const trafficIngress = globalData?.history_traffic.items.map((item) => item.ingress_bytes) ?? [];
+  const trafficEgress = globalData?.history_traffic.items.map((item) => item.egress_bytes) ?? [];
+  const trafficLabels = globalData?.history_traffic.items.map((item) => item.bucket_start) ?? [];
+
+  const requestTotals = globalData?.history_requests.items.map((item) => item.total_requests) ?? [];
+  const requestSuccessRates = globalData?.history_requests.items.map((item) => item.success_rate * 100) ?? [];
+  const requestLabels = globalData?.history_requests.items.map((item) => item.bucket_start) ?? [];
+
+  const nodeTotal = globalData?.history_node_pool.items.map((item) => item.total_nodes) ?? [];
+  const nodeHealthy = globalData?.history_node_pool.items.map((item) => item.healthy_nodes) ?? [];
+  const nodeLabels = globalData?.history_node_pool.items.map((item) => item.bucket_start) ?? [];
+
+  const probeCounts = globalData?.history_probes.items.map((item) => item.total_count) ?? [];
+  const probeLabels = globalData?.history_probes.items.map((item) => item.bucket_start) ?? [];
+
+  const leaseP50 = platformData?.history_lease_lifetime.items.map((item) => item.p50_ms) ?? [];
+  const leaseP5 = platformData?.history_lease_lifetime.items.map((item) => item.p5_ms) ?? [];
+  const leaseLabels = platformData?.history_lease_lifetime.items.map((item) => item.bucket_start) ?? [];
+
+  const latestIngress = latestValue(throughputIngress);
+  const latestEgress = latestValue(throughputEgress);
+  const latestConnections = latestValue(connectionsInbound) + latestValue(connectionsOutbound);
+  const latestLeases = latestValue(leasesValues);
+
+  const totalTrafficBytes = sum(trafficIngress) + sum(trafficEgress);
+  const totalRequests = sum(requestTotals);
+  const successRequests = globalData?.history_requests.items.reduce((acc, item) => acc + item.success_requests, 0) ?? 0;
+  const aggregatedSuccessRate = successRate(totalRequests, successRequests);
+
+  const snapshotNodePool = globalData?.snapshot_node_pool;
+  const nodeHealthRate = snapshotNodePool ? successRate(snapshotNodePool.total_nodes, snapshotNodePool.healthy_nodes) : 0;
+
+  const globalLatencyHistogram = globalData?.snapshot_latency_global.buckets ?? [];
+  const platformLatencyHistogram = platformData?.snapshot_latency_platform.buckets ?? [];
+
+  const throughputDelta = percentDelta(throughputIngress.map((value, index) => value + (throughputEgress[index] ?? 0)));
+  const connectionDelta = percentDelta(connectionsInbound.map((value, index) => value + (connectionsOutbound[index] ?? 0)));
+  const leasesDelta = percentDelta(leasesValues);
+
+  return (
+    <section className="dashboard-page">
+      <header className="module-header">
+        <div>
+          <p className="eyebrow">Observability</p>
+          <h2>Dashboard</h2>
+          <p className="module-description">高密度可视化总览实时吞吐、连接、节点健康、探测与租约延迟分布。</p>
+        </div>
+        <Button onClick={() => void refreshAll()} disabled={refreshing}>
+          <RefreshCw size={16} className={refreshing ? "spin" : undefined} />
+          刷新全部
+        </Button>
+      </header>
+
+      {globalQuery.isError ? (
+        <div className="callout callout-error">
+          <AlertTriangle size={14} />
+          <span>{fromApiError(globalQuery.error)}</span>
+        </div>
+      ) : null}
+
+      {isPlatformScope && platformQuery.isError ? (
+        <div className="callout callout-warning">
+          <AlertTriangle size={14} />
+          <span>平台维度指标加载失败：{fromApiError(platformQuery.error)}</span>
+        </div>
+      ) : null}
+
+      <Card className="dashboard-hero">
+        <div className="dashboard-hero-header">
+          <div>
+            <p className="dashboard-hero-title">Control Pulse</p>
+            <p className="dashboard-hero-subtitle">
+              上次更新：{globalData ? formatDateTime(globalData.snapshot_node_pool.generated_at) : "加载中"}
+            </p>
+          </div>
+
+          <div className="dashboard-hero-controls">
+            <label className="dashboard-control">
+              <span>时间范围</span>
+              <Select value={rangeKey} onChange={(event) => setRangeKey(event.target.value as RangeKey)}>
+                {RANGE_OPTIONS.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+
+            <label className="dashboard-control">
+              <span>平台维度</span>
+              <Select value={selectedPlatformId} onChange={(event) => setSelectedPlatformId(event.target.value)}>
+                <option value={GLOBAL_PLATFORM_VALUE}>全局视角（不限定平台）</option>
+                {platforms.map((platform) => (
+                  <option key={platform.id} value={platform.id}>
+                    {platform.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </div>
+        </div>
+
+        <div className="dashboard-hero-badges">
+          <Badge variant="success">Global Metrics</Badge>
+          <Badge variant={isPlatformScope ? "success" : "neutral"}>{activePlatformName}</Badge>
+          <Badge variant="neutral">Auto Refresh 15s</Badge>
+        </div>
+      </Card>
+
+      <div className="dashboard-kpi-grid">
+        <Card className="dashboard-kpi-card">
+          <div className="dashboard-kpi-icon waves">
+            <Waves size={18} />
+          </div>
+          <div>
+            <p className="dashboard-kpi-label">实时吞吐</p>
+            <p className="dashboard-kpi-value">{formatBps(latestIngress + latestEgress)}</p>
+            <p className="dashboard-kpi-sub">
+              ingress {formatBps(latestIngress)} · egress {formatBps(latestEgress)}
+            </p>
+          </div>
+          <Badge variant={kpiTone(throughputDelta)}>{formatDelta(throughputDelta)}</Badge>
+        </Card>
+
+        <Card className="dashboard-kpi-card">
+          <div className="dashboard-kpi-icon gauge">
+            <Gauge size={18} />
+          </div>
+          <div>
+            <p className="dashboard-kpi-label">实时连接数</p>
+            <p className="dashboard-kpi-value">{formatCount(latestConnections)}</p>
+            <p className="dashboard-kpi-sub">
+              inbound {formatCount(latestValue(connectionsInbound))} · outbound {formatCount(latestValue(connectionsOutbound))}
+            </p>
+          </div>
+          <Badge variant={kpiTone(connectionDelta)}>{formatDelta(connectionDelta)}</Badge>
+        </Card>
+
+        <Card className="dashboard-kpi-card">
+          <div className="dashboard-kpi-icon shield">
+            <Shield size={18} />
+          </div>
+          <div>
+            <p className="dashboard-kpi-label">节点健康率</p>
+            <p className="dashboard-kpi-value">{formatPercent(nodeHealthRate)}</p>
+            <p className="dashboard-kpi-sub">
+              healthy {formatCount(snapshotNodePool?.healthy_nodes ?? 0)} / total {formatCount(snapshotNodePool?.total_nodes ?? 0)}
+            </p>
+          </div>
+          <Badge variant={nodeHealthRate >= 0.75 ? "success" : "warning"}>{formatCount(snapshotNodePool?.egress_ip_count ?? 0)} IP</Badge>
+        </Card>
+
+        <Card className="dashboard-kpi-card">
+          <div className="dashboard-kpi-icon lease">
+            <Layers size={18} />
+          </div>
+          <div>
+            <p className="dashboard-kpi-label">平台 Active Leases</p>
+            <p className="dashboard-kpi-value">{isPlatformScope ? formatCount(latestLeases) : "--"}</p>
+            <p className="dashboard-kpi-sub">{isPlatformScope ? activePlatformName : "全局模式下不显示单平台租约"}</p>
+          </div>
+          <Badge variant={isPlatformScope ? kpiTone(leasesDelta) : "neutral"}>{isPlatformScope ? formatDelta(leasesDelta) : "N/A"}</Badge>
+        </Card>
+      </div>
+
+      <div className="dashboard-main-grid">
+        <Card className="dashboard-panel span-2">
+          <div className="dashboard-panel-header">
+            <h3>吞吐趋势</h3>
+            <p>实时 ingress / egress bps</p>
+          </div>
+          <TrendChart
+            labels={throughputLabels}
+            formatYAxisLabel={formatShortBps}
+            series={[
+              {
+                name: "Ingress",
+                values: throughputIngress,
+                color: "#1076ff",
+                fillColor: "rgba(16, 118, 255, 0.14)",
+              },
+              {
+                name: "Egress",
+                values: throughputEgress,
+                color: "#00a17f",
+              },
+            ]}
+          />
+          <div className="dashboard-legend">
+            <span>
+              <i style={{ background: "#1076ff" }} />
+              Ingress
+            </span>
+            <span>
+              <i style={{ background: "#00a17f" }} />
+              Egress
+            </span>
+          </div>
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h3>连接趋势</h3>
+            <p>实时 inbound / outbound</p>
+          </div>
+          <TrendChart
+            labels={connectionsLabels}
+            formatYAxisLabel={formatShortNumber}
+            series={[
+              {
+                name: "Inbound",
+                values: connectionsInbound,
+                color: "#2467e4",
+                fillColor: "rgba(36, 103, 228, 0.12)",
+              },
+              {
+                name: "Outbound",
+                values: connectionsOutbound,
+                color: "#f18f01",
+              },
+            ]}
+          />
+          <div className="dashboard-legend">
+            <span>
+              <i style={{ background: "#2467e4" }} />
+              Inbound
+            </span>
+            <span>
+              <i style={{ background: "#f18f01" }} />
+              Outbound
+            </span>
+          </div>
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h3>请求质量</h3>
+            <p>请求成功率（%）</p>
+          </div>
+          <TrendChart
+            labels={requestLabels}
+            formatYAxisLabel={formatShortPercent}
+            series={[
+              {
+                name: "Success Rate %",
+                values: requestSuccessRates,
+                color: "#0f9d8b",
+                fillColor: "rgba(15, 157, 139, 0.14)",
+              },
+            ]}
+          />
+          <div className="dashboard-summary-inline">
+            <span>总请求 {formatCount(totalRequests)}</span>
+            <span>成功率 {formatPercent(aggregatedSuccessRate)}</span>
+          </div>
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h3>流量累计</h3>
+            <p>窗口内 ingress / egress bytes</p>
+          </div>
+          <TrendChart
+            labels={trafficLabels}
+            formatYAxisLabel={formatShortBytes}
+            series={[
+              {
+                name: "Ingress Bytes",
+                values: trafficIngress,
+                color: "#2068f6",
+                fillColor: "rgba(32, 104, 246, 0.12)",
+              },
+              {
+                name: "Egress Bytes",
+                values: trafficEgress,
+                color: "#0f9d8b",
+              },
+            ]}
+          />
+          <div className="dashboard-summary-inline">
+            <span>总流量 {formatBytes(totalTrafficBytes)}</span>
+          </div>
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h3>节点池趋势</h3>
+            <p>total / healthy nodes</p>
+          </div>
+          <TrendChart
+            labels={nodeLabels}
+            formatYAxisLabel={formatShortNumber}
+            series={[
+              {
+                name: "Total Nodes",
+                values: nodeTotal,
+                color: "#2d63d8",
+                fillColor: "rgba(45, 99, 216, 0.11)",
+              },
+              {
+                name: "Healthy Nodes",
+                values: nodeHealthy,
+                color: "#0c9f68",
+              },
+            ]}
+          />
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h3>探测任务量</h3>
+            <p>历史 probe total_count</p>
+          </div>
+          <TrendChart
+            labels={probeLabels}
+            formatYAxisLabel={formatShortNumber}
+            series={[
+              {
+                name: "Probes",
+                values: probeCounts,
+                color: "#e26a2c",
+                fillColor: "rgba(226, 106, 44, 0.16)",
+              },
+            ]}
+          />
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h3>租约寿命分位</h3>
+            <p>{isPlatformScope ? activePlatformName : "请选择平台查看"}</p>
+          </div>
+          {!isPlatformScope ? (
+            <div className="empty-box dashboard-empty">
+              <AlertTriangle size={14} />
+              <p>全局视角下不展示单平台租约寿命分位</p>
+            </div>
+          ) : (
+            <>
+              <TrendChart
+                labels={leaseLabels}
+                formatYAxisLabel={formatShortMilliseconds}
+                series={[
+                  {
+                    name: "P50",
+                    values: leaseP50,
+                    color: "#0a86cf",
+                    fillColor: "rgba(10, 134, 207, 0.14)",
+                  },
+                  {
+                    name: "P5",
+                    values: leaseP5,
+                    color: "#9957e0",
+                  },
+                ]}
+              />
+              <div className="dashboard-summary-inline">
+                <span>P50 {formatMilliseconds(latestValue(leaseP50))}</span>
+                <span>P5 {formatMilliseconds(latestValue(leaseP5))}</span>
+              </div>
+            </>
+          )}
+        </Card>
+
+        <Card className="dashboard-panel span-2">
+          <div className="dashboard-panel-header">
+            <h3>节点延迟分布</h3>
+            <p>{isPlatformScope ? "全局 + 平台直方图（EWMA）" : "全局直方图（EWMA）"}</p>
+          </div>
+
+          <div className="dashboard-hist-grid">
+            <div>
+              <p className="dashboard-hist-title">Global</p>
+              <Histogram buckets={globalLatencyHistogram} />
+            </div>
+            <div>
+              <p className="dashboard-hist-title">{isPlatformScope ? activePlatformName : "Platform Scope"}</p>
+              {!isPlatformScope ? (
+                <div className="empty-box dashboard-empty">
+                  <AlertTriangle size={14} />
+                  <p>选择平台后展示平台级延迟分布</p>
+                </div>
+              ) : (
+                <Histogram buckets={platformLatencyHistogram} />
+              )}
+            </div>
+          </div>
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h3>平台快照</h3>
+            <p>routable / egress IP</p>
+          </div>
+          {!isPlatformScope ? (
+            <div className="empty-box dashboard-empty">
+              <AlertTriangle size={14} />
+              <p>当前是全局视角，选择平台后可查看平台快照</p>
+            </div>
+          ) : (
+            <div className="dashboard-snapshot-list">
+              <div>
+                <span>Platform</span>
+                <p>{activePlatformName}</p>
+              </div>
+              <div>
+                <span>Routable Nodes</span>
+                <p>{formatCount(platformData?.snapshot_platform_node_pool.routable_node_count ?? 0)}</p>
+              </div>
+              <div>
+                <span>Egress IPs</span>
+                <p>{formatCount(platformData?.snapshot_platform_node_pool.egress_ip_count ?? 0)}</p>
+              </div>
+              <div>
+                <span>Generated At</span>
+                <p>{formatDateTime(platformData?.snapshot_platform_node_pool.generated_at ?? "")}</p>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h3>系统节点快照</h3>
+            <p>全局节点池状态</p>
+          </div>
+          <div className="dashboard-snapshot-list">
+            <div>
+              <span>Total Nodes</span>
+              <p>{formatCount(snapshotNodePool?.total_nodes ?? 0)}</p>
+            </div>
+            <div>
+              <span>Healthy Nodes</span>
+              <p>{formatCount(snapshotNodePool?.healthy_nodes ?? 0)}</p>
+            </div>
+            <div>
+              <span>Egress IP Count</span>
+              <p>{formatCount(snapshotNodePool?.egress_ip_count ?? 0)}</p>
+            </div>
+            <div>
+              <span>Generated At</span>
+              <p>{formatDateTime(snapshotNodePool?.generated_at ?? "")}</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {globalQuery.isLoading ? (
+        <div className="callout callout-warning">
+          <Server size={14} />
+          <span>Dashboard 数据加载中...</span>
+        </div>
+      ) : null}
+    </section>
+  );
+}
