@@ -6,7 +6,6 @@ import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
 import { ApiError } from "../../lib/api-client";
-import { formatDateTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
 import {
   getDashboardGlobalHistoryData,
@@ -1040,6 +1039,39 @@ export function DashboardPage() {
           </div>
         </Card>
 
+        <Card className="dashboard-panel span-2">
+          <div className="dashboard-panel-header">
+            <h3>节点延迟分布</h3>
+            <p>延迟直方图</p>
+          </div>
+
+          <Histogram buckets={activeLatencyHistogram} />
+        </Card>
+
+        <Card className="dashboard-panel">
+          <div className="dashboard-panel-header">
+            <h3>节点池趋势</h3>
+            <p>total / healthy nodes</p>
+          </div>
+          <TrendChart
+            labels={nodeLabels}
+            formatYAxisLabel={formatShortNumber}
+            series={[
+              {
+                name: "Total Nodes",
+                values: nodeTotal,
+                color: "#2d63d8",
+                fillColor: "rgba(45, 99, 216, 0.11)",
+              },
+              {
+                name: "Healthy Nodes",
+                values: nodeHealthy,
+                color: "#0c9f68",
+              },
+            ]}
+          />
+        </Card>
+
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
             <h3>请求质量</h3>
@@ -1088,30 +1120,6 @@ export function DashboardPage() {
           <div className="dashboard-summary-inline">
             <span>总流量 {formatBytes(totalTrafficBytes)}</span>
           </div>
-        </Card>
-
-        <Card className="dashboard-panel">
-          <div className="dashboard-panel-header">
-            <h3>节点池趋势</h3>
-            <p>total / healthy nodes</p>
-          </div>
-          <TrendChart
-            labels={nodeLabels}
-            formatYAxisLabel={formatShortNumber}
-            series={[
-              {
-                name: "Total Nodes",
-                values: nodeTotal,
-                color: "#2d63d8",
-                fillColor: "rgba(45, 99, 216, 0.11)",
-              },
-              {
-                name: "Healthy Nodes",
-                values: nodeHealthy,
-                color: "#0c9f68",
-              },
-            ]}
-          />
         </Card>
 
         <Card className="dashboard-panel">
@@ -1167,47 +1175,6 @@ export function DashboardPage() {
                 <span>P5 {formatMilliseconds(latestValue(leaseP5))}</span>
               </div>
             </>
-          )}
-        </Card>
-
-        <Card className="dashboard-panel span-2">
-          <div className="dashboard-panel-header">
-            <h3>节点延迟分布</h3>
-            <p>延迟直方图</p>
-          </div>
-
-          <Histogram buckets={activeLatencyHistogram} />
-        </Card>
-
-        <Card className="dashboard-panel">
-          <div className="dashboard-panel-header">
-            <h3>平台快照</h3>
-            <p>routable / egress IP</p>
-          </div>
-          {!isPlatformScope ? (
-            <div className="empty-box dashboard-empty">
-              <AlertTriangle size={14} />
-              <p>当前是全局视角，选择平台后可查看平台快照</p>
-            </div>
-          ) : (
-            <div className="dashboard-snapshot-list">
-              <div>
-                <span>Platform</span>
-                <p>{activePlatformName}</p>
-              </div>
-              <div>
-                <span>Routable Nodes</span>
-                <p>{formatCount(platformData?.snapshot_platform_node_pool.routable_node_count ?? 0)}</p>
-              </div>
-              <div>
-                <span>Egress IPs</span>
-                <p>{formatCount(platformData?.snapshot_platform_node_pool.egress_ip_count ?? 0)}</p>
-              </div>
-              <div>
-                <span>Generated At</span>
-                <p>{formatDateTime(platformData?.snapshot_platform_node_pool.generated_at ?? "")}</p>
-              </div>
-            </div>
           )}
         </Card>
 
