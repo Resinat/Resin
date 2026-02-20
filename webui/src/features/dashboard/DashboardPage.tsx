@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Gauge, Layers, Server, Shield, Waves } from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -7,6 +7,8 @@ import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
 import { ApiError } from "../../lib/api-client";
 import {
+  type DashboardGlobalHistoryData,
+  type DashboardGlobalRealtimeData,
   getDashboardGlobalHistoryData,
   getDashboardGlobalRealtimeData,
   getDashboardGlobalSnapshotData,
@@ -88,6 +90,7 @@ const DEFAULT_HISTORY_REFRESH_MS = 60_000;
 const MIN_HISTORY_REFRESH_MS = 15_000;
 const MAX_HISTORY_REFRESH_MS = 300_000;
 const SNAPSHOT_REFRESH_MS = 5_000;
+const MAX_TREND_POINTS = 480;
 
 function fromApiError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -276,6 +279,34 @@ function normalizeTrendData(labels: string[], series: TrendSeries[]): TrendPoint
   return points;
 }
 
+function downsampleTrendInput(
+  labels: string[],
+  series: ChartSeries[],
+  maxPoints: number,
+): { labels: string[]; series: ChartSeries[] } {
+  const pointCount = Math.max(labels.length, ...series.map((item) => item.values.length));
+  if (maxPoints < 3 || pointCount <= maxPoints) {
+    return { labels, series };
+  }
+
+  const middleCount = maxPoints - 2;
+  const span = pointCount - 2;
+  const selected = new Set<number>([0, pointCount - 1]);
+  for (let i = 0; i < middleCount; i += 1) {
+    const idx = 1 + Math.floor((i * span) / middleCount);
+    selected.add(Math.min(pointCount - 2, idx));
+  }
+  const indices = Array.from(selected).sort((a, b) => a - b);
+
+  return {
+    labels: indices.map((index) => labels[index] ?? ""),
+    series: series.map((item) => ({
+      ...item,
+      values: indices.map((index) => item.values[index] ?? 0),
+    })),
+  };
+}
+
 function TrendTooltipContent({ active, payload, label, series, valueFormatter }: TrendTooltipContentProps) {
   if (!active || !payload?.length) {
     return null;
@@ -307,12 +338,13 @@ function TrendTooltipContent({ active, payload, label, series, valueFormatter }:
 
 function TrendChart({ labels, series, formatYAxisLabel }: TrendChartProps) {
   const safeSeries = sanitizeSeries(series);
+  const sampled = downsampleTrendInput(labels, safeSeries, MAX_TREND_POINTS);
   const yLabelFormatter = formatYAxisLabel ?? formatShortNumber;
-  const trendSeries: TrendSeries[] = safeSeries.map((item, index) => ({
+  const trendSeries: TrendSeries[] = sampled.series.map((item, index) => ({
     ...item,
     key: `series_${index}`,
   }));
-  const data = normalizeTrendData(labels, trendSeries);
+  const data = normalizeTrendData(sampled.labels, trendSeries);
   const valueCount = data.length;
   const firstLabel = data[0]?.displayLabel ?? "";
   const lastLabel = data[valueCount - 1]?.displayLabel ?? "";
@@ -578,12 +610,14 @@ function historyRefreshMsFromBuckets(bucketSeconds: Array<number | undefined>): 
 
 export function DashboardPage() {
   const [rangeKey, setRangeKey] = useState<RangeKey>("6h");
+  const queryClient = useQueryClient();
 
   const globalRealtimeQuery = useQuery({
     queryKey: ["dashboard-global-realtime", rangeKey],
     queryFn: async () => {
       const window = getTimeWindow(rangeKey);
-      return getDashboardGlobalRealtimeData(window);
+      const previous = queryClient.getQueryData<DashboardGlobalRealtimeData>(["dashboard-global-realtime", rangeKey]);
+      return getDashboardGlobalRealtimeData(window, previous);
     },
     refetchInterval: (query) => {
       const data = query.state.data as
@@ -602,7 +636,8 @@ export function DashboardPage() {
     queryKey: ["dashboard-global-history", rangeKey],
     queryFn: async () => {
       const window = getTimeWindow(rangeKey);
-      return getDashboardGlobalHistoryData(window);
+      const previous = queryClient.getQueryData<DashboardGlobalHistoryData>(["dashboard-global-history", rangeKey]);
+      return getDashboardGlobalHistoryData(window, previous);
     },
     refetchInterval: (query) => {
       const data = query.state.data as
@@ -669,35 +704,63 @@ export function DashboardPage() {
   const isInitialLoading =
     !globalData && (globalRealtimeQuery.isLoading || globalHistoryQuery.isLoading || globalSnapshotQuery.isLoading);
 
-  const throughputItems = sortTimeSeriesByTimestamp(globalData?.realtime_throughput.items ?? [], (item) => item.ts);
+  const realtimeThroughputItems = globalData?.realtime_throughput.items ?? [];
+  const throughputItems = useMemo(
+    () => sortTimeSeriesByTimestamp(realtimeThroughputItems, (item) => item.ts),
+    [realtimeThroughputItems],
+  );
   const throughputIngress = throughputItems.map((item) => item.ingress_bps);
   const throughputEgress = throughputItems.map((item) => item.egress_bps);
   const throughputLabels = throughputItems.map((item) => item.ts);
 
-  const connectionItems = sortTimeSeriesByTimestamp(globalData?.realtime_connections.items ?? [], (item) => item.ts);
+  const realtimeConnectionItems = globalData?.realtime_connections.items ?? [];
+  const connectionItems = useMemo(
+    () => sortTimeSeriesByTimestamp(realtimeConnectionItems, (item) => item.ts),
+    [realtimeConnectionItems],
+  );
   const connectionsInbound = connectionItems.map((item) => item.inbound_connections);
   const connectionsOutbound = connectionItems.map((item) => item.outbound_connections);
   const connectionsLabels = connectionItems.map((item) => item.ts);
 
-  const leaseRealtimeItems = sortTimeSeriesByTimestamp(globalData?.realtime_leases.items ?? [], (item) => item.ts);
+  const realtimeLeaseItems = globalData?.realtime_leases.items ?? [];
+  const leaseRealtimeItems = useMemo(
+    () => sortTimeSeriesByTimestamp(realtimeLeaseItems, (item) => item.ts),
+    [realtimeLeaseItems],
+  );
   const leasesValues = leaseRealtimeItems.map((item) => item.active_leases);
 
-  const trafficItems = sortTimeSeriesByTimestamp(globalData?.history_traffic.items ?? [], (item) => item.bucket_start);
+  const historyTrafficItems = globalData?.history_traffic.items ?? [];
+  const trafficItems = useMemo(
+    () => sortTimeSeriesByTimestamp(historyTrafficItems, (item) => item.bucket_start),
+    [historyTrafficItems],
+  );
   const trafficIngress = trafficItems.map((item) => item.ingress_bytes);
   const trafficEgress = trafficItems.map((item) => item.egress_bytes);
   const trafficLabels = trafficItems.map((item) => item.bucket_start);
 
-  const requestItems = sortTimeSeriesByTimestamp(globalData?.history_requests.items ?? [], (item) => item.bucket_start);
+  const historyRequestItems = globalData?.history_requests.items ?? [];
+  const requestItems = useMemo(
+    () => sortTimeSeriesByTimestamp(historyRequestItems, (item) => item.bucket_start),
+    [historyRequestItems],
+  );
   const requestTotals = requestItems.map((item) => item.total_requests);
   const requestSuccessRates = requestItems.map((item) => item.success_rate * 100);
   const requestLabels = requestItems.map((item) => item.bucket_start);
 
-  const nodePoolItems = sortTimeSeriesByTimestamp(globalData?.history_node_pool.items ?? [], (item) => item.bucket_start);
+  const historyNodePoolItems = globalData?.history_node_pool.items ?? [];
+  const nodePoolItems = useMemo(
+    () => sortTimeSeriesByTimestamp(historyNodePoolItems, (item) => item.bucket_start),
+    [historyNodePoolItems],
+  );
   const nodeTotal = nodePoolItems.map((item) => item.total_nodes);
   const nodeHealthy = nodePoolItems.map((item) => item.healthy_nodes);
   const nodeLabels = nodePoolItems.map((item) => item.bucket_start);
 
-  const probeItems = sortTimeSeriesByTimestamp(globalData?.history_probes.items ?? [], (item) => item.bucket_start);
+  const historyProbeItems = globalData?.history_probes.items ?? [];
+  const probeItems = useMemo(
+    () => sortTimeSeriesByTimestamp(historyProbeItems, (item) => item.bucket_start),
+    [historyProbeItems],
+  );
   const probeCounts = probeItems.map((item) => item.total_count);
   const probeLabels = probeItems.map((item) => item.bucket_start);
 
