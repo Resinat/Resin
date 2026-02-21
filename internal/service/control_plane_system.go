@@ -229,8 +229,9 @@ func validateRuntimeConfig(cfg *config.RuntimeConfig) *ServiceError {
 	if cfg.LatencyDecayWindow < 0 {
 		return invalidArg("latency_decay_window: must be non-negative")
 	}
-	if cfg.CacheFlushInterval < 0 {
-		return invalidArg("cache_flush_interval: must be non-negative")
+	minCacheFlushInterval := 5 * time.Second
+	if time.Duration(cfg.CacheFlushInterval) < minCacheFlushInterval {
+		return invalidArg("cache_flush_interval: must be >= 5s")
 	}
 	if cfg.EphemeralNodeEvictDelay < 0 {
 		return invalidArg("ephemeral_node_evict_delay: must be non-negative")
