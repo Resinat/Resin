@@ -570,7 +570,6 @@ export function SubscriptionPage() {
               <section className="platform-drawer-section platform-ops-section">
                 <div className="platform-drawer-section-head">
                   <h4>运维操作</h4>
-                  <p>对当前订阅执行刷新或删除。</p>
                 </div>
 
                 <div className="platform-ops-list">

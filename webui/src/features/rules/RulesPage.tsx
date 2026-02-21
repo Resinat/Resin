@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Bug, Eraser, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, Bug, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -197,11 +197,7 @@ export function RulesPage() {
     await deleteMutation.mutateAsync(rule.url_prefix);
   };
 
-  const clearForm = () => {
-    setFormPrefix("");
-    setFormHeadersRaw("");
-    setSelectedPrefix("");
-  };
+
 
   const handleUpdateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -391,19 +387,15 @@ export function RulesPage() {
                     <Textarea
                       id="rule-headers"
                       rows={5}
-                      placeholder="每行一个 header，例如\nAuthorization\nX-API-Key"
+                      placeholder="每行一个 header，例如 Authorization"
                       value={formHeadersRaw}
                       onChange={(event) => setFormHeadersRaw(event.target.value)}
                     />
                   </div>
-                  <div className="detail-actions">
+                  <div className="detail-actions" style={{ justifyContent: "flex-end" }}>
                     <Button type="submit" disabled={updateMutation.isPending}>
                       <Wand2 size={14} />
                       {updateMutation.isPending ? "保存中..." : "保存规则"}
-                    </Button>
-                    <Button variant="secondary" onClick={clearForm}>
-                      <Eraser size={14} />
-                      清空
                     </Button>
                   </div>
                 </form>
@@ -412,8 +404,7 @@ export function RulesPage() {
               {selectedRule ? (
                 <section className="platform-drawer-section platform-ops-section">
                   <div className="platform-drawer-section-head">
-                    <h4>运维动作</h4>
-                    <p>对当前规则执行删除。</p>
+                    <h4>运维操作</h4>
                   </div>
                   <div className="platform-ops-list">
                     <article className="platform-op-item">
@@ -509,7 +500,7 @@ export function RulesPage() {
               </Button>
             </div>
 
-            <form className="form-grid" onSubmit={handleCreateSubmit}>
+            <form className="form-grid single-column" onSubmit={handleCreateSubmit}>
               <div className="field-group">
                 <label className="field-label" htmlFor="create-rule-prefix">
                   URL Prefix
@@ -529,7 +520,7 @@ export function RulesPage() {
                 <Textarea
                   id="create-rule-headers"
                   rows={5}
-                  placeholder="每行一个 header，例如\nAuthorization\nX-API-Key"
+                  placeholder="每行一个 header，例如 Authorization"
                   value={createHeadersRaw}
                   onChange={(event) => setCreateHeadersRaw(event.target.value)}
                 />

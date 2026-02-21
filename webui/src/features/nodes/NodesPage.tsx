@@ -648,7 +648,6 @@ export function NodesPage() {
               <section className="platform-drawer-section platform-ops-section">
                 <div className="platform-drawer-section-head">
                   <h4>运维操作</h4>
-                  <p>对该节点执行主动探测。</p>
                 </div>
                 <div className="platform-ops-list">
                   <div className="platform-op-item">
