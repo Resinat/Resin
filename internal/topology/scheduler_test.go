@@ -545,6 +545,68 @@ func TestScheduler_DueCheck(t *testing.T) {
 	}
 }
 
+func TestScheduler_Tick_UpdatesDueSubscriptionsInParallel(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+
+	due1 := subscription.NewSubscription("s1", "Due1", "http://example.com/due1", true, false)
+	due1.SetFetchConfig(due1.URL(), int64(time.Hour))
+	due1.LastCheckedNs.Store(time.Now().Add(-2 * time.Hour).UnixNano())
+	subMgr.Register(due1)
+
+	due2 := subscription.NewSubscription("s2", "Due2", "http://example.com/due2", true, false)
+	due2.SetFetchConfig(due2.URL(), int64(time.Hour))
+	due2.LastCheckedNs.Store(time.Now().Add(-2 * time.Hour).UnixNano())
+	subMgr.Register(due2)
+
+	notDue := subscription.NewSubscription("s3", "NotDue", "http://example.com/not-due", true, false)
+	notDue.SetFetchConfig(notDue.URL(), int64(time.Hour))
+	notDue.LastCheckedNs.Store(time.Now().UnixNano())
+	subMgr.Register(notDue)
+
+	pool := newTestPool(subMgr)
+	releaseFetch := make(chan struct{})
+	allStarted := make(chan struct{})
+	var started atomic.Int32
+	fetcher := func(url string) ([]byte, error) {
+		if started.Add(1) == 2 {
+			close(allStarted)
+		}
+		<-releaseFetch
+		return makeSubscriptionJSON(), nil
+	}
+	sched := newTestScheduler(subMgr, pool, fetcher)
+
+	done := make(chan struct{})
+	go func() {
+		sched.tick()
+		close(done)
+	}()
+
+	select {
+	case <-allStarted:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("expected due subscription refreshes to start in parallel")
+	}
+
+	select {
+	case <-done:
+		t.Fatal("tick should wait for in-flight due refreshes")
+	default:
+	}
+
+	close(releaseFetch)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("tick did not finish after fetchers were released")
+	}
+
+	if got := started.Load(); got != 2 {
+		t.Fatalf("expected 2 fetch attempts for due subscriptions, got %d", got)
+	}
+}
+
 func TestScheduler_ForceRefreshAllAsync_ReturnsImmediately(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	sub := subscription.NewSubscription("s1", "Async", "http://example.com/async", true, false)
@@ -580,6 +642,57 @@ func TestScheduler_ForceRefreshAllAsync_ReturnsImmediately(t *testing.T) {
 
 	close(releaseFetch)
 	sched.Stop()
+}
+
+func TestScheduler_ForceRefreshAll_UpdatesSubscriptionsInParallel(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub1 := subscription.NewSubscription("s1", "One", "http://example.com/one", true, false)
+	sub2 := subscription.NewSubscription("s2", "Two", "http://example.com/two", true, false)
+	subMgr.Register(sub1)
+	subMgr.Register(sub2)
+
+	pool := newTestPool(subMgr)
+	releaseFetch := make(chan struct{})
+	allStarted := make(chan struct{})
+	var started atomic.Int32
+	fetcher := func(url string) ([]byte, error) {
+		if started.Add(1) == 2 {
+			close(allStarted)
+		}
+		<-releaseFetch
+		return makeSubscriptionJSON(), nil
+	}
+	sched := newTestScheduler(subMgr, pool, fetcher)
+
+	done := make(chan struct{})
+	go func() {
+		sched.ForceRefreshAll()
+		close(done)
+	}()
+
+	select {
+	case <-allStarted:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("expected both subscription refreshes to start in parallel")
+	}
+
+	select {
+	case <-done:
+		t.Fatal("ForceRefreshAll should wait for in-flight refreshes")
+	default:
+	}
+
+	close(releaseFetch)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ForceRefreshAll did not finish after fetchers were released")
+	}
+
+	if got := started.Load(); got != 2 {
+		t.Fatalf("expected 2 fetch attempts, got %d", got)
+	}
 }
 
 func TestScheduler_ForceRefreshAll_AfterStopDoesNotFetch(t *testing.T) {
