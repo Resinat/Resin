@@ -3,6 +3,7 @@ package topology
 import (
 	"context"
 	"log"
+	"runtime"
 	"sync"
 	"time"
 
@@ -102,29 +103,7 @@ func (s *SubscriptionScheduler) ForceRefreshAll() {
 		}
 		return true
 	})
-
-	var wg sync.WaitGroup
-	for _, sub := range subsToRefresh {
-		select {
-		case <-s.stopCh:
-			wg.Wait()
-			return
-		default:
-		}
-
-		wg.Add(1)
-		go func(sub *subscription.Subscription) {
-			defer wg.Done()
-			select {
-			case <-s.stopCh:
-				return
-			default:
-			}
-			s.UpdateSubscription(sub)
-		}(sub)
-	}
-
-	wg.Wait()
+	s.runUpdatesWithWorkerLimit(subsToRefresh)
 }
 
 // ForceRefreshAllAsync triggers ForceRefreshAll in a background goroutine.
@@ -161,9 +140,25 @@ func (s *SubscriptionScheduler) tick() {
 		}
 		return true
 	})
+	s.runUpdatesWithWorkerLimit(dueSubs)
+}
 
+func (s *SubscriptionScheduler) runUpdatesWithWorkerLimit(subs []*subscription.Subscription) {
+	if len(subs) == 0 {
+		return
+	}
+
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(subs) {
+		workers = len(subs)
+	}
+
+	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
-	for _, sub := range dueSubs {
+	for _, sub := range subs {
 		select {
 		case <-s.stopCh:
 			wg.Wait()
@@ -171,9 +166,11 @@ func (s *SubscriptionScheduler) tick() {
 		default:
 		}
 
+		sem <- struct{}{}
 		wg.Add(1)
 		go func(sub *subscription.Subscription) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			select {
 			case <-s.stopCh:
 				return
@@ -182,7 +179,6 @@ func (s *SubscriptionScheduler) tick() {
 			s.UpdateSubscription(sub)
 		}(sub)
 	}
-
 	wg.Wait()
 }
 

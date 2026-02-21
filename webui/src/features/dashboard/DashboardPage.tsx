@@ -280,24 +280,129 @@ function normalizeTrendData(labels: string[], series: TrendSeries[]): TrendPoint
   return points;
 }
 
-function downsampleTrendInput(
-  labels: string[],
-  series: ChartSeries[],
-  maxPoints: number,
-): { labels: string[]; series: ChartSeries[] } {
-  const pointCount = Math.max(labels.length, ...series.map((item) => item.values.length));
-  if (maxPoints < 3 || pointCount <= maxPoints) {
-    return { labels, series };
+function buildUniformSampleIndices(pointCount: number, maxPoints: number): number[] {
+  if (pointCount <= 0 || maxPoints <= 0) {
+    return [];
   }
 
-  const middleCount = maxPoints - 2;
+  const capped = Math.min(pointCount, maxPoints);
+  if (capped === pointCount) {
+    return Array.from({ length: pointCount }, (_, index) => index);
+  }
+  if (capped === 1) {
+    return [0];
+  }
+  if (capped === 2) {
+    return [0, pointCount - 1];
+  }
+
+  const middleCount = capped - 2;
   const span = pointCount - 2;
   const selected = new Set<number>([0, pointCount - 1]);
   for (let i = 0; i < middleCount; i += 1) {
     const idx = 1 + Math.floor((i * span) / middleCount);
     selected.add(Math.min(pointCount - 2, idx));
   }
-  const indices = Array.from(selected).sort((a, b) => a - b);
+  return Array.from(selected).sort((a, b) => a - b);
+}
+
+// M4 downsampling keeps first/min/max/last from each bucket.
+function buildM4SampleIndices(pointCount: number, series: ChartSeries[], maxPoints: number): number[] {
+  if (pointCount <= 0 || maxPoints <= 0) {
+    return [];
+  }
+  if (pointCount <= maxPoints) {
+    return Array.from({ length: pointCount }, (_, index) => index);
+  }
+  if (maxPoints < 4) {
+    return buildUniformSampleIndices(pointCount, maxPoints);
+  }
+
+  const bucketCount = Math.max(1, Math.min(pointCount, Math.floor(maxPoints / 4)));
+  if (bucketCount <= 1) {
+    return buildUniformSampleIndices(pointCount, maxPoints);
+  }
+
+  const selected: number[] = [];
+  let lastPushed = -1;
+  const pushUnique = (index: number) => {
+    if (index !== lastPushed) {
+      selected.push(index);
+      lastPushed = index;
+    }
+  };
+
+  for (let bucket = 0; bucket < bucketCount; bucket += 1) {
+    const start = Math.floor((bucket * pointCount) / bucketCount);
+    const endExclusive = Math.floor(((bucket + 1) * pointCount) / bucketCount);
+    const end = Math.max(start, endExclusive - 1);
+
+    let minIndex = start;
+    let maxIndex = start;
+    let minValue = Number.POSITIVE_INFINITY;
+    let maxValue = Number.NEGATIVE_INFINITY;
+
+    for (let index = start; index <= end; index += 1) {
+      let pointMin = Number.POSITIVE_INFINITY;
+      let pointMax = Number.NEGATIVE_INFINITY;
+
+      if (!series.length) {
+        pointMin = 0;
+        pointMax = 0;
+      } else {
+        for (const item of series) {
+          const value = item.values[index] ?? 0;
+          if (value < pointMin) {
+            pointMin = value;
+          }
+          if (value > pointMax) {
+            pointMax = value;
+          }
+        }
+      }
+
+      if (pointMin < minValue || (pointMin === minValue && index < minIndex)) {
+        minValue = pointMin;
+        minIndex = index;
+      }
+      if (pointMax > maxValue || (pointMax === maxValue && index < maxIndex)) {
+        maxValue = pointMax;
+        maxIndex = index;
+      }
+    }
+
+    const bucketIndices = [start, minIndex, maxIndex, end].sort((a, b) => a - b);
+    let previousBucketIndex = -1;
+    for (const index of bucketIndices) {
+      if (index !== previousBucketIndex) {
+        pushUnique(index);
+        previousBucketIndex = index;
+      }
+    }
+  }
+
+  if (selected.length <= maxPoints) {
+    return selected;
+  }
+
+  const sampledSelection = buildUniformSampleIndices(selected.length, maxPoints);
+  return sampledSelection.map((index) => selected[index] ?? selected[selected.length - 1]);
+}
+
+function downsampleTrendInput(
+  labels: string[],
+  series: ChartSeries[],
+  maxPoints: number,
+): { labels: string[]; series: ChartSeries[] } {
+  const pointCount = Math.max(labels.length, ...series.map((item) => item.values.length));
+  if (pointCount <= 0) {
+    return { labels, series };
+  }
+
+  const indices = buildM4SampleIndices(pointCount, series, maxPoints);
+  if (!indices.length || indices.length === pointCount) {
+    return { labels, series };
+  }
 
   return {
     labels: indices.map((index) => labels[index] ?? ""),
