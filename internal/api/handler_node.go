@@ -54,6 +54,25 @@ func sortNodeSummaries(nodes []service.NodeSummary, sorting Sorting) {
 	})
 }
 
+type nodeListPageResponse struct {
+	Items           []service.NodeSummary `json:"items"`
+	Total           int                   `json:"total"`
+	Limit           int                   `json:"limit"`
+	Offset          int                   `json:"offset"`
+	UniqueEgressIPs int                   `json:"unique_egress_ips"`
+}
+
+func countUniqueEgressIPs(nodes []service.NodeSummary) int {
+	seen := make(map[string]struct{})
+	for _, n := range nodes {
+		if n.EgressIP == "" {
+			continue
+		}
+		seen[n.EgressIP] = struct{}{}
+	}
+	return len(seen)
+}
+
 // HandleListNodes returns a handler for GET /api/v1/nodes.
 func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +135,13 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		WritePage(w, http.StatusOK, nodes, pg)
+		WriteJSON(w, http.StatusOK, nodeListPageResponse{
+			Items:           PaginateSlice(nodes, pg),
+			Total:           len(nodes),
+			Limit:           pg.Limit,
+			Offset:          pg.Offset,
+			UniqueEgressIPs: countUniqueEgressIPs(nodes),
+		})
 	}
 }
 

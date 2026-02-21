@@ -1,0 +1,93 @@
+package api
+
+import (
+	"net/http"
+	"net/netip"
+	"testing"
+
+	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/service"
+	"github.com/resin-proxy/resin/internal/subscription"
+)
+
+func addNodeForNodeListTest(t *testing.T, cp *service.ControlPlaneService, sub *subscription.Subscription, raw string, egressIP string) {
+	t.Helper()
+
+	hash := node.HashFromRawOptions([]byte(raw))
+	cp.Pool.AddNodeFromSub(hash, []byte(raw), sub.ID)
+	sub.ManagedNodes().Store(hash, []string{"tag"})
+
+	if egressIP == "" {
+		return
+	}
+	entry, ok := cp.Pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing after add", hash.Hex())
+	}
+	entry.SetEgressIP(netip.MustParseAddr(egressIP))
+}
+
+func TestHandleListNodes_UniqueEgressIPsUsesFilteredResult(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	subA := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	subB := subscription.NewSubscription("22222222-2222-2222-2222-222222222222", "sub-b", "https://example.com/b", true, false)
+	cp.SubMgr.Register(subA)
+	cp.SubMgr.Register(subB)
+
+	addNodeForNodeListTest(t, cp, subA, `{"type":"ss","server":"1.1.1.1","port":443}`, "203.0.113.10")
+	addNodeForNodeListTest(t, cp, subA, `{"type":"ss","server":"2.2.2.2","port":443}`, "203.0.113.10")
+	addNodeForNodeListTest(t, cp, subA, `{"type":"ss","server":"3.3.3.3","port":443}`, "203.0.113.11")
+	addNodeForNodeListTest(t, cp, subA, `{"type":"ss","server":"4.4.4.4","port":443}`, "")
+	addNodeForNodeListTest(t, cp, subB, `{"type":"ss","server":"5.5.5.5","port":443}`, "203.0.113.99")
+
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/nodes?subscription_id="+subA.ID, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list nodes status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["total"] != float64(4) {
+		t.Fatalf("total: got %v, want 4", body["total"])
+	}
+	if body["unique_egress_ips"] != float64(2) {
+		t.Fatalf("unique_egress_ips: got %v, want 2", body["unique_egress_ips"])
+	}
+
+	rec = doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/nodes?subscription_id="+subA.ID+"&limit=1",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list nodes paged status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if body["total"] != float64(4) {
+		t.Fatalf("paged total: got %v, want 4", body["total"])
+	}
+	if body["unique_egress_ips"] != float64(2) {
+		t.Fatalf("paged unique_egress_ips: got %v, want 2", body["unique_egress_ips"])
+	}
+
+	rec = doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/nodes?subscription_id="+subA.ID+"&egress_ip=203.0.113.10",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list nodes with egress filter status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if body["total"] != float64(2) {
+		t.Fatalf("filtered total: got %v, want 2", body["total"])
+	}
+	if body["unique_egress_ips"] != float64(1) {
+		t.Fatalf("filtered unique_egress_ips: got %v, want 1", body["unique_egress_ips"])
+	}
+}

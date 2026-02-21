@@ -1412,6 +1412,10 @@ Query：
 Response：
 ```json
 {
+  "total": 1,
+  "limit": 50,
+  "offset": 0,
+  "unique_egress_ips": 1,
   "items": [
     {
       "node_hash": "9f2c0b1a6d3e4f5c8a9b0c1d2e3f4a5b",
@@ -1445,6 +1449,11 @@ Response：
   ]
 }
 ```
+
+`unique_egress_ips` 说明：
+* 统计对象是“当前过滤条件命中的全部节点”（即分页前结果）。
+* 不受 `limit` / `offset` 影响。
+* 仅统计有有效 `egress_ip` 的节点（空值不计入）。
 
 #### 获取单个节点
 
