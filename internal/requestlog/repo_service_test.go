@@ -258,6 +258,62 @@ func TestRepo_ListAcrossDBsUsesGlobalTsOrdering(t *testing.T) {
 	}
 }
 
+func TestRepo_GetByIDAndPayloads_PreferNewestDBOnDuplicateID(t *testing.T) {
+	repo := NewRepo(t.TempDir(), 1<<20, 5)
+	if err := repo.Open(); err != nil {
+		t.Fatalf("repo.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	// Older DB row.
+	if _, err := repo.InsertBatch([]proxy.RequestLogEntry{{
+		ID:          "dup-id",
+		StartedAtNs: 100,
+		ProxyType:   proxy.ProxyTypeForward,
+		PlatformID:  "old-platform",
+		ReqBody:     []byte("old-body"),
+	}}); err != nil {
+		t.Fatalf("insert old row: %v", err)
+	}
+
+	// Newer DB row with the same ID should win.
+	if err := repo.rotateDB(); err != nil {
+		t.Fatalf("rotateDB: %v", err)
+	}
+	if _, err := repo.InsertBatch([]proxy.RequestLogEntry{{
+		ID:          "dup-id",
+		StartedAtNs: 200,
+		ProxyType:   proxy.ProxyTypeReverse,
+		PlatformID:  "new-platform",
+		ReqBody:     []byte("new-body"),
+		RespBody:    []byte("new-resp"),
+	}}); err != nil {
+		t.Fatalf("insert new row: %v", err)
+	}
+
+	row, err := repo.GetByID("dup-id")
+	if err != nil {
+		t.Fatalf("repo.GetByID: %v", err)
+	}
+	if row == nil {
+		t.Fatal("expected GetByID row")
+	}
+	if row.TsNs != 200 || row.PlatformID != "new-platform" {
+		t.Fatalf("GetByID should prefer newest DB row, got ts_ns=%d platform_id=%q", row.TsNs, row.PlatformID)
+	}
+
+	payload, err := repo.GetPayloads("dup-id")
+	if err != nil {
+		t.Fatalf("repo.GetPayloads: %v", err)
+	}
+	if payload == nil {
+		t.Fatal("expected payload row")
+	}
+	if string(payload.ReqBody) != "new-body" || string(payload.RespBody) != "new-resp" {
+		t.Fatalf("GetPayloads should prefer newest DB payload, got req=%q resp=%q", payload.ReqBody, payload.RespBody)
+	}
+}
+
 func TestRepo_ListCursorPagination(t *testing.T) {
 	repo := NewRepo(t.TempDir(), 1<<20, 5)
 	if err := repo.Open(); err != nil {

@@ -7,8 +7,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -268,23 +270,8 @@ func (r *Repo) List(f ListFilter) ([]LogSummary, bool, *ListCursor, error) {
 	// Fetch one extra row across retained DBs to derive has_more.
 	fetchLimit := limit + 1
 	var results []LogSummary
-	// Iterate every retained DB, then globally merge-sort.
-	// We must not early-stop by file order because request ts_ns can be out-of-order
-	// relative to DB filename time (e.g. long-lived requests flushed later).
-	for i := len(files) - 1; i >= 0; i-- {
-		db, err := r.openReadOnly(files[i])
-		if err != nil {
-			log.Printf("[requestlog] warning: list open db failed path=%q: %v", files[i], err)
-			continue
-		}
-		rows, err := r.queryLogs(db, f, fetchLimit)
-		if closeErr := db.Close(); closeErr != nil {
-			log.Printf("[requestlog] warning: list close db failed path=%q: %v", files[i], closeErr)
-		}
-		if err != nil {
-			log.Printf("[requestlog] warning: list query failed path=%q: %v", files[i], err)
-			continue
-		}
+	resultsByIndex := r.queryLogsAcrossRetainedDBs(files, f, fetchLimit)
+	for _, rows := range resultsByIndex {
 		results = append(results, rows...)
 	}
 
@@ -319,18 +306,16 @@ func (r *Repo) GetByID(id string) (*LogSummary, error) {
 		return nil, err
 	}
 
-	var result *LogSummary
-	r.queryAcrossRetainedDBs(files, "get_by_id", "id", id, func(db *sql.DB) (bool, error) {
-		row, err := r.queryLogByID(db, id)
-		if err != nil {
-			return false, err
-		}
-		if row != nil {
-			result = row
-			return true, nil
-		}
-		return false, nil
-	})
+	result := queryAcrossRetainedDBsNewestFirst(
+		r,
+		files,
+		"get_by_id",
+		"id",
+		id,
+		func(db *sql.DB) (*LogSummary, error) {
+			return r.queryLogByID(db, id)
+		},
+	)
 	return result, nil
 }
 
@@ -341,46 +326,122 @@ func (r *Repo) GetPayloads(logID string) (*PayloadRow, error) {
 		return nil, err
 	}
 
-	var result *PayloadRow
-	r.queryAcrossRetainedDBs(files, "get_payloads", "log_id", logID, func(db *sql.DB) (bool, error) {
-		row, err := r.queryPayload(db, logID)
-		if err != nil {
-			return false, err
-		}
-		if row != nil {
-			result = row
-			return true, nil
-		}
-		return false, nil
-	})
+	result := queryAcrossRetainedDBsNewestFirst(
+		r,
+		files,
+		"get_payloads",
+		"log_id",
+		logID,
+		func(db *sql.DB) (*PayloadRow, error) {
+			return r.queryPayload(db, logID)
+		},
+	)
 	return result, nil
 }
 
-func (r *Repo) queryAcrossRetainedDBs(
+func queryAcrossRetainedDBsNewestFirst[T any](
+	r *Repo,
 	files []string,
 	op string,
 	keyName string,
 	keyValue string,
-	query func(*sql.DB) (bool, error),
-) {
-	for i := len(files) - 1; i >= 0; i-- {
-		path := files[i]
-		db, err := r.openReadOnly(path)
-		if err != nil {
-			log.Printf("[requestlog] warning: %s open db failed path=%q %s=%q: %v", op, path, keyName, keyValue, err)
-			continue
-		}
-		row, err := query(db)
-		if closeErr := db.Close(); closeErr != nil {
-			log.Printf("[requestlog] warning: %s close db failed path=%q %s=%q: %v", op, path, keyName, keyValue, closeErr)
-		}
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("[requestlog] warning: %s query failed path=%q %s=%q: %v", op, path, keyName, keyValue, err)
-		}
-		if err == nil && row {
-			return
+	query func(*sql.DB) (*T, error),
+) *T {
+	if len(files) == 0 {
+		return nil
+	}
+
+	results := make([]*T, len(files))
+	workers := parallelFileQueryWorkers(len(files))
+	sem := make(chan struct{}, workers)
+
+	var wg sync.WaitGroup
+	for i, path := range files {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(idx int, path string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			db, err := r.openReadOnly(path)
+			if err != nil {
+				log.Printf("[requestlog] warning: %s open db failed path=%q %s=%q: %v", op, path, keyName, keyValue, err)
+				return
+			}
+			row, err := query(db)
+			if closeErr := db.Close(); closeErr != nil {
+				log.Printf("[requestlog] warning: %s close db failed path=%q %s=%q: %v", op, path, keyName, keyValue, closeErr)
+			}
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				log.Printf("[requestlog] warning: %s query failed path=%q %s=%q: %v", op, path, keyName, keyValue, err)
+				return
+			}
+			if err == nil && row != nil {
+				results[idx] = row
+			}
+		}(i, path)
+	}
+	wg.Wait()
+
+	// Keep original semantics: prefer newer DB files.
+	for i := len(results) - 1; i >= 0; i-- {
+		if results[i] != nil {
+			return results[i]
 		}
 	}
+	return nil
+}
+
+func (r *Repo) queryLogsAcrossRetainedDBs(files []string, f ListFilter, fetchLimit int) [][]LogSummary {
+	if len(files) == 0 {
+		return nil
+	}
+
+	rowsByIndex := make([][]LogSummary, len(files))
+	workers := parallelFileQueryWorkers(len(files))
+	sem := make(chan struct{}, workers)
+
+	var wg sync.WaitGroup
+	for i, path := range files {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(idx int, path string) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			db, err := r.openReadOnly(path)
+			if err != nil {
+				log.Printf("[requestlog] warning: list open db failed path=%q: %v", path, err)
+				return
+			}
+			rows, err := r.queryLogs(db, f, fetchLimit)
+			if closeErr := db.Close(); closeErr != nil {
+				log.Printf("[requestlog] warning: list close db failed path=%q: %v", path, closeErr)
+			}
+			if err != nil {
+				log.Printf("[requestlog] warning: list query failed path=%q: %v", path, err)
+				return
+			}
+			rowsByIndex[idx] = rows
+		}(i, path)
+	}
+	wg.Wait()
+
+	return rowsByIndex
+}
+
+func parallelFileQueryWorkers(fileCount int) int {
+	if fileCount <= 0 {
+		return 1
+	}
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > fileCount {
+		workers = fileCount
+	}
+	return workers
 }
 
 // --- internal helpers ---
