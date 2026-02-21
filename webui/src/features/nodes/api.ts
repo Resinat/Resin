@@ -57,7 +57,7 @@ export async function listNodes(filters: NodeListQuery): Promise<PageResponse<No
 
   appendIfNotEmpty("platform_id", filters.platform_id);
   appendIfNotEmpty("subscription_id", filters.subscription_id);
-  appendIfNotEmpty("region", filters.region);
+  appendIfNotEmpty("region", filters.region?.toLowerCase());
   appendIfNotEmpty("egress_ip", filters.egress_ip);
   appendIfNotEmpty("probed_since", filters.probed_since);
 

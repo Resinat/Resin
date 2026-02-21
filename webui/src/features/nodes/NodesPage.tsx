@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, RefreshCw, Search, Sparkles, Zap } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, Eraser, Globe, RefreshCw, Sparkles, X, Zap } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -10,20 +10,21 @@ import { Select } from "../../components/ui/Select";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
-import { formatDateTime } from "../../lib/time";
+import { formatDateTime, formatRelativeTime } from "../../lib/time";
+import { listPlatforms } from "../platforms/api";
+import { listSubscriptions } from "../subscriptions/api";
 import { getNode, listNodes, probeEgress, probeLatency } from "./api";
+import { getAllRegions, getRegionName } from "./regions";
 import type { NodeListFilters, NodeSortBy, SortOrder } from "./types";
 
-type BoolFilter = "all" | "true" | "false";
+type NodeStatusFilter = "all" | "healthy" | "circuit_open" | "error";
 
 type NodeFilterDraft = {
   platform_id: string;
   subscription_id: string;
   region: string;
   egress_ip: string;
-  probed_since_local: string;
-  circuit_open: BoolFilter;
-  has_outbound: BoolFilter;
+  status: NodeStatusFilter;
 };
 
 const defaultFilterDraft: NodeFilterDraft = {
@@ -31,9 +32,7 @@ const defaultFilterDraft: NodeFilterDraft = {
   subscription_id: "",
   region: "",
   egress_ip: "",
-  probed_since_local: "",
-  circuit_open: "all",
-  has_outbound: "all",
+  status: "all",
 };
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200] as const;
@@ -48,36 +47,36 @@ function fromApiError(error: unknown): string {
   return "未知错误";
 }
 
-function boolFromFilter(value: BoolFilter): boolean | undefined {
-  if (value === "true") {
-    return true;
-  }
-  if (value === "false") {
-    return false;
-  }
-  return undefined;
-}
 
-function toRFC3339(localDateTime: string): string {
-  if (!localDateTime) {
-    return "";
-  }
-  const date = new Date(localDateTime);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  return date.toISOString();
-}
 
 function draftToActiveFilters(draft: NodeFilterDraft): NodeListFilters {
+  let circuit_open: boolean | undefined = undefined;
+  let has_outbound: boolean | undefined = undefined;
+
+  switch (draft.status) {
+    case "healthy":
+      has_outbound = true;
+      circuit_open = false;
+      break;
+    case "circuit_open":
+      has_outbound = true;
+      circuit_open = true;
+      break;
+    case "error":
+      has_outbound = false;
+      break;
+    case "all":
+    default:
+      break;
+  }
+
   return {
     platform_id: draft.platform_id,
     subscription_id: draft.subscription_id,
     region: draft.region,
     egress_ip: draft.egress_ip,
-    probed_since: toRFC3339(draft.probed_since_local),
-    circuit_open: boolFromFilter(draft.circuit_open),
-    has_outbound: boolFromFilter(draft.has_outbound),
+    circuit_open,
+    has_outbound,
   };
 }
 
@@ -88,12 +87,7 @@ function firstTag(node: { tags: { tag: string }[] }): string {
   return node.tags[0].tag;
 }
 
-function extraTagCount(node: { tags: unknown[] }): number {
-  if (node.tags.length <= 1) {
-    return 0;
-  }
-  return node.tags.length - 1;
-}
+
 
 function formatLatency(value: number): string {
   if (!Number.isFinite(value)) {
@@ -109,6 +103,16 @@ function sortIndicator(active: boolean, order: SortOrder): string {
   return order === "asc" ? "▲" : "▼";
 }
 
+function regionToFlag(region: string | undefined): string {
+  if (!region || region.length !== 2) {
+    return region || "-";
+  }
+  const code = region.toUpperCase();
+  const flag = String.fromCodePoint(...[...code].map((c) => c.charCodeAt(0) + 127397));
+  const name = getRegionName(code);
+  return name ? `${flag} ${code} (${name})` : `${flag} ${code}`;
+}
+
 export function NodesPage() {
   const [draftFilters, setDraftFilters] = useState<NodeFilterDraft>(defaultFilterDraft);
   const [activeFilters, setActiveFilters] = useState<NodeListFilters>(draftToActiveFilters(defaultFilterDraft));
@@ -116,11 +120,27 @@ export function NodesPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(50);
-  const [search, setSearch] = useState("");
   const [selectedNodeHash, setSelectedNodeHash] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const { toasts, showToast, dismissToast } = useToast();
 
   const queryClient = useQueryClient();
+
+  const allRegions = useMemo(() => getAllRegions(), []);
+
+  const platformsQuery = useQuery({
+    queryKey: ["platforms", "all"],
+    queryFn: () => listPlatforms(),
+    staleTime: 60_000,
+  });
+  const platforms = platformsQuery.data ?? [];
+
+  const subscriptionsQuery = useQuery({
+    queryKey: ["subscriptions", "all"],
+    queryFn: () => listSubscriptions(),
+    staleTime: 60_000,
+  });
+  const subscriptions = subscriptionsQuery.data ?? [];
 
   const nodesQuery = useQuery({
     queryKey: ["nodes", activeFilters, sortBy, sortOrder, page, pageSize],
@@ -141,45 +161,51 @@ export function NodesPage() {
     total: 0,
     limit: pageSize,
     offset: page * pageSize,
+    unique_egress_ips: 0,
   };
   const nodes = nodesPage.items;
-
-  const visibleNodes = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    if (!keyword) {
-      return nodes;
-    }
-
-    return nodes.filter((node) => {
-      const matchedTag = node.tags.some((item) => item.tag.toLowerCase().includes(keyword));
-      return (
-        node.node_hash.toLowerCase().includes(keyword) ||
-        (node.region || "").toLowerCase().includes(keyword) ||
-        (node.egress_ip || "").toLowerCase().includes(keyword) ||
-        matchedTag
-      );
-    });
-  }, [nodes, search]);
 
   const totalPages = Math.max(1, Math.ceil(nodesPage.total / pageSize));
 
   const selectedNode = useMemo(() => {
-    if (!visibleNodes.length) {
+    if (!selectedNodeHash) {
       return null;
     }
-    return visibleNodes.find((item) => item.node_hash === selectedNodeHash) ?? visibleNodes[0];
-  }, [visibleNodes, selectedNodeHash]);
+    return nodes.find((item) => item.node_hash === selectedNodeHash) ?? null;
+  }, [nodes, selectedNodeHash]);
 
   const selectedHash = selectedNode?.node_hash || "";
 
   const nodeDetailQuery = useQuery({
     queryKey: ["node", selectedHash],
     queryFn: () => getNode(selectedHash),
-    enabled: Boolean(selectedHash),
+    enabled: Boolean(selectedHash) && drawerOpen,
     refetchInterval: 30_000,
   });
 
   const detailNode = nodeDetailQuery.data ?? selectedNode;
+  const drawerVisible = drawerOpen && Boolean(detailNode);
+
+  useEffect(() => {
+    if (!drawerVisible) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      setDrawerOpen(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [drawerVisible]);
+
+  const openDrawer = (hash: string) => {
+    setSelectedNodeHash(hash);
+    setDrawerOpen(true);
+  };
 
   const refreshNodes = async () => {
     await queryClient.invalidateQueries({ queryKey: ["nodes"] });
@@ -218,16 +244,22 @@ export function NodesPage() {
     await probeLatencyMutation.mutateAsync(hash);
   };
 
-  const applyFilters = () => {
-    setActiveFilters(draftToActiveFilters(draftFilters));
-    setSelectedNodeHash("");
-    setPage(0);
+  const handleFilterChange = (key: keyof NodeFilterDraft, value: string) => {
+    setDraftFilters((prev) => {
+      const next = { ...prev, [key]: value };
+      setActiveFilters(draftToActiveFilters(next));
+      setSelectedNodeHash("");
+      setDrawerOpen(false);
+      setPage(0);
+      return next;
+    });
   };
 
   const resetFilters = () => {
     setDraftFilters(defaultFilterDraft);
     setActiveFilters(draftToActiveFilters(defaultFilterDraft));
     setSelectedNodeHash("");
+    setDrawerOpen(false);
     setPage(0);
   };
 
@@ -253,131 +285,128 @@ export function NodesPage() {
           <h2>节点池</h2>
           <p className="module-description">节点管理主视图采用服务端分页表格，支持表头排序与行内探测动作。</p>
         </div>
-        <Button onClick={() => void refreshNodes()} disabled={nodesQuery.isFetching}>
-          <RefreshCw size={16} className={nodesQuery.isFetching ? "spin" : undefined} />
-          刷新数据
-        </Button>
       </header>
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
-      <Card className="filter-card">
-        <div className="filter-grid">
-          <div className="field-group">
-            <label className="field-label" htmlFor="node-platform-id">
-              Platform ID
-            </label>
-            <Input
-              id="node-platform-id"
-              value={draftFilters.platform_id}
-              onChange={(event) => setDraftFilters((prev) => ({ ...prev, platform_id: event.target.value }))}
-            />
+      <Card className="filter-card platform-list-card platform-directory-card">
+        <div className="list-card-header">
+          <div>
+            <h3>节点列表</h3>
+            <p>共 {nodesPage.total} 个节点，{nodesPage.unique_egress_ips} 个出口 IP</p>
           </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="node-subscription-id">
-              Subscription ID
-            </label>
-            <Input
-              id="node-subscription-id"
-              value={draftFilters.subscription_id}
-              onChange={(event) => setDraftFilters((prev) => ({ ...prev, subscription_id: event.target.value }))}
-            />
-          </div>
+          <div
+            className="nodes-inline-filters"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.5rem",
+              alignItems: "flex-end",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="node-platform-id" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                仅显示被此平台路由的节点
+              </label>
+              <Select
+                id="node-platform-id"
+                value={draftFilters.platform_id}
+                onChange={(event) => handleFilterChange("platform_id", event.target.value)}
+                style={{ width: 180, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              >
+                <option value="">无限制</option>
+                {platforms.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="node-region">
-              Region
-            </label>
-            <Input
-              id="node-region"
-              value={draftFilters.region}
-              onChange={(event) => setDraftFilters((prev) => ({ ...prev, region: event.target.value }))}
-            />
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="node-subscription-id" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                来自此订阅的节点
+              </label>
+              <Select
+                id="node-subscription-id"
+                value={draftFilters.subscription_id}
+                onChange={(event) => handleFilterChange("subscription_id", event.target.value)}
+                style={{ width: 140, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              >
+                <option value="">全部</option>
+                {subscriptions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="node-egress-ip">
-              Egress IP
-            </label>
-            <Input
-              id="node-egress-ip"
-              value={draftFilters.egress_ip}
-              onChange={(event) => setDraftFilters((prev) => ({ ...prev, egress_ip: event.target.value }))}
-            />
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="node-region" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                区域
+              </label>
+              <Select
+                id="node-region"
+                value={draftFilters.region}
+                onChange={(event) => handleFilterChange("region", event.target.value)}
+                style={{ width: 100, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              >
+                <option value="">全部</option>
+                {allRegions.map((r) => (
+                  <option key={r.code} value={r.code}>
+                    {r.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="node-probed-since">
-              Probed Since
-            </label>
-            <Input
-              id="node-probed-since"
-              type="datetime-local"
-              value={draftFilters.probed_since_local}
-              onChange={(event) => setDraftFilters((prev) => ({ ...prev, probed_since_local: event.target.value }))}
-            />
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="node-egress-ip" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                出口 IP
+              </label>
+              <Input
+                id="node-egress-ip"
+                value={draftFilters.egress_ip}
+                onChange={(event) => handleFilterChange("egress_ip", event.target.value)}
+                placeholder="IP / CIDR"
+                style={{ width: 120, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="node-circuit-open">
-              Circuit Open
-            </label>
-            <Select
-              id="node-circuit-open"
-              value={draftFilters.circuit_open}
-              onChange={(event) =>
-                setDraftFilters((prev) => ({ ...prev, circuit_open: event.target.value as BoolFilter }))
-              }
-            >
-              <option value="all">全部</option>
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </Select>
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="node-status" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                状态
+              </label>
+              <Select
+                id="node-status"
+                value={draftFilters.status}
+                onChange={(event) => handleFilterChange("status", event.target.value)}
+                style={{ width: 90, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              >
+                <option value="all">全部</option>
+                <option value="healthy">健康</option>
+                <option value="circuit_open">熔断</option>
+                <option value="error">错误</option>
+              </Select>
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="node-has-outbound">
-              Has Outbound
-            </label>
-            <Select
-              id="node-has-outbound"
-              value={draftFilters.has_outbound}
-              onChange={(event) =>
-                setDraftFilters((prev) => ({ ...prev, has_outbound: event.target.value as BoolFilter }))
-              }
-            >
-              <option value="all">全部</option>
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </Select>
+            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.125rem", marginLeft: "auto" }}>
+              <Button size="sm" variant="secondary" onClick={refreshNodes} disabled={nodesQuery.isFetching} style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                <RefreshCw size={14} className={nodesQuery.isFetching ? "spin" : undefined} />
+                刷新
+              </Button>
+              <Button size="sm" variant="secondary" onClick={resetFilters} style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                <Eraser size={14} />
+                重置
+              </Button>
+            </div>
           </div>
-        </div>
-
-        <div className="detail-actions">
-          <Button onClick={applyFilters}>应用筛选</Button>
-          <Button variant="secondary" onClick={resetFilters}>
-            重置
-          </Button>
         </div>
       </Card>
 
-      <Card className="nodes-table-card">
-        <div className="nodes-toolbar">
-          <label className="search-box" htmlFor="node-search">
-            <Search size={14} />
-            <Input
-              id="node-search"
-              placeholder="当前页过滤：hash / tag / region / egress"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
-          <p className="nodes-count">
-            当前页匹配 {visibleNodes.length} 条 · 后端总数 {nodesPage.total} 条
-          </p>
-        </div>
-
+      <Card className="nodes-table-card platform-cards-container subscriptions-table-card">
         {nodesQuery.isLoading ? <p className="muted">正在加载节点数据...</p> : null}
 
         {nodesQuery.isError ? (
@@ -387,16 +416,16 @@ export function NodesPage() {
           </div>
         ) : null}
 
-        {!nodesQuery.isLoading && !visibleNodes.length ? (
+        {!nodesQuery.isLoading && !nodes.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
             <p>没有匹配的节点</p>
           </div>
         ) : null}
 
-        {visibleNodes.length ? (
+        {nodes.length ? (
           <div className="nodes-table-wrap">
-            <table className="nodes-table">
+            <table className="nodes-table subscriptions-table">
               <thead>
                 <tr>
                   <th>
@@ -407,49 +436,46 @@ export function NodesPage() {
                   </th>
                   <th>
                     <button type="button" className="table-sort-btn" onClick={() => changeSort("region")}>
-                      Region
+                      区域
                       <span>{sortIndicator(sortBy === "region", sortOrder)}</span>
                     </button>
                   </th>
-                  <th>Egress IP</th>
+                  <th>出口 IP</th>
                   <th>上次探测</th>
                   <th>
                     <button type="button" className="table-sort-btn" onClick={() => changeSort("failure_count")}>
-                      Failure
+                      连续失败次数
                       <span>{sortIndicator(sortBy === "failure_count", sortOrder)}</span>
                     </button>
                   </th>
                   <th>状态</th>
                   <th>
                     <button type="button" className="table-sort-btn" onClick={() => changeSort("created_at")}>
-                      Created
+                      创建时间
                       <span>{sortIndicator(sortBy === "created_at", sortOrder)}</span>
                     </button>
                   </th>
-                  <th>Actions</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
-                {visibleNodes.map((node) => {
-                  const isSelected = node.node_hash === selectedHash;
+                {nodes.map((node) => {
                   const tagText = firstTag(node);
-                  const tagExtra = extraTagCount(node);
                   return (
                     <tr
                       key={node.node_hash}
-                      className={isSelected ? "nodes-row-selected" : undefined}
-                      onClick={() => setSelectedNodeHash(node.node_hash)}
+                      className="clickable-row"
+                      onClick={() => openDrawer(node.node_hash)}
                     >
                       <td>
                         <div className="nodes-tag-cell">
                           <span>{tagText}</span>
-                          {tagExtra > 0 ? <small>+{tagExtra}</small> : null}
                         </div>
                       </td>
-                      <td>{node.region || "-"}</td>
+                      <td>{regionToFlag(node.region)}</td>
                       <td>{node.egress_ip || "-"}</td>
-                      <td>{formatDateTime(node.last_latency_probe_attempt || "")}</td>
-                      <td>{node.failure_count}</td>
+                      <td>{formatRelativeTime(node.last_latency_probe_attempt)}</td>
+                      <td>{!node.has_outbound ? "-" : node.failure_count}</td>
                       <td>
                         {!node.has_outbound ? (
                           <Badge variant="danger">错误</Badge>
@@ -461,24 +487,24 @@ export function NodesPage() {
                       </td>
                       <td>{formatDateTime(node.created_at)}</td>
                       <td>
-                        <div className="nodes-row-actions" onClick={(event) => event.stopPropagation()}>
+                        <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
                           <Button
                             size="sm"
-                            variant="secondary"
+                            variant="ghost"
+                            title="触发出口探测"
                             onClick={() => void runProbeEgress(node.node_hash)}
                             disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
                           >
-                            <Zap size={13} />
-                            出口
+                            <Globe size={14} />
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
+                            title="触发延迟探测"
                             onClick={() => void runProbeLatency(node.node_hash)}
                             disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
                           >
-                            <Zap size={13} />
-                            延迟
+                            <Zap size={14} />
                           </Button>
                         </div>
                       </td>
@@ -501,87 +527,147 @@ export function NodesPage() {
         />
       </Card>
 
-      {detailNode ? (
-        <Card className="nodes-detail-card">
-          <div className="detail-header">
-            <div>
-              <h3>{firstTag(detailNode)}</h3>
-              <p>{detailNode.node_hash}</p>
-            </div>
-            <Badge variant={!detailNode.has_outbound ? "danger" : detailNode.circuit_open_since ? "warning" : "success"}>
-              {!detailNode.has_outbound ? "错误" : detailNode.circuit_open_since ? "熔断" : "健康"}
-            </Badge>
-          </div>
-
-          <div className="stats-grid">
-            <div>
-              <span>Created At</span>
-              <p>{formatDateTime(detailNode.created_at)}</p>
-            </div>
-            <div>
-              <span>Failure Count</span>
-              <p>{detailNode.failure_count}</p>
-            </div>
-            <div>
-              <span>状态</span>
-              <p>{!detailNode.has_outbound ? "错误" : detailNode.circuit_open_since ? "熔断" : "健康"}</p>
-            </div>
-            <div>
-              <span>Egress IP</span>
-              <p>{detailNode.egress_ip || "-"}</p>
-            </div>
-            <div>
-              <span>Region</span>
-              <p>{detailNode.region || "-"}</p>
-            </div>
-            <div>
-              <span>上次探测</span>
-              <p>{formatDateTime(detailNode.last_latency_probe_attempt || "")}</p>
-            </div>
-          </div>
-
-          {detailNode.last_error ? (
-            <div className="callout callout-error">Last Error: {detailNode.last_error}</div>
-          ) : (
-            <div className="callout callout-success">节点当前没有最近错误</div>
-          )}
-
-          <section className="tags-section">
-            <h4>Node Tags</h4>
-            {!detailNode.tags.length ? (
-              <p className="muted">无 tag 信息</p>
-            ) : (
-              <div className="tag-list">
-                {detailNode.tags.map((tag) => (
-                  <div key={`${tag.subscription_id}:${tag.tag}`} className="tag-item">
-                    <p>{tag.tag}</p>
-                    <span>{tag.subscription_name}</span>
-                    <code>{tag.subscription_id}</code>
-                  </div>
-                ))}
+      {drawerVisible && detailNode ? (
+        <div
+          className="drawer-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`节点详情 ${firstTag(detailNode)}`}
+          onClick={() => setDrawerOpen(false)}
+        >
+          <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-header">
+              <div>
+                <h3>{firstTag(detailNode)}</h3>
+                <p>{detailNode.node_hash}</p>
               </div>
-            )}
-          </section>
+              <div className="drawer-header-actions">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="关闭详情面板"
+                  onClick={() => setDrawerOpen(false)}
+                >
+                  <X size={16} />
+                </Button>
+              </div>
+            </div>
 
-          <div className="detail-actions">
-            <Button
-              onClick={() => void runProbeEgress(detailNode.node_hash)}
-              disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
-            >
-              <Zap size={14} />
-              触发出口探测
-            </Button>
+            <div className="platform-drawer-layout">
+              <section className="platform-drawer-section">
+                <div className="platform-drawer-section-head">
+                  <h4>节点状态</h4>
+                  <p>节点的网络出口、探测状态以及失败历史。</p>
+                </div>
 
-            <Button
-              variant="secondary"
-              onClick={() => void runProbeLatency(detailNode.node_hash)}
-              disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
-            >
-              <Zap size={14} />
-              触发延迟探测
-            </Button>
-          </div>
-        </Card>
+                <div className="stats-grid">
+                  <div>
+                    <span>创建时间</span>
+                    <p>{formatDateTime(detailNode.created_at)}</p>
+                  </div>
+                  <div>
+                    <span>连续失败</span>
+                    <p>{!detailNode.has_outbound ? "-" : detailNode.failure_count}</p>
+                  </div>
+                  <div>
+                    <span>状态</span>
+                    <div>
+                      {!detailNode.has_outbound ? (
+                        <p style={{ color: "var(--danger)" }}>错误</p>
+                      ) : detailNode.circuit_open_since ? (
+                        <div style={{ display: "flex", alignItems: "baseline", gap: "4px" }}>
+                          <p style={{ color: "var(--warning)" }}>熔断</p>
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              color: "var(--text-muted)",
+                              fontWeight: "normal",
+                            }}
+                          >
+                            ({formatRelativeTime(detailNode.circuit_open_since)})
+                          </span>
+                        </div>
+                      ) : (
+                        <p style={{ color: "var(--success)" }}>健康</p>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <span>Egress IP</span>
+                    <p>{detailNode.egress_ip || "-"}</p>
+                  </div>
+                  <div>
+                    <span>区域</span>
+                    <p>{regionToFlag(detailNode.region)}</p>
+                  </div>
+                  <div>
+                    <span>上次探测</span>
+                    <p>{formatDateTime(detailNode.last_latency_probe_attempt || "")}</p>
+                  </div>
+                </div>
+
+                {detailNode.last_error ? (
+                  <div className="callout callout-error">Last Error: {detailNode.last_error}</div>
+                ) : null}
+              </section>
+
+              <section className="platform-drawer-section tags-section">
+                <div className="platform-drawer-section-head">
+                  <h4>节点别名</h4>
+                  <p>节点池中不同名但实际相同的节点</p>
+                </div>
+                {!detailNode.tags.length ? (
+                  <p className="muted">无 tag 信息</p>
+                ) : (
+                  <div className="tag-list">
+                    {detailNode.tags.map((tag) => (
+                      <div key={`${tag.subscription_id}:${tag.tag}`} className="tag-item">
+                        <p>{tag.tag}</p>
+                        <span>{tag.subscription_name}</span>
+                        <code>{tag.subscription_id}</code>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="platform-drawer-section platform-ops-section">
+                <div className="platform-drawer-section-head">
+                  <h4>运维操作</h4>
+                  <p>对该节点执行主动探测。</p>
+                </div>
+                <div className="platform-ops-list">
+                  <div className="platform-op-item">
+                    <div className="platform-op-copy">
+                      <h5>出口探测</h5>
+                      <p className="platform-op-hint">检测节点的外部 IP 地址。</p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void runProbeEgress(detailNode.node_hash)}
+                      disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
+                    >
+                      {probeEgressMutation.isPending ? "探测中..." : "触发出口探测"}
+                    </Button>
+                  </div>
+                  <div className="platform-op-item">
+                    <div className="platform-op-copy">
+                      <h5>延迟探测</h5>
+                      <p className="platform-op-hint">向目标地址发送请求以评估延迟。</p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void runProbeLatency(detailNode.node_hash)}
+                      disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
+                    >
+                      {probeLatencyMutation.isPending ? "探测中..." : "触发延迟探测"}
+                    </Button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </Card>
+        </div>
       ) : null}
     </section>
   );

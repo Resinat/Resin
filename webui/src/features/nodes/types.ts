@@ -25,6 +25,7 @@ export type PageResponse<T> = {
   total: number;
   limit: number;
   offset: number;
+  unique_egress_ips: number;
 };
 
 export type NodeSortBy = "tag" | "created_at" | "failure_count" | "region";
