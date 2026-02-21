@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -14,13 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/oschwald/maxminddb-golang"
 	"github.com/robfig/cron/v3"
-	sgGeoip "github.com/sagernet/sing-box/common/geoip"
 
 	"github.com/resin-proxy/resin/internal/netutil"
 )
 
-// GeoReader abstracts the GeoIP database reader (e.g., sing-box geoip.Reader).
+// GeoReader abstracts the GeoIP database reader (e.g., maxminddb reader).
 // This interface allows different implementations and simplifies testing.
 type GeoReader interface {
 	Lookup(ip netip.Addr) string
@@ -28,11 +29,9 @@ type GeoReader interface {
 }
 
 // OpenFunc opens a GeoIP database file and returns a GeoReader.
-// For sing-box: func(path string) (GeoReader, error) { r, _, err := geoip.Open(path); return r, err }
 type OpenFunc func(path string) (GeoReader, error)
 
 // noOpReader is a placeholder reader that returns "" for all lookups.
-// Used until the real sing-geoip dependency is integrated.
 type noOpReader struct{}
 
 func (noOpReader) Lookup(_ netip.Addr) string { return "" }
@@ -42,27 +41,69 @@ func (noOpReader) Close() error               { return nil }
 // that returns empty string.
 func NoOpOpen(_ string) (GeoReader, error) { return noOpReader{}, nil }
 
-// SingBoxOpen opens a sing-geoip mmdb database using sing-box's geoip.Reader.
-// This is the production OpenFunc.
-func SingBoxOpen(path string) (GeoReader, error) {
-	reader, _, err := sgGeoip.Open(path)
+type mmdbReader struct {
+	reader *maxminddb.Reader
+}
+
+type mmdbCountryRecord struct {
+	Country struct {
+		ISOCode string `maxminddb:"iso_code"`
+	} `maxminddb:"country"`
+	RegisteredCountry struct {
+		ISOCode string `maxminddb:"iso_code"`
+	} `maxminddb:"registered_country"`
+}
+
+func (m *mmdbReader) Lookup(ip netip.Addr) string {
+	if m == nil || m.reader == nil || !ip.IsValid() {
+		return ""
+	}
+	ip = ip.Unmap()
+	var record mmdbCountryRecord
+	if err := m.reader.Lookup(net.IP(ip.AsSlice()), &record); err != nil {
+		return ""
+	}
+	if record.Country.ISOCode != "" {
+		return strings.ToLower(record.Country.ISOCode)
+	}
+	if record.RegisteredCountry.ISOCode != "" {
+		return strings.ToLower(record.RegisteredCountry.ISOCode)
+	}
+	return ""
+}
+
+func (m *mmdbReader) Close() error {
+	if m == nil || m.reader == nil {
+		return nil
+	}
+	return m.reader.Close()
+}
+
+// MMDBOpen opens a MaxMind-compatible mmdb database.
+func MMDBOpen(path string) (GeoReader, error) {
+	reader, err := maxminddb.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	return reader, nil
+	return &mmdbReader{reader: reader}, nil
+}
+
+// SingBoxOpen is kept as a compatibility alias; use MMDBOpen for generic mmdb.
+func SingBoxOpen(path string) (GeoReader, error) {
+	return MMDBOpen(path)
 }
 
 // ServiceConfig configures the GeoIP service.
 type ServiceConfig struct {
-	CacheDir       string             // directory where geoip.db is stored
-	DBFilename     string             // default "geoip.db"
-	UpdateSchedule string             // cron expression, default "0 5 12 * *"
+	CacheDir       string             // directory where country.mmdb is stored
+	DBFilename     string             // default "country.mmdb"
+	UpdateSchedule string             // cron expression, default "0 7 * * *"
 	OpenDB         OpenFunc           // function to open the database
 	Downloader     netutil.Downloader // shared downloader for fetching releases
 }
 
-// ReleaseAPIURL is the GitHub API endpoint for the latest sing-geoip release.
-const ReleaseAPIURL = "https://api.github.com/repos/SagerNet/sing-geoip/releases/latest"
+// ReleaseAPIURL is the GitHub API endpoint for the latest MetaCubeX rules release.
+const ReleaseAPIURL = "https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/latest"
 
 // Service provides GeoIP lookup with hot-reloading via RWMutex.
 type Service struct {
@@ -95,10 +136,10 @@ func (s *Service) isStopped() bool {
 // NewService creates a new GeoIP service.
 func NewService(cfg ServiceConfig) *Service {
 	if cfg.DBFilename == "" {
-		cfg.DBFilename = "geoip.db"
+		cfg.DBFilename = "country.mmdb"
 	}
 	if cfg.UpdateSchedule == "" {
-		cfg.UpdateSchedule = "0 5 12 * *"
+		cfg.UpdateSchedule = "0 7 * * *"
 	}
 	c := cron.New()
 	lifeCtx, lifeCancel := context.WithCancel(context.Background())

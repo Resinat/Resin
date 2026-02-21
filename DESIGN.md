@@ -355,11 +355,11 @@ ProbeManager 采用 **SPSC (Single Producer Single Consumer)** 变体模型进�
 Resin 内置了 GeoIP 服务，用于支持 Platform 的 RegionFilters 功能。
 
 ### 数据源与更新
-* **数据格式**：使用 `geoip.db` 格式。
-* **数据源**：默认从 `SagerNet/sing-geoip` GitHub Release 获取。下载到 Cache Dir。
+* **数据格式**：使用通用 `mmdb` 格式（默认文件 `country.mmdb`）。
+* **数据源**：默认从 `MetaCubeX/meta-rules-dat` GitHub Release 获取。下载到 Cache Dir。
 * **自动更新**：
-    * **调度**：支持 Cron 表达式配置更新时间（默认每月 12 日 05:00）。启动时检查 geoip 的 mtime 确认是否需要更新，启动后按照 CRON 更新。时区使用本地时间。
-    * **原子性**：通过 `https://api.github.com/repos/SagerNet/sing-geoip/releases/latest`，下载到临时文件 -> 校验 SHA256 -> 原子 Rename 覆盖。
+    * **调度**：支持 Cron 表达式配置更新时间（默认每天 07:00）。启动时检查 geoip 的 mtime 确认是否需要更新，启动后按照 CRON 更新。时区使用本地时间。
+    * **原子性**：通过 `https://api.github.com/repos/MetaCubeX/meta-rules-dat/releases/latest`，下载到临时文件 -> 校验 SHA256 -> 原子 Rename 覆盖。
     * **可靠性**：下载失败时会自动尝试使用代理节点重试。
 * **查询**：提供 `Lookup(ip netip.Addr) string` 接口，返回 ISO 3166-1 alpha-2 小写国家代码（如 "cn", "us", "hk"）。
 
@@ -1686,8 +1686,8 @@ Query（建议）：
 
 ```json
 {
-  "db_mtime": "2026-02-12T05:00:00Z",
-  "next_scheduled_update": "2026-03-12T05:00:00Z"
+  "db_mtime": "2026-02-12T07:00:00Z",
+  "next_scheduled_update": "2026-02-13T07:00:00Z"
 }
 ```
 
@@ -1984,7 +1984,7 @@ GeoIP 与订阅的下载都有错误重试的需求。
 核心设置：
 * `RESIN_MAX_LATENCY_TABLE_ENTRIES`：每个节点的延迟表的最大表项数。默认 128。
 * `RESIN_PROBE_CONCURRENCY`：节点探测的最大并发数量，默认 1000。
-* `RESIN_GEOIP_UPDATE_SCHEDULE`：GeoIP 数据库自动更新的 Cron 表达式。默认 "0 5 12 * *"。
+* `RESIN_GEOIP_UPDATE_SCHEDULE`：GeoIP 数据库自动更新的 Cron 表达式。默认 "0 7 * * *"。
 * `RESIN_DEFAULT_PLATFORM_STICKY_TTL`：默认平台粘性会话时长。默认 "168h"。
 * `RESIN_DEFAULT_PLATFORM_REGEX_FILTERS`：默认平台正则过滤器（JSON 字符串数组）。默认 `[]`。
 * `RESIN_DEFAULT_PLATFORM_REGION_FILTERS`：默认平台地区过滤器（JSON 字符串数组，小写 ISO 3166-1 alpha-2）。默认 `[]`。
@@ -2214,12 +2214,25 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 ## GeoIP 查询参考
 
 ```go
-import "github.com/sagernet/sing-box/common/geoip"
+import (
+	"net"
+	"net/netip"
+	"strings"
 
-// 查询 IP 地区：直接调用 sing-box 的 geoip.Reader
+	"github.com/oschwald/maxminddb-golang"
+)
+
+// 查询 IP 地区：直接调用 maxminddb reader
 func lookupRegion(dbPath string, ip netip.Addr) string {
-	reader, _, _ := geoip.Open(dbPath)
+	reader, _ := maxminddb.Open(dbPath)
 	defer reader.Close()
-	return reader.Lookup(ip) // 返回 ISO 3166-1 alpha-2 小写代码，如 "cn", "us"
+
+	var result struct {
+		Country struct {
+			ISOCode string `maxminddb:"iso_code"`
+		} `maxminddb:"country"`
+	}
+	_ = reader.Lookup(net.IP(ip.AsSlice()), &result)
+	return strings.ToLower(result.Country.ISOCode) // 返回 ISO 3166-1 alpha-2 小写代码，如 "cn", "us"
 }
 ```

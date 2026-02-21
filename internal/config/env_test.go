@@ -45,7 +45,7 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	// Core
 	assertEqual(t, "MaxLatencyTableEntries", cfg.MaxLatencyTableEntries, 128)
 	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 1000)
-	assertEqual(t, "GeoIPUpdateSchedule", cfg.GeoIPUpdateSchedule, "0 5 12 * *")
+	assertEqual(t, "GeoIPUpdateSchedule", cfg.GeoIPUpdateSchedule, "0 7 * * *")
 	assertEqual(t, "DefaultPlatformStickyTTL", cfg.DefaultPlatformStickyTTL, 7*24*time.Hour)
 	assertEqual(t, "DefaultPlatformRegexFiltersLength", len(cfg.DefaultPlatformRegexFilters), 0)
 	assertEqual(t, "DefaultPlatformRegionFiltersLength", len(cfg.DefaultPlatformRegionFilters), 0)

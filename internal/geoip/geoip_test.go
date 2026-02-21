@@ -51,6 +51,30 @@ func TestGeoIP_Lookup_NilReader(t *testing.T) {
 	}
 }
 
+func TestNewService_Defaults(t *testing.T) {
+	s := NewService(ServiceConfig{
+		CacheDir: t.TempDir(),
+		OpenDB:   NoOpOpen,
+	})
+	defer s.Stop()
+
+	if s.dbFilename != "country.mmdb" {
+		t.Fatalf("dbFilename = %q, want %q", s.dbFilename, "country.mmdb")
+	}
+
+	entry := s.cron.Entry(s.cronEntryID)
+	if entry.ID == 0 || entry.Schedule == nil {
+		t.Fatal("default cron entry is not configured")
+	}
+
+	base := time.Date(2026, 1, 2, 6, 30, 0, 0, time.Local)
+	next := entry.Schedule.Next(base)
+	want := time.Date(2026, 1, 2, 7, 0, 0, 0, time.Local)
+	if !next.Equal(want) {
+		t.Fatalf("next schedule = %v, want %v", next, want)
+	}
+}
+
 func TestGeoIP_ReloadReader(t *testing.T) {
 	old := &mockReader{country: "us"}
 	s := &Service{reader: old}
