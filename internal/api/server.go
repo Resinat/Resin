@@ -25,6 +25,7 @@ func NewServer(
 	adminToken string,
 	systemInfo service.SystemInfo,
 	runtimeCfg *atomic.Pointer[config.RuntimeConfig],
+	envCfg *config.EnvConfig,
 	cp *service.ControlPlaneService,
 	apiMaxBodyBytes int64,
 	requestlogRepo *requestlog.Repo,
@@ -40,6 +41,7 @@ func NewServer(
 	authed.Handle("GET /api/v1/system/info", HandleSystemInfo(systemInfo))
 	authed.Handle("GET /api/v1/system/config", HandleSystemConfig(runtimeCfg))
 	authed.Handle("GET /api/v1/system/config/default", HandleSystemDefaultConfig())
+	authed.Handle("GET /api/v1/system/config/env", HandleSystemEnvConfig(envCfg))
 
 	if cp != nil {
 		// System config mutations.
