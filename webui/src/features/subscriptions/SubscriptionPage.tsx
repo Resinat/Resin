@@ -343,7 +343,7 @@ export function SubscriptionPage() {
               />
             </label>
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={() => setCreateModalOpen(true)}
             >
@@ -351,7 +351,7 @@ export function SubscriptionPage() {
               新建
             </Button>
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={() => subscriptionsQuery.refetch()}
               disabled={subscriptionsQuery.isFetching}

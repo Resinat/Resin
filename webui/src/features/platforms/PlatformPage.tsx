@@ -328,7 +328,7 @@ export function PlatformPage() {
               />
             </label>
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={() => setCreateModalOpen(true)}
             >
@@ -336,7 +336,7 @@ export function PlatformPage() {
               新建
             </Button>
             <Button
-              variant="ghost"
+              variant="secondary"
               size="sm"
               onClick={() => platformsQuery.refetch()}
               disabled={platformsQuery.isFetching}
