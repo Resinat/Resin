@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Download, RefreshCw, Search, Sparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, Download, Eraser, FileText, RefreshCw, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -91,13 +91,23 @@ function decodeBase64ToText(raw: string): string {
   }
 }
 
+function isFromBeforeTo(fromISO?: string, toISO?: string): boolean {
+  if (!fromISO || !toISO) {
+    return true;
+  }
+  return new Date(fromISO).getTime() < new Date(toISO).getTime();
+}
+
 function buildActiveFilters(draft: FilterDraft): Omit<RequestLogListFilters, "cursor"> {
   const status = Number(draft.http_status);
   const hasValidStatus = Number.isInteger(status) && status >= 100 && status <= 599;
+  const from = toRFC3339(draft.from_local);
+  const to = toRFC3339(draft.to_local);
+  const validRange = isFromBeforeTo(from, to);
 
   return {
-    from: toRFC3339(draft.from_local),
-    to: toRFC3339(draft.to_local),
+    from,
+    to: validRange ? to : undefined,
     platform_id: draft.platform_id,
     account: draft.account,
     target_host: draft.target_host,
@@ -109,27 +119,43 @@ function buildActiveFilters(draft: FilterDraft): Omit<RequestLogListFilters, "cu
   };
 }
 
-function isFromBeforeTo(fromISO?: string, toISO?: string): boolean {
-  if (!fromISO || !toISO) {
-    return true;
+function proxyTypeLabel(proxyType: number): string {
+  if (proxyType === 1) {
+    return "1 (Forward)";
   }
-  return new Date(fromISO).getTime() < new Date(toISO).getTime();
+  if (proxyType === 2) {
+    return "2 (Reverse)";
+  }
+  return String(proxyType);
 }
 
 export function RequestLogsPage() {
-  const [draft, setDraft] = useState<FilterDraft>(defaultFilters);
-  const [activeFilters, setActiveFilters] = useState<Omit<RequestLogListFilters, "cursor">>(
-    buildActiveFilters(defaultFilters),
-  );
+  const [filters, setFilters] = useState<FilterDraft>(defaultFilters);
   const [cursorStack, setCursorStack] = useState<string[]>([""]);
   const [pageIndex, setPageIndex] = useState(0);
-  const [search, setSearch] = useState("");
   const [selectedLogId, setSelectedLogId] = useState("");
-  const { toasts, showToast, dismissToast } = useToast();
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [payloadForId, setPayloadForId] = useState("");
   const [payloadTab, setPayloadTab] = useState<PayloadTab>("req_headers");
+  const { toasts, dismissToast } = useToast();
 
+  const activeFilters = useMemo(() => buildActiveFilters(filters), [filters]);
   const cursor = cursorStack[pageIndex] || "";
+
+  const rangeInvalid = useMemo(() => {
+    const from = toRFC3339(filters.from_local);
+    const to = toRFC3339(filters.to_local);
+    return Boolean(from && to && !isFromBeforeTo(from, to));
+  }, [filters.from_local, filters.to_local]);
+
+  const httpStatusInvalid = useMemo(() => {
+    const raw = filters.http_status.trim();
+    if (!raw) {
+      return false;
+    }
+    const value = Number(raw);
+    return !(Number.isInteger(value) && value >= 100 && value <= 599);
+  }, [filters.http_status]);
 
   const logsQuery = useQuery({
     queryKey: ["request-logs", activeFilters, cursor],
@@ -140,37 +166,23 @@ export function RequestLogsPage() {
 
   const logs = logsQuery.data?.items ?? EMPTY_LOGS;
 
-  const visibleLogs = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    if (!keyword) {
-      return logs;
-    }
-
-    return logs.filter((log) => {
-      return (
-        log.id.toLowerCase().includes(keyword) ||
-        log.account.toLowerCase().includes(keyword) ||
-        log.target_host.toLowerCase().includes(keyword) ||
-        log.platform_name.toLowerCase().includes(keyword) ||
-        log.node_tag.toLowerCase().includes(keyword)
-      );
-    });
-  }, [logs, search]);
+  const visibleLogs = logs;
 
   const selectedLog = useMemo(() => {
-    if (!visibleLogs.length) {
+    if (!selectedLogId) {
       return null;
     }
-    return visibleLogs.find((item) => item.id === selectedLogId) ?? visibleLogs[0];
-  }, [visibleLogs, selectedLogId]);
+    return logs.find((item) => item.id === selectedLogId) ?? null;
+  }, [logs, selectedLogId]);
 
-  const detailLogId = selectedLog?.id || "";
-  const payloadOpen = Boolean(payloadForId) && payloadForId === detailLogId;
+  const detailLogId = selectedLogId;
+  const drawerVisible = drawerOpen && Boolean(detailLogId);
+  const payloadOpen = drawerVisible && Boolean(payloadForId) && payloadForId === detailLogId;
 
   const detailQuery = useQuery({
     queryKey: ["request-log", detailLogId],
     queryFn: () => getRequestLog(detailLogId),
-    enabled: Boolean(detailLogId),
+    enabled: drawerVisible,
   });
 
   const detailLog: RequestLogItem | null = detailQuery.data ?? selectedLog ?? null;
@@ -178,37 +190,49 @@ export function RequestLogsPage() {
   const payloadQuery = useQuery({
     queryKey: ["request-log-payload", detailLogId],
     queryFn: () => getRequestLogPayloads(detailLogId),
-    enabled: payloadOpen && Boolean(detailLogId),
+    enabled: payloadOpen,
     staleTime: 30_000,
   });
 
-  const applyFilters = () => {
-    const next = buildActiveFilters(draft);
-    if (!isFromBeforeTo(next.from, next.to)) {
-      showToast("error", "时间范围错误：from 必须早于 to。");
+  useEffect(() => {
+    if (!drawerVisible) {
       return;
     }
 
-    if (draft.http_status && next.http_status === undefined) {
-      showToast("error", "HTTP Status 必须是 100-599 的整数。");
-      return;
-    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      setDrawerOpen(false);
+    };
 
-    setActiveFilters(next);
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [drawerVisible]);
+
+  const updateFilter = <K extends keyof FilterDraft>(key: K, value: FilterDraft[K]) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
     setCursorStack([""]);
     setPageIndex(0);
     setSelectedLogId("");
+    setDrawerOpen(false);
     setPayloadForId("");
   };
 
   const resetFilters = () => {
-    setDraft(defaultFilters);
-    setActiveFilters(buildActiveFilters(defaultFilters));
+    setFilters(defaultFilters);
     setCursorStack([""]);
     setPageIndex(0);
     setSelectedLogId("");
+    setDrawerOpen(false);
     setPayloadForId("");
+  };
 
+  const openDrawer = (logId: string) => {
+    setSelectedLogId(logId);
+    setDrawerOpen(true);
+    setPayloadForId("");
+    setPayloadTab("req_headers");
   };
 
   const moveNext = () => {
@@ -226,12 +250,14 @@ export function RequestLogsPage() {
     });
     setPageIndex((prev) => prev + 1);
     setSelectedLogId("");
+    setDrawerOpen(false);
     setPayloadForId("");
   };
 
   const movePrev = () => {
     setPageIndex((prev) => Math.max(0, prev - 1));
     setSelectedLogId("");
+    setDrawerOpen(false);
     setPayloadForId("");
   };
 
@@ -264,171 +290,192 @@ export function RequestLogsPage() {
   const hasMore = Boolean(logsQuery.data?.has_more && logsQuery.data?.next_cursor);
 
   return (
-    <section className="logs-page">
+    <section className="nodes-page">
       <header className="module-header">
         <div>
           <h2>请求日志</h2>
-          <p className="module-description">游标分页日志工作台，支持条件检索、详情分析与 payload 解码查看。</p>
+          <p className="module-description">日志主视图采用游标分页表格，筛选条件修改后立即生效。</p>
         </div>
-        <Button onClick={() => void logsQuery.refetch()} disabled={logsQuery.isFetching}>
-          <RefreshCw size={16} className={logsQuery.isFetching ? "spin" : undefined} />
-          刷新
-        </Button>
       </header>
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
-      <Card className="filter-card">
-        <div className="filter-grid logs-filter-grid">
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-from">
-              From
-            </label>
-            <Input
-              id="logs-from"
-              type="datetime-local"
-              value={draft.from_local}
-              onChange={(event) => setDraft((prev) => ({ ...prev, from_local: event.target.value }))}
-            />
-          </div>
+      <Card className="filter-card platform-list-card platform-directory-card">
+        <div className="list-card-header">
+          <div
+            className="logs-inline-filters"
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.5rem",
+              alignItems: "flex-end",
+            }}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-from" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                开始时间
+              </label>
+              <Input
+                id="logs-from"
+                type="datetime-local"
+                value={filters.from_local}
+                onChange={(event) => updateFilter("from_local", event.target.value)}
+                style={{ width: 190, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-to">
-              To
-            </label>
-            <Input
-              id="logs-to"
-              type="datetime-local"
-              value={draft.to_local}
-              onChange={(event) => setDraft((prev) => ({ ...prev, to_local: event.target.value }))}
-            />
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-to" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                结束时间
+              </label>
+              <Input
+                id="logs-to"
+                type="datetime-local"
+                value={filters.to_local}
+                onChange={(event) => updateFilter("to_local", event.target.value)}
+                style={{ width: 190, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-platform-id">
-              Platform ID
-            </label>
-            <Input
-              id="logs-platform-id"
-              value={draft.platform_id}
-              onChange={(event) => setDraft((prev) => ({ ...prev, platform_id: event.target.value }))}
-            />
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-platform-id" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                Platform ID
+              </label>
+              <Input
+                id="logs-platform-id"
+                value={filters.platform_id}
+                onChange={(event) => updateFilter("platform_id", event.target.value)}
+                style={{ width: 160, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-account">
-              Account
-            </label>
-            <Input
-              id="logs-account"
-              value={draft.account}
-              onChange={(event) => setDraft((prev) => ({ ...prev, account: event.target.value }))}
-            />
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-account" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                Account
+              </label>
+              <Input
+                id="logs-account"
+                value={filters.account}
+                onChange={(event) => updateFilter("account", event.target.value)}
+                style={{ width: 130, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-target-host">
-              Target Host
-            </label>
-            <Input
-              id="logs-target-host"
-              value={draft.target_host}
-              onChange={(event) => setDraft((prev) => ({ ...prev, target_host: event.target.value }))}
-            />
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-target-host" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                Target Host
+              </label>
+              <Input
+                id="logs-target-host"
+                value={filters.target_host}
+                onChange={(event) => updateFilter("target_host", event.target.value)}
+                style={{ width: 170, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-egress-ip">
-              Egress IP
-            </label>
-            <Input
-              id="logs-egress-ip"
-              value={draft.egress_ip}
-              onChange={(event) => setDraft((prev) => ({ ...prev, egress_ip: event.target.value }))}
-            />
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-egress-ip" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                Egress IP
+              </label>
+              <Input
+                id="logs-egress-ip"
+                value={filters.egress_ip}
+                onChange={(event) => updateFilter("egress_ip", event.target.value)}
+                style={{ width: 130, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-proxy-type">
-              Proxy Type
-            </label>
-            <Select
-              id="logs-proxy-type"
-              value={draft.proxy_type}
-              onChange={(event) => setDraft((prev) => ({ ...prev, proxy_type: event.target.value as ProxyTypeFilter }))}
-            >
-              <option value="all">全部</option>
-              <option value="1">1 (Forward)</option>
-              <option value="2">2 (Reverse)</option>
-            </Select>
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-proxy-type" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                Proxy Type
+              </label>
+              <Select
+                id="logs-proxy-type"
+                value={filters.proxy_type}
+                onChange={(event) => updateFilter("proxy_type", event.target.value as ProxyTypeFilter)}
+                style={{ width: 120, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              >
+                <option value="all">全部</option>
+                <option value="1">1 (Forward)</option>
+                <option value="2">2 (Reverse)</option>
+              </Select>
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-net-ok">
-              Net OK
-            </label>
-            <Select
-              id="logs-net-ok"
-              value={draft.net_ok}
-              onChange={(event) => setDraft((prev) => ({ ...prev, net_ok: event.target.value as BoolFilter }))}
-            >
-              <option value="all">全部</option>
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </Select>
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-net-ok" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                网络状态
+              </label>
+              <Select
+                id="logs-net-ok"
+                value={filters.net_ok}
+                onChange={(event) => updateFilter("net_ok", event.target.value as BoolFilter)}
+                style={{ width: 100, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              >
+                <option value="all">全部</option>
+                <option value="true">ok</option>
+                <option value="false">failed</option>
+              </Select>
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-http-status">
-              HTTP Status
-            </label>
-            <Input
-              id="logs-http-status"
-              placeholder="100-599"
-              value={draft.http_status}
-              onChange={(event) => setDraft((prev) => ({ ...prev, http_status: event.target.value }))}
-            />
-          </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-http-status" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                HTTP 状态码
+              </label>
+              <Input
+                id="logs-http-status"
+                placeholder="100-599"
+                value={filters.http_status}
+                onChange={(event) => updateFilter("http_status", event.target.value)}
+                style={{ width: 100, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
+            </div>
 
-          <div className="field-group">
-            <label className="field-label" htmlFor="logs-limit">
-              每页条数
-            </label>
-            <Select
-              id="logs-limit"
-              value={String(draft.limit)}
-              onChange={(event) => setDraft((prev) => ({ ...prev, limit: Number(event.target.value) }))}
-            >
-              <option value="20">20</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-              <option value="200">200</option>
-            </Select>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="logs-limit" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                每页条数
+              </label>
+              <Select
+                id="logs-limit"
+                value={String(filters.limit)}
+                onChange={(event) => updateFilter("limit", Number(event.target.value))}
+                style={{ width: 90, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              >
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="200">200</option>
+              </Select>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.125rem", marginLeft: "auto" }}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void logsQuery.refetch()}
+                disabled={logsQuery.isFetching}
+                style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}
+              >
+                <RefreshCw size={14} className={logsQuery.isFetching ? "spin" : undefined} />
+                刷新
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={resetFilters}
+                style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}
+              >
+                <Eraser size={14} />
+                重置
+              </Button>
+            </div>
           </div>
         </div>
 
-        <div className="detail-actions">
-          <Button onClick={applyFilters}>应用筛选</Button>
-          <Button variant="secondary" onClick={resetFilters}>
-            重置
-          </Button>
-        </div>
+        {rangeInvalid ? <div className="callout callout-warning">时间范围错误：开始时间必须早于结束时间，已暂不应用结束时间筛选。</div> : null}
+        {httpStatusInvalid ? <div className="callout callout-warning">HTTP 状态码需为 100-599 的整数，当前输入暂不应用。</div> : null}
       </Card>
 
-      <Card className="logs-table-card">
-        <div className="logs-toolbar">
-          <label className="search-box" htmlFor="logs-search">
-            <Search size={14} />
-            <Input
-              id="logs-search"
-              placeholder="当前页过滤：id/account/target/platform/tag"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
-          <p className="nodes-count">第 {pageIndex + 1} 页 · 当前页 {visibleLogs.length} 条</p>
-        </div>
-
+      <Card className="nodes-table-card platform-cards-container subscriptions-table-card">
         {logsQuery.isLoading ? <p className="muted">正在加载日志...</p> : null}
 
         {logsQuery.isError ? (
@@ -446,35 +493,33 @@ export function RequestLogsPage() {
         ) : null}
 
         {visibleLogs.length ? (
-          <div className="logs-table-wrap">
-            <table className="logs-table">
+          <div className="nodes-table-wrap">
+            <table className="nodes-table subscriptions-table">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Proxy</th>
-                  <th>Platform / Account</th>
-                  <th>Target</th>
+                  <th>时间</th>
+                  <th>代理</th>
+                  <th>平台 / 账号</th>
+                  <th>目标</th>
                   <th>HTTP</th>
-                  <th>Net</th>
-                  <th>Duration</th>
-                  <th>Node</th>
+                  <th>网络</th>
+                  <th>耗时</th>
+                  <th>节点</th>
                   <th>Payload</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleLogs.map((log) => {
-                  const isSelected = log.id === detailLogId;
+                  const isSelected = drawerVisible && log.id === detailLogId;
                   return (
                     <tr
                       key={log.id}
-                      className={isSelected ? "nodes-row-selected" : undefined}
-                      onClick={() => {
-                        setSelectedLogId(log.id);
-                        setPayloadForId("");
-                      }}
+                      className={isSelected ? "nodes-row-selected" : "clickable-row"}
+                      onClick={() => openDrawer(log.id)}
                     >
                       <td>{formatDateTime(log.ts)}</td>
-                      <td>{log.proxy_type}</td>
+                      <td>{proxyTypeLabel(log.proxy_type)}</td>
                       <td>
                         <div className="logs-cell-stack">
                           <span>{log.platform_name || "-"}</span>
@@ -506,6 +551,13 @@ export function RequestLogsPage() {
                       <td>
                         {log.payload_present ? <Badge variant="neutral">yes</Badge> : <Badge variant="warning">no</Badge>}
                       </td>
+                      <td>
+                        <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
+                          <Button size="sm" variant="ghost" title="查看详情" onClick={() => openDrawer(log.id)}>
+                            <FileText size={14} />
+                          </Button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -529,110 +581,163 @@ export function RequestLogsPage() {
         </div>
       </Card>
 
-      {detailLog ? (
-        <Card className="logs-detail-card">
-          <div className="detail-header">
-            <div>
-              <h3>Log #{detailLog.id}</h3>
-              <p>{formatDateTime(detailLog.ts)}</p>
-            </div>
-            <Badge variant={detailLog.net_ok ? "success" : "warning"}>{detailLog.net_ok ? "Net OK" : "Net Failed"}</Badge>
-          </div>
-
-          <div className="stats-grid">
-            <div>
-              <span>Proxy Type</span>
-              <p>{detailLog.proxy_type}</p>
-            </div>
-            <div>
-              <span>HTTP</span>
-              <p>
-                {detailLog.http_method || "-"} {detailLog.http_status || "-"}
-              </p>
-            </div>
-            <div>
-              <span>Duration</span>
-              <p>{detailLog.duration_ms} ms</p>
-            </div>
-            <div>
-              <span>Platform</span>
-              <p>{detailLog.platform_name || "-"}</p>
-            </div>
-            <div>
-              <span>Account</span>
-              <p>{detailLog.account || "-"}</p>
-            </div>
-            <div>
-              <span>Egress IP</span>
-              <p>{detailLog.egress_ip || "-"}</p>
-            </div>
-          </div>
-
-          <div className="logs-detail-block">
-            <h4>Target</h4>
-            <p>{detailLog.target_host || "-"}</p>
-            <code>{detailLog.target_url || "-"}</code>
-          </div>
-
-          <div className="logs-detail-block">
-            <h4>Node</h4>
-            <p>{detailLog.node_tag || "-"}</p>
-            <code>{detailLog.node_hash || "-"}</code>
-          </div>
-
-          <div className="detail-actions">
-            <Button onClick={loadPayload} disabled={!detailLog.payload_present || payloadQuery.isFetching}>
-              <Download size={14} />
-              {payloadQuery.isFetching ? "加载中..." : "加载 Payload"}
-            </Button>
-          </div>
-
-          {!detailLog.payload_present ? (
-            <div className="callout callout-warning">该条日志未记录 payload。</div>
-          ) : null}
-
-          {payloadOpen ? (
-            <section className="logs-payload-section">
-              <div className="logs-payload-tabs">
-                {PAYLOAD_TABS.map((tab) => {
-                  const labelMap: Record<PayloadTab, string> = {
-                    req_headers: "Req Headers",
-                    req_body: "Req Body",
-                    resp_headers: "Resp Headers",
-                    resp_body: "Resp Body",
-                  };
-
-                  const truncated = payloadQuery.data
-                    ? payloadQuery.data.truncated[
-                    tab as "req_headers" | "req_body" | "resp_headers" | "resp_body"
-                    ]
-                    : false;
-
-                  return (
-                    <button
-                      key={tab}
-                      type="button"
-                      className={`payload-tab ${payloadTab === tab ? "payload-tab-active" : ""}`}
-                      onClick={() => setPayloadTab(tab)}
-                    >
-                      <span>{labelMap[tab]}</span>
-                      {truncated ? <Badge variant="warning">truncated</Badge> : null}
-                    </button>
-                  );
-                })}
+      {drawerVisible && detailLog ? (
+        <div
+          className="drawer-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`请求日志详情 ${detailLog.id}`}
+          onClick={() => setDrawerOpen(false)}
+        >
+          <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-header">
+              <div>
+                <h3>{detailLog.target_host || detailLog.account || "请求日志详情"}</h3>
+                <p>{detailLog.id}</p>
               </div>
+              <div className="drawer-header-actions">
+                <Badge variant={detailLog.net_ok ? "success" : "warning"}>{detailLog.net_ok ? "Net OK" : "Net Failed"}</Badge>
+                <Button variant="ghost" size="sm" aria-label="关闭详情面板" onClick={() => setDrawerOpen(false)}>
+                  <X size={16} />
+                </Button>
+              </div>
+            </div>
 
-              {payloadQuery.isError ? (
-                <div className="callout callout-error">
-                  <AlertTriangle size={14} />
-                  <span>{fromApiError(payloadQuery.error)}</span>
+            <div className="platform-drawer-layout">
+              <section className="platform-drawer-section">
+                <div className="platform-drawer-section-head">
+                  <h4>日志摘要</h4>
+                  <p>请求时间、协议结果与平台路由信息。</p>
                 </div>
-              ) : null}
 
-              <pre className="logs-payload-box">{payloadText || "(empty)"}</pre>
-            </section>
-          ) : null}
-        </Card>
+                {detailQuery.isError ? (
+                  <div className="callout callout-error">
+                    <AlertTriangle size={14} />
+                    <span>{fromApiError(detailQuery.error)}</span>
+                  </div>
+                ) : null}
+
+                <div className="stats-grid">
+                  <div>
+                    <span>时间</span>
+                    <p>{formatDateTime(detailLog.ts)}</p>
+                  </div>
+                  <div>
+                    <span>Proxy Type</span>
+                    <p>{proxyTypeLabel(detailLog.proxy_type)}</p>
+                  </div>
+                  <div>
+                    <span>HTTP</span>
+                    <p>
+                      {detailLog.http_method || "-"} {detailLog.http_status || "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <span>耗时</span>
+                    <p>{detailLog.duration_ms} ms</p>
+                  </div>
+                  <div>
+                    <span>Platform</span>
+                    <p>{detailLog.platform_name || "-"}</p>
+                  </div>
+                  <div>
+                    <span>Account</span>
+                    <p>{detailLog.account || "-"}</p>
+                  </div>
+                  <div>
+                    <span>Egress IP</span>
+                    <p>{detailLog.egress_ip || "-"}</p>
+                  </div>
+                  <div>
+                    <span>Client IP</span>
+                    <p>{detailLog.client_ip || "-"}</p>
+                  </div>
+                </div>
+              </section>
+
+              <section className="platform-drawer-section">
+                <div className="platform-drawer-section-head">
+                  <h4>目标与节点</h4>
+                  <p>请求目标与命中节点信息。</p>
+                </div>
+
+                <div className="logs-detail-block">
+                  <h4>Target</h4>
+                  <p>{detailLog.target_host || "-"}</p>
+                  <code>{detailLog.target_url || "-"}</code>
+                </div>
+
+                <div className="logs-detail-block">
+                  <h4>Node</h4>
+                  <p>{detailLog.node_tag || "-"}</p>
+                  <code>{detailLog.node_hash || "-"}</code>
+                </div>
+              </section>
+
+              <section className="platform-drawer-section platform-ops-section">
+                <div className="platform-drawer-section-head">
+                  <h4>Payload</h4>
+                  <p>按需加载并查看请求/响应内容。</p>
+                </div>
+
+                <div className="platform-ops-list">
+                  <div className="platform-op-item">
+                    <div className="platform-op-copy">
+                      <h5>加载 Payload</h5>
+                      <p className="platform-op-hint">仅在需要时加载，避免影响列表浏览性能。</p>
+                    </div>
+                    <Button onClick={loadPayload} disabled={!detailLog.payload_present || payloadQuery.isFetching}>
+                      <Download size={14} />
+                      {payloadQuery.isFetching ? "加载中..." : "加载 Payload"}
+                    </Button>
+                  </div>
+                </div>
+
+                {!detailLog.payload_present ? (
+                  <div className="callout callout-warning">该条日志未记录 payload。</div>
+                ) : null}
+
+                {payloadOpen ? (
+                  <section className="logs-payload-section">
+                    <div className="logs-payload-tabs">
+                      {PAYLOAD_TABS.map((tab) => {
+                        const labelMap: Record<PayloadTab, string> = {
+                          req_headers: "Req Headers",
+                          req_body: "Req Body",
+                          resp_headers: "Resp Headers",
+                          resp_body: "Resp Body",
+                        };
+
+                        const truncated = payloadQuery.data ? payloadQuery.data.truncated[tab] : false;
+
+                        return (
+                          <button
+                            key={tab}
+                            type="button"
+                            className={`payload-tab ${payloadTab === tab ? "payload-tab-active" : ""}`}
+                            onClick={() => setPayloadTab(tab)}
+                          >
+                            <span>{labelMap[tab]}</span>
+                            {truncated ? <Badge variant="warning">truncated</Badge> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {payloadQuery.isError ? (
+                      <div className="callout callout-error">
+                        <AlertTriangle size={14} />
+                        <span>{fromApiError(payloadQuery.error)}</span>
+                      </div>
+                    ) : null}
+
+                    <pre className="logs-payload-box">{payloadText || "(empty)"}</pre>
+                  </section>
+                ) : null}
+              </section>
+            </div>
+          </Card>
+        </div>
       ) : null}
     </section>
   );
