@@ -379,7 +379,7 @@ export function SystemConfigPage() {
 
   const reloadFromServer = async () => {
     if (hasUnsavedChanges) {
-      const confirmed = window.confirm("当前有未保存变更，确认丢弃并重新加载服务器配置？");
+      const confirmed = window.confirm("当前有未保存变更，确认丢弃并重新加载运行时配置？");
       if (!confirmed) {
         return;
       }
@@ -389,7 +389,7 @@ export function SystemConfigPage() {
     setCustomPatchText(null);
     const result = await configQuery.refetch();
     if (result.data) {
-      showToast("success", "已加载服务器最新配置");
+      showToast("success", "已加载最新运行时配置");
     }
   };
 
@@ -412,10 +412,6 @@ export function SystemConfigPage() {
           <h2>系统配置</h2>
           <p className="module-description">分组编辑 RuntimeConfig，保存时仅提交差异字段并展示 PATCH 预览。</p>
         </div>
-        <Button onClick={() => void reloadFromServer()} disabled={configQuery.isFetching || envConfigQuery.isFetching}>
-          <RefreshCw size={16} className={(configQuery.isFetching || envConfigQuery.isFetching) ? "spin" : undefined} />
-          重新加载
-        </Button>
       </header>
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
@@ -445,6 +441,10 @@ export function SystemConfigPage() {
                   <h3>Runtime Settings</h3>
                   <p>按功能分组编辑，支持立即回滚草稿。</p>
                 </div>
+                <Button variant="secondary" size="sm" onClick={() => void reloadFromServer()} disabled={configQuery.isFetching}>
+                  <RefreshCw size={16} className={configQuery.isFetching ? "spin" : undefined} />
+                  刷新
+                </Button>
               </div>
 
               <section className="syscfg-section">
@@ -736,6 +736,18 @@ export function SystemConfigPage() {
                     <h3>静态配置</h3>
                     <p>来自环境变量和启动参数的只读配置。</p>
                   </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={async () => {
+                      const result = await envConfigQuery.refetch();
+                      if (result.data) showToast("success", "已加载最新静态配置");
+                    }}
+                    disabled={envConfigQuery.isFetching}
+                  >
+                    <RefreshCw size={16} className={envConfigQuery.isFetching ? "spin" : undefined} />
+                    刷新
+                  </Button>
                 </div>
 
                 <section className="syscfg-section">
