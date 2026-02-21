@@ -103,7 +103,7 @@ func newControlPlaneTestServerWithBodyLimit(
 		BuildTime: "2026-01-01T00:00:00Z",
 		StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
 	}
-	srv := NewServer(0, testAdminToken, systemInfo, runtimeCfg, cp, apiMaxBodyBytes, nil, nil)
+	srv := NewServer(0, testAdminToken, systemInfo, runtimeCfg, cp.EnvCfg, cp, apiMaxBodyBytes, nil, nil)
 	return srv, cp, runtimeCfg
 }
 
@@ -253,7 +253,7 @@ func newObservabilityTestServer(t *testing.T) (*Server, *requestlog.Repo, *metri
 		RuntimeStats:                contractRuntimeStats{platformID: platformID},
 	})
 
-	srv := NewServer(0, testAdminToken, systemInfo, runtimeCfg, nil, 1<<20, requestlogRepo, metricsManager)
+	srv := NewServer(0, testAdminToken, systemInfo, runtimeCfg, nil, nil, 1<<20, requestlogRepo, metricsManager)
 	return srv, requestlogRepo, metricsManager, platformID
 }
 
@@ -794,6 +794,47 @@ func TestAPIContract_SystemDefaultConfigSnapshot(t *testing.T) {
 	}
 	if currentBody["max_consecutive_failures"] != float64(9) {
 		t.Fatalf("current max_consecutive_failures: got %v, want 9", currentBody["max_consecutive_failures"])
+	}
+}
+
+func TestAPIContract_SystemEnvConfigSnapshot(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/system/config/env", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("env config status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["default_platform_sticky_ttl"] != cp.EnvCfg.DefaultPlatformStickyTTL.String() {
+		t.Fatalf(
+			"default_platform_sticky_ttl: got %v, want %s",
+			body["default_platform_sticky_ttl"],
+			cp.EnvCfg.DefaultPlatformStickyTTL.String(),
+		)
+	}
+	if body["default_platform_reverse_proxy_miss_action"] != "RANDOM" {
+		t.Fatalf(
+			"default_platform_reverse_proxy_miss_action: got %v, want RANDOM",
+			body["default_platform_reverse_proxy_miss_action"],
+		)
+	}
+	if body["default_platform_allocation_policy"] != "BALANCED" {
+		t.Fatalf(
+			"default_platform_allocation_policy: got %v, want BALANCED",
+			body["default_platform_allocation_policy"],
+		)
+	}
+	if body["admin_token_set"] != false {
+		t.Fatalf("admin_token_set: got %v, want false", body["admin_token_set"])
+	}
+	if body["proxy_token_set"] != false {
+		t.Fatalf("proxy_token_set: got %v, want false", body["proxy_token_set"])
+	}
+	if _, ok := body["admin_token"]; ok {
+		t.Fatalf("admin_token should not be exposed: body=%s", rec.Body.String())
+	}
+	if _, ok := body["proxy_token"]; ok {
+		t.Fatalf("proxy_token should not be exposed: body=%s", rec.Body.String())
 	}
 }
 

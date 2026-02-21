@@ -15,6 +15,44 @@ import (
 func newTestServer() *Server {
 	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
 	runtimeCfg.Store(config.NewDefaultRuntimeConfig())
+	envCfg := &config.EnvConfig{
+		CacheDir:                              "/tmp/resin/cache",
+		StateDir:                              "/tmp/resin/state",
+		LogDir:                                "/tmp/resin/log",
+		APIPort:                               2620,
+		ForwardProxyPort:                      2621,
+		ReverseProxyPort:                      2622,
+		APIMaxBodyBytes:                       1 << 20,
+		MaxLatencyTableEntries:                128,
+		ProbeConcurrency:                      1000,
+		GeoIPUpdateSchedule:                   "0 7 * * *",
+		DefaultPlatformStickyTTL:              7 * 24 * time.Hour,
+		DefaultPlatformRegexFilters:           []string{"^Provider/.*"},
+		DefaultPlatformRegionFilters:          []string{"us", "hk"},
+		DefaultPlatformReverseProxyMissAction: "RANDOM",
+		DefaultPlatformAllocationPolicy:       "BALANCED",
+		ProbeTimeout:                          15 * time.Second,
+		ResourceFetchTimeout:                  30 * time.Second,
+		ProxyTransportMaxIdleConns:            1024,
+		ProxyTransportMaxIdleConnsPerHost:     64,
+		ProxyTransportIdleConnTimeout:         90 * time.Second,
+		RequestLogQueueSize:                   8192,
+		RequestLogQueueFlushBatchSize:         4096,
+		RequestLogQueueFlushInterval:          5 * time.Minute,
+		RequestLogDBMaxMB:                     512,
+		RequestLogDBRetainCount:               5,
+		AdminToken:                            "test-admin-token",
+		ProxyToken:                            "test-proxy-token",
+		MetricThroughputIntervalSeconds:       1,
+		MetricThroughputRetentionSeconds:      3600,
+		MetricBucketSeconds:                   3600,
+		MetricConnectionsIntervalSeconds:      5,
+		MetricConnectionsRetentionSeconds:     18000,
+		MetricLeasesIntervalSeconds:           5,
+		MetricLeasesRetentionSeconds:          18000,
+		MetricLatencyBinWidthMS:               100,
+		MetricLatencyBinOverflowMS:            3000,
+	}
 
 	systemInfo := service.SystemInfo{
 		Version:   "1.0.0-test",
@@ -22,7 +60,7 @@ func newTestServer() *Server {
 		BuildTime: "2026-01-01T00:00:00Z",
 		StartedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
 	}
-	return NewServer(0, "test-admin-token", systemInfo, runtimeCfg, nil, 1<<20, nil, nil)
+	return NewServer(0, "test-admin-token", systemInfo, runtimeCfg, envCfg, nil, 1<<20, nil, nil)
 }
 
 // --- /healthz ---
@@ -167,6 +205,58 @@ func TestSystemConfig_OK(t *testing.T) {
 func TestSystemConfig_RequiresAuth(t *testing.T) {
 	srv := newTestServer()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/config", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status: got %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+// --- /api/v1/system/config/env ---
+
+func TestSystemEnvConfig_OK(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/config/env", nil)
+	req.Header.Set("Authorization", "Bearer test-admin-token")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if body["cache_dir"] != "/tmp/resin/cache" {
+		t.Errorf("cache_dir: got %q, want %q", body["cache_dir"], "/tmp/resin/cache")
+	}
+	if body["default_platform_sticky_ttl"] != "168h0m0s" {
+		t.Errorf("default_platform_sticky_ttl: got %q, want %q", body["default_platform_sticky_ttl"], "168h0m0s")
+	}
+	if body["probe_timeout"] != "15s" {
+		t.Errorf("probe_timeout: got %q, want %q", body["probe_timeout"], "15s")
+	}
+	if body["admin_token_set"] != true {
+		t.Errorf("admin_token_set: got %v, want true", body["admin_token_set"])
+	}
+	if body["proxy_token_set"] != true {
+		t.Errorf("proxy_token_set: got %v, want true", body["proxy_token_set"])
+	}
+	if _, ok := body["admin_token"]; ok {
+		t.Error("admin_token should not be exposed in /system/config/env")
+	}
+	if _, ok := body["proxy_token"]; ok {
+		t.Error("proxy_token should not be exposed in /system/config/env")
+	}
+}
+
+func TestSystemEnvConfig_RequiresAuth(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/config/env", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 

@@ -369,6 +369,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		a.envCfg.AdminToken,
 		systemInfo,
 		a.runtimeCfg,
+		a.envCfg,
 		cpService,
 		int64(a.envCfg.APIMaxBodyBytes),
 		a.requestlogRepo,
