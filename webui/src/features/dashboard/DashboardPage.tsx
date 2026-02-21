@@ -315,7 +315,7 @@ function TrendTooltipContent({ active, payload, label, series, valueFormatter }:
 
   return (
     <div className="trend-tooltip">
-      <p className="trend-tooltip-time">{label ? formatClock(String(label)) : "--"}</p>
+      <p className="trend-tooltip-time">{label ? formatClock(new Date(Number(label)).toISOString()) : "--"}</p>
       <div className="trend-tooltip-list">
         {series.map((item) => {
           const entry = payload.find((payloadItem) => payloadItem.dataKey === item.key);
@@ -383,7 +383,7 @@ function TrendChart({ labels, series, formatYAxisLabel }: TrendChartProps) {
             ) : null}
 
             <CartesianGrid stroke="rgba(65, 87, 121, 0.16)" strokeDasharray="2 4" vertical={false} />
-            <XAxis dataKey="rawLabel" hide />
+            <XAxis dataKey="sortKey" type="number" scale="time" domain={["dataMin", "dataMax"]} hide />
             <YAxis
               width="auto"
               tickMargin={4}
