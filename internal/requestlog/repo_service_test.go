@@ -202,6 +202,47 @@ func TestService_FlushesByBatchSize(t *testing.T) {
 	t.Fatal("timed out waiting for service flush")
 }
 
+func TestService_RepoReadFlushesQueuedLogs(t *testing.T) {
+	repo := NewRepo(t.TempDir(), 1<<20, 5)
+	if err := repo.Open(); err != nil {
+		t.Fatalf("repo.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	svc := NewService(ServiceConfig{
+		Repo:          repo,
+		QueueSize:     8,
+		FlushBatch:    1000,      // keep below batch threshold
+		FlushInterval: time.Hour, // avoid timer-driven flush in test
+	})
+	svc.Start()
+	t.Cleanup(svc.Stop)
+
+	baseTs := time.Now().UnixNano()
+	svc.EmitRequestLog(proxy.RequestLogEntry{
+		ID:          "barrier-log-1",
+		StartedAtNs: baseTs,
+		ProxyType:   proxy.ProxyTypeForward,
+		PlatformID:  "plat-1",
+		TargetHost:  "example.com",
+		TargetURL:   "https://example.com/barrier",
+		HTTPMethod:  "GET",
+		HTTPStatus:  200,
+		NetOK:       true,
+	})
+
+	rows, _, _, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
+	if err != nil {
+		t.Fatalf("repo.List: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("rows len: got %d, want 1", len(rows))
+	}
+	if rows[0].ID != "barrier-log-1" {
+		t.Fatalf("row id: got %q, want %q", rows[0].ID, "barrier-log-1")
+	}
+}
+
 func TestRepo_OpenCreatesLogDir(t *testing.T) {
 	root := t.TempDir()
 	logDir := filepath.Join(root, "logs")

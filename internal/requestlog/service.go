@@ -16,6 +16,7 @@ type Service struct {
 	queue     chan proxy.RequestLogEntry
 	batchSize int
 	interval  time.Duration
+	flushReq  chan chan struct{}
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -48,18 +49,25 @@ func NewService(cfg ServiceConfig) *Service {
 		queue:     make(chan proxy.RequestLogEntry, queueSize),
 		batchSize: batchSize,
 		interval:  interval,
+		flushReq:  make(chan chan struct{}, 64),
 		stopCh:    make(chan struct{}),
 	}
 }
 
 // Start launches the background flush goroutine.
 func (s *Service) Start() {
+	if s.repo != nil {
+		s.repo.setReadBarrier(s.FlushNow)
+	}
 	s.wg.Add(1)
 	go s.flushLoop()
 }
 
 // Stop signals the flush loop to stop, drains remaining entries, and returns.
 func (s *Service) Stop() {
+	if s.repo != nil {
+		s.repo.setReadBarrier(nil)
+	}
 	close(s.stopCh)
 	s.wg.Wait()
 }
@@ -70,6 +78,21 @@ func (s *Service) EmitRequestLog(entry proxy.RequestLogEntry) {
 	case s.queue <- entry:
 	default:
 		// Queue full — drop entry to avoid blocking hot path.
+	}
+}
+
+// FlushNow asks the background writer to flush current buffered data to DB,
+// then blocks until that flush attempt completes.
+func (s *Service) FlushNow() {
+	done := make(chan struct{})
+	select {
+	case s.flushReq <- done:
+	case <-s.stopCh:
+		return
+	}
+	select {
+	case <-done:
+	case <-s.stopCh:
 	}
 }
 
@@ -96,12 +119,53 @@ func (s *Service) flushLoop() {
 				batch = batch[:0]
 			}
 
+		case done := <-s.flushReq:
+			batch = s.flushOnBarrier(batch, done)
+
 		case <-s.stopCh:
 			// Drain remaining.
 			s.drainAndFlush(batch)
 			return
 		}
 	}
+}
+
+func (s *Service) flushOnBarrier(batch []proxy.RequestLogEntry, firstWaiter chan struct{}) []proxy.RequestLogEntry {
+	waiters := []chan struct{}{firstWaiter}
+	for {
+		select {
+		case done := <-s.flushReq:
+			waiters = append(waiters, done)
+		default:
+			goto flushed
+		}
+	}
+
+flushed:
+	// Bound barrier work to current queue depth snapshot so queries cannot be
+	// blocked indefinitely by sustained write traffic.
+	pending := len(s.queue)
+drainLoop:
+	for i := 0; i < pending; i++ {
+		select {
+		case entry := <-s.queue:
+			batch = append(batch, entry)
+			if len(batch) >= s.batchSize {
+				s.flush(batch)
+				batch = batch[:0]
+			}
+		default:
+			break drainLoop
+		}
+	}
+	if len(batch) > 0 {
+		s.flush(batch)
+		batch = batch[:0]
+	}
+	for _, done := range waiters {
+		close(done)
+	}
+	return batch
 }
 
 func (s *Service) drainAndFlush(batch []proxy.RequestLogEntry) {

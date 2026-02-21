@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,6 +30,10 @@ type Repo struct {
 	// Active DB handle and path.
 	activeDB   *sql.DB
 	activePath string
+
+	// readBarrier runs before read queries to improve freshness.
+	readBarrierMu sync.RWMutex
+	readBarrier   func()
 }
 
 // NewRepo creates a Repo that manages rolling request log databases.
@@ -253,6 +258,8 @@ type ListCursor struct {
 // List queries all retained DBs and returns a page of matching log summaries
 // ordered by ts_ns DESC, same ts_ns by id ASC.
 func (r *Repo) List(f ListFilter) ([]LogSummary, bool, *ListCursor, error) {
+	r.runReadBarrier()
+
 	files, err := r.listDBFiles()
 	if err != nil {
 		return nil, false, nil, err
@@ -314,6 +321,8 @@ func (r *Repo) List(f ListFilter) ([]LogSummary, bool, *ListCursor, error) {
 
 // GetByID looks up a single log entry across all retained DBs.
 func (r *Repo) GetByID(id string) (*LogSummary, error) {
+	r.runReadBarrier()
+
 	files, err := r.listDBFiles()
 	if err != nil {
 		return nil, err
@@ -336,6 +345,8 @@ func (r *Repo) GetByID(id string) (*LogSummary, error) {
 
 // GetPayloads retrieves payload data for a given log ID across all retained DBs.
 func (r *Repo) GetPayloads(logID string) (*PayloadRow, error) {
+	r.runReadBarrier()
+
 	files, err := r.listDBFiles()
 	if err != nil {
 		return nil, err
@@ -380,6 +391,21 @@ func (r *Repo) queryAcrossRetainedDBs(
 		if err == nil && row {
 			return
 		}
+	}
+}
+
+func (r *Repo) setReadBarrier(fn func()) {
+	r.readBarrierMu.Lock()
+	r.readBarrier = fn
+	r.readBarrierMu.Unlock()
+}
+
+func (r *Repo) runReadBarrier() {
+	r.readBarrierMu.RLock()
+	barrier := r.readBarrier
+	r.readBarrierMu.RUnlock()
+	if barrier != nil {
+		barrier()
 	}
 }
 
