@@ -76,6 +76,7 @@ type Manager struct {
 	// node-pool snapshot, and latency histograms.
 	pendingMu    sync.Mutex
 	pendingTasks []*persistTask
+	persistMu    sync.Mutex
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -257,25 +258,27 @@ func (m *Manager) RuntimeStats() RuntimeStatsProvider { return m.runtimeStats }
 
 // SnapshotCurrentTrafficBucket returns unflushed global traffic in current bucket.
 func (m *Manager) SnapshotCurrentTrafficBucket() (bucketStartUnix, ingressBytes, egressBytes int64) {
+	m.advanceAndMaybeFlush(time.Now())
 	return m.bucket.SnapshotTraffic()
 }
 
 // SnapshotCurrentRequestsBucket returns unflushed requests in current bucket.
 // platformID="" means global scope.
 func (m *Manager) SnapshotCurrentRequestsBucket(platformID string) (bucketStartUnix, totalRequests, successRequests int64) {
-	m.syncCurrentBucketState()
+	m.advanceAndMaybeFlush(time.Now())
 	return m.bucket.SnapshotRequests(platformID)
 }
 
 // SnapshotCurrentProbeBucket returns unflushed probe count in current bucket.
 func (m *Manager) SnapshotCurrentProbeBucket() (bucketStartUnix, totalCount int64) {
-	m.syncCurrentBucketState()
+	m.advanceAndMaybeFlush(time.Now())
 	return m.bucket.SnapshotProbes()
 }
 
 // SnapshotCurrentAccessLatencyBucket returns the in-progress latency histogram
 // for current bucket. platformID="" means global scope.
 func (m *Manager) SnapshotCurrentAccessLatencyBucket(platformID string) (bucketStartUnix int64, buckets []int64) {
+	m.advanceAndMaybeFlush(time.Now())
 	bucketStartUnix = m.bucket.CurrentBucketStartUnix()
 
 	if platformID == "" {
@@ -293,6 +296,7 @@ func (m *Manager) SnapshotCurrentAccessLatencyBucket(platformID string) (bucketS
 
 // SnapshotCurrentNodePoolBucket returns a node-pool snapshot for current bucket.
 func (m *Manager) SnapshotCurrentNodePoolBucket() (bucketStartUnix int64, totalNodes, healthyNodes, egressIPCount int, ok bool) {
+	m.advanceAndMaybeFlush(time.Now())
 	bucketStartUnix = m.bucket.CurrentBucketStartUnix()
 
 	if m.runtimeStats == nil {
@@ -308,7 +312,7 @@ func (m *Manager) SnapshotCurrentLeaseLifetimeBucket(platformID string) (
 	sampleCount int,
 	p1Ms, p5Ms, p50Ms float64,
 ) {
-	m.syncCurrentBucketState()
+	m.advanceAndMaybeFlush(time.Now())
 	bucketStartUnix, samples := m.bucket.SnapshotLeaseLifetimeSamples(platformID)
 	if len(samples) == 0 {
 		return bucketStartUnix, 0, 0, 0, 0
@@ -445,24 +449,8 @@ func (m *Manager) takeLeasesSample(ts time.Time) {
 }
 
 func (m *Manager) flushBucket() {
-	m.syncCurrentBucketState()
-
-	now := time.Now()
-	data := m.bucket.MaybeFlush(now)
-	if data != nil {
-		m.enqueuePersistTask(m.buildPersistTask(data))
-	}
-	for {
-		task, ok := m.peekPendingTask()
-		if !ok {
-			return
-		}
-		if err := m.writePersistTask(task); err != nil {
-			log.Printf("[metrics] bucket persistence failed, will retry next tick: %v", err)
-			return
-		}
-		m.popPendingTask()
-	}
+	m.advanceAndMaybeFlush(time.Now())
+	m.flushPendingTasks("[metrics] bucket persistence failed, will retry next tick")
 }
 
 func (m *Manager) aggregateCollectorDeltasIntoBucketLocked() {
@@ -542,6 +530,36 @@ func (m *Manager) syncCurrentBucketState() {
 	defer m.stateMu.Unlock()
 	m.aggregateCollectorDeltasIntoBucketLocked()
 	m.drainLeaseLifetimeSamplesLocked()
+}
+
+func (m *Manager) advanceAndMaybeFlush(now time.Time) {
+	m.stateMu.Lock()
+	m.aggregateCollectorDeltasIntoBucketLocked()
+	m.drainLeaseLifetimeSamplesLocked()
+	data := m.bucket.MaybeFlush(now)
+	m.stateMu.Unlock()
+	if data != nil {
+		m.enqueuePersistTask(m.buildPersistTask(data))
+	}
+}
+
+func (m *Manager) flushPendingTasks(errPrefix string) {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
+
+	for {
+		task, ok := m.peekPendingTask()
+		if !ok {
+			return
+		}
+		if err := m.writePersistTask(task); err != nil {
+			if errPrefix != "" {
+				log.Printf("%s: %v", errPrefix, err)
+			}
+			return
+		}
+		m.popPendingTask()
+	}
 }
 
 func baselineFromSnapshot(s CountersSnapshot) bucketCounterBaseline {
@@ -644,6 +662,9 @@ func (m *Manager) drainPendingTasks(maxAttempts int, retryDelay time.Duration) {
 	if maxAttempts <= 0 {
 		maxAttempts = 1
 	}
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
+
 	for {
 		task, ok := m.peekPendingTask()
 		if !ok {
