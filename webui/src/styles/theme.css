@@ -977,6 +977,10 @@ a {
   margin-top: 0;
 }
 
+.rules-table-card .rules-table-wrap {
+  margin-top: 0;
+}
+
 .subscriptions-toolbar {
   margin-top: 12px;
   display: flex;
@@ -1685,6 +1689,17 @@ a {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.rules-resolve-modal-card {
+  width: min(720px, 100%);
+}
+
+.rules-resolve-modal-body {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .logs-cell-stack {

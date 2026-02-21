@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Eraser, RefreshCw, Search, Sparkles, Wand2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, Bug, Eraser, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Wand2, X } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -9,7 +9,7 @@ import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
-import { formatDateTime } from "../../lib/time";
+import { formatRelativeTime } from "../../lib/time";
 import { deleteRule, listRules, resolveRule, upsertRule } from "./api";
 import type { ResolveResult, Rule } from "./types";
 
@@ -47,8 +47,13 @@ function ruleHeadersPreview(rule: Rule): string {
 export function RulesPage() {
   const [search, setSearch] = useState("");
   const [selectedPrefix, setSelectedPrefix] = useState("");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
   const [formPrefix, setFormPrefix] = useState("");
   const [formHeadersRaw, setFormHeadersRaw] = useState("");
+  const [createPrefix, setCreatePrefix] = useState("");
+  const [createHeadersRaw, setCreateHeadersRaw] = useState("");
+  const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [resolveURL, setResolveURL] = useState("");
   const [resolveOutput, setResolveOutput] = useState<ResolveResult | null>(null);
   const { toasts, showToast, dismissToast } = useToast();
@@ -78,11 +83,11 @@ export function RulesPage() {
   }, [rules, search]);
 
   const selectedRule = useMemo(() => {
-    if (!visibleRules.length) {
+    if (!selectedPrefix) {
       return null;
     }
-    return visibleRules.find((item) => item.url_prefix === selectedPrefix) ?? visibleRules[0];
-  }, [visibleRules, selectedPrefix]);
+    return rules.find((item) => item.url_prefix === selectedPrefix) ?? null;
+  }, [rules, selectedPrefix]);
 
   const syncFormFromRule = (rule: Rule) => {
     setFormPrefix(rule.url_prefix);
@@ -90,11 +95,40 @@ export function RulesPage() {
     setSelectedPrefix(rule.url_prefix);
   };
 
+  const openDrawerForRule = (rule: Rule) => {
+    syncFormFromRule(rule);
+    setDrawerOpen(true);
+  };
+
   const invalidateRules = async () => {
     await queryClient.invalidateQueries({ queryKey: ["header-rules"] });
   };
 
-  const upsertMutation = useMutation({
+  const createMutation = useMutation({
+    mutationFn: async () => {
+      const prefix = createPrefix.trim();
+      const headers = parseHeaderList(createHeadersRaw);
+      if (!prefix) {
+        throw new Error("url_prefix 不能为空");
+      }
+      if (!headers.length) {
+        throw new Error("headers 不能为空");
+      }
+      return upsertRule(prefix, headers);
+    },
+    onSuccess: async (rule) => {
+      await invalidateRules();
+      setCreateModalOpen(false);
+      setCreatePrefix("");
+      setCreateHeadersRaw("");
+      showToast("success", `规则 ${rule.url_prefix} 已创建`);
+    },
+    onError: (error) => {
+      showToast("error", fromApiError(error));
+    },
+  });
+
+  const updateMutation = useMutation({
     mutationFn: async () => {
       const prefix = formPrefix.trim();
       const headers = parseHeaderList(formHeadersRaw);
@@ -125,6 +159,7 @@ export function RulesPage() {
       await invalidateRules();
       if (selectedPrefix === prefix) {
         setSelectedPrefix("");
+        setDrawerOpen(false);
       }
       showToast("success", `规则 ${prefix} 已删除`);
     },
@@ -163,6 +198,40 @@ export function RulesPage() {
     setSelectedPrefix("");
   };
 
+  const handleUpdateSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void updateMutation.mutateAsync();
+  };
+
+  const handleCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void createMutation.mutateAsync();
+  };
+
+  useEffect(() => {
+    if (!drawerOpen && !resolveModalOpen && !createModalOpen) {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      if (createModalOpen) {
+        setCreateModalOpen(false);
+        return;
+      }
+      if (resolveModalOpen) {
+        setResolveModalOpen(false);
+        return;
+      }
+      setDrawerOpen(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [createModalOpen, drawerOpen, resolveModalOpen]);
+
   return (
     <section className="rules-page">
       <header className="module-header">
@@ -170,194 +239,308 @@ export function RulesPage() {
           <h2>Header 规则</h2>
           <p className="module-description">管理 URL 前缀匹配规则，并实时调试 resolve 结果。</p>
         </div>
-        <Button onClick={() => void rulesQuery.refetch()} disabled={rulesQuery.isFetching}>
-          <RefreshCw size={16} className={rulesQuery.isFetching ? "spin" : undefined} />
-          刷新
-        </Button>
       </header>
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
-      <div className="rules-layout">
-        <Card className="rules-list-card">
-          <div className="list-card-header">
-            <div>
-              <h3>规则列表</h3>
-              <p>共 {rules.length} 条</p>
-            </div>
+      <Card className="platform-list-card platform-directory-card rules-list-card">
+        <div className="list-card-header">
+          <div>
+            <h3>规则列表</h3>
+            <p>共 {rules.length} 条</p>
           </div>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <label className="search-box" htmlFor="rules-search" style={{ maxWidth: 200, margin: 0, gap: 6 }}>
+              <Search size={14} />
+              <Input
+                id="rules-search"
+                placeholder="按 prefix / header 过滤"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                style={{ padding: "6px 10px", borderRadius: 8 }}
+              />
+            </label>
+            <Button variant="secondary" size="sm" onClick={() => setCreateModalOpen(true)}>
+              <Plus size={14} />
+              新建
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setResolveModalOpen(true)}>
+              <Bug size={14} />
+              调试
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void rulesQuery.refetch()}
+              disabled={rulesQuery.isFetching}
+            >
+              <RefreshCw size={14} className={rulesQuery.isFetching ? "spin" : undefined} />
+              刷新
+            </Button>
+          </div>
+        </div>
+      </Card>
 
-          <label className="search-box" htmlFor="rules-search">
-            <Search size={14} />
-            <Input
-              id="rules-search"
-              placeholder="按 prefix / header 过滤"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
+      <Card className="platform-cards-container subscriptions-table-card rules-table-card">
+        {rulesQuery.isLoading ? <p className="muted">正在加载规则...</p> : null}
 
-          {rulesQuery.isLoading ? <p className="muted">正在加载规则...</p> : null}
+        {rulesQuery.isError ? (
+          <div className="callout callout-error">
+            <AlertTriangle size={14} />
+            <span>{fromApiError(rulesQuery.error)}</span>
+          </div>
+        ) : null}
 
-          {rulesQuery.isError ? (
-            <div className="callout callout-error">
-              <AlertTriangle size={14} />
-              <span>{fromApiError(rulesQuery.error)}</span>
-            </div>
-          ) : null}
+        {!rulesQuery.isLoading && !visibleRules.length ? (
+          <div className="empty-box">
+            <Sparkles size={16} />
+            <p>没有匹配规则</p>
+          </div>
+        ) : null}
 
-          {!rulesQuery.isLoading && !visibleRules.length ? (
-            <div className="empty-box">
-              <Sparkles size={16} />
-              <p>没有匹配规则</p>
-            </div>
-          ) : null}
-
-          {visibleRules.length ? (
-            <div className="rules-table-wrap">
-              <table className="rules-table">
-                <thead>
-                  <tr>
-                    <th>URL Prefix</th>
-                    <th>Headers</th>
-                    <th>Updated</th>
-                    <th>Actions</th>
+        {visibleRules.length ? (
+          <div className="rules-table-wrap">
+            <table className="rules-table">
+              <thead>
+                <tr>
+                  <th>URL 前缀</th>
+                  <th>请求头</th>
+                  <th>更新时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleRules.map((rule) => (
+                  <tr
+                    key={rule.url_prefix}
+                    className="clickable-row"
+                    onClick={() => openDrawerForRule(rule)}
+                  >
+                    <td title={rule.url_prefix}>{rule.url_prefix}</td>
+                    <td title={rule.headers.join(", ")}>{ruleHeadersPreview(rule)}</td>
+                    <td>{formatRelativeTime(rule.updated_at)}</td>
+                    <td>
+                      <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
+                        <Button size="sm" variant="ghost" onClick={() => openDrawerForRule(rule)} title="编辑">
+                          <Pencil size={14} />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void handleDelete(rule)}
+                          disabled={deleteMutation.isPending}
+                          title="删除"
+                          style={{ color: "var(--delete-btn-color, #c27070)" }}
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {visibleRules.map((rule) => {
-                    const selected = selectedRule?.url_prefix === rule.url_prefix;
-                    return (
-                      <tr
-                        key={rule.url_prefix}
-                        className={selected ? "nodes-row-selected" : undefined}
-                        onClick={() => syncFormFromRule(rule)}
-                      >
-                        <td title={rule.url_prefix}>{rule.url_prefix}</td>
-                        <td title={rule.headers.join(", ")}>{ruleHeadersPreview(rule)}</td>
-                        <td>{formatDateTime(rule.updated_at)}</td>
-                        <td>
-                          <div className="nodes-row-actions" onClick={(event) => event.stopPropagation()}>
-                            <Button variant="secondary" size="sm" onClick={() => syncFormFromRule(rule)}>
-                              编辑
-                            </Button>
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              onClick={() => void handleDelete(rule)}
-                              disabled={deleteMutation.isPending}
-                            >
-                              删除
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </Card>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </Card>
 
-        <div className="rules-panels">
-          <Card className="rules-editor-card">
-            <div className="detail-header">
+      {drawerOpen ? (
+        <div className="drawer-overlay" role="dialog" aria-modal="true" aria-label="规则编辑抽屉" onClick={() => setDrawerOpen(false)}>
+          <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-header">
               <div>
-                <h3>Rule Editor</h3>
-                <p>{selectedRule ? `当前编辑：${selectedRule.url_prefix}` : "创建新规则"}</p>
+                <h3>{selectedRule?.url_prefix || "规则编辑"}</h3>
+                <p>编辑当前 Header 规则</p>
               </div>
-              <Button variant="ghost" size="sm" onClick={clearForm}>
-                <Eraser size={14} />
-                清空
-              </Button>
-            </div>
-
-            <div className="form-grid single-column">
-              <div className="field-group">
-                <label className="field-label" htmlFor="rule-prefix">
-                  URL Prefix
-                </label>
-                <Input
-                  id="rule-prefix"
-                  placeholder="例如 api.example.com/v1"
-                  value={formPrefix}
-                  onChange={(event) => setFormPrefix(event.target.value)}
-                />
-              </div>
-
-              <div className="field-group">
-                <label className="field-label" htmlFor="rule-headers">
-                  Headers
-                </label>
-                <Textarea
-                  id="rule-headers"
-                  rows={5}
-                  placeholder="每行一个 header，例如\nAuthorization\nX-API-Key"
-                  value={formHeadersRaw}
-                  onChange={(event) => setFormHeadersRaw(event.target.value)}
-                />
+              <div className="drawer-header-actions">
+                <Button variant="ghost" size="sm" onClick={() => setDrawerOpen(false)}>
+                  <X size={16} />
+                </Button>
               </div>
             </div>
 
-            <div className="detail-actions">
-              <Button onClick={() => void upsertMutation.mutateAsync()} disabled={upsertMutation.isPending}>
-                <Wand2 size={14} />
-                {upsertMutation.isPending ? "保存中..." : "保存规则"}
-              </Button>
+            <div className="platform-drawer-layout">
+              <section className="platform-drawer-section">
+                <div className="platform-drawer-section-head">
+                  <h4>Rule Editor</h4>
+                  <p>编辑 prefix 与 headers 并保存。</p>
+                </div>
+
+                <form className="form-grid single-column" onSubmit={handleUpdateSubmit}>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="rule-prefix">
+                      URL Prefix
+                    </label>
+                    <Input
+                      id="rule-prefix"
+                      placeholder="例如 api.example.com/v1"
+                      value={formPrefix}
+                      onChange={(event) => setFormPrefix(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="rule-headers">
+                      Headers
+                    </label>
+                    <Textarea
+                      id="rule-headers"
+                      rows={5}
+                      placeholder="每行一个 header，例如\nAuthorization\nX-API-Key"
+                      value={formHeadersRaw}
+                      onChange={(event) => setFormHeadersRaw(event.target.value)}
+                    />
+                  </div>
+                  <div className="detail-actions">
+                    <Button type="submit" disabled={updateMutation.isPending}>
+                      <Wand2 size={14} />
+                      {updateMutation.isPending ? "保存中..." : "保存规则"}
+                    </Button>
+                    <Button variant="secondary" onClick={clearForm}>
+                      <Eraser size={14} />
+                      清空
+                    </Button>
+                  </div>
+                </form>
+              </section>
+
+              {selectedRule ? (
+                <section className="platform-drawer-section platform-ops-section">
+                  <div className="platform-drawer-section-head">
+                    <h4>运维动作</h4>
+                    <p>对当前规则执行删除。</p>
+                  </div>
+                  <div className="platform-ops-list">
+                    <article className="platform-op-item">
+                      <div className="platform-op-copy">
+                        <h5>删除规则</h5>
+                        <p className="platform-op-hint">删除后该 prefix 将不再生效。</p>
+                      </div>
+                      <Button
+                        variant="danger"
+                        onClick={() => void handleDelete(selectedRule)}
+                        disabled={deleteMutation.isPending}
+                      >
+                        删除
+                      </Button>
+                    </article>
+                  </div>
+                </section>
+              ) : null}
             </div>
           </Card>
+        </div>
+      ) : null}
 
-          <Card className="rules-resolve-card">
-            <div className="detail-header">
+      {resolveModalOpen ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Resolve 调试">
+          <Card className="modal-card rules-resolve-modal-card">
+            <div className="modal-header">
               <div>
                 <h3>Resolve 调试</h3>
                 <p>输入 URL 查看命中的规则与 headers</p>
               </div>
-            </div>
-
-            <div className="field-group">
-              <label className="field-label" htmlFor="resolve-url">
-                URL
-              </label>
-              <Input
-                id="resolve-url"
-                placeholder="https://api.example.com/v1/orders/123"
-                value={resolveURL}
-                onChange={(event) => setResolveURL(event.target.value)}
-              />
-            </div>
-
-            <div className="detail-actions">
-              <Button variant="secondary" onClick={() => void resolveMutation.mutateAsync()} disabled={resolveMutation.isPending}>
-                {resolveMutation.isPending ? "解析中..." : "执行 Resolve"}
+              <Button variant="ghost" size="sm" onClick={() => setResolveModalOpen(false)}>
+                <X size={16} />
               </Button>
             </div>
 
-            {resolveOutput ? (
-              <div className="resolve-result">
-                <p>
-                  <strong>Matched Prefix:</strong> {resolveOutput.matched_url_prefix || "(none)"}
-                </p>
-                <div className="resolve-headers">
-                  <strong>Headers:</strong>
-                  {resolveOutput.headers?.length ? (
-                    <div className="resolve-badges">
-                      {resolveOutput.headers.map((header) => (
-                        <Badge key={header} variant="neutral">
-                          {header}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="muted">(none)</p>
-                  )}
-                </div>
+            <div className="rules-resolve-modal-body">
+              <div className="field-group">
+                <label className="field-label" htmlFor="resolve-url">
+                  URL
+                </label>
+                <Input
+                  id="resolve-url"
+                  placeholder="https://api.example.com/v1/orders/123"
+                  value={resolveURL}
+                  onChange={(event) => setResolveURL(event.target.value)}
+                />
               </div>
-            ) : null}
+
+              <div className="detail-actions">
+                <Button
+                  variant="secondary"
+                  onClick={() => void resolveMutation.mutateAsync()}
+                  disabled={resolveMutation.isPending}
+                >
+                  {resolveMutation.isPending ? "解析中..." : "执行 Resolve"}
+                </Button>
+              </div>
+
+              {resolveOutput ? (
+                <div className="resolve-result">
+                  <p>
+                    <strong>Matched Prefix:</strong> {resolveOutput.matched_url_prefix || "(none)"}
+                  </p>
+                  <div className="resolve-headers">
+                    <strong>Headers:</strong>
+                    {resolveOutput.headers?.length ? (
+                      <div className="resolve-badges">
+                        {resolveOutput.headers.map((header) => (
+                          <Badge key={header} variant="neutral">
+                            {header}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="muted">(none)</p>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </Card>
         </div>
-      </div>
+      ) : null}
+
+      {createModalOpen ? (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <Card className="modal-card">
+            <div className="modal-header">
+              <h3>新建规则</h3>
+              <Button variant="ghost" size="sm" onClick={() => setCreateModalOpen(false)}>
+                <X size={16} />
+              </Button>
+            </div>
+
+            <form className="form-grid" onSubmit={handleCreateSubmit}>
+              <div className="field-group">
+                <label className="field-label" htmlFor="create-rule-prefix">
+                  URL Prefix
+                </label>
+                <Input
+                  id="create-rule-prefix"
+                  placeholder="例如 api.example.com/v1"
+                  value={createPrefix}
+                  onChange={(event) => setCreatePrefix(event.target.value)}
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="field-label" htmlFor="create-rule-headers">
+                  Headers
+                </label>
+                <Textarea
+                  id="create-rule-headers"
+                  rows={5}
+                  placeholder="每行一个 header，例如\nAuthorization\nX-API-Key"
+                  value={createHeadersRaw}
+                  onChange={(event) => setCreateHeadersRaw(event.target.value)}
+                />
+              </div>
+              <div className="detail-actions" style={{ justifyContent: "flex-end" }}>
+                <Button type="submit" disabled={createMutation.isPending}>
+                  {createMutation.isPending ? "创建中..." : "确认创建"}
+                </Button>
+                <Button variant="secondary" onClick={() => setCreateModalOpen(false)}>
+                  取消
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      ) : null}
     </section>
   );
 }
