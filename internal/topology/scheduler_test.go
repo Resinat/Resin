@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"regexp"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -692,6 +693,79 @@ func TestScheduler_ForceRefreshAll_UpdatesSubscriptionsInParallel(t *testing.T) 
 
 	if got := started.Load(); got != 2 {
 		t.Fatalf("expected 2 fetch attempts, got %d", got)
+	}
+}
+
+func TestScheduler_ForceRefreshAll_LimitsConcurrentUpdates(t *testing.T) {
+	oldMaxProcs := runtime.GOMAXPROCS(2)
+	defer runtime.GOMAXPROCS(oldMaxProcs)
+
+	subMgr := NewSubscriptionManager()
+	for i := 0; i < 6; i++ {
+		subMgr.Register(subscription.NewSubscription(
+			fmt.Sprintf("s%d", i),
+			fmt.Sprintf("Sub-%d", i),
+			fmt.Sprintf("http://example.com/%d", i),
+			true,
+			false,
+		))
+	}
+
+	pool := newTestPool(subMgr)
+	releaseFetch := make(chan struct{})
+	var started atomic.Int32
+	var inFlight atomic.Int32
+	var maxInFlight atomic.Int32
+	fetcher := func(url string) ([]byte, error) {
+		current := inFlight.Add(1)
+		for {
+			prev := maxInFlight.Load()
+			if current <= prev || maxInFlight.CompareAndSwap(prev, current) {
+				break
+			}
+		}
+
+		started.Add(1)
+		<-releaseFetch
+		inFlight.Add(-1)
+		return makeSubscriptionJSON(), nil
+	}
+	sched := newTestScheduler(subMgr, pool, fetcher)
+
+	done := make(chan struct{})
+	go func() {
+		sched.ForceRefreshAll()
+		close(done)
+	}()
+
+	deadline := time.After(300 * time.Millisecond)
+	for started.Load() < 2 {
+		select {
+		case <-deadline:
+			t.Fatalf("expected at least 2 fetch attempts, got %d", started.Load())
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if got := started.Load(); got != 2 {
+		t.Fatalf("expected worker limit to cap in-flight starts at 2 before release, got %d", got)
+	}
+
+	close(releaseFetch)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("ForceRefreshAll did not finish after releasing fetchers")
+	}
+
+	if got := maxInFlight.Load(); got > 2 {
+		t.Fatalf("expected max in-flight fetches <= 2, got %d", got)
+	}
+	if got := started.Load(); got != 6 {
+		t.Fatalf("expected all 6 subscriptions to be refreshed, got %d", got)
 	}
 }
 
