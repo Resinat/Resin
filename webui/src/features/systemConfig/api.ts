@@ -91,6 +91,11 @@ export async function getSystemConfig(): Promise<RuntimeConfig> {
   return normalizeRuntimeConfig(data);
 }
 
+export async function getDefaultSystemConfig(): Promise<RuntimeConfig> {
+  const data = await apiRequest<RuntimeConfig>(path + "/default");
+  return normalizeRuntimeConfig(data);
+}
+
 export async function patchSystemConfig(patch: RuntimeConfigPatch): Promise<RuntimeConfig> {
   const data = await apiRequest<RuntimeConfig>(path, {
     method: "PATCH",

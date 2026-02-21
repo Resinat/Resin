@@ -5,11 +5,12 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
+import { Switch } from "../../components/ui/Switch";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
-import { patchSystemConfig, getSystemConfig } from "./api";
+import { patchSystemConfig, getSystemConfig, getDefaultSystemConfig } from "./api";
 import type { RuntimeConfig, RuntimeConfigPatch } from "./types";
 
 type RuntimeConfigForm = {
@@ -55,24 +56,24 @@ const EDITABLE_FIELDS: Array<keyof RuntimeConfig> = [
 ];
 
 const FIELD_LABELS: Record<keyof RuntimeConfig, string> = {
-  user_agent: "User Agent",
-  request_log_enabled: "Request Log Enabled",
-  reverse_proxy_log_detail_enabled: "Reverse Proxy Detail Log",
-  reverse_proxy_log_req_headers_max_bytes: "Req Headers Max Bytes",
-  reverse_proxy_log_req_body_max_bytes: "Req Body Max Bytes",
-  reverse_proxy_log_resp_headers_max_bytes: "Resp Headers Max Bytes",
-  reverse_proxy_log_resp_body_max_bytes: "Resp Body Max Bytes",
-  max_consecutive_failures: "Max Consecutive Failures",
-  max_latency_test_interval: "Max Latency Test Interval",
-  max_authority_latency_test_interval: "Max Authority Latency Test Interval",
-  max_egress_test_interval: "Max Egress Test Interval",
-  latency_test_url: "Latency Test URL",
-  latency_authorities: "Latency Authorities",
-  p2c_latency_window: "P2C Latency Window",
-  latency_decay_window: "Latency Decay Window",
-  cache_flush_interval: "Cache Flush Interval",
-  cache_flush_dirty_threshold: "Cache Flush Dirty Threshold",
-  ephemeral_node_evict_delay: "Ephemeral Node Evict Delay",
+  user_agent: "请求 User Agent",
+  request_log_enabled: "启用请求日志",
+  reverse_proxy_log_detail_enabled: "记录详细反代日志",
+  reverse_proxy_log_req_headers_max_bytes: "请求头最大字节数",
+  reverse_proxy_log_req_body_max_bytes: "请求体最大字节数",
+  reverse_proxy_log_resp_headers_max_bytes: "响应头最大字节数",
+  reverse_proxy_log_resp_body_max_bytes: "响应体最大字节数",
+  max_consecutive_failures: "最大连续失败次数",
+  max_latency_test_interval: "节点延迟最大测试间隔",
+  max_authority_latency_test_interval: "权威域名最大测试间隔",
+  max_egress_test_interval: "出口 IP 更新检查间隔",
+  latency_test_url: "延迟测试目标 URL",
+  latency_authorities: "延迟测试权威域名列表",
+  p2c_latency_window: "P2C 延迟衰减窗口",
+  latency_decay_window: "历史延迟衰减窗口",
+  cache_flush_interval: "缓存异步刷盘间隔",
+  cache_flush_dirty_threshold: "缓存刷盘脏阈值",
+  ephemeral_node_evict_delay: "临时节点驱逐延迟",
 };
 
 function fromApiError(error: unknown): string {
@@ -222,6 +223,7 @@ function buildPatch(current: RuntimeConfig, next: RuntimeConfig): RuntimeConfigP
 
 export function SystemConfigPage() {
   const [draftForm, setDraftForm] = useState<RuntimeConfigForm | null>(null);
+  const [customPatchText, setCustomPatchText] = useState<string | null>(null);
   const { toasts, showToast, dismissToast } = useToast();
   const queryClient = useQueryClient();
 
@@ -231,7 +233,15 @@ export function SystemConfigPage() {
     staleTime: 30_000,
   });
 
+  const defaultConfigQuery = useQuery({
+    queryKey: ["system-config-default"],
+    queryFn: getDefaultSystemConfig,
+    staleTime: 30_000,
+  });
+
   const baseline = configQuery.data ?? null;
+  const defaultBaseline = defaultConfigQuery.data ?? null;
+
   const form = useMemo(() => {
     if (!baseline) {
       return null;
@@ -266,18 +276,29 @@ export function SystemConfigPage() {
       if (!baseline || !form) {
         throw new Error("配置尚未加载完成");
       }
-      const parsed = parseForm(form);
-      const patch = buildPatch(baseline, parsed);
-      const changedCount = Object.keys(patch).length;
+      let patchToSend: RuntimeConfigPatch;
+      if (customPatchText !== null) {
+        try {
+          patchToSend = JSON.parse(customPatchText);
+        } catch {
+          throw new Error("手动编辑的 JSON 格式有误，请检查");
+        }
+      } else {
+        const parsed = parseForm(form);
+        patchToSend = buildPatch(baseline, parsed);
+      }
+
+      const changedCount = Object.keys(patchToSend).length;
       if (!changedCount) {
         throw new Error("没有可提交的变更");
       }
-      const updated = await patchSystemConfig(patch);
+      const updated = await patchSystemConfig(patchToSend);
       return { updated, changedCount };
     },
     onSuccess: ({ updated, changedCount }) => {
       queryClient.setQueryData(["system-config"], updated);
       setDraftForm(null);
+      setCustomPatchText(null);
       showToast("success", `配置已更新（${changedCount} 项变更）`);
     },
     onError: (error) => {
@@ -295,9 +316,58 @@ export function SystemConfigPage() {
     });
   };
 
+  const handleRestoreDefault = (key: keyof RuntimeConfigForm) => {
+    if (!defaultBaseline || !baseline) {
+      showToast("error", "默认配置尚未加载");
+      return;
+    }
+
+    const defaultForm = configToForm(defaultBaseline);
+    const value = defaultForm[key];
+
+    setDraftForm((prev) => {
+      const source = prev ?? configToForm(baseline);
+      return { ...source, [key]: value };
+    });
+  };
+
+  const renderRestoreButton = (fieldKey: keyof RuntimeConfigForm) => {
+    const displayVal = defaultBaseline ? (() => {
+      const val = configToForm(defaultBaseline)[fieldKey];
+      if (typeof val === "boolean") return val ? "开启" : "关闭";
+      if (val === "") return "空";
+      return String(val);
+    })() : "";
+
+    return (
+      <button
+        type="button"
+        title={displayVal ? `恢复为默认值: ${displayVal}` : "恢复为默认值"}
+        onClick={() => handleRestoreDefault(fieldKey)}
+        style={{
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "var(--text-muted, #888)",
+          padding: "4px",
+          marginLeft: "4px",
+          opacity: 0.6,
+          transition: "opacity 0.2s"
+        }}
+        onMouseEnter={(e) => e.currentTarget.style.opacity = "1"}
+        onMouseLeave={(e) => e.currentTarget.style.opacity = "0.6"}
+      >
+        <RotateCcw size={14} />
+      </button>
+    );
+  };
+
   const resetDraft = () => {
     setDraftForm(null);
-
+    setCustomPatchText(null);
   };
 
   const reloadFromServer = async () => {
@@ -309,18 +379,24 @@ export function SystemConfigPage() {
     }
 
     setDraftForm(null);
+    setCustomPatchText(null);
     const result = await configQuery.refetch();
     if (result.data) {
       showToast("success", "已加载服务器最新配置");
     }
   };
 
-  const previewText = useMemo(() => {
-    if (parsedResult.error) {
-      return `// 表单校验失败\n// ${parsedResult.error}`;
-    }
+  const handlePatchEdit = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setCustomPatchText(e.target.value);
+  };
+
+  const defaultPatchText = useMemo(() => {
     return JSON.stringify(patchPreview, null, 2);
-  }, [patchPreview, parsedResult.error]);
+  }, [patchPreview]);
+
+  const displayedPatchText = customPatchText ?? defaultPatchText;
+
+  const isSaveDisabled = saveMutation.isPending || (customPatchText === null && (Boolean(parsedResult.error) || !hasUnsavedChanges));
 
   return (
     <section className="syscfg-page">
@@ -338,7 +414,7 @@ export function SystemConfigPage() {
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       {!form ? (
-        <Card className="syscfg-form-card">
+        <Card className="syscfg-form-card platform-directory-card">
           {configQuery.isLoading ? <p className="muted">正在加载系统配置...</p> : null}
           {configQuery.isError ? (
             <div className="callout callout-error">
@@ -349,7 +425,7 @@ export function SystemConfigPage() {
         </Card>
       ) : (
         <div className="syscfg-layout">
-          <Card className="syscfg-form-card">
+          <Card className="syscfg-form-card platform-directory-card">
             <div className="detail-header">
               <div>
                 <h3>Runtime Settings</h3>
@@ -361,9 +437,12 @@ export function SystemConfigPage() {
               <h4>基础与健康检查</h4>
               <div className="form-grid">
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-user-agent">
-                    User Agent
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-user-agent" style={{ margin: 0 }}>
+                      请求 User Agent
+                    </label>
+                    {renderRestoreButton("user_agent")}
+                  </div>
                   <Input
                     id="sys-user-agent"
                     value={form.user_agent}
@@ -372,9 +451,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-max-fail">
-                    Max Consecutive Failures
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-max-fail" style={{ margin: 0 }}>
+                      最大连续失败次数
+                    </label>
+                    {renderRestoreButton("max_consecutive_failures")}
+                  </div>
                   <Input
                     id="sys-max-fail"
                     type="number"
@@ -388,30 +470,37 @@ export function SystemConfigPage() {
 
             <section className="syscfg-section">
               <h4>请求日志</h4>
-              <div className="syscfg-checkbox-grid">
-                <label className="checkbox-line">
-                  <input
-                    type="checkbox"
+              <div className="syscfg-checkbox-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>启用请求日志</span>
+                    {renderRestoreButton("request_log_enabled")}
+                  </div>
+                  <Switch
                     checked={form.request_log_enabled}
                     onChange={(event) => setFormField("request_log_enabled", event.target.checked)}
                   />
-                  <span>Request Log Enabled</span>
-                </label>
-                <label className="checkbox-line">
-                  <input
-                    type="checkbox"
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>记录详细反代日志</span>
+                    {renderRestoreButton("reverse_proxy_log_detail_enabled")}
+                  </div>
+                  <Switch
                     checked={form.reverse_proxy_log_detail_enabled}
                     onChange={(event) => setFormField("reverse_proxy_log_detail_enabled", event.target.checked)}
                   />
-                  <span>Reverse Proxy Detail Log</span>
-                </label>
+                </div>
               </div>
 
-              <div className="form-grid">
+              <div className="form-grid" style={{ marginTop: "16px" }}>
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-req-h-max">
-                    Req Headers Max Bytes
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-req-h-max" style={{ margin: 0 }}>
+                      请求头最大字节数
+                    </label>
+                    {renderRestoreButton("reverse_proxy_log_req_headers_max_bytes")}
+                  </div>
                   <Input
                     id="sys-req-h-max"
                     type="number"
@@ -422,9 +511,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-req-b-max">
-                    Req Body Max Bytes
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-req-b-max" style={{ margin: 0 }}>
+                      请求体最大字节数
+                    </label>
+                    {renderRestoreButton("reverse_proxy_log_req_body_max_bytes")}
+                  </div>
                   <Input
                     id="sys-req-b-max"
                     type="number"
@@ -435,9 +527,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-resp-h-max">
-                    Resp Headers Max Bytes
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-resp-h-max" style={{ margin: 0 }}>
+                      响应头最大字节数
+                    </label>
+                    {renderRestoreButton("reverse_proxy_log_resp_headers_max_bytes")}
+                  </div>
                   <Input
                     id="sys-resp-h-max"
                     type="number"
@@ -448,9 +543,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-resp-b-max">
-                    Resp Body Max Bytes
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-resp-b-max" style={{ margin: 0 }}>
+                      响应体最大字节数
+                    </label>
+                    {renderRestoreButton("reverse_proxy_log_resp_body_max_bytes")}
+                  </div>
                   <Input
                     id="sys-resp-b-max"
                     type="number"
@@ -466,9 +564,12 @@ export function SystemConfigPage() {
               <h4>探测与路由</h4>
               <div className="form-grid">
                 <div className="field-group field-span-2">
-                  <label className="field-label" htmlFor="sys-latency-url">
-                    Latency Test URL
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-latency-url" style={{ margin: 0 }}>
+                      延迟测试目标 URL
+                    </label>
+                    {renderRestoreButton("latency_test_url")}
+                  </div>
                   <Input
                     id="sys-latency-url"
                     value={form.latency_test_url}
@@ -477,9 +578,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-max-latency-int">
-                    Max Latency Test Interval
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-max-latency-int" style={{ margin: 0 }}>
+                      节点延迟最大测试间隔
+                    </label>
+                    {renderRestoreButton("max_latency_test_interval")}
+                  </div>
                   <Input
                     id="sys-max-latency-int"
                     value={form.max_latency_test_interval}
@@ -488,9 +592,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-max-auth-latency-int">
-                    Max Authority Latency Test Interval
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-max-auth-latency-int" style={{ margin: 0 }}>
+                      权威域名最大测试间隔
+                    </label>
+                    {renderRestoreButton("max_authority_latency_test_interval")}
+                  </div>
                   <Input
                     id="sys-max-auth-latency-int"
                     value={form.max_authority_latency_test_interval}
@@ -499,9 +606,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-max-egress-int">
-                    Max Egress Test Interval
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-max-egress-int" style={{ margin: 0 }}>
+                      出口 IP 更新检查间隔
+                    </label>
+                    {renderRestoreButton("max_egress_test_interval")}
+                  </div>
                   <Input
                     id="sys-max-egress-int"
                     value={form.max_egress_test_interval}
@@ -510,9 +620,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-p2c-window">
-                    P2C Latency Window
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-p2c-window" style={{ margin: 0 }}>
+                      P2C 延迟衰减窗口
+                    </label>
+                    {renderRestoreButton("p2c_latency_window")}
+                  </div>
                   <Input
                     id="sys-p2c-window"
                     value={form.p2c_latency_window}
@@ -521,9 +634,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-decay-window">
-                    Latency Decay Window
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-decay-window" style={{ margin: 0 }}>
+                      历史延迟衰减窗口
+                    </label>
+                    {renderRestoreButton("latency_decay_window")}
+                  </div>
                   <Input
                     id="sys-decay-window"
                     value={form.latency_decay_window}
@@ -532,9 +648,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group field-span-2">
-                  <label className="field-label" htmlFor="sys-latency-authorities">
-                    Latency Authorities
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-latency-authorities" style={{ margin: 0 }}>
+                      延迟测试权威域名列表
+                    </label>
+                    {renderRestoreButton("latency_authorities_raw")}
+                  </div>
                   <Textarea
                     id="sys-latency-authorities"
                     rows={4}
@@ -550,9 +669,12 @@ export function SystemConfigPage() {
               <h4>持久化策略</h4>
               <div className="form-grid">
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-cache-flush-int">
-                    Cache Flush Interval
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-cache-flush-int" style={{ margin: 0 }}>
+                      缓存异步刷盘间隔
+                    </label>
+                    {renderRestoreButton("cache_flush_interval")}
+                  </div>
                   <Input
                     id="sys-cache-flush-int"
                     value={form.cache_flush_interval}
@@ -561,9 +683,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-cache-threshold">
-                    Cache Flush Dirty Threshold
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-cache-threshold" style={{ margin: 0 }}>
+                      缓存刷盘脏阈值
+                    </label>
+                    {renderRestoreButton("cache_flush_dirty_threshold")}
+                  </div>
                   <Input
                     id="sys-cache-threshold"
                     type="number"
@@ -574,9 +699,12 @@ export function SystemConfigPage() {
                 </div>
 
                 <div className="field-group">
-                  <label className="field-label" htmlFor="sys-evict-delay">
-                    Ephemeral Node Evict Delay
-                  </label>
+                  <div style={{ display: "flex", alignItems: "center" }}>
+                    <label className="field-label" htmlFor="sys-evict-delay" style={{ margin: 0 }}>
+                      临时节点驱逐延迟
+                    </label>
+                    {renderRestoreButton("ephemeral_node_evict_delay")}
+                  </div>
                   <Input
                     id="sys-evict-delay"
                     value={form.ephemeral_node_evict_delay}
@@ -588,7 +716,7 @@ export function SystemConfigPage() {
           </Card>
 
           <div className="syscfg-side">
-            <Card className="syscfg-summary-card">
+            <Card className="syscfg-summary-card platform-directory-card">
               <div className="detail-header">
                 <div>
                   <h3>变更摘要</h3>
@@ -596,7 +724,7 @@ export function SystemConfigPage() {
                 </div>
               </div>
 
-              {parsedResult.error ? (
+              {parsedResult.error && customPatchText === null ? (
                 <div className="callout callout-error">
                   <AlertTriangle size={14} />
                   <span>{parsedResult.error}</span>
@@ -618,30 +746,32 @@ export function SystemConfigPage() {
                 </div>
               )}
 
-              <div className="detail-actions">
+              <div style={{ marginTop: "16px" }}>
+                <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "8px" }}>
+                  PATCH Preview {customPatchText !== null && <span style={{ color: "var(--primary)" }}>(已手动修改)</span>}
+                </p>
+                <Textarea
+                  value={displayedPatchText}
+                  onChange={handlePatchEdit}
+                  rows={10}
+                  style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace', fontSize: "12px", width: "100%", resize: "vertical", backgroundColor: "var(--surface-sunken)", border: "1px solid var(--border)", borderRadius: "var(--radius)" }}
+                  spellCheck={false}
+                />
+              </div>
+
+              <div className="detail-actions" style={{ justifyContent: "flex-end", marginTop: "16px" }}>
                 <Button
                   onClick={() => void saveMutation.mutateAsync()}
-                  disabled={saveMutation.isPending || Boolean(parsedResult.error) || !hasUnsavedChanges}
+                  disabled={isSaveDisabled}
                 >
                   <Save size={14} />
                   {saveMutation.isPending ? "保存中..." : "保存配置"}
                 </Button>
-                <Button variant="ghost" onClick={resetDraft} disabled={!hasUnsavedChanges || saveMutation.isPending}>
+                <Button variant="ghost" onClick={resetDraft} disabled={(customPatchText === null && !hasUnsavedChanges) || saveMutation.isPending}>
                   <RotateCcw size={14} />
                   重置草稿
                 </Button>
               </div>
-            </Card>
-
-            <Card className="syscfg-preview-card">
-              <div className="detail-header">
-                <div>
-                  <h3>PATCH Preview</h3>
-                  <p>提交前可确认最终发送 JSON</p>
-                </div>
-              </div>
-
-              <pre className="syscfg-preview">{previewText || "{}"}</pre>
             </Card>
           </div>
         </div>
