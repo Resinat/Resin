@@ -265,8 +265,9 @@ func (s *Service) Lookup(ip netip.Addr) string {
 
 // releaseAsset represents a GitHub release asset.
 type releaseAsset struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
+	Name               string  `json:"name"`
+	Digest             *string `json:"digest"`
+	BrowserDownloadURL string  `json:"browser_download_url"`
 }
 
 // releaseInfo represents a GitHub release.
@@ -310,17 +311,22 @@ func (s *Service) UpdateNow() error {
 		return fmt.Errorf("geoip: parse release info: %w", err)
 	}
 
-	// 2. Find the .db and .db.sha256sum asset URLs.
-	dbURL, sha256URL := "", ""
+	// 2. Find the .db asset URL and its SHA256 digest.
+	dbURL, digest := "", ""
 	for _, a := range release.Assets {
 		if a.Name == s.dbFilename {
 			dbURL = a.BrowserDownloadURL
-		} else if a.Name == s.dbFilename+".sha256sum" {
-			sha256URL = a.BrowserDownloadURL
+			if a.Digest != nil {
+				digest = *a.Digest
+			}
 		}
 	}
 	if dbURL == "" {
 		return fmt.Errorf("geoip: asset %q not found in release %s", s.dbFilename, release.TagName)
+	}
+	expectedHash := parseSHA256Digest(digest)
+	if expectedHash == "" {
+		return fmt.Errorf("geoip: asset %q missing valid sha256 digest in release %s", s.dbFilename, release.TagName)
 	}
 
 	// 3. Download .db to unique temp file.
@@ -346,18 +352,6 @@ func (s *Service) UpdateNow() error {
 	}()
 
 	// 4. Verify SHA256 — mandatory.
-	if sha256URL == "" {
-		return fmt.Errorf("geoip: sha256sum asset %q not found in release %s; refusing to replace without verification",
-			s.dbFilename+".sha256sum", release.TagName)
-	}
-	sha256Body, err := s.downloader.Download(ctx, sha256URL)
-	if err != nil {
-		return fmt.Errorf("geoip: download sha256: %w", err)
-	}
-	expectedHash := parseSHA256Sum(string(sha256Body))
-	if expectedHash == "" {
-		return fmt.Errorf("geoip: could not parse sha256sum from %q", string(sha256Body))
-	}
 	if err := VerifySHA256(tmpPath, expectedHash); err != nil {
 		return err
 	}
@@ -433,12 +427,23 @@ func (s *Service) NextScheduledUpdate() time.Time {
 	return entry.Next
 }
 
-// parseSHA256Sum extracts the hex hash from a "<hash>  <filename>" formatted string.
-func parseSHA256Sum(s string) string {
+// parseSHA256Digest extracts hex hash from a "sha256:<hash>" formatted digest string.
+func parseSHA256Digest(s string) string {
 	s = strings.TrimSpace(s)
-	parts := strings.Fields(s)
-	if len(parts) >= 1 && len(parts[0]) == 64 {
-		return strings.ToLower(parts[0])
+	if s == "" {
+		return ""
 	}
-	return ""
+	s = strings.ToLower(s)
+	const prefix = "sha256:"
+	if !strings.HasPrefix(s, prefix) {
+		return ""
+	}
+	hash := strings.TrimSpace(strings.TrimPrefix(s, prefix))
+	if len(hash) != 64 {
+		return ""
+	}
+	if _, err := hex.DecodeString(hash); err != nil {
+		return ""
+	}
+	return hash
 }

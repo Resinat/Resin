@@ -196,22 +196,21 @@ func TestUpdateNow_DownloadVerifyReload(t *testing.T) {
 	dbContent := []byte("fake-geoip-database-content")
 	hash := sha256.Sum256(dbContent)
 	hashHex := hex.EncodeToString(hash[:])
+	digest := "sha256:" + hashHex
 
 	// Build mock release JSON.
 	release := releaseInfo{
 		TagName: "v20240101",
 		Assets: []releaseAsset{
-			{Name: "geoip.db", BrowserDownloadURL: "https://example.com/geoip.db"},
-			{Name: "geoip.db.sha256sum", BrowserDownloadURL: "https://example.com/geoip.db.sha256sum"},
+			{Name: "geoip.db", Digest: &digest, BrowserDownloadURL: "https://example.com/geoip.db"},
 		},
 	}
 	releaseJSON, _ := json.Marshal(release)
 
 	dl := &mockDownloader{
 		responses: map[string][]byte{
-			ReleaseAPIURL:                            releaseJSON,
-			"https://example.com/geoip.db":           dbContent,
-			"https://example.com/geoip.db.sha256sum": []byte(hashHex + "  geoip.db\n"),
+			ReleaseAPIURL:                  releaseJSON,
+			"https://example.com/geoip.db": dbContent,
 		},
 	}
 
@@ -263,21 +262,20 @@ func TestUpdateNow_SHA256Mismatch_NoReplace(t *testing.T) {
 
 	// New download content with wrong hash.
 	newContent := []byte("new-db-content")
+	badDigest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 	release := releaseInfo{
 		TagName: "v20240102",
 		Assets: []releaseAsset{
-			{Name: "geoip.db", BrowserDownloadURL: "https://example.com/geoip.db"},
-			{Name: "geoip.db.sha256sum", BrowserDownloadURL: "https://example.com/geoip.db.sha256sum"},
+			{Name: "geoip.db", Digest: &badDigest, BrowserDownloadURL: "https://example.com/geoip.db"},
 		},
 	}
 	releaseJSON, _ := json.Marshal(release)
 
 	dl := &mockDownloader{
 		responses: map[string][]byte{
-			ReleaseAPIURL:                            releaseJSON,
-			"https://example.com/geoip.db":           newContent,
-			"https://example.com/geoip.db.sha256sum": []byte("0000000000000000000000000000000000000000000000000000000000000000  geoip.db\n"),
+			ReleaseAPIURL:                  releaseJSON,
+			"https://example.com/geoip.db": newContent,
 		},
 	}
 
@@ -317,9 +315,9 @@ func TestUpdateNow_NoDownloader(t *testing.T) {
 	}
 }
 
-// TestUpdateNow_MissingSHA256Asset verifies that UpdateNow errors when the
-// release does not contain a .sha256sum asset (mandatory verification).
-func TestUpdateNow_MissingSHA256Asset(t *testing.T) {
+// TestUpdateNow_MissingDigest verifies that UpdateNow errors when the
+// release asset does not include a digest (mandatory verification).
+func TestUpdateNow_MissingDigest(t *testing.T) {
 	dir := t.TempDir()
 
 	// Pre-existing database.
@@ -334,7 +332,7 @@ func TestUpdateNow_MissingSHA256Asset(t *testing.T) {
 	release := releaseInfo{
 		TagName: "v20240103",
 		Assets: []releaseAsset{
-			// Only .db asset, NO .sha256sum
+			// Only .db asset, NO digest.
 			{Name: "geoip.db", BrowserDownloadURL: "https://example.com/geoip.db"},
 		},
 	}
@@ -352,19 +350,19 @@ func TestUpdateNow_MissingSHA256Asset(t *testing.T) {
 		dbFilename: "geoip.db",
 		downloader: dl,
 		openDB: func(path string) (GeoReader, error) {
-			t.Fatal("OpenDB should not be called when sha256sum is missing")
+			t.Fatal("OpenDB should not be called when digest is missing")
 			return nil, nil
 		},
 	}
 
 	err := s.UpdateNow()
 	if err == nil {
-		t.Fatal("expected error when .sha256sum asset is missing")
+		t.Fatal("expected error when digest is missing")
 	}
 
-	// Verify error message mentions refusal.
-	if !strings.Contains(err.Error(), "refusing to replace") {
-		t.Fatalf("expected 'refusing to replace' in error, got: %v", err)
+	// Verify error message mentions missing digest.
+	if !strings.Contains(err.Error(), "missing valid sha256 digest") {
+		t.Fatalf("expected missing digest error, got: %v", err)
 	}
 
 	// Original file should be untouched.
@@ -373,7 +371,7 @@ func TestUpdateNow_MissingSHA256Asset(t *testing.T) {
 		t.Fatalf("read db: %v", rErr)
 	}
 	if string(data) != string(origContent) {
-		t.Fatal("original database was corrupted despite missing sha256sum")
+		t.Fatal("original database was corrupted despite missing digest")
 	}
 }
 
@@ -526,20 +524,21 @@ func TestUpdateNow_AfterStopReturnsCanceled(t *testing.T) {
 	}
 }
 
-func TestParseSHA256Sum(t *testing.T) {
+func TestParseSHA256Digest(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
 	}{
-		{"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9  geoip.db\n", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"},
-		{"B94D27B9934D3E08A52E52D7DA7DABFAC484EFE37A5380EE9088F7ACE2EFCDE9  file.db", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"},
-		{"abc", ""}, // too short
-		{"", ""},    // empty
+		{"sha256:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"},
+		{"SHA256:B94D27B9934D3E08A52E52D7DA7DABFAC484EFE37A5380EE9088F7ACE2EFCDE9", "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"},
+		{"sha512:b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9", ""},
+		{"sha256:abc", ""},
+		{"", ""},
 	}
 	for _, tt := range tests {
-		got := parseSHA256Sum(tt.input)
+		got := parseSHA256Digest(tt.input)
 		if got != tt.want {
-			t.Errorf("parseSHA256Sum(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("parseSHA256Digest(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
