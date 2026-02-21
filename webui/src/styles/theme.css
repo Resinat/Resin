@@ -1001,7 +1001,9 @@ a {
 }
 
 .subscription-inline-filter .select {
-  min-width: 160px;
+  min-width: 110px;
+  padding: 6px 10px;
+  border-radius: 8px;
 }
 
 .subscription-search-box {
@@ -1019,7 +1021,7 @@ a {
 }
 
 .subscriptions-table {
-  min-width: 1080px;
+  min-width: 900px;
 }
 
 .subscriptions-table tbody tr {
@@ -1027,24 +1029,11 @@ a {
 }
 
 .subscriptions-name-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.subscriptions-name-cell p {
   font-weight: 700;
 }
 
-.subscriptions-name-cell code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  color: #51617a;
-  word-break: break-all;
-}
-
 .subscriptions-url-cell {
-  max-width: 320px;
+  max-width: 180px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1053,8 +1042,9 @@ a {
 
 .subscriptions-status-cell {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .subscriptions-row-actions {
@@ -2263,6 +2253,7 @@ a {
     opacity: 0;
     transform: translateX(40px) scale(0.96);
   }
+
   to {
     opacity: 1;
     transform: translateX(0) scale(1);
@@ -2274,6 +2265,7 @@ a {
     opacity: 1;
     transform: translateX(0) scale(1);
   }
+
   to {
     opacity: 0;
     transform: translateX(40px) scale(0.92);

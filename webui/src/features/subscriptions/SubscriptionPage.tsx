@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Plus, RefreshCw, Search, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Filter, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -45,6 +45,14 @@ type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+
+function extractHostname(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
 
 function fromApiError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -297,35 +305,19 @@ export function SubscriptionPage() {
           <h2>订阅管理</h2>
           <p className="module-description">维护订阅源、更新周期与开关状态，并支持手动触发刷新。</p>
         </div>
-        <Button onClick={() => setCreateModalOpen(true)}>
-          <Plus size={16} />
-          新建订阅
-        </Button>
       </header>
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
-      <Card className="platform-list-card subscriptions-table-card">
+      <Card className="platform-list-card platform-directory-card">
         <div className="list-card-header">
           <div>
             <h3>订阅列表</h3>
             <p>共 {subscriptions.length} 个订阅</p>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => subscriptionsQuery.refetch()}
-            disabled={subscriptionsQuery.isFetching}
-          >
-            <RefreshCw size={14} className={subscriptionsQuery.isFetching ? "spin" : undefined} />
-            刷新
-          </Button>
-        </div>
-
-        <div className="subscriptions-toolbar">
-          <div className="subscriptions-toolbar-filters">
-            <label className="subscription-inline-filter" htmlFor="sub-status-filter">
-              <span>状态</span>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+            <label className="subscription-inline-filter" htmlFor="sub-status-filter" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Filter size={14} />
               <Select
                 id="sub-status-filter"
                 value={enabledFilter}
@@ -339,26 +331,41 @@ export function SubscriptionPage() {
                 <option value="disabled">仅禁用</option>
               </Select>
             </label>
-
-            <label className="search-box subscription-search-box" htmlFor="subscription-search">
+            <label className="search-box" htmlFor="subscription-search" style={{ maxWidth: 200, margin: 0, gap: 6 }}>
               <Search size={14} />
               <Input
                 id="subscription-search"
-                placeholder="按名称 / URL / ID 过滤"
+                placeholder="搜索订阅"
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value);
                   setPage(0);
                 }}
+                style={{ padding: "6px 10px", borderRadius: 8 }}
               />
             </label>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCreateModalOpen(true)}
+            >
+              <Plus size={14} />
+              新建
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => subscriptionsQuery.refetch()}
+              disabled={subscriptionsQuery.isFetching}
+            >
+              <RefreshCw size={14} className={subscriptionsQuery.isFetching ? "spin" : undefined} />
+              刷新
+            </Button>
           </div>
-
-          <p className="subscriptions-count">
-            当前匹配 {totalVisible} 条
-          </p>
         </div>
+      </Card>
 
+      <Card className="platform-cards-container subscriptions-table-card">
         {subscriptionsQuery.isLoading ? <p className="muted">正在加载订阅数据...</p> : null}
 
         {subscriptionsQuery.isError ? (
@@ -381,59 +388,61 @@ export function SubscriptionPage() {
               <thead>
                 <tr>
                   <th>名称</th>
-                  <th>URL</th>
-                  <th>Update Interval</th>
+                  <th>订阅站点</th>
+                  <th>更新间隔</th>
                   <th>状态</th>
                   <th>上次检查</th>
                   <th>上次更新</th>
-                  <th>Actions</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
                 {pagedSubscriptions.map((subscription) => (
                   <tr key={subscription.id}>
                     <td>
-                      <div className="subscriptions-name-cell">
-                        <p>{subscription.name}</p>
-                        <code>{subscription.id}</code>
-                      </div>
+                      <p className="subscriptions-name-cell">{subscription.name}</p>
                     </td>
                     <td>
                       <p className="subscriptions-url-cell" title={subscription.url}>
-                        {subscription.url}
+                        {extractHostname(subscription.url)}
                       </p>
                     </td>
                     <td>{formatGoDuration(subscription.update_interval)}</td>
                     <td>
                       <div className="subscriptions-status-cell">
-                        <Badge variant={subscription.enabled ? "success" : "warning"}>
-                          {subscription.enabled ? "已启用" : "已禁用"}
-                        </Badge>
-                        {subscription.ephemeral ? <Badge variant="neutral">Ephemeral</Badge> : null}
+                        {!subscription.enabled ? (
+                          <Badge variant="warning">已禁用</Badge>
+                        ) : subscription.last_error ? (
+                          <Badge variant="danger">错误</Badge>
+                        ) : (
+                          <Badge variant="success">正常</Badge>
+                        )}
                       </div>
                     </td>
                     <td>{formatDateTime(subscription.last_checked || "")}</td>
                     <td>{formatDateTime(subscription.last_updated || "")}</td>
                     <td>
                       <div className="subscriptions-row-actions">
-                        <Button size="sm" variant="secondary" onClick={() => openDrawer(subscription)}>
-                          编辑
+                        <Button size="sm" variant="ghost" onClick={() => openDrawer(subscription)} title="编辑">
+                          <Pencil size={14} />
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => void refreshMutation.mutateAsync(subscription)}
                           disabled={refreshMutation.isPending}
+                          title="刷新"
                         >
-                          刷新
+                          <RefreshCw size={14} />
                         </Button>
                         <Button
                           size="sm"
-                          variant="danger"
+                          variant="ghost"
                           onClick={() => void handleDelete(subscription)}
                           disabled={deleteMutation.isPending}
+                          title="删除"
                         >
-                          删除
+                          <Trash2 size={14} />
                         </Button>
                       </div>
                     </td>
