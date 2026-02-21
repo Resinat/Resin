@@ -9,7 +9,6 @@ import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
-import { formatRelativeTime } from "../../lib/time";
 import { deleteRule, listRules, resolveRule, upsertRule } from "./api";
 import type { ResolveResult, Rule } from "./types";
 
@@ -32,16 +31,36 @@ function parseHeaderList(raw: string): string[] {
     .filter(Boolean);
 }
 
-function ruleHeadersPreview(rule: Rule): string {
+function getBadgeStyle(text: string): React.CSSProperties {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = text.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return {
+    color: `hsl(${hue}, 80%, 35%)`,
+    backgroundColor: `hsla(${hue}, 80%, 45%, 0.14)`,
+  };
+}
+
+function RuleHeadersPreview({ rule }: { rule: Rule }) {
   if (!rule.headers.length) {
-    return "-";
+    return <span className="muted">-</span>;
   }
 
-  if (rule.headers.length <= 2) {
-    return rule.headers.join(", ");
-  }
+  const displayHeaders = rule.headers.slice(0, 2);
+  const extraCount = rule.headers.length - 2;
 
-  return `${rule.headers.slice(0, 2).join(", ")} +${rule.headers.length - 2}`;
+  return (
+    <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+      {displayHeaders.map((header) => (
+        <Badge key={header} style={getBadgeStyle(header)}>
+          {header}
+        </Badge>
+      ))}
+      {extraCount > 0 && <Badge variant="neutral">+{extraCount}</Badge>}
+    </div>
+  );
 }
 
 export function RulesPage() {
@@ -291,7 +310,6 @@ export function RulesPage() {
                 <tr>
                   <th>URL 前缀</th>
                   <th>请求头</th>
-                  <th>更新时间</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -303,8 +321,9 @@ export function RulesPage() {
                     onClick={() => openDrawerForRule(rule)}
                   >
                     <td title={rule.url_prefix}>{rule.url_prefix}</td>
-                    <td title={rule.headers.join(", ")}>{ruleHeadersPreview(rule)}</td>
-                    <td>{formatRelativeTime(rule.updated_at)}</td>
+                    <td>
+                      <RuleHeadersPreview rule={rule} />
+                    </td>
                     <td>
                       <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
                         <Button size="sm" variant="ghost" onClick={() => openDrawerForRule(rule)} title="编辑">
@@ -464,7 +483,7 @@ export function RulesPage() {
                     {resolveOutput.headers?.length ? (
                       <div className="resolve-badges">
                         {resolveOutput.headers.map((header) => (
-                          <Badge key={header} variant="neutral">
+                          <Badge key={header} style={getBadgeStyle(header)}>
                             {header}
                           </Badge>
                         ))}
