@@ -145,7 +145,13 @@ export function NodesPage() {
 
   const subscriptionsQuery = useQuery({
     queryKey: ["subscriptions", "all"],
-    queryFn: () => listSubscriptions(),
+    queryFn: async () => {
+      const data = await listSubscriptions({
+        limit: 100000,
+        offset: 0,
+      });
+      return data.items;
+    },
     staleTime: 60_000,
   });
   const subscriptions = subscriptionsQuery.data ?? [];

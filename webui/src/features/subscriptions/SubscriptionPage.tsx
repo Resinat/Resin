@@ -98,12 +98,19 @@ export function SubscriptionPage() {
   const enabledValue = parseEnabledFilter(enabledFilter);
 
   const subscriptionsQuery = useQuery({
-    queryKey: ["subscriptions", enabledFilter],
-    queryFn: () => listSubscriptions(enabledValue),
+    queryKey: ["subscriptions", enabledFilter, page, pageSize],
+    queryFn: () =>
+      listSubscriptions({
+        enabled: enabledValue,
+        limit: pageSize,
+        offset: page * pageSize,
+      }),
     refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
   });
 
-  const subscriptions = subscriptionsQuery.data ?? EMPTY_SUBSCRIPTIONS;
+  const subscriptions = subscriptionsQuery.data?.items ?? EMPTY_SUBSCRIPTIONS;
+  const totalSubscriptions = subscriptionsQuery.data?.total ?? 0;
 
   const visibleSubscriptions = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -120,16 +127,8 @@ export function SubscriptionPage() {
     });
   }, [subscriptions, search]);
 
-  const maxPage = Math.max(0, Math.ceil(visibleSubscriptions.length / pageSize) - 1);
-  const currentPage = Math.min(page, maxPage);
-
-  const pagedSubscriptions = useMemo(() => {
-    const start = currentPage * pageSize;
-    return visibleSubscriptions.slice(start, start + pageSize);
-  }, [currentPage, pageSize, visibleSubscriptions]);
-
-  const totalVisible = visibleSubscriptions.length;
-  const totalPages = Math.max(1, maxPage + 1);
+  const totalPages = Math.max(1, Math.ceil(totalSubscriptions / pageSize));
+  const currentPage = Math.min(page, totalPages - 1);
 
   const selectedSubscription = useMemo(() => {
     if (!selectedSubscriptionId) {
@@ -311,7 +310,7 @@ export function SubscriptionPage() {
         <div className="list-card-header">
           <div>
             <h3>订阅列表</h3>
-            <p>共 {subscriptions.length} 个订阅</p>
+            <p>共 {totalSubscriptions} 个订阅</p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <label className="subscription-inline-filter" htmlFor="sub-status-filter" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -373,14 +372,14 @@ export function SubscriptionPage() {
           </div>
         ) : null}
 
-        {!subscriptionsQuery.isLoading && !totalVisible ? (
+        {!subscriptionsQuery.isLoading && !visibleSubscriptions.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
             <p>没有匹配的订阅</p>
           </div>
         ) : null}
 
-        {pagedSubscriptions.length ? (
+        {visibleSubscriptions.length ? (
           <div className="nodes-table-wrap">
             <table className="nodes-table subscriptions-table">
               <thead>
@@ -395,7 +394,7 @@ export function SubscriptionPage() {
                 </tr>
               </thead>
               <tbody>
-                {pagedSubscriptions.map((subscription) => (
+                {visibleSubscriptions.map((subscription) => (
                   <tr
                     key={subscription.id}
                     className="clickable-row"
@@ -459,7 +458,7 @@ export function SubscriptionPage() {
         <OffsetPagination
           page={currentPage}
           totalPages={totalPages}
-          totalItems={totalVisible}
+          totalItems={totalSubscriptions}
           pageSize={pageSize}
           pageSizeOptions={PAGE_SIZE_OPTIONS}
           onPageChange={setPage}

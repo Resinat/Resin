@@ -23,20 +23,33 @@ function normalizeSubscription(raw: ApiSubscription): Subscription {
   };
 }
 
-export async function listSubscriptions(enabled?: boolean): Promise<Subscription[]> {
+function normalizeSubscriptionPage(raw: PageResponse<ApiSubscription>): PageResponse<Subscription> {
+  return {
+    ...raw,
+    items: raw.items.map(normalizeSubscription),
+  };
+}
+
+export type ListSubscriptionsInput = {
+  enabled?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
+export async function listSubscriptions(input: ListSubscriptionsInput = {}): Promise<PageResponse<Subscription>> {
   const query = new URLSearchParams({
-    limit: "1000",
-    offset: "0",
+    limit: String(input.limit ?? 50),
+    offset: String(input.offset ?? 0),
     sort_by: "created_at",
     sort_order: "desc",
   });
 
-  if (enabled !== undefined) {
-    query.set("enabled", String(enabled));
+  if (input.enabled !== undefined) {
+    query.set("enabled", String(input.enabled));
   }
 
   const data = await apiRequest<PageResponse<ApiSubscription>>(`${basePath}?${query.toString()}`);
-  return data.items.map(normalizeSubscription);
+  return normalizeSubscriptionPage(data);
 }
 
 export async function createSubscription(input: SubscriptionCreateInput): Promise<Subscription> {
