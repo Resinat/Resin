@@ -441,6 +441,7 @@ export function SubscriptionPage() {
                           onClick={() => void handleDelete(subscription)}
                           disabled={deleteMutation.isPending}
                           title="删除"
+                          style={{ color: "var(--delete-btn-color, #c27070)" }}
                         >
                           <Trash2 size={14} />
                         </Button>

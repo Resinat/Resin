@@ -281,7 +281,7 @@ a {
 }
 
 .btn-ghost {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.7);
   border-color: var(--border);
   color: var(--text-muted);
 }
