@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -212,6 +213,83 @@ func TestPool_PlatformNotifyOnAddRemove(t *testing.T) {
 	pool.RemoveNodeFromSub(h, "s1")
 	if plat.View().Size() != 0 {
 		t.Fatal("deleted node should be removed from view")
+	}
+}
+
+func TestPool_NotifyNodeDirty_UpdatesPlatformsInParallel(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "Sub1", "url", true, false)
+	subMgr.Register(sub)
+
+	releaseGeoLookup := make(chan struct{})
+	allGeoLookupStarted := make(chan struct{})
+	var geoLookupCalls atomic.Int32
+
+	pool := NewGlobalNodePool(PoolConfig{
+		SubLookup: subMgr.Lookup,
+		GeoLookup: func(addr netip.Addr) string {
+			if geoLookupCalls.Add(1) == 2 {
+				close(allGeoLookupStarted)
+			}
+			<-releaseGeoLookup
+			return "us"
+		},
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+	})
+
+	plat1 := platform.NewPlatform("p1", "P1", nil, []string{"us"})
+	plat2 := platform.NewPlatform("p2", "P2", nil, []string{"us"})
+	pool.RegisterPlatform(plat1)
+	pool.RegisterPlatform(plat2)
+
+	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
+	h := node.HashFromRawOptions(raw)
+	mn := xsync.NewMap[node.Hash, []string]()
+	mn.Store(h, []string{"node-1"})
+	sub.SwapManagedNodes(mn)
+
+	pool.AddNodeFromSub(h, raw, "s1")
+	entry, ok := pool.GetEntry(h)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        100 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	ob := testutil.NewNoopOutbound()
+	entry.Outbound.Store(&ob)
+	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+
+	done := make(chan struct{})
+	go func() {
+		pool.NotifyNodeDirty(h)
+		close(done)
+	}()
+
+	select {
+	case <-allGeoLookupStarted:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("expected platform dirty notifications to run in parallel")
+	}
+
+	select {
+	case <-done:
+		t.Fatal("NotifyNodeDirty should wait for in-flight platform notifications")
+	default:
+	}
+
+	close(releaseGeoLookup)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("NotifyNodeDirty did not finish after releasing geo lookups")
+	}
+
+	if got := geoLookupCalls.Load(); got != 2 {
+		t.Fatalf("expected 2 geo lookup calls, got %d", got)
 	}
 }
 

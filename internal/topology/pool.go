@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/netip"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -360,14 +361,35 @@ func (p *GlobalNodePool) ResolveNodeDisplayTag(hash node.Hash) string {
 // notifyAllPlatformsDirty tells every registered platform to re-evaluate a node.
 func (p *GlobalNodePool) notifyAllPlatformsDirty(hash node.Hash) {
 	platforms := p.platformSnapshot()
+	if len(platforms) == 0 {
+		return
+	}
+
 	subLookup := p.MakeSubLookup()
 	getEntry := func(h node.Hash) (*node.NodeEntry, bool) {
 		return p.nodes.Load(h)
 	}
 
-	for _, plat := range platforms {
-		plat.NotifyDirty(hash, getEntry, subLookup, p.geoLookup)
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
 	}
+	if workers > len(platforms) {
+		workers = len(platforms)
+	}
+
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for _, plat := range platforms {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(plat *platform.Platform) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			plat.NotifyDirty(hash, getEntry, subLookup, p.geoLookup)
+		}(plat)
+	}
+	wg.Wait()
 }
 
 // RebuildAllPlatforms triggers a full rebuild on all registered platforms.
