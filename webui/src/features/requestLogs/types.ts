@@ -36,7 +36,6 @@ export type RequestLogListResponse = {
 export type RequestLogListFilters = {
   from?: string;
   to?: string;
-  platform_id?: string;
   platform_name?: string;
   account?: string;
   target_host?: string;

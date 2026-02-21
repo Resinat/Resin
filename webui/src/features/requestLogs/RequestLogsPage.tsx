@@ -19,7 +19,6 @@ type ProxyTypeFilter = "all" | "1" | "2";
 type FilterDraft = {
   from_local: string;
   to_local: string;
-  platform_id: string;
   platform_name: string;
   account: string;
   target_host: string;
@@ -33,7 +32,6 @@ type FilterDraft = {
 const defaultFilters: FilterDraft = {
   from_local: "",
   to_local: "",
-  platform_id: "",
   platform_name: "",
   account: "",
   target_host: "",
@@ -110,7 +108,6 @@ function buildActiveFilters(draft: FilterDraft): Omit<RequestLogListFilters, "cu
   return {
     from,
     to: validRange ? to : undefined,
-    platform_id: draft.platform_id,
     platform_name: draft.platform_name,
     account: draft.account,
     target_host: draft.target_host,
