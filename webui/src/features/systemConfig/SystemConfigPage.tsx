@@ -10,7 +10,7 @@ import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
-import { patchSystemConfig, getSystemConfig, getDefaultSystemConfig } from "./api";
+import { getEnvConfig, patchSystemConfig, getSystemConfig, getDefaultSystemConfig } from "./api";
 import type { RuntimeConfig, RuntimeConfigPatch } from "./types";
 
 type RuntimeConfigForm = {
@@ -239,8 +239,15 @@ export function SystemConfigPage() {
     staleTime: 30_000,
   });
 
+  const envConfigQuery = useQuery({
+    queryKey: ["system-config-env"],
+    queryFn: getEnvConfig,
+    staleTime: Infinity, // Env config does not change at runtime
+  });
+
   const baseline = configQuery.data ?? null;
   const defaultBaseline = defaultConfigQuery.data ?? null;
+  const envBaseline = envConfigQuery.data ?? null;
 
   const form = useMemo(() => {
     if (!baseline) {
@@ -405,8 +412,8 @@ export function SystemConfigPage() {
           <h2>系统配置</h2>
           <p className="module-description">分组编辑 RuntimeConfig，保存时仅提交差异字段并展示 PATCH 预览。</p>
         </div>
-        <Button onClick={() => void reloadFromServer()} disabled={configQuery.isFetching}>
-          <RefreshCw size={16} className={configQuery.isFetching ? "spin" : undefined} />
+        <Button onClick={() => void reloadFromServer()} disabled={configQuery.isFetching || envConfigQuery.isFetching}>
+          <RefreshCw size={16} className={(configQuery.isFetching || envConfigQuery.isFetching) ? "spin" : undefined} />
           重新加载
         </Button>
       </header>
@@ -415,305 +422,504 @@ export function SystemConfigPage() {
 
       {!form ? (
         <Card className="syscfg-form-card platform-directory-card">
-          {configQuery.isLoading ? <p className="muted">正在加载系统配置...</p> : null}
+          {(configQuery.isLoading || envConfigQuery.isLoading) ? <p className="muted">正在加载配置...</p> : null}
           {configQuery.isError ? (
             <div className="callout callout-error">
               <AlertTriangle size={14} />
               <span>{fromApiError(configQuery.error)}</span>
             </div>
           ) : null}
+          {envConfigQuery.isError ? (
+            <div className="callout callout-error">
+              <AlertTriangle size={14} />
+              <span>静态配置加载失败: {fromApiError(envConfigQuery.error)}</span>
+            </div>
+          ) : null}
         </Card>
       ) : (
         <div className="syscfg-layout">
-          <Card className="syscfg-form-card platform-directory-card">
-            <div className="detail-header">
-              <div>
-                <h3>Runtime Settings</h3>
-                <p>按功能分组编辑，支持立即回滚草稿。</p>
-              </div>
-            </div>
-
-            <section className="syscfg-section">
-              <h4>基础与健康检查</h4>
-              <div className="form-grid">
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-user-agent" style={{ margin: 0 }}>
-                      请求 User Agent
-                    </label>
-                    {renderRestoreButton("user_agent")}
-                  </div>
-                  <Input
-                    id="sys-user-agent"
-                    value={form.user_agent}
-                    onChange={(event) => setFormField("user_agent", event.target.value)}
-                  />
-                </div>
-
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-max-fail" style={{ margin: 0 }}>
-                      最大连续失败次数
-                    </label>
-                    {renderRestoreButton("max_consecutive_failures")}
-                  </div>
-                  <Input
-                    id="sys-max-fail"
-                    type="number"
-                    min={0}
-                    value={form.max_consecutive_failures}
-                    onChange={(event) => setFormField("max_consecutive_failures", event.target.value)}
-                  />
-                </div>
-              </div>
-            </section>
-
-            <section className="syscfg-section">
-              <h4>请求日志</h4>
-              <div className="syscfg-checkbox-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)" }}>
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>启用请求日志</span>
-                    {renderRestoreButton("request_log_enabled")}
-                  </div>
-                  <Switch
-                    checked={form.request_log_enabled}
-                    onChange={(event) => setFormField("request_log_enabled", event.target.checked)}
-                  />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)" }}>
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>记录详细反代日志</span>
-                    {renderRestoreButton("reverse_proxy_log_detail_enabled")}
-                  </div>
-                  <Switch
-                    checked={form.reverse_proxy_log_detail_enabled}
-                    onChange={(event) => setFormField("reverse_proxy_log_detail_enabled", event.target.checked)}
-                  />
+          <div className="syscfg-main" style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+            <Card className="syscfg-form-card platform-directory-card">
+              <div className="detail-header">
+                <div>
+                  <h3>Runtime Settings</h3>
+                  <p>按功能分组编辑，支持立即回滚草稿。</p>
                 </div>
               </div>
 
-              <div className="form-grid" style={{ marginTop: "16px" }}>
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-req-h-max" style={{ margin: 0 }}>
-                      请求头最大字节数
-                    </label>
-                    {renderRestoreButton("reverse_proxy_log_req_headers_max_bytes")}
+              <section className="syscfg-section">
+                <h4>基础与健康检查</h4>
+                <div className="form-grid">
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-user-agent" style={{ margin: 0 }}>
+                        请求 User Agent
+                      </label>
+                      {renderRestoreButton("user_agent")}
+                    </div>
+                    <Input
+                      id="sys-user-agent"
+                      value={form.user_agent}
+                      onChange={(event) => setFormField("user_agent", event.target.value)}
+                    />
                   </div>
-                  <Input
-                    id="sys-req-h-max"
-                    type="number"
-                    min={0}
-                    value={form.reverse_proxy_log_req_headers_max_bytes}
-                    onChange={(event) => setFormField("reverse_proxy_log_req_headers_max_bytes", event.target.value)}
-                  />
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-max-fail" style={{ margin: 0 }}>
+                        最大连续失败次数
+                      </label>
+                      {renderRestoreButton("max_consecutive_failures")}
+                    </div>
+                    <Input
+                      id="sys-max-fail"
+                      type="number"
+                      min={0}
+                      value={form.max_consecutive_failures}
+                      onChange={(event) => setFormField("max_consecutive_failures", event.target.value)}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="syscfg-section">
+                <h4>请求日志</h4>
+                <div className="syscfg-checkbox-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>启用请求日志</span>
+                      {renderRestoreButton("request_log_enabled")}
+                    </div>
+                    <Switch
+                      checked={form.request_log_enabled}
+                      onChange={(event) => setFormField("request_log_enabled", event.target.checked)}
+                    />
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>记录详细反代日志</span>
+                      {renderRestoreButton("reverse_proxy_log_detail_enabled")}
+                    </div>
+                    <Switch
+                      checked={form.reverse_proxy_log_detail_enabled}
+                      onChange={(event) => setFormField("reverse_proxy_log_detail_enabled", event.target.checked)}
+                    />
+                  </div>
                 </div>
 
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-req-b-max" style={{ margin: 0 }}>
-                      请求体最大字节数
-                    </label>
-                    {renderRestoreButton("reverse_proxy_log_req_body_max_bytes")}
+                <div className="form-grid" style={{ marginTop: "16px" }}>
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-req-h-max" style={{ margin: 0 }}>
+                        请求头最大字节数
+                      </label>
+                      {renderRestoreButton("reverse_proxy_log_req_headers_max_bytes")}
+                    </div>
+                    <Input
+                      id="sys-req-h-max"
+                      type="number"
+                      min={0}
+                      value={form.reverse_proxy_log_req_headers_max_bytes}
+                      onChange={(event) => setFormField("reverse_proxy_log_req_headers_max_bytes", event.target.value)}
+                    />
                   </div>
-                  <Input
-                    id="sys-req-b-max"
-                    type="number"
-                    min={0}
-                    value={form.reverse_proxy_log_req_body_max_bytes}
-                    onChange={(event) => setFormField("reverse_proxy_log_req_body_max_bytes", event.target.value)}
-                  />
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-req-b-max" style={{ margin: 0 }}>
+                        请求体最大字节数
+                      </label>
+                      {renderRestoreButton("reverse_proxy_log_req_body_max_bytes")}
+                    </div>
+                    <Input
+                      id="sys-req-b-max"
+                      type="number"
+                      min={0}
+                      value={form.reverse_proxy_log_req_body_max_bytes}
+                      onChange={(event) => setFormField("reverse_proxy_log_req_body_max_bytes", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-resp-h-max" style={{ margin: 0 }}>
+                        响应头最大字节数
+                      </label>
+                      {renderRestoreButton("reverse_proxy_log_resp_headers_max_bytes")}
+                    </div>
+                    <Input
+                      id="sys-resp-h-max"
+                      type="number"
+                      min={0}
+                      value={form.reverse_proxy_log_resp_headers_max_bytes}
+                      onChange={(event) => setFormField("reverse_proxy_log_resp_headers_max_bytes", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-resp-b-max" style={{ margin: 0 }}>
+                        响应体最大字节数
+                      </label>
+                      {renderRestoreButton("reverse_proxy_log_resp_body_max_bytes")}
+                    </div>
+                    <Input
+                      id="sys-resp-b-max"
+                      type="number"
+                      min={0}
+                      value={form.reverse_proxy_log_resp_body_max_bytes}
+                      onChange={(event) => setFormField("reverse_proxy_log_resp_body_max_bytes", event.target.value)}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="syscfg-section">
+                <h4>探测与路由</h4>
+                <div className="form-grid">
+                  <div className="field-group field-span-2">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-latency-url" style={{ margin: 0 }}>
+                        延迟测试目标 URL
+                      </label>
+                      {renderRestoreButton("latency_test_url")}
+                    </div>
+                    <Input
+                      id="sys-latency-url"
+                      value={form.latency_test_url}
+                      onChange={(event) => setFormField("latency_test_url", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-max-latency-int" style={{ margin: 0 }}>
+                        节点延迟最大测试间隔
+                      </label>
+                      {renderRestoreButton("max_latency_test_interval")}
+                    </div>
+                    <Input
+                      id="sys-max-latency-int"
+                      value={form.max_latency_test_interval}
+                      onChange={(event) => setFormField("max_latency_test_interval", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-max-auth-latency-int" style={{ margin: 0 }}>
+                        权威域名最大测试间隔
+                      </label>
+                      {renderRestoreButton("max_authority_latency_test_interval")}
+                    </div>
+                    <Input
+                      id="sys-max-auth-latency-int"
+                      value={form.max_authority_latency_test_interval}
+                      onChange={(event) => setFormField("max_authority_latency_test_interval", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-max-egress-int" style={{ margin: 0 }}>
+                        出口 IP 更新检查间隔
+                      </label>
+                      {renderRestoreButton("max_egress_test_interval")}
+                    </div>
+                    <Input
+                      id="sys-max-egress-int"
+                      value={form.max_egress_test_interval}
+                      onChange={(event) => setFormField("max_egress_test_interval", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-p2c-window" style={{ margin: 0 }}>
+                        P2C 延迟衰减窗口
+                      </label>
+                      {renderRestoreButton("p2c_latency_window")}
+                    </div>
+                    <Input
+                      id="sys-p2c-window"
+                      value={form.p2c_latency_window}
+                      onChange={(event) => setFormField("p2c_latency_window", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-decay-window" style={{ margin: 0 }}>
+                        历史延迟衰减窗口
+                      </label>
+                      {renderRestoreButton("latency_decay_window")}
+                    </div>
+                    <Input
+                      id="sys-decay-window"
+                      value={form.latency_decay_window}
+                      onChange={(event) => setFormField("latency_decay_window", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group field-span-2">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-latency-authorities" style={{ margin: 0 }}>
+                        延迟测试权威域名列表
+                      </label>
+                      {renderRestoreButton("latency_authorities_raw")}
+                    </div>
+                    <Textarea
+                      id="sys-latency-authorities"
+                      rows={4}
+                      placeholder={"gstatic.com\ngoogle.com\ncloudflare.com"}
+                      value={form.latency_authorities_raw}
+                      onChange={(event) => setFormField("latency_authorities_raw", event.target.value)}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="syscfg-section">
+                <h4>持久化策略</h4>
+                <div className="form-grid">
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-cache-flush-int" style={{ margin: 0 }}>
+                        缓存异步刷盘间隔
+                      </label>
+                      {renderRestoreButton("cache_flush_interval")}
+                    </div>
+                    <Input
+                      id="sys-cache-flush-int"
+                      value={form.cache_flush_interval}
+                      onChange={(event) => setFormField("cache_flush_interval", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-cache-threshold" style={{ margin: 0 }}>
+                        缓存刷盘脏阈值
+                      </label>
+                      {renderRestoreButton("cache_flush_dirty_threshold")}
+                    </div>
+                    <Input
+                      id="sys-cache-threshold"
+                      type="number"
+                      min={0}
+                      value={form.cache_flush_dirty_threshold}
+                      onChange={(event) => setFormField("cache_flush_dirty_threshold", event.target.value)}
+                    />
+                  </div>
+
+                  <div className="field-group">
+                    <div style={{ display: "flex", alignItems: "center" }}>
+                      <label className="field-label" htmlFor="sys-evict-delay" style={{ margin: 0 }}>
+                        临时节点驱逐延迟
+                      </label>
+                      {renderRestoreButton("ephemeral_node_evict_delay")}
+                    </div>
+                    <Input
+                      id="sys-evict-delay"
+                      value={form.ephemeral_node_evict_delay}
+                      onChange={(event) => setFormField("ephemeral_node_evict_delay", event.target.value)}
+                    />
+                  </div>
+                </div>
+              </section>
+            </Card>
+
+            {envBaseline && (
+              <Card className="syscfg-form-card platform-directory-card syscfg-static-card">
+                <div className="detail-header">
+                  <div>
+                    <h3>静态配置</h3>
+                    <p>来自环境变量和启动参数的只读配置。</p>
+                  </div>
                 </div>
 
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-resp-h-max" style={{ margin: 0 }}>
-                      响应头最大字节数
-                    </label>
-                    {renderRestoreButton("reverse_proxy_log_resp_headers_max_bytes")}
+                <section className="syscfg-section">
+                  <h4>目录与端口</h4>
+                  <div className="form-grid">
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>数据缓存目录</label>
+                      <Input readOnly disabled value={envBaseline.cache_dir} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>状态存储目录</label>
+                      <Input readOnly disabled value={envBaseline.state_dir} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>日志保留目录</label>
+                      <Input readOnly disabled value={envBaseline.log_dir} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>控制面 API 端口</label>
+                      <Input readOnly disabled value={String(envBaseline.api_port)} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>正向代理端口</label>
+                      <Input readOnly disabled value={String(envBaseline.forward_proxy_port)} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>混合反代端口</label>
+                      <Input readOnly disabled value={String(envBaseline.reverse_proxy_port)} />
+                    </div>
                   </div>
-                  <Input
-                    id="sys-resp-h-max"
-                    type="number"
-                    min={0}
-                    value={form.reverse_proxy_log_resp_headers_max_bytes}
-                    onChange={(event) => setFormField("reverse_proxy_log_resp_headers_max_bytes", event.target.value)}
-                  />
-                </div>
+                </section>
 
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-resp-b-max" style={{ margin: 0 }}>
-                      响应体最大字节数
-                    </label>
-                    {renderRestoreButton("reverse_proxy_log_resp_body_max_bytes")}
+                <section className="syscfg-section">
+                  <h4>全局限额与性能调优</h4>
+                  <div className="form-grid">
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>控制面最大请求体</label>
+                      <Input readOnly disabled value={String(envBaseline.api_max_body_bytes)} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>最大延迟表条目数</label>
+                      <Input readOnly disabled value={String(envBaseline.max_latency_table_entries)} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>节点拨测并发数</label>
+                      <Input readOnly disabled value={String(envBaseline.probe_concurrency)} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>拨测超时时间</label>
+                      <Input readOnly disabled value={envBaseline.probe_timeout} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>资源获取超时时间</label>
+                      <Input readOnly disabled value={envBaseline.resource_fetch_timeout} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>GeoIP 更新计划</label>
+                      <Input readOnly disabled value={envBaseline.geoip_update_schedule} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>代理传输最大空闲连接</label>
+                      <Input readOnly disabled value={String(envBaseline.proxy_transport_max_idle_conns)} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>单主机最大空闲连接</label>
+                      <Input readOnly disabled value={String(envBaseline.proxy_transport_max_idle_conns_per_host)} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>空闲连接超时时间</label>
+                      <Input readOnly disabled value={envBaseline.proxy_transport_idle_conn_timeout} />
+                    </div>
                   </div>
-                  <Input
-                    id="sys-resp-b-max"
-                    type="number"
-                    min={0}
-                    value={form.reverse_proxy_log_resp_body_max_bytes}
-                    onChange={(event) => setFormField("reverse_proxy_log_resp_body_max_bytes", event.target.value)}
-                  />
-                </div>
-              </div>
-            </section>
+                </section>
 
-            <section className="syscfg-section">
-              <h4>探测与路由</h4>
-              <div className="form-grid">
-                <div className="field-group field-span-2">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-latency-url" style={{ margin: 0 }}>
-                      延迟测试目标 URL
-                    </label>
-                    {renderRestoreButton("latency_test_url")}
+                <section className="syscfg-section">
+                  <h4>默认平台回退规则</h4>
+                  <div className="form-grid">
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>默认粘性会话 TTL</label>
+                      <Input readOnly disabled value={envBaseline.default_platform_sticky_ttl} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>默认节点分配策略</label>
+                      <Input readOnly disabled value={envBaseline.default_platform_allocation_policy} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>默认反代不匹配行为</label>
+                      <Input readOnly disabled value={envBaseline.default_platform_reverse_proxy_miss_action} />
+                    </div>
+                    <div className="field-group field-span-2">
+                      <label className="field-label" style={{ margin: 0 }}>默认正则黑名单</label>
+                      <Textarea readOnly disabled rows={3} value={envBaseline.default_platform_regex_filters?.join("\n") || "无"} />
+                    </div>
+                    <div className="field-group field-span-2">
+                      <label className="field-label" style={{ margin: 0 }}>默认地区黑名单</label>
+                      <Textarea readOnly disabled rows={2} value={envBaseline.default_platform_region_filters?.join(",") || "无"} />
+                    </div>
                   </div>
-                  <Input
-                    id="sys-latency-url"
-                    value={form.latency_test_url}
-                    onChange={(event) => setFormField("latency_test_url", event.target.value)}
-                  />
-                </div>
+                </section>
 
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-max-latency-int" style={{ margin: 0 }}>
-                      节点延迟最大测试间隔
-                    </label>
-                    {renderRestoreButton("max_latency_test_interval")}
+                <section className="syscfg-section">
+                  <h4>请求日志落库</h4>
+                  <div className="form-grid">
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>队列大小</label>
+                      <Input readOnly disabled value={String(envBaseline.request_log_queue_size)} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>落盘批大小</label>
+                      <Input readOnly disabled value={String(envBaseline.request_log_queue_flush_batch_size)} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>落盘间隔</label>
+                      <Input readOnly disabled value={envBaseline.request_log_queue_flush_interval} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>数据库保留阈值</label>
+                      <Input readOnly disabled value={envBaseline.request_log_db_max_mb + " MB"} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>数据库旧分片保留数</label>
+                      <Input readOnly disabled value={String(envBaseline.request_log_db_retain_count)} />
+                    </div>
                   </div>
-                  <Input
-                    id="sys-max-latency-int"
-                    value={form.max_latency_test_interval}
-                    onChange={(event) => setFormField("max_latency_test_interval", event.target.value)}
-                  />
-                </div>
+                </section>
 
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-max-auth-latency-int" style={{ margin: 0 }}>
-                      权威域名最大测试间隔
-                    </label>
-                    {renderRestoreButton("max_authority_latency_test_interval")}
+                <section className="syscfg-section">
+                  <h4>可观测性指标</h4>
+                  <div className="form-grid">
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>吞吐量抽样间隔</label>
+                      <Input readOnly disabled value={envBaseline.metric_throughput_interval_seconds + "s"} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>吞吐量保留时间</label>
+                      <Input readOnly disabled value={envBaseline.metric_throughput_retention_seconds + "s"} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>连接数抽样间隔</label>
+                      <Input readOnly disabled value={envBaseline.metric_connections_interval_seconds + "s"} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>连接数保留时间</label>
+                      <Input readOnly disabled value={envBaseline.metric_connections_retention_seconds + "s"} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>租期与连接指标分桶数</label>
+                      <Input readOnly disabled value={envBaseline.metric_bucket_seconds + "s"} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>租期抽样间隔</label>
+                      <Input readOnly disabled value={envBaseline.metric_leases_interval_seconds + "s"} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>租期保留时间</label>
+                      <Input readOnly disabled value={envBaseline.metric_leases_retention_seconds + "s"} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>延迟统计桶宽</label>
+                      <Input readOnly disabled value={envBaseline.metric_latency_bin_width_ms + "ms"} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>延迟统计截断值</label>
+                      <Input readOnly disabled value={envBaseline.metric_latency_bin_overflow_ms + "ms"} />
+                    </div>
                   </div>
-                  <Input
-                    id="sys-max-auth-latency-int"
-                    value={form.max_authority_latency_test_interval}
-                    onChange={(event) => setFormField("max_authority_latency_test_interval", event.target.value)}
-                  />
-                </div>
+                </section>
 
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-max-egress-int" style={{ margin: 0 }}>
-                      出口 IP 更新检查间隔
-                    </label>
-                    {renderRestoreButton("max_egress_test_interval")}
+                <section className="syscfg-section">
+                  <h4>服务鉴权状态</h4>
+                  <div className="syscfg-checkbox-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)", opacity: 0.7 }}>
+                      <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>已配置 Admin Token</span>
+                      <Switch checked={envBaseline.admin_token_set} disabled />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)", opacity: 0.7 }}>
+                      <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>已配置 Proxy Token</span>
+                      <Switch checked={envBaseline.proxy_token_set} disabled />
+                    </div>
                   </div>
-                  <Input
-                    id="sys-max-egress-int"
-                    value={form.max_egress_test_interval}
-                    onChange={(event) => setFormField("max_egress_test_interval", event.target.value)}
-                  />
-                </div>
-
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-p2c-window" style={{ margin: 0 }}>
-                      P2C 延迟衰减窗口
-                    </label>
-                    {renderRestoreButton("p2c_latency_window")}
-                  </div>
-                  <Input
-                    id="sys-p2c-window"
-                    value={form.p2c_latency_window}
-                    onChange={(event) => setFormField("p2c_latency_window", event.target.value)}
-                  />
-                </div>
-
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-decay-window" style={{ margin: 0 }}>
-                      历史延迟衰减窗口
-                    </label>
-                    {renderRestoreButton("latency_decay_window")}
-                  </div>
-                  <Input
-                    id="sys-decay-window"
-                    value={form.latency_decay_window}
-                    onChange={(event) => setFormField("latency_decay_window", event.target.value)}
-                  />
-                </div>
-
-                <div className="field-group field-span-2">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-latency-authorities" style={{ margin: 0 }}>
-                      延迟测试权威域名列表
-                    </label>
-                    {renderRestoreButton("latency_authorities_raw")}
-                  </div>
-                  <Textarea
-                    id="sys-latency-authorities"
-                    rows={4}
-                    placeholder={"gstatic.com\ngoogle.com\ncloudflare.com"}
-                    value={form.latency_authorities_raw}
-                    onChange={(event) => setFormField("latency_authorities_raw", event.target.value)}
-                  />
-                </div>
-              </div>
-            </section>
-
-            <section className="syscfg-section">
-              <h4>持久化策略</h4>
-              <div className="form-grid">
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-cache-flush-int" style={{ margin: 0 }}>
-                      缓存异步刷盘间隔
-                    </label>
-                    {renderRestoreButton("cache_flush_interval")}
-                  </div>
-                  <Input
-                    id="sys-cache-flush-int"
-                    value={form.cache_flush_interval}
-                    onChange={(event) => setFormField("cache_flush_interval", event.target.value)}
-                  />
-                </div>
-
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-cache-threshold" style={{ margin: 0 }}>
-                      缓存刷盘脏阈值
-                    </label>
-                    {renderRestoreButton("cache_flush_dirty_threshold")}
-                  </div>
-                  <Input
-                    id="sys-cache-threshold"
-                    type="number"
-                    min={0}
-                    value={form.cache_flush_dirty_threshold}
-                    onChange={(event) => setFormField("cache_flush_dirty_threshold", event.target.value)}
-                  />
-                </div>
-
-                <div className="field-group">
-                  <div style={{ display: "flex", alignItems: "center" }}>
-                    <label className="field-label" htmlFor="sys-evict-delay" style={{ margin: 0 }}>
-                      临时节点驱逐延迟
-                    </label>
-                    {renderRestoreButton("ephemeral_node_evict_delay")}
-                  </div>
-                  <Input
-                    id="sys-evict-delay"
-                    value={form.ephemeral_node_evict_delay}
-                    onChange={(event) => setFormField("ephemeral_node_evict_delay", event.target.value)}
-                  />
-                </div>
-              </div>
-            </section>
-          </Card>
+                </section>
+              </Card>
+            )}
+          </div>
 
           <div className="syscfg-side">
             <Card className="syscfg-summary-card platform-directory-card">

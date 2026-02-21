@@ -19,4 +19,43 @@ export type RuntimeConfig = {
   ephemeral_node_evict_delay: string;
 };
 
+export type EnvConfig = {
+  cache_dir: string;
+  state_dir: string;
+  log_dir: string;
+  api_port: number;
+  forward_proxy_port: number;
+  reverse_proxy_port: number;
+  api_max_body_bytes: number;
+  max_latency_table_entries: number;
+  probe_concurrency: number;
+  geoip_update_schedule: string;
+  default_platform_sticky_ttl: string;
+  default_platform_regex_filters: string[] | null;
+  default_platform_region_filters: string[] | null;
+  default_platform_reverse_proxy_miss_action: string;
+  default_platform_allocation_policy: string;
+  probe_timeout: string;
+  resource_fetch_timeout: string;
+  proxy_transport_max_idle_conns: number;
+  proxy_transport_max_idle_conns_per_host: number;
+  proxy_transport_idle_conn_timeout: string;
+  request_log_queue_size: number;
+  request_log_queue_flush_batch_size: number;
+  request_log_queue_flush_interval: string;
+  request_log_db_max_mb: number;
+  request_log_db_retain_count: number;
+  metric_throughput_interval_seconds: number;
+  metric_throughput_retention_seconds: number;
+  metric_bucket_seconds: number;
+  metric_connections_interval_seconds: number;
+  metric_connections_retention_seconds: number;
+  metric_leases_interval_seconds: number;
+  metric_leases_retention_seconds: number;
+  metric_latency_bin_width_ms: number;
+  metric_latency_bin_overflow_ms: number;
+  admin_token_set: boolean;
+  proxy_token_set: boolean;
+};
+
 export type RuntimeConfigPatch = Partial<RuntimeConfig>;

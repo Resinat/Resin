@@ -1,5 +1,5 @@
 import { apiRequest } from "../../lib/api-client";
-import type { RuntimeConfig, RuntimeConfigPatch } from "./types";
+import type { EnvConfig, RuntimeConfig, RuntimeConfigPatch } from "./types";
 
 const path = "/api/v1/system/config";
 
@@ -102,4 +102,8 @@ export async function patchSystemConfig(patch: RuntimeConfigPatch): Promise<Runt
     body: patch,
   });
   return normalizeRuntimeConfig(data);
+}
+
+export async function getEnvConfig(): Promise<EnvConfig> {
+  return await apiRequest<EnvConfig>(path + "/env");
 }

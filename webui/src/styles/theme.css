@@ -316,6 +316,17 @@ a {
   box-shadow: 0 0 0 2px rgba(195, 58, 47, 0.12);
 }
 
+.input:disabled,
+.select:disabled,
+.textarea:disabled,
+.input:read-only,
+.textarea:read-only {
+  background: var(--surface-sunken, rgba(0, 0, 0, 0.03));
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
 .textarea {
   resize: vertical;
 }
