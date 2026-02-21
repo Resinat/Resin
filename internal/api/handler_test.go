@@ -174,3 +174,43 @@ func TestSystemConfig_RequiresAuth(t *testing.T) {
 		t.Errorf("status: got %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
+
+// --- /api/v1/system/config/default ---
+
+func TestSystemDefaultConfig_OK(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/config/default", nil)
+	req.Header.Set("Authorization", "Bearer test-admin-token")
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if body["user_agent"] != "sing-box" {
+		t.Errorf("user_agent: got %q, want %q", body["user_agent"], "sing-box")
+	}
+	if body["request_log_enabled"] != false {
+		t.Errorf("request_log_enabled: got %v, want false", body["request_log_enabled"])
+	}
+	if maxFail, ok := body["max_consecutive_failures"].(float64); !ok || maxFail != 3 {
+		t.Errorf("max_consecutive_failures: got %v, want 3", body["max_consecutive_failures"])
+	}
+}
+
+func TestSystemDefaultConfig_RequiresAuth(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/config/default", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status: got %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}

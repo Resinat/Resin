@@ -171,7 +171,7 @@ func newGeoIPService(
 		CacheDir:       cacheDir,
 		UpdateSchedule: updateSchedule,
 		Downloader:     downloader,
-		OpenDB:         geoip.SingBoxOpen,
+		OpenDB:         geoip.MMDBOpen,
 	})
 	return geoSvc
 }
