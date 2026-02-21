@@ -53,6 +53,9 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	assertEqual(t, "DefaultPlatformAllocationPolicy", cfg.DefaultPlatformAllocationPolicy, "BALANCED")
 	assertEqual(t, "ProbeTimeout", cfg.ProbeTimeout, 15*time.Second)
 	assertEqual(t, "ResourceFetchTimeout", cfg.ResourceFetchTimeout, 30*time.Second)
+	assertEqual(t, "ProxyTransportMaxIdleConns", cfg.ProxyTransportMaxIdleConns, 1024)
+	assertEqual(t, "ProxyTransportMaxIdleConnsPerHost", cfg.ProxyTransportMaxIdleConnsPerHost, 64)
+	assertEqual(t, "ProxyTransportIdleConnTimeout", cfg.ProxyTransportIdleConnTimeout, 90*time.Second)
 
 	// Request log
 	assertEqual(t, "RequestLogQueueSize", cfg.RequestLogQueueSize, 8192)
@@ -86,6 +89,9 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	envs["RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY"] = "PREFER_LOW_LATENCY"
 	envs["RESIN_PROBE_TIMEOUT"] = "20s"
 	envs["RESIN_RESOURCE_FETCH_TIMEOUT"] = "45s"
+	envs["RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS"] = "2048"
+	envs["RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS_PER_HOST"] = "128"
+	envs["RESIN_PROXY_TRANSPORT_IDLE_CONN_TIMEOUT"] = "2m"
 	envs["RESIN_REQUEST_LOG_QUEUE_FLUSH_INTERVAL"] = "10m"
 	setEnvs(t, envs)
 
@@ -109,6 +115,9 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	assertEqual(t, "DefaultPlatformAllocationPolicy", cfg.DefaultPlatformAllocationPolicy, "PREFER_LOW_LATENCY")
 	assertEqual(t, "ProbeTimeout", cfg.ProbeTimeout, 20*time.Second)
 	assertEqual(t, "ResourceFetchTimeout", cfg.ResourceFetchTimeout, 45*time.Second)
+	assertEqual(t, "ProxyTransportMaxIdleConns", cfg.ProxyTransportMaxIdleConns, 2048)
+	assertEqual(t, "ProxyTransportMaxIdleConnsPerHost", cfg.ProxyTransportMaxIdleConnsPerHost, 128)
+	assertEqual(t, "ProxyTransportIdleConnTimeout", cfg.ProxyTransportIdleConnTimeout, 2*time.Minute)
 	if cfg.RequestLogQueueFlushInterval.String() != "10m0s" {
 		t.Errorf("RequestLogQueueFlushInterval: got %v, want 10m", cfg.RequestLogQueueFlushInterval)
 	}
@@ -290,6 +299,21 @@ func TestLoadEnvConfig_InvalidProbeTimeout(t *testing.T) {
 		t.Fatal("expected error for invalid probe timeout")
 	}
 	assertContains(t, err.Error(), "RESIN_PROBE_TIMEOUT")
+}
+
+func TestLoadEnvConfig_InvalidProxyTransportSettings(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS"] = "16"
+	envs["RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS_PER_HOST"] = "32"
+	envs["RESIN_PROXY_TRANSPORT_IDLE_CONN_TIMEOUT"] = "0s"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid proxy transport settings")
+	}
+	assertContains(t, err.Error(), "RESIN_PROXY_TRANSPORT_IDLE_CONN_TIMEOUT")
+	assertContains(t, err.Error(), "RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS_PER_HOST")
 }
 
 // --- test helpers ---

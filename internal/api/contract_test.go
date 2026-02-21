@@ -333,7 +333,7 @@ func seedObservabilityData(
 		Timestamp:        now.Add(-30 * time.Second),
 		LeasesByPlatform: map[string]int{platformID: 3},
 	})
-	metricsManager.OnTrafficDelta(platformID, 1000, 1500)
+	metricsManager.OnTrafficDelta(1000, 1500)
 	metricsManager.OnRequestFinished(proxy.RequestFinishedEvent{
 		PlatformID: platformID,
 		ProxyType:  proxy.ProxyTypeForward,
@@ -354,7 +354,7 @@ func seedObservabilityData(
 	})
 	metricsManager.Stop() // ForceFlush bucket data without starting background loops.
 
-	trafficRows, err := metricsManager.Repo().QueryTraffic(0, time.Now().Add(time.Hour).Unix(), platformID)
+	trafficRows, err := metricsManager.Repo().QueryTraffic(0, time.Now().Add(time.Hour).Unix())
 	if err != nil {
 		t.Fatalf("metrics QueryTraffic: %v", err)
 	}
@@ -991,7 +991,7 @@ func TestAPIContract_MetricsEndpoints(t *testing.T) {
 	} else if item, ok := items[0].(map[string]any); !ok || item["active_leases"] != float64(3) {
 		t.Fatalf("global realtime leases active_leases: got %+v, want 3", items[0])
 	}
-	checkItemsEndpoint("/api/v1/metrics/history/traffic?platform_id=" + platformID + "&from=" + from + "&to=" + to)
+	checkItemsEndpoint("/api/v1/metrics/history/traffic?from=" + from + "&to=" + to)
 	checkItemsEndpoint("/api/v1/metrics/history/requests?platform_id=" + platformID + "&from=" + from + "&to=" + to)
 	checkItemsEndpoint("/api/v1/metrics/history/access-latency?platform_id=" + platformID + "&from=" + from + "&to=" + to)
 	checkItemsEndpoint("/api/v1/metrics/history/probes?from=" + from + "&to=" + to)

@@ -143,11 +143,6 @@ func TestMetricsHandlers_NonexistentPlatformReturnsNotFound(t *testing.T) {
 			path:    "/api/v1/metrics/realtime/leases?platform_id=missing-platform",
 		},
 		{
-			name:    "history traffic",
-			handler: HandleHistoryTraffic(mgr),
-			path:    "/api/v1/metrics/history/traffic?platform_id=missing-platform",
-		},
-		{
 			name:    "history requests",
 			handler: HandleHistoryRequests(mgr),
 			path:    "/api/v1/metrics/history/requests?platform_id=missing-platform",
@@ -179,7 +174,7 @@ func TestMetricsHandlers_NonexistentPlatformReturnsNotFound(t *testing.T) {
 	}
 }
 
-func TestMetricsHandlers_ExistingPlatformStillWorks(t *testing.T) {
+func TestMetricsHandlers_HistoryTrafficRejectsPlatformDimension(t *testing.T) {
 	mgr := newTestMetricsManager(t, "existing-platform")
 
 	req := httptest.NewRequest(
@@ -190,9 +185,7 @@ func TestMetricsHandlers_ExistingPlatformStillWorks(t *testing.T) {
 	rec := httptest.NewRecorder()
 	HandleHistoryTraffic(mgr).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
+	assertInvalidArgumentError(t, rec)
 }
 
 func TestMetricsHandlers_GlobalEndpointsRejectPlatformDimension(t *testing.T) {
@@ -217,6 +210,11 @@ func TestMetricsHandlers_GlobalEndpointsRejectPlatformDimension(t *testing.T) {
 			name:    "history probes",
 			handler: HandleHistoryProbes(mgr),
 			path:    "/api/v1/metrics/history/probes?platform_id=existing-platform",
+		},
+		{
+			name:    "history traffic",
+			handler: HandleHistoryTraffic(mgr),
+			path:    "/api/v1/metrics/history/traffic?platform_id=existing-platform",
 		},
 		{
 			name:    "history node-pool",
@@ -456,7 +454,7 @@ func TestMetricsHandlers_SnapshotNodeLatencyDistribution_NoDuplicateOverflowBoun
 
 func TestMetricsHandlers_HistoryTraffic_IncludesCurrentUnflushedBucket(t *testing.T) {
 	mgr := newTestMetricsManager(t, "existing-platform")
-	mgr.OnTrafficDelta("", 100, 200)
+	mgr.OnTrafficDelta(100, 200)
 
 	now := time.Now().UTC()
 	from := url.QueryEscape(now.Add(-2 * time.Hour).Format(time.RFC3339Nano))
@@ -525,11 +523,11 @@ func TestMetricsHandlers_HistoryTraffic_MergesPersistedAndCurrentBucket(t *testi
 	mgr := newTestMetricsManager(t, "existing-platform")
 
 	// Persist one partial bucket first.
-	mgr.OnTrafficDelta("", 50, 70)
+	mgr.OnTrafficDelta(50, 70)
 	mgr.Stop()
 
 	// Add more traffic into the same (unflushed) current bucket.
-	mgr.OnTrafficDelta("", 100, 200)
+	mgr.OnTrafficDelta(100, 200)
 
 	now := time.Now().UTC()
 	from := url.QueryEscape(now.Add(-2 * time.Hour).Format(time.RFC3339Nano))

@@ -14,16 +14,10 @@ import (
 // MetricsDBDDL defines the schema for metrics.db.
 const MetricsDBDDL = `
 CREATE TABLE IF NOT EXISTS metric_traffic_bucket (
-	bucket_start_unix INTEGER NOT NULL,
-	platform_id       TEXT,
+	bucket_start_unix INTEGER PRIMARY KEY,
 	ingress_bytes     INTEGER NOT NULL DEFAULT 0,
 	egress_bytes      INTEGER NOT NULL DEFAULT 0
 );
-CREATE UNIQUE INDEX IF NOT EXISTS uq_metric_traffic_bucket_dim
-	ON metric_traffic_bucket(bucket_start_unix, platform_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_metric_traffic_bucket_global
-	ON metric_traffic_bucket(bucket_start_unix)
-	WHERE platform_id IS NULL;
 
 CREATE TABLE IF NOT EXISTS metric_request_bucket (
 	bucket_start_unix  INTEGER NOT NULL,
@@ -113,29 +107,12 @@ func (r *MetricsRepo) WriteBucket(data *BucketFlushData) error {
 	defer tx.Rollback() //nolint:errcheck
 
 	// Traffic.
-	globalTraffic := trafficAccum{}
-	if t, ok := data.Traffic[""]; ok {
-		globalTraffic = t
-	}
-	_, err = tx.Exec(`INSERT INTO metric_traffic_bucket (bucket_start_unix, platform_id, ingress_bytes, egress_bytes)
-		VALUES (?,NULL,?,?) ON CONFLICT(bucket_start_unix) WHERE platform_id IS NULL
+	_, err = tx.Exec(`INSERT INTO metric_traffic_bucket (bucket_start_unix, ingress_bytes, egress_bytes)
+		VALUES (?,?,?) ON CONFLICT(bucket_start_unix)
 		DO UPDATE SET ingress_bytes = excluded.ingress_bytes, egress_bytes = excluded.egress_bytes`,
-		data.BucketStartUnix, globalTraffic.IngressBytes, globalTraffic.EgressBytes)
+		data.BucketStartUnix, data.Traffic.IngressBytes, data.Traffic.EgressBytes)
 	if err != nil {
 		return fmt.Errorf("metrics repo upsert global traffic: %w", err)
-	}
-
-	for pid, t := range data.Traffic {
-		if pid == "" {
-			continue
-		}
-		_, err = tx.Exec(`INSERT INTO metric_traffic_bucket (bucket_start_unix, platform_id, ingress_bytes, egress_bytes)
-			VALUES (?,?,?,?) ON CONFLICT(bucket_start_unix, platform_id)
-			DO UPDATE SET ingress_bytes = excluded.ingress_bytes, egress_bytes = excluded.egress_bytes`,
-			data.BucketStartUnix, pid, t.IngressBytes, t.EgressBytes)
-		if err != nil {
-			return fmt.Errorf("metrics repo upsert traffic: %w", err)
-		}
 	}
 
 	// Requests.
@@ -222,24 +199,16 @@ func (r *MetricsRepo) WriteLatencyBucket(bucketStartUnix int64, platformID strin
 
 // TrafficBucketRow holds a single traffic bucket result.
 type TrafficBucketRow struct {
-	BucketStartUnix int64  `json:"bucket_start_unix"`
-	PlatformID      string `json:"platform_id"`
-	IngressBytes    int64  `json:"ingress_bytes"`
-	EgressBytes     int64  `json:"egress_bytes"`
+	BucketStartUnix int64 `json:"bucket_start_unix"`
+	IngressBytes    int64 `json:"ingress_bytes"`
+	EgressBytes     int64 `json:"egress_bytes"`
 }
 
 // QueryTraffic returns traffic buckets in a time range.
-func (r *MetricsRepo) QueryTraffic(from, to int64, platformID string) ([]TrafficBucketRow, error) {
-	q := `SELECT bucket_start_unix, platform_id, ingress_bytes, egress_bytes
+func (r *MetricsRepo) QueryTraffic(from, to int64) ([]TrafficBucketRow, error) {
+	q := `SELECT bucket_start_unix, ingress_bytes, egress_bytes
 		FROM metric_traffic_bucket WHERE bucket_start_unix >= ? AND bucket_start_unix <= ?`
 	args := []interface{}{from, to}
-	if platformID != "" {
-		q += " AND platform_id = ?"
-		args = append(args, platformID)
-	} else {
-		// Empty platformID means global scope only.
-		q += " AND platform_id IS NULL"
-	}
 	q += " ORDER BY bucket_start_unix"
 	rows, err := r.db.Query(q, args...)
 	if err != nil {
@@ -250,12 +219,8 @@ func (r *MetricsRepo) QueryTraffic(from, to int64, platformID string) ([]Traffic
 	var result []TrafficBucketRow
 	for rows.Next() {
 		var row TrafficBucketRow
-		var pid sql.NullString
-		if err := rows.Scan(&row.BucketStartUnix, &pid, &row.IngressBytes, &row.EgressBytes); err != nil {
+		if err := rows.Scan(&row.BucketStartUnix, &row.IngressBytes, &row.EgressBytes); err != nil {
 			continue
-		}
-		if pid.Valid {
-			row.PlatformID = pid.String
 		}
 		result = append(result, row)
 	}

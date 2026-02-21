@@ -184,10 +184,10 @@ func (m *Manager) OnRequestFinished(ev proxy.RequestFinishedEvent) {
 	m.collector.RecordRequest(ev.PlatformID, ev.NetOK, latencyMs, ev.IsConnect)
 }
 
-// OnTrafficDelta records traffic bytes (implements proxy.MetricsEventSink).
-func (m *Manager) OnTrafficDelta(platformID string, ingressBytes, egressBytes int64) {
-	m.collector.RecordTraffic(platformID, ingressBytes, egressBytes)
-	m.bucket.AddTraffic(platformID, ingressBytes, egressBytes)
+// OnTrafficDelta records global traffic bytes (implements proxy.MetricsEventSink).
+func (m *Manager) OnTrafficDelta(ingressBytes, egressBytes int64) {
+	m.collector.RecordTraffic(ingressBytes, egressBytes)
+	m.bucket.AddTraffic(ingressBytes, egressBytes)
 }
 
 // OnConnectionLifecycle records connection open/close (implements proxy.MetricsEventSink).
@@ -255,10 +255,9 @@ func (m *Manager) LeasesIntervalSeconds() int { return int(m.leasesInterval.Seco
 // RuntimeStats returns the runtime stats provider.
 func (m *Manager) RuntimeStats() RuntimeStatsProvider { return m.runtimeStats }
 
-// SnapshotCurrentTrafficBucket returns unflushed traffic in current bucket.
-// platformID="" means global scope.
-func (m *Manager) SnapshotCurrentTrafficBucket(platformID string) (bucketStartUnix, ingressBytes, egressBytes int64) {
-	return m.bucket.SnapshotTraffic(platformID)
+// SnapshotCurrentTrafficBucket returns unflushed global traffic in current bucket.
+func (m *Manager) SnapshotCurrentTrafficBucket() (bucketStartUnix, ingressBytes, egressBytes int64) {
+	return m.bucket.SnapshotTraffic()
 }
 
 // SnapshotCurrentRequestsBucket returns unflushed requests in current bucket.

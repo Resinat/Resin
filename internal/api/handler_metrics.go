@@ -261,21 +261,20 @@ func HandleRealtimeLeases(mgr *metrics.Manager) http.Handler {
 // HandleHistoryTraffic handles GET /api/v1/metrics/history/traffic.
 func HandleHistoryTraffic(mgr *metrics.Manager) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rejectUnsupportedPlatformDimension(w, r) {
+			return
+		}
 		from, to, ok := parseMetricsTimeRange(w, r)
 		if !ok {
 			return
 		}
-		platformID := r.URL.Query().Get("platform_id")
-		if platformID != "" && !ensureMetricsPlatformExists(mgr, w, platformID) {
-			return
-		}
 
-		rows, err := mgr.Repo().QueryTraffic(from.Unix(), to.Unix(), platformID)
+		rows, err := mgr.Repo().QueryTraffic(from.Unix(), to.Unix())
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 			return
 		}
-		currentBucketStart, currentIngress, currentEgress := mgr.SnapshotCurrentTrafficBucket(platformID)
+		currentBucketStart, currentIngress, currentEgress := mgr.SnapshotCurrentTrafficBucket()
 		if currentBucketStart >= from.Unix() && currentBucketStart <= to.Unix() {
 			merged := false
 			for i := range rows {
@@ -290,7 +289,6 @@ func HandleHistoryTraffic(mgr *metrics.Manager) http.Handler {
 			if !merged {
 				rows = append(rows, metrics.TrafficBucketRow{
 					BucketStartUnix: currentBucketStart,
-					PlatformID:      platformID,
 					IngressBytes:    currentIngress,
 					EgressBytes:     currentEgress,
 				})

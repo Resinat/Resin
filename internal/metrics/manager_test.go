@@ -37,7 +37,7 @@ func TestTakeSample_NormalizesThroughputToBPS(t *testing.T) {
 		ThroughputIntervalSec:      5,
 	})
 
-	mgr.OnTrafficDelta("", 100, 250)
+	mgr.OnTrafficDelta(100, 250)
 	mgr.takeThroughputSample(time.Unix(5, 0))
 
 	sample, ok := mgr.ThroughputRing().Latest()
@@ -51,7 +51,7 @@ func TestTakeSample_NormalizesThroughputToBPS(t *testing.T) {
 		t.Fatalf("first sample egress_bps: got %d, want %d", sample.EgressBPS, 50)
 	}
 
-	mgr.OnTrafficDelta("", 50, 150)
+	mgr.OnTrafficDelta(50, 150)
 	mgr.takeThroughputSample(time.Unix(10, 0))
 
 	sample, ok = mgr.ThroughputRing().Latest()
@@ -146,7 +146,7 @@ func TestFlushBucket_RetainsPendingTaskUntilRepoRecovers(t *testing.T) {
 		RuntimeStats:                managerTestRuntimeStats{},
 	})
 
-	mgr.OnTrafficDelta("plat-1", 100, 200)
+	mgr.OnTrafficDelta(100, 200)
 	mgr.OnRequestFinished(proxy.RequestFinishedEvent{
 		PlatformID: "plat-1",
 		NetOK:      true,
@@ -205,7 +205,7 @@ func TestFlushBucket_RetainsPendingTaskUntilRepoRecovers(t *testing.T) {
 		t.Fatalf("request row mismatch: %+v", requestRows[0])
 	}
 
-	trafficRows, err := recoveredRepo.QueryTraffic(from, to, "plat-1")
+	trafficRows, err := recoveredRepo.QueryTraffic(from, to)
 	if err != nil {
 		t.Fatalf("QueryTraffic: %v", err)
 	}

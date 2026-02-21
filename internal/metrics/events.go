@@ -13,7 +13,6 @@ const (
 
 // TrafficDeltaEvent reports byte counts from a countingConn flush.
 type TrafficDeltaEvent struct {
-	PlatformID   string
 	IngressBytes int64
 	EgressBytes  int64
 }

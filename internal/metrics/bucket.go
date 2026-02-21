@@ -12,8 +12,8 @@ type BucketAggregator struct {
 	bucketSeconds int64
 
 	// Current bucket state (accumulated since last flush).
-	currentStart int64                    // bucket_start_unix
-	traffic      map[string]*trafficAccum // platformID -> accum (empty-string key = global)
+	currentStart int64 // bucket_start_unix
+	traffic      trafficAccum
 	requests     map[string]*requestAccum // platformID -> accum
 	probes       probeAccum
 	leaseLife    map[string]*leaseLifeAccum // platformID -> accum
@@ -41,8 +41,8 @@ type leaseLifeAccum struct {
 type BucketFlushData struct {
 	BucketStartUnix int64
 
-	// Traffic per scope (platformID="" is global).
-	Traffic map[string]trafficAccum
+	// Global traffic accumulation.
+	Traffic trafficAccum
 
 	// Requests per scope.
 	Requests map[string]requestAccum
@@ -64,41 +64,26 @@ func NewBucketAggregator(bucketSeconds int) *BucketAggregator {
 	return &BucketAggregator{
 		bucketSeconds: int64(bucketSeconds),
 		currentStart:  start,
-		traffic:       make(map[string]*trafficAccum),
 		requests:      make(map[string]*requestAccum),
 		leaseLife:     make(map[string]*leaseLifeAccum),
 	}
 }
 
 // AddTraffic records traffic delta into the current bucket.
-func (b *BucketAggregator) AddTraffic(platformID string, ingress, egress int64) {
+func (b *BucketAggregator) AddTraffic(ingress, egress int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// Global.
-	g := b.getTraffic("")
-	g.IngressBytes += ingress
-	g.EgressBytes += egress
-
-	// Per-platform.
-	if platformID != "" {
-		p := b.getTraffic(platformID)
-		p.IngressBytes += ingress
-		p.EgressBytes += egress
-	}
+	b.traffic.IngressBytes += ingress
+	b.traffic.EgressBytes += egress
 }
 
-// SnapshotTraffic returns the current bucket's traffic for a scope.
-// platformID="" means global scope.
-func (b *BucketAggregator) SnapshotTraffic(platformID string) (bucketStartUnix, ingressBytes, egressBytes int64) {
+// SnapshotTraffic returns the current bucket's global traffic.
+func (b *BucketAggregator) SnapshotTraffic() (bucketStartUnix, ingressBytes, egressBytes int64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	acc, exists := b.traffic[platformID]
-	if !exists {
-		return b.currentStart, 0, 0
-	}
-	return b.currentStart, acc.IngressBytes, acc.EgressBytes
+	return b.currentStart, b.traffic.IngressBytes, b.traffic.EgressBytes
 }
 
 // CurrentBucketStartUnix returns the current in-progress bucket start timestamp.
@@ -207,13 +192,10 @@ func (b *BucketAggregator) MaybeFlush(now time.Time) *BucketFlushData {
 	// Emit current bucket.
 	data := &BucketFlushData{
 		BucketStartUnix: b.currentStart,
-		Traffic:         make(map[string]trafficAccum, len(b.traffic)),
+		Traffic:         b.traffic,
 		Requests:        make(map[string]requestAccum, len(b.requests)),
 		Probes:          b.probes,
 		LeaseLifetimes:  b.leaseLife,
-	}
-	for k, v := range b.traffic {
-		data.Traffic[k] = *v
 	}
 	for k, v := range b.requests {
 		data.Requests[k] = *v
@@ -222,7 +204,7 @@ func (b *BucketAggregator) MaybeFlush(now time.Time) *BucketFlushData {
 	// Reset for next bucket.
 	newStart := (nowUnix / b.bucketSeconds) * b.bucketSeconds
 	b.currentStart = newStart
-	b.traffic = make(map[string]*trafficAccum)
+	b.traffic = trafficAccum{}
 	b.requests = make(map[string]*requestAccum)
 	b.probes = probeAccum{}
 	b.leaseLife = make(map[string]*leaseLifeAccum)
@@ -236,11 +218,7 @@ func (b *BucketAggregator) ForceFlush() *BucketFlushData {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	empty := true
-	for range b.traffic {
-		empty = false
-		break
-	}
+	empty := b.traffic.IngressBytes == 0 && b.traffic.EgressBytes == 0
 	if empty {
 		for range b.requests {
 			empty = false
@@ -253,33 +231,21 @@ func (b *BucketAggregator) ForceFlush() *BucketFlushData {
 
 	data := &BucketFlushData{
 		BucketStartUnix: b.currentStart,
-		Traffic:         make(map[string]trafficAccum, len(b.traffic)),
+		Traffic:         b.traffic,
 		Requests:        make(map[string]requestAccum, len(b.requests)),
 		Probes:          b.probes,
 		LeaseLifetimes:  b.leaseLife,
-	}
-	for k, v := range b.traffic {
-		data.Traffic[k] = *v
 	}
 	for k, v := range b.requests {
 		data.Requests[k] = *v
 	}
 
-	b.traffic = make(map[string]*trafficAccum)
+	b.traffic = trafficAccum{}
 	b.requests = make(map[string]*requestAccum)
 	b.probes = probeAccum{}
 	b.leaseLife = make(map[string]*leaseLifeAccum)
 
 	return data
-}
-
-func (b *BucketAggregator) getTraffic(key string) *trafficAccum {
-	t, ok := b.traffic[key]
-	if !ok {
-		t = &trafficAccum{}
-		b.traffic[key] = t
-	}
-	return t
 }
 
 func (b *BucketAggregator) getRequest(key string) *requestAccum {

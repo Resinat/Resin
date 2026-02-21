@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/resin-proxy/resin/internal/netutil"
@@ -20,23 +21,28 @@ import (
 
 // ForwardProxyConfig holds dependencies for the forward proxy.
 type ForwardProxyConfig struct {
-	ProxyToken  string
-	Router      *routing.Router
-	Pool        outbound.PoolAccessor
-	Health      HealthRecorder
-	Events      EventEmitter
-	MetricsSink MetricsEventSink
+	ProxyToken        string
+	Router            *routing.Router
+	Pool              outbound.PoolAccessor
+	Health            HealthRecorder
+	Events            EventEmitter
+	MetricsSink       MetricsEventSink
+	OutboundTransport OutboundTransportConfig
+	TransportPool     *OutboundTransportPool
 }
 
 // ForwardProxy implements an HTTP forward proxy with Proxy-Authorization
 // authentication, HTTP request forwarding, and CONNECT tunneling.
 type ForwardProxy struct {
-	token       string
-	router      *routing.Router
-	pool        outbound.PoolAccessor
-	health      HealthRecorder
-	events      EventEmitter
-	metricsSink MetricsEventSink
+	token             string
+	router            *routing.Router
+	pool              outbound.PoolAccessor
+	health            HealthRecorder
+	events            EventEmitter
+	metricsSink       MetricsEventSink
+	transportConfig   OutboundTransportConfig
+	transportPool     *OutboundTransportPool
+	transportPoolOnce sync.Once
 }
 
 // NewForwardProxy creates a new forward proxy handler.
@@ -45,14 +51,30 @@ func NewForwardProxy(cfg ForwardProxyConfig) *ForwardProxy {
 	if ev == nil {
 		ev = NoOpEventEmitter{}
 	}
-	return &ForwardProxy{
-		token:       cfg.ProxyToken,
-		router:      cfg.Router,
-		pool:        cfg.Pool,
-		health:      cfg.Health,
-		events:      ev,
-		metricsSink: cfg.MetricsSink,
+	transportCfg := normalizeOutboundTransportConfig(cfg.OutboundTransport)
+	transportPool := cfg.TransportPool
+	if transportPool == nil {
+		transportPool = NewOutboundTransportPool(transportCfg)
 	}
+	return &ForwardProxy{
+		token:           cfg.ProxyToken,
+		router:          cfg.Router,
+		pool:            cfg.Pool,
+		health:          cfg.Health,
+		events:          ev,
+		metricsSink:     cfg.MetricsSink,
+		transportConfig: transportCfg,
+		transportPool:   transportPool,
+	}
+}
+
+func (p *ForwardProxy) outboundHTTPTransport(routed routedOutbound) *http.Transport {
+	p.transportPoolOnce.Do(func() {
+		if p.transportPool == nil {
+			p.transportPool = NewOutboundTransportPool(p.transportConfig)
+		}
+	})
+	return p.transportPool.Get(routed.Route.NodeHash, routed.Outbound, p.metricsSink)
 }
 
 func (p *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +164,17 @@ func copyEndToEndHeaders(dst, src http.Header) {
 	}
 }
 
+// prepareForwardOutboundRequest clones an inbound forward-proxy request into a
+// client request suitable for http.Transport.RoundTrip.
+func prepareForwardOutboundRequest(in *http.Request) *http.Request {
+	req := in.Clone(in.Context())
+	req.RequestURI = ""
+	// Do not propagate client-side close semantics to upstream transport reuse.
+	req.Close = false
+	stripHopByHopHeaders(req.Header)
+	return req
+}
+
 func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeForward, false)
 	lifecycle.setTarget(r.Host, r.URL.String())
@@ -164,13 +197,11 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycle.setRouteResult(routed.Route)
 	go p.health.RecordLatency(routed.Route.NodeHash, netutil.ExtractDomain(r.Host), nil)
 
-	transport := newOutboundTransport(routed.Outbound, p.metricsSink, routed.Route.PlatformID)
-
-	// Strip hop-by-hop headers (including Proxy-Authorization).
-	stripHopByHopHeaders(r.Header)
+	transport := p.outboundHTTPTransport(routed)
+	outReq := prepareForwardOutboundRequest(r)
 
 	// Forward the request.
-	resp, err := transport.RoundTrip(r)
+	resp, err := transport.RoundTrip(outReq)
 	if err != nil {
 		proxyErr := classifyUpstreamError(err)
 		if proxyErr == nil {
@@ -249,7 +280,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	var upstreamBase net.Conn = rawConn
 	if p.metricsSink != nil {
 		p.metricsSink.OnConnectionLifecycle(ConnectionOutbound, ConnectionOpen)
-		upstreamBase = newCountingConn(rawConn, p.metricsSink, routed.Route.PlatformID)
+		upstreamBase = newCountingConn(rawConn, p.metricsSink)
 	}
 
 	// Wrap with TLS latency measurement.

@@ -1,13 +1,12 @@
 package proxy
 
 import (
-	"crypto/tls"
 	"net/http"
 	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/resin-proxy/resin/internal/netutil"
 	"github.com/resin-proxy/resin/internal/outbound"
@@ -23,27 +22,32 @@ type PlatformLookup interface {
 
 // ReverseProxyConfig holds dependencies for the reverse proxy.
 type ReverseProxyConfig struct {
-	ProxyToken     string
-	Router         *routing.Router
-	Pool           outbound.PoolAccessor
-	PlatformLookup PlatformLookup
-	Health         HealthRecorder
-	Matcher        AccountRuleMatcher
-	Events         EventEmitter
-	MetricsSink    MetricsEventSink
+	ProxyToken        string
+	Router            *routing.Router
+	Pool              outbound.PoolAccessor
+	PlatformLookup    PlatformLookup
+	Health            HealthRecorder
+	Matcher           AccountRuleMatcher
+	Events            EventEmitter
+	MetricsSink       MetricsEventSink
+	OutboundTransport OutboundTransportConfig
+	TransportPool     *OutboundTransportPool
 }
 
 // ReverseProxy implements an HTTP reverse proxy.
 // Path format: /PROXY_TOKEN/Platform:Account/protocol/host/path?query
 type ReverseProxy struct {
-	token       string
-	router      *routing.Router
-	pool        outbound.PoolAccessor
-	platLook    PlatformLookup
-	health      HealthRecorder
-	matcher     AccountRuleMatcher
-	events      EventEmitter
-	metricsSink MetricsEventSink
+	token             string
+	router            *routing.Router
+	pool              outbound.PoolAccessor
+	platLook          PlatformLookup
+	health            HealthRecorder
+	matcher           AccountRuleMatcher
+	events            EventEmitter
+	metricsSink       MetricsEventSink
+	transportConfig   OutboundTransportConfig
+	transportPool     *OutboundTransportPool
+	transportPoolOnce sync.Once
 }
 
 // NewReverseProxy creates a new reverse proxy handler.
@@ -52,16 +56,32 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 	if ev == nil {
 		ev = NoOpEventEmitter{}
 	}
-	return &ReverseProxy{
-		token:       cfg.ProxyToken,
-		router:      cfg.Router,
-		pool:        cfg.Pool,
-		platLook:    cfg.PlatformLookup,
-		health:      cfg.Health,
-		matcher:     cfg.Matcher,
-		events:      ev,
-		metricsSink: cfg.MetricsSink,
+	transportCfg := normalizeOutboundTransportConfig(cfg.OutboundTransport)
+	transportPool := cfg.TransportPool
+	if transportPool == nil {
+		transportPool = NewOutboundTransportPool(transportCfg)
 	}
+	return &ReverseProxy{
+		token:           cfg.ProxyToken,
+		router:          cfg.Router,
+		pool:            cfg.Pool,
+		platLook:        cfg.PlatformLookup,
+		health:          cfg.Health,
+		matcher:         cfg.Matcher,
+		events:          ev,
+		metricsSink:     cfg.MetricsSink,
+		transportConfig: transportCfg,
+		transportPool:   transportPool,
+	}
+}
+
+func (p *ReverseProxy) outboundHTTPTransport(routed routedOutbound) *http.Transport {
+	p.transportPoolOnce.Do(func() {
+		if p.transportPool == nil {
+			p.transportPool = NewOutboundTransportPool(p.transportConfig)
+		}
+	})
+	return p.transportPool.Get(routed.Route.NodeHash, routed.Outbound, p.metricsSink)
 }
 
 // parsedPath holds the result of parsing a reverse proxy request path.
@@ -286,7 +306,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	lifecycle.setTarget(parsed.Host, target.String())
 
-	transport := newOutboundTransport(routed.Outbound, p.metricsSink, routed.Route.PlatformID)
+	transport := p.outboundHTTPTransport(routed)
 
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
@@ -296,19 +316,8 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			// Add httptrace for TLS latency measurement on HTTPS.
 			if parsed.Protocol == "https" {
-				var tlsStart time.Time
-				trace := &httptrace.ClientTrace{
-					TLSHandshakeStart: func() {
-						tlsStart = time.Now()
-					},
-					TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
-						if err == nil && !tlsStart.IsZero() {
-							latency := time.Since(tlsStart)
-							go p.health.RecordLatency(nodeHashRaw, domain, &latency)
-						}
-					},
-				}
-				reqCtx := httptrace.WithClientTrace(req.Context(), trace)
+				reporter := newReverseLatencyReporter(p.health, nodeHashRaw, domain)
+				reqCtx := httptrace.WithClientTrace(req.Context(), reporter.clientTrace())
 				*req = *req.WithContext(reqCtx)
 			}
 		},

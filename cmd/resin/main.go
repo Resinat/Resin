@@ -190,6 +190,7 @@ func newTopologyRuntime(
 	geoSvc *geoip.Service,
 	downloader netutil.Downloader,
 	onProbeConnLifecycle func(netutil.ConnLifecycleOp),
+	onNodeRemoved func(node.Hash),
 ) (*topologyRuntime, error) {
 	subManager := topology.NewSubscriptionManager()
 
@@ -277,6 +278,9 @@ func newTopologyRuntime(
 	pool.SetOnNodeRemoved(func(hash node.Hash, entry *node.NodeEntry) {
 		markNodeRemovedDirty(engine, hash, entry)
 		outboundMgr.RemoveNodeOutbound(entry)
+		if onNodeRemoved != nil {
+			onNodeRemoved(hash)
+		}
 	})
 	log.Println("ProbeManager initialized")
 

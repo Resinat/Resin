@@ -132,14 +132,10 @@ func (c *Collector) recordLatency(ct *counters, ms int64) {
 	ct.latencyBuckets[idx].Add(1)
 }
 
-// RecordTraffic records traffic bytes.
-func (c *Collector) RecordTraffic(platformID string, ingress, egress int64) {
+// RecordTraffic records global traffic bytes.
+func (c *Collector) RecordTraffic(ingress, egress int64) {
 	c.global.ingressBytes.Add(ingress)
 	c.global.egressBytes.Add(egress)
-	if pc := c.getOrCreatePlatform(platformID); pc != nil {
-		pc.ingressBytes.Add(ingress)
-		pc.egressBytes.Add(egress)
-	}
 }
 
 // RecordConnection records a connection lifecycle event.

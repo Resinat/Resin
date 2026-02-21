@@ -653,7 +653,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 #### 流量消耗
 * 统计累计上行、下行流量。
 * 以 `UNIX_SECONDS % RESIN_METRIC_BUCKET_SECONDS == 0` 作为一个统计窗口。
-* 全局视角、每平台视角。
+* 只在全局视角统计。
 * 持久化到 `metrics.db`。
 
 #### 请求数
@@ -740,7 +740,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
   * 字段：`platform_id, proxy_type, is_connect, net_ok, duration_ns`。
   * 用于请求数、成功率、访问延迟分布。
 * `TrafficDeltaEvent`：
-  * 字段：`platform_id, ingress_bytes, egress_bytes`。
+  * 字段：`ingress_bytes, egress_bytes`。
   * 用于吞吐与流量累计（字节增量统计）。
 * `ConnectionLifecycleEvent`：
   * 字段：`direction(inbound|outbound), op(open|close)`。
@@ -773,7 +773,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 * 吞吐（实时）：
   * 基于 `TrafficDeltaEvent` 的累计值做差分，按采样周期换算 B/s。
 * 流量消耗（历史）：
-  * bucket 内累计 `TrafficDeltaEvent` 字节量，维度为全局 + platform。
+  * bucket 内累计 `TrafficDeltaEvent` 字节量，维度为全局。
 * 请求数与成功率（历史）：
   * 由 `RequestFinishedEvent` 聚合 `total_requests` 与 `success_requests`，维度为全局 + platform。
 * 访问延迟分布（历史）：
@@ -799,7 +799,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 
 模型：
 按 bucket 表拆分，统一使用 `(bucket_start_unix, dimension...)` 作为主键：
-* `metric_traffic_bucket(bucket_start_unix, platform_id NULLABLE, ingress_bytes, egress_bytes)`
+* `metric_traffic_bucket(bucket_start_unix, ingress_bytes, egress_bytes)`
 * `metric_request_bucket(bucket_start_unix, platform_id NULLABLE, total_requests, success_requests)`
 * `metric_access_latency_bucket(bucket_start_unix, platform_id NULLABLE, buckets_json)`
 * `metric_probe_bucket(bucket_start_unix, total_count)`
@@ -808,7 +808,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 
 说明：
 * `platform_id=NULL` 表示全局视角。
-* `platform` 相关历史统计全部按 `platform_id` 存储，不依赖可变的 `platform_name`。
+* 支持 `platform` 维度的历史统计按 `platform_id` 存储，不依赖可变的 `platform_name`。
 
 #### 时钟与窗口边界
 * bucket 对齐规则：`bucket_start_unix = (ts_unix / RESIN_METRIC_BUCKET_SECONDS) * RESIN_METRIC_BUCKET_SECONDS`。
@@ -1751,8 +1751,8 @@ API 阻塞到更新完成
 
 #### 历史曲线（`metrics.db` bucket）
 
-##### 流量消耗（全局/Platform）
-**GET** `/metrics/history/traffic?from=&to=&platform_id=`
+##### 流量消耗（全局）
+**GET** `/metrics/history/traffic?from=&to=`
 
 ```json
 {

@@ -246,6 +246,51 @@ func TestForwardProxy_StripHopByHopHeaders(t *testing.T) {
 	}
 }
 
+func TestPrepareForwardOutboundRequest_NormalizesClientCloseAndHeaders(t *testing.T) {
+	req := httptest.NewRequest("GET", "http://example.com/path?q=1", nil)
+	req.RequestURI = "http://example.com/path?q=1"
+	req.Close = true
+	req.Header.Set("Proxy-Authorization", "Basic xxx")
+	req.Header.Set("Connection", "close, X-Custom-Header")
+	req.Header.Set("X-Custom-Header", "value")
+	req.Header.Set("X-Normal-Header", "keep")
+
+	out := prepareForwardOutboundRequest(req)
+
+	if out == req {
+		t.Fatal("expected cloned request")
+	}
+	if out.RequestURI != "" {
+		t.Fatalf("RequestURI should be empty for client RoundTrip, got %q", out.RequestURI)
+	}
+	if out.Close {
+		t.Fatal("expected Close=false to preserve upstream keep-alive reuse")
+	}
+	if out.Header.Get("Proxy-Authorization") != "" {
+		t.Fatal("Proxy-Authorization should be stripped")
+	}
+	if out.Header.Get("X-Custom-Header") != "" {
+		t.Fatal("connection-listed header should be stripped")
+	}
+	if out.Header.Get("X-Normal-Header") != "keep" {
+		t.Fatal("normal header should remain")
+	}
+
+	// Original request should not be mutated.
+	if !req.Close {
+		t.Fatal("original Close flag should remain unchanged")
+	}
+	if req.RequestURI == "" {
+		t.Fatal("original RequestURI should remain unchanged")
+	}
+	if req.Header.Get("Proxy-Authorization") == "" {
+		t.Fatal("original Proxy-Authorization should remain unchanged")
+	}
+	if req.Header.Get("X-Custom-Header") == "" {
+		t.Fatal("original custom header should remain unchanged")
+	}
+}
+
 func TestForwardProxy_AuthAndSetup(t *testing.T) {
 	// Start upstream server.
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

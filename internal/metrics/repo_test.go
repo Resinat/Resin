@@ -17,10 +17,7 @@ func TestMetricsRepo_WriteAndQuery(t *testing.T) {
 	bucketStart := time.Now().Add(-time.Minute).Unix()
 	err = repo.WriteBucket(&BucketFlushData{
 		BucketStartUnix: bucketStart,
-		Traffic: map[string]trafficAccum{
-			"":       {IngressBytes: 100, EgressBytes: 200},
-			"plat-1": {IngressBytes: 300, EgressBytes: 400},
-		},
+		Traffic:         trafficAccum{IngressBytes: 100, EgressBytes: 200},
 		Requests: map[string]requestAccum{
 			"":       {Total: 5, Success: 4},
 			"plat-1": {Total: 3, Success: 2},
@@ -44,11 +41,11 @@ func TestMetricsRepo_WriteAndQuery(t *testing.T) {
 	}
 
 	from, to := bucketStart-10, bucketStart+10
-	traffic, err := repo.QueryTraffic(from, to, "plat-1")
+	traffic, err := repo.QueryTraffic(from, to)
 	if err != nil {
 		t.Fatalf("QueryTraffic: %v", err)
 	}
-	if len(traffic) != 1 || traffic[0].IngressBytes != 300 || traffic[0].EgressBytes != 400 {
+	if len(traffic) != 1 || traffic[0].IngressBytes != 100 || traffic[0].EgressBytes != 200 {
 		t.Fatalf("unexpected traffic rows: %+v", traffic)
 	}
 
@@ -121,10 +118,7 @@ func TestMetricsRepo_QueryGlobalOnlyWhenPlatformEmpty(t *testing.T) {
 	bucketStart := time.Now().Add(-time.Minute).Unix()
 	err = repo.WriteBucket(&BucketFlushData{
 		BucketStartUnix: bucketStart,
-		Traffic: map[string]trafficAccum{
-			"":       {IngressBytes: 10, EgressBytes: 20},
-			"plat-1": {IngressBytes: 30, EgressBytes: 40},
-		},
+		Traffic:         trafficAccum{IngressBytes: 10, EgressBytes: 20},
 		Requests: map[string]requestAccum{
 			"":       {Total: 1, Success: 1},
 			"plat-1": {Total: 2, Success: 1},
@@ -142,15 +136,12 @@ func TestMetricsRepo_QueryGlobalOnlyWhenPlatformEmpty(t *testing.T) {
 
 	from, to := bucketStart-1, bucketStart+1
 
-	trafficRows, err := repo.QueryTraffic(from, to, "")
+	trafficRows, err := repo.QueryTraffic(from, to)
 	if err != nil {
 		t.Fatalf("QueryTraffic global: %v", err)
 	}
 	if len(trafficRows) != 1 {
 		t.Fatalf("QueryTraffic global row count: got %d, want 1", len(trafficRows))
-	}
-	if trafficRows[0].PlatformID != "" {
-		t.Fatalf("QueryTraffic global platform_id: got %q, want empty", trafficRows[0].PlatformID)
 	}
 
 	requestRows, err := repo.QueryRequests(from, to, "")
@@ -200,9 +191,34 @@ func TestMetricsRepo_QueryGlobalOnlyWhenPlatformEmpty(t *testing.T) {
 		}
 	}
 
-	assertGlobalDimensionStoredAsNULL("metric_traffic_bucket")
 	assertGlobalDimensionStoredAsNULL("metric_request_bucket")
 	assertGlobalDimensionStoredAsNULL("metric_access_latency_bucket")
+
+	rows, err := repo.db.Query(`PRAGMA table_info(metric_traffic_bucket)`)
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(metric_traffic_bucket): %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			columnTyp string
+			notNull   int
+			dfltValue interface{}
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &columnTyp, &notNull, &dfltValue, &pk); err != nil {
+			t.Fatalf("scan metric_traffic_bucket column: %v", err)
+		}
+		if name == "platform_id" {
+			t.Fatalf("metric_traffic_bucket should not contain platform_id column")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate metric_traffic_bucket columns: %v", err)
+	}
 }
 
 func TestMetricsRepo_WriteBucket_PersistsGlobalZeroTrafficWhenMissing(t *testing.T) {
@@ -215,7 +231,7 @@ func TestMetricsRepo_WriteBucket_PersistsGlobalZeroTrafficWhenMissing(t *testing
 	bucketStart := time.Now().Add(-time.Minute).Unix()
 	err = repo.WriteBucket(&BucketFlushData{
 		BucketStartUnix: bucketStart,
-		Traffic:         map[string]trafficAccum{},
+		Traffic:         trafficAccum{},
 		Requests:        map[string]requestAccum{},
 	})
 	if err != nil {
@@ -223,7 +239,7 @@ func TestMetricsRepo_WriteBucket_PersistsGlobalZeroTrafficWhenMissing(t *testing
 	}
 
 	from, to := bucketStart-1, bucketStart+1
-	rows, err := repo.QueryTraffic(from, to, "")
+	rows, err := repo.QueryTraffic(from, to)
 	if err != nil {
 		t.Fatalf("QueryTraffic global: %v", err)
 	}
@@ -233,10 +249,6 @@ func TestMetricsRepo_WriteBucket_PersistsGlobalZeroTrafficWhenMissing(t *testing
 	if rows[0].IngressBytes != 0 || rows[0].EgressBytes != 0 {
 		t.Fatalf("QueryTraffic global zero row mismatch: %+v", rows[0])
 	}
-	if rows[0].PlatformID != "" {
-		t.Fatalf("QueryTraffic global platform_id: got %q, want empty", rows[0].PlatformID)
-	}
-
 	requestRows, err := repo.QueryRequests(from, to, "")
 	if err != nil {
 		t.Fatalf("QueryRequests global: %v", err)

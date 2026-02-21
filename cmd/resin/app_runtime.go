@@ -44,6 +44,7 @@ type resinApp struct {
 	reverseSrv     *http.Server
 	forwardLn      net.Listener
 	reverseLn      net.Listener
+	transportPool  *proxy.OutboundTransportPool
 }
 
 func run() error {
@@ -125,6 +126,11 @@ func (a *resinApp) initTopologyRuntime(engine *state.StateEngine) (*netutil.Retr
 		a.geoSvc,
 		retryDL,
 		a.onProbeConnectionLifecycle,
+		func(hash node.Hash) {
+			if a.transportPool != nil {
+				a.transportPool.Evict(hash)
+			}
+		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("topology runtime: %w", err)
@@ -370,14 +376,24 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 	)
 
 	proxyEvents := a.buildProxyEvents()
+	outboundTransportCfg := proxy.OutboundTransportConfig{
+		MaxIdleConns:        a.envCfg.ProxyTransportMaxIdleConns,
+		MaxIdleConnsPerHost: a.envCfg.ProxyTransportMaxIdleConnsPerHost,
+		IdleConnTimeout:     a.envCfg.ProxyTransportIdleConnTimeout,
+	}
+	if a.transportPool == nil {
+		a.transportPool = proxy.NewOutboundTransportPool(outboundTransportCfg)
+	}
 
 	forwardProxy := proxy.NewForwardProxy(proxy.ForwardProxyConfig{
-		ProxyToken:  a.envCfg.ProxyToken,
-		Router:      a.topoRuntime.router,
-		Pool:        a.topoRuntime.pool,
-		Health:      a.topoRuntime.pool,
-		Events:      proxyEvents,
-		MetricsSink: a.metricsManager,
+		ProxyToken:        a.envCfg.ProxyToken,
+		Router:            a.topoRuntime.router,
+		Pool:              a.topoRuntime.pool,
+		Health:            a.topoRuntime.pool,
+		Events:            proxyEvents,
+		MetricsSink:       a.metricsManager,
+		OutboundTransport: outboundTransportCfg,
+		TransportPool:     a.transportPool,
 	})
 
 	forwardLn, err := net.Listen("tcp", fmt.Sprintf(":%d", a.envCfg.ForwardProxyPort))
@@ -388,14 +404,16 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 	a.forwardSrv = &http.Server{Handler: forwardProxy}
 
 	reverseProxy := proxy.NewReverseProxy(proxy.ReverseProxyConfig{
-		ProxyToken:     a.envCfg.ProxyToken,
-		Router:         a.topoRuntime.router,
-		Pool:           a.topoRuntime.pool,
-		PlatformLookup: a.topoRuntime.pool,
-		Health:         a.topoRuntime.pool,
-		Matcher:        a.accountMatcher,
-		Events:         proxyEvents,
-		MetricsSink:    a.metricsManager,
+		ProxyToken:        a.envCfg.ProxyToken,
+		Router:            a.topoRuntime.router,
+		Pool:              a.topoRuntime.pool,
+		PlatformLookup:    a.topoRuntime.pool,
+		Health:            a.topoRuntime.pool,
+		Matcher:           a.accountMatcher,
+		Events:            proxyEvents,
+		MetricsSink:       a.metricsManager,
+		OutboundTransport: outboundTransportCfg,
+		TransportPool:     a.transportPool,
 	})
 
 	reverseLn, err := net.Listen("tcp", fmt.Sprintf(":%d", a.envCfg.ReverseProxyPort))
@@ -488,6 +506,10 @@ func (a *resinApp) shutdown(ctx context.Context) {
 		log.Printf("Reverse proxy shutdown error: %v", err)
 	}
 	log.Println("Reverse proxy stopped")
+	if a.transportPool != nil {
+		a.transportPool.CloseAll()
+		log.Println("Outbound transport pool closed")
+	}
 
 	if err := a.apiSrv.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)

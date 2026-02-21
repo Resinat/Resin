@@ -38,6 +38,9 @@ type EnvConfig struct {
 	DefaultPlatformAllocationPolicy       string
 	ProbeTimeout                          time.Duration
 	ResourceFetchTimeout                  time.Duration
+	ProxyTransportMaxIdleConns            int
+	ProxyTransportMaxIdleConnsPerHost     int
+	ProxyTransportIdleConnTimeout         time.Duration
 
 	// Request log
 	RequestLogQueueSize           int
@@ -96,6 +99,9 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	)
 	cfg.ProbeTimeout = envDuration("RESIN_PROBE_TIMEOUT", 15*time.Second, &errs)
 	cfg.ResourceFetchTimeout = envDuration("RESIN_RESOURCE_FETCH_TIMEOUT", 30*time.Second, &errs)
+	cfg.ProxyTransportMaxIdleConns = envInt("RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS", 1024, &errs)
+	cfg.ProxyTransportMaxIdleConnsPerHost = envInt("RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS_PER_HOST", 64, &errs)
+	cfg.ProxyTransportIdleConnTimeout = envDuration("RESIN_PROXY_TRANSPORT_IDLE_CONN_TIMEOUT", 90*time.Second, &errs)
 
 	// --- Request log ---
 	cfg.RequestLogQueueSize = envInt("RESIN_REQUEST_LOG_QUEUE_SIZE", 8192, &errs)
@@ -176,6 +182,17 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	}
 	if cfg.ResourceFetchTimeout <= 0 {
 		errs = append(errs, "RESIN_RESOURCE_FETCH_TIMEOUT must be positive")
+	}
+	validatePositive("RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS", cfg.ProxyTransportMaxIdleConns, &errs)
+	validatePositive("RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS_PER_HOST", cfg.ProxyTransportMaxIdleConnsPerHost, &errs)
+	if cfg.ProxyTransportIdleConnTimeout <= 0 {
+		errs = append(errs, "RESIN_PROXY_TRANSPORT_IDLE_CONN_TIMEOUT must be positive")
+	}
+	if cfg.ProxyTransportMaxIdleConnsPerHost > cfg.ProxyTransportMaxIdleConns {
+		errs = append(
+			errs,
+			"RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS_PER_HOST must be less than or equal to RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS",
+		)
 	}
 	validatePositive("RESIN_REQUEST_LOG_QUEUE_SIZE", cfg.RequestLogQueueSize, &errs)
 	validatePositive("RESIN_REQUEST_LOG_QUEUE_FLUSH_BATCH_SIZE", cfg.RequestLogQueueFlushBatchSize, &errs)

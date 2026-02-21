@@ -329,7 +329,7 @@ func TestBootstrapRestart_RecoversObservabilityPersistence(t *testing.T) {
 		LeasesRealtimeCapacity:      16,
 		LeasesIntervalSec:           5,
 	})
-	metricsMgr1.OnTrafficDelta(platformID, 100, 200)
+	metricsMgr1.OnTrafficDelta(100, 200)
 	metricsMgr1.OnRequestFinished(proxy.RequestFinishedEvent{
 		PlatformID: platformID,
 		ProxyType:  proxy.ProxyTypeForward,
@@ -392,7 +392,7 @@ func TestBootstrapRestart_RecoversObservabilityPersistence(t *testing.T) {
 	defer metricsRepo2.Close()
 
 	from, to := int64(0), time.Now().Add(time.Hour).Unix()
-	trafficRows, err := metricsRepo2.QueryTraffic(from, to, platformID)
+	trafficRows, err := metricsRepo2.QueryTraffic(from, to)
 	if err != nil {
 		t.Fatalf("QueryTraffic: %v", err)
 	}
