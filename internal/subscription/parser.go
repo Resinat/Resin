@@ -21,7 +21,6 @@ var supportedOutboundTypes = map[string]bool{
 	"anytls":      true,
 	"tor":         true,
 	"ssh":         true,
-	"dns":         true,
 	"naive":       true,
 }
 

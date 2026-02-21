@@ -38,7 +38,7 @@ func TestParseSingboxSubscription_AllSupportedTypes(t *testing.T) {
 	types := []string{
 		"socks", "http", "shadowsocks", "vmess", "trojan", "wireguard",
 		"hysteria", "vless", "shadowtls", "tuic", "hysteria2", "anytls",
-		"tor", "ssh", "dns", "naive",
+		"tor", "ssh", "naive",
 	}
 
 	// Build JSON with all supported types.
@@ -68,7 +68,8 @@ func TestParseSingboxSubscription_UnsupportedTypesFiltered(t *testing.T) {
 			{"type": "direct", "tag": "direct"},
 			{"type": "block", "tag": "block"},
 			{"type": "selector", "tag": "sel"},
-			{"type": "urltest", "tag": "urltest"}
+			{"type": "urltest", "tag": "urltest"},
+			{"type": "dns", "tag": "dns"}
 		]
 	}`)
 
