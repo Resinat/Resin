@@ -302,171 +302,175 @@ export function RequestLogsPage() {
 
       <Card className="filter-card platform-list-card platform-directory-card">
         <div className="list-card-header">
-          <div
-            className="logs-inline-filters"
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "0.5rem",
-              alignItems: "flex-end",
-            }}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-from" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                开始时间
-              </label>
-              <Input
-                id="logs-from"
-                type="datetime-local"
-                value={filters.from_local}
-                onChange={(event) => updateFilter("from_local", event.target.value)}
-                style={{ width: 190, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              />
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", width: "100%" }}>
+            {/* 时间与路由信息 */}
+            <div
+              className="logs-inline-filters"
+              style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}
+            >
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-from" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  开始时间
+                </label>
+                <Input
+                  id="logs-from"
+                  type="datetime-local"
+                  value={filters.from_local}
+                  onChange={(event) => updateFilter("from_local", event.target.value)}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                />
+              </div>
+
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-to" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  结束时间
+                </label>
+                <Input
+                  id="logs-to"
+                  type="datetime-local"
+                  value={filters.to_local}
+                  onChange={(event) => updateFilter("to_local", event.target.value)}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                />
+              </div>
+
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-platform-name" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  Platform
+                </label>
+                <Input
+                  id="logs-platform-name"
+                  value={filters.platform_name}
+                  onChange={(event) => updateFilter("platform_name", event.target.value)}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                />
+              </div>
+
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-account" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  Account
+                </label>
+                <Input
+                  id="logs-account"
+                  value={filters.account}
+                  onChange={(event) => updateFilter("account", event.target.value)}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                />
+              </div>
+
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-target-host" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  Target Host
+                </label>
+                <Input
+                  id="logs-target-host"
+                  value={filters.target_host}
+                  onChange={(event) => updateFilter("target_host", event.target.value)}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                />
+              </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-to" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                结束时间
-              </label>
-              <Input
-                id="logs-to"
-                type="datetime-local"
-                value={filters.to_local}
-                onChange={(event) => updateFilter("to_local", event.target.value)}
-                style={{ width: 190, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              />
-            </div>
+            {/* 网络状态与操作 */}
+            <div
+              className="logs-inline-filters"
+              style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", alignItems: "flex-end" }}
+            >
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-proxy-type" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  Proxy Type
+                </label>
+                <Select
+                  id="logs-proxy-type"
+                  value={filters.proxy_type}
+                  onChange={(event) => updateFilter("proxy_type", event.target.value as ProxyTypeFilter)}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                >
+                  <option value="all">全部</option>
+                  <option value="1">1 (Forward)</option>
+                  <option value="2">2 (Reverse)</option>
+                </Select>
+              </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-platform-name" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                Platform Name
-              </label>
-              <Input
-                id="logs-platform-name"
-                value={filters.platform_name}
-                onChange={(event) => updateFilter("platform_name", event.target.value)}
-                style={{ width: 180, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              />
-            </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-egress-ip" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  Egress IP
+                </label>
+                <Input
+                  id="logs-egress-ip"
+                  value={filters.egress_ip}
+                  onChange={(event) => updateFilter("egress_ip", event.target.value)}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                />
+              </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-account" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                Account
-              </label>
-              <Input
-                id="logs-account"
-                value={filters.account}
-                onChange={(event) => updateFilter("account", event.target.value)}
-                style={{ width: 130, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              />
-            </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-net-ok" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  网络状态
+                </label>
+                <Select
+                  id="logs-net-ok"
+                  value={filters.net_ok}
+                  onChange={(event) => updateFilter("net_ok", event.target.value as BoolFilter)}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                >
+                  <option value="all">全部</option>
+                  <option value="true">ok</option>
+                  <option value="false">failed</option>
+                </Select>
+              </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-target-host" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                Target Host
-              </label>
-              <Input
-                id="logs-target-host"
-                value={filters.target_host}
-                onChange={(event) => updateFilter("target_host", event.target.value)}
-                style={{ width: 170, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              />
-            </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-http-status" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  HTTP 状态
+                </label>
+                <Input
+                  id="logs-http-status"
+                  placeholder="100-599"
+                  value={filters.http_status}
+                  onChange={(event) => updateFilter("http_status", event.target.value)}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                />
+              </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-egress-ip" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                Egress IP
-              </label>
-              <Input
-                id="logs-egress-ip"
-                value={filters.egress_ip}
-                onChange={(event) => updateFilter("egress_ip", event.target.value)}
-                style={{ width: 130, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              />
-            </div>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                <label htmlFor="logs-limit" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                  每页条数
+                </label>
+                <Select
+                  id="logs-limit"
+                  value={String(filters.limit)}
+                  onChange={(event) => updateFilter("limit", Number(event.target.value))}
+                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                >
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                  <option value="200">200</option>
+                </Select>
+              </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-proxy-type" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                Proxy Type
-              </label>
-              <Select
-                id="logs-proxy-type"
-                value={filters.proxy_type}
-                onChange={(event) => updateFilter("proxy_type", event.target.value as ProxyTypeFilter)}
-                style={{ width: 120, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              >
-                <option value="all">全部</option>
-                <option value="1">1 (Forward)</option>
-                <option value="2">2 (Reverse)</option>
-              </Select>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-net-ok" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                网络状态
-              </label>
-              <Select
-                id="logs-net-ok"
-                value={filters.net_ok}
-                onChange={(event) => updateFilter("net_ok", event.target.value as BoolFilter)}
-                style={{ width: 100, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              >
-                <option value="all">全部</option>
-                <option value="true">ok</option>
-                <option value="false">failed</option>
-              </Select>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-http-status" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                HTTP 状态码
-              </label>
-              <Input
-                id="logs-http-status"
-                placeholder="100-599"
-                value={filters.http_status}
-                onChange={(event) => updateFilter("http_status", event.target.value)}
-                style={{ width: 100, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              />
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-limit" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                每页条数
-              </label>
-              <Select
-                id="logs-limit"
-                value={String(filters.limit)}
-                onChange={(event) => updateFilter("limit", Number(event.target.value))}
-                style={{ width: 90, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              >
-                <option value="20">20</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-                <option value="200">200</option>
-              </Select>
-            </div>
-
-            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.125rem", marginLeft: "auto" }}>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => void logsQuery.refetch()}
-                disabled={logsQuery.isFetching}
-                style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}
-              >
-                <RefreshCw size={14} className={logsQuery.isFetching ? "spin" : undefined} />
-                刷新
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={resetFilters}
-                style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}
-              >
-                <Eraser size={14} />
-                重置
-              </Button>
+              <div style={{ flex: "0 0 auto", display: "flex", gap: "0.5rem", marginBottom: "0.125rem", marginLeft: "auto" }}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void logsQuery.refetch()}
+                  disabled={logsQuery.isFetching}
+                  style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}
+                >
+                  <RefreshCw size={14} className={logsQuery.isFetching ? "spin" : undefined} />
+                  刷新
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={resetFilters}
+                  style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}
+                >
+                  <Eraser size={14} />
+                  重置
+                </Button>
+              </div>
             </div>
           </div>
         </div>
