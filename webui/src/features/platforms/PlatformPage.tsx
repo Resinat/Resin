@@ -56,6 +56,7 @@ const platformEditSchema = platformCreateSchema;
 
 type PlatformCreateForm = z.infer<typeof platformCreateSchema>;
 type PlatformEditForm = z.infer<typeof platformEditSchema>;
+const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const EMPTY_PLATFORMS: Platform[] = [];
 
 function parseLinesToList(input: string | undefined): string[] {
@@ -112,16 +113,20 @@ export function PlatformPage() {
 
   const visiblePlatforms = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    if (!keyword) {
-      return platforms;
-    }
+    const filtered = keyword
+      ? platforms.filter((platform) => {
+        return (
+          platform.name.toLowerCase().includes(keyword) ||
+          platform.id.toLowerCase().includes(keyword) ||
+          platform.region_filters.some((region) => region.toLowerCase().includes(keyword))
+        );
+      })
+      : platforms;
 
-    return platforms.filter((platform) => {
-      return (
-        platform.name.toLowerCase().includes(keyword) ||
-        platform.id.toLowerCase().includes(keyword) ||
-        platform.region_filters.some((region) => region.toLowerCase().includes(keyword))
-      );
+    return [...filtered].sort((a, b) => {
+      const aBuiltin = a.id === ZERO_UUID ? 0 : 1;
+      const bBuiltin = b.id === ZERO_UUID ? 0 : 1;
+      return aBuiltin - bBuiltin;
     });
   }, [platforms, search]);
 
@@ -187,8 +192,6 @@ export function PlatformPage() {
     mutationFn: createPlatform,
     onSuccess: async (created) => {
       await invalidatePlatforms();
-      setSelectedPlatformId(created.id);
-      setDrawerOpen(true);
       setCreateModalOpen(false);
       createForm.reset();
       showToast("success", `平台 ${created.name} 创建成功`);
@@ -378,8 +381,8 @@ export function PlatformPage() {
               >
                 <div className="platform-tile-head">
                   <p>{platform.name}</p>
-                  <Badge variant={platform.name === "Default" ? "warning" : "success"}>
-                    {platform.name === "Default" ? "内置平台" : "自定义平台"}
+                  <Badge variant={platform.id === ZERO_UUID ? "warning" : "success"}>
+                    {platform.id === ZERO_UUID ? "内置平台" : "自定义平台"}
                   </Badge>
                 </div>
                 <div className="platform-tile-facts">
@@ -424,8 +427,8 @@ export function PlatformPage() {
                 <p>{selectedPlatform.id}</p>
               </div>
               <div className="drawer-header-actions">
-                <Badge variant={selectedPlatform.name === "Default" ? "warning" : "success"}>
-                  {selectedPlatform.name === "Default" ? "内置平台" : "自定义平台"}
+                <Badge variant={selectedPlatform.id === ZERO_UUID ? "warning" : "success"}>
+                  {selectedPlatform.id === ZERO_UUID ? "内置平台" : "自定义平台"}
                 </Badge>
                 <Button
                   variant="ghost"
