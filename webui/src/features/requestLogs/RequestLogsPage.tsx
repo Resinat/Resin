@@ -294,7 +294,7 @@ export function RequestLogsPage() {
       <header className="module-header">
         <div>
           <h2>请求日志</h2>
-          <p className="module-description">日志主视图采用游标分页表格，筛选条件修改后立即生效。</p>
+          <p className="module-description">筛选条件修改后立即生效。</p>
         </div>
       </header>
 
@@ -572,7 +572,7 @@ export function RequestLogsPage() {
 
         <div className="nodes-pagination">
           <p className="nodes-pagination-meta">
-            游标分页 · 当前 cursor {cursor ? "已设置" : "首页"} · {hasMore ? "存在下一页" : "无更多数据"}
+            第 {pageIndex + 1} 页 · {hasMore ? "存在下一页" : "无更多数据"}
           </p>
           <div className="nodes-pagination-controls">
             <Button variant="secondary" size="sm" onClick={movePrev} disabled={pageIndex <= 0}>
