@@ -108,31 +108,18 @@ export function PlatformPage() {
   const queryClient = useQueryClient();
 
   const platformsQuery = useQuery({
-    queryKey: ["platforms", "page", page, pageSize],
+    queryKey: ["platforms", "page", page, pageSize, search],
     queryFn: () =>
       listPlatforms({
         limit: pageSize,
         offset: page * pageSize,
+        keyword: search,
       }),
     refetchInterval: 30_000,
     placeholderData: (prev) => prev,
   });
 
   const platforms = platformsQuery.data?.items ?? EMPTY_PLATFORMS;
-
-  const visiblePlatforms = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    if (!keyword) {
-      return platforms;
-    }
-    return platforms.filter((platform) => {
-      return (
-        platform.name.toLowerCase().includes(keyword) ||
-        platform.id.toLowerCase().includes(keyword) ||
-        platform.region_filters.some((region) => region.toLowerCase().includes(keyword))
-      );
-    });
-  }, [platforms, search]);
 
   const totalPlatforms = platformsQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalPlatforms / pageSize));
@@ -374,7 +361,7 @@ export function PlatformPage() {
           </div>
         ) : null}
 
-        {!platformsQuery.isLoading && !visiblePlatforms.length ? (
+        {!platformsQuery.isLoading && !platforms.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
             <p>没有匹配的平台</p>
@@ -382,7 +369,7 @@ export function PlatformPage() {
         ) : null}
 
         <div className="platform-card-grid">
-          {visiblePlatforms.map((platform) => {
+          {platforms.map((platform) => {
             const isActive = drawerOpen && platform.id === selectedPlatformId;
             const regionCount = platform.region_filters.length;
             const regexCount = platform.regex_filters.length;

@@ -2,9 +2,40 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/resin-proxy/resin/internal/service"
 )
+
+func platformMatchesKeyword(p service.PlatformResponse, keyword string) bool {
+	contains := func(v string) bool {
+		return strings.Contains(strings.ToLower(v), keyword)
+	}
+
+	if contains(p.ID) || contains(p.Name) {
+		return true
+	}
+	for _, item := range p.RegionFilters {
+		if contains(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterPlatformsByKeyword(platforms []service.PlatformResponse, rawKeyword string) []service.PlatformResponse {
+	keyword := strings.ToLower(strings.TrimSpace(rawKeyword))
+	if keyword == "" {
+		return platforms
+	}
+	filtered := make([]service.PlatformResponse, 0, len(platforms))
+	for _, p := range platforms {
+		if platformMatchesKeyword(p, keyword) {
+			filtered = append(filtered, p)
+		}
+	}
+	return filtered
+}
 
 func platformSortKey(sortBy string, p service.PlatformResponse) string {
 	switch sortBy {
@@ -25,6 +56,7 @@ func HandleListPlatforms(cp *service.ControlPlaneService) http.HandlerFunc {
 			writeServiceError(w, err)
 			return
 		}
+		platforms = filterPlatformsByKeyword(platforms, r.URL.Query().Get("keyword"))
 
 		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"name", "id", "updated_at"}, "name", "asc")
 		if !ok {

@@ -98,12 +98,13 @@ export function SubscriptionPage() {
   const enabledValue = parseEnabledFilter(enabledFilter);
 
   const subscriptionsQuery = useQuery({
-    queryKey: ["subscriptions", enabledFilter, page, pageSize],
+    queryKey: ["subscriptions", enabledFilter, page, pageSize, search],
     queryFn: () =>
       listSubscriptions({
         enabled: enabledValue,
         limit: pageSize,
         offset: page * pageSize,
+        keyword: search,
       }),
     refetchInterval: 30_000,
     placeholderData: (prev) => prev,
@@ -111,21 +112,6 @@ export function SubscriptionPage() {
 
   const subscriptions = subscriptionsQuery.data?.items ?? EMPTY_SUBSCRIPTIONS;
   const totalSubscriptions = subscriptionsQuery.data?.total ?? 0;
-
-  const visibleSubscriptions = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    if (!keyword) {
-      return subscriptions;
-    }
-
-    return subscriptions.filter((subscription) => {
-      return (
-        subscription.name.toLowerCase().includes(keyword) ||
-        subscription.id.toLowerCase().includes(keyword) ||
-        subscription.url.toLowerCase().includes(keyword)
-      );
-    });
-  }, [subscriptions, search]);
 
   const totalPages = Math.max(1, Math.ceil(totalSubscriptions / pageSize));
   const currentPage = Math.min(page, totalPages - 1);
@@ -372,14 +358,14 @@ export function SubscriptionPage() {
           </div>
         ) : null}
 
-        {!subscriptionsQuery.isLoading && !visibleSubscriptions.length ? (
+        {!subscriptionsQuery.isLoading && !subscriptions.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
             <p>没有匹配的订阅</p>
           </div>
         ) : null}
 
-        {visibleSubscriptions.length ? (
+        {subscriptions.length ? (
           <div className="nodes-table-wrap">
             <table className="nodes-table subscriptions-table">
               <thead>
@@ -394,7 +380,7 @@ export function SubscriptionPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleSubscriptions.map((subscription) => (
+                {subscriptions.map((subscription) => (
                   <tr
                     key={subscription.id}
                     className="clickable-row"

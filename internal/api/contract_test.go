@@ -476,6 +476,140 @@ func TestAPIContract_PaginationAndSorting(t *testing.T) {
 	}
 }
 
+func TestAPIContract_KeywordFilteringOnListEndpoints(t *testing.T) {
+	srv, _, _ := newControlPlaneTestServer(t)
+
+	rec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/platforms", map[string]any{
+		"name":           "Alpha-HK",
+		"region_filters": []string{"hk"},
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create platform alpha status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/platforms", map[string]any{
+		"name":           "Beta-US",
+		"region_filters": []string{"us"},
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create platform beta status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/platforms?keyword=ALP&sort_by=name&sort_order=asc", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list platforms keyword status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	platformItems, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("platform items type: got %T", body["items"])
+	}
+	if len(platformItems) != 1 {
+		t.Fatalf("platform items len: got %d, want %d, body=%s", len(platformItems), 1, rec.Body.String())
+	}
+	platform0 := platformItems[0].(map[string]any)
+	if platform0["name"] != "Alpha-HK" {
+		t.Fatalf("platform name: got %v, want %q", platform0["name"], "Alpha-HK")
+	}
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/platforms?keyword=balanced", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list platforms metadata keyword status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	platformItems, ok = body["items"].([]any)
+	if !ok {
+		t.Fatalf("platform metadata items type: got %T", body["items"])
+	}
+	if len(platformItems) != 0 {
+		t.Fatalf("platform metadata keyword should not match, got len=%d body=%s", len(platformItems), rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
+		"name": "Apple Feed",
+		"url":  "https://example.com/apple",
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create subscription apple status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
+		"name": "Banana Feed",
+		"url":  "https://example.com/banana",
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create subscription banana status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions?keyword=BANANA&sort_by=name&sort_order=asc", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list subscriptions keyword status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	subItems, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("subscription items type: got %T", body["items"])
+	}
+	if len(subItems) != 1 {
+		t.Fatalf("subscription items len: got %d, want %d, body=%s", len(subItems), 1, rec.Body.String())
+	}
+	sub0 := subItems[0].(map[string]any)
+	if sub0["name"] != "Banana Feed" {
+		t.Fatalf("subscription name: got %v, want %q", sub0["name"], "Banana Feed")
+	}
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions?keyword=5m", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list subscriptions metadata keyword status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	subItems, ok = body["items"].([]any)
+	if !ok {
+		t.Fatalf("subscription metadata items type: got %T", body["items"])
+	}
+	if len(subItems) != 0 {
+		t.Fatalf("subscription metadata keyword should not match, got len=%d body=%s", len(subItems), rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodPut, "/api/v1/account-header-rules/api.example.com%2Fv1", map[string]any{
+		"headers": []string{"Authorization"},
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create rule one status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	rec = doJSONRequest(t, srv, http.MethodPut, "/api/v1/account-header-rules/files.example.com%2Fv2", map[string]any{
+		"headers": []string{"X-Trace-ID"},
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create rule two status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/account-header-rules?keyword=trace", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list rules keyword status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	ruleItems, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("rule items type: got %T", body["items"])
+	}
+	if len(ruleItems) != 1 {
+		t.Fatalf("rule items len: got %d, want %d, body=%s", len(ruleItems), 1, rec.Body.String())
+	}
+	rule0 := ruleItems[0].(map[string]any)
+	if rule0["url_prefix"] != "files.example.com/v2" {
+		t.Fatalf("rule url_prefix: got %v, want %q", rule0["url_prefix"], "files.example.com/v2")
+	}
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/account-header-rules?keyword=2026", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list rules metadata keyword status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	ruleItems, ok = body["items"].([]any)
+	if !ok {
+		t.Fatalf("rule metadata items type: got %T", body["items"])
+	}
+	if len(ruleItems) != 0 {
+		t.Fatalf("rule metadata keyword should not match, got len=%d body=%s", len(ruleItems), rec.Body.String())
+	}
+}
+
 func TestAPIContract_PlatformStickyTTLMustBePositive(t *testing.T) {
 	srv, _, _ := newControlPlaneTestServer(t)
 

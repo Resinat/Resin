@@ -10,11 +10,15 @@ function normalizeRule(raw: Rule): Rule {
   };
 }
 
-export async function listRules(): Promise<Rule[]> {
+export async function listRules(keyword?: string): Promise<Rule[]> {
   const query = new URLSearchParams({
     limit: "1000",
     offset: "0",
   });
+  const trimmedKeyword = keyword?.trim();
+  if (trimmedKeyword) {
+    query.set("keyword", trimmedKeyword);
+  }
   const data = await apiRequest<PageResponse<Rule>>(`${basePath}?${query.toString()}`);
   return data.items.map(normalizeRule);
 }

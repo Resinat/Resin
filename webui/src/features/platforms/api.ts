@@ -26,6 +26,7 @@ function normalizePlatformPage(raw: PageResponse<ApiPlatform>): PageResponse<Pla
 export type ListPlatformsPageInput = {
   limit?: number;
   offset?: number;
+  keyword?: string;
 };
 
 export async function listPlatforms(input: ListPlatformsPageInput = {}): Promise<PageResponse<Platform>> {
@@ -35,6 +36,10 @@ export async function listPlatforms(input: ListPlatformsPageInput = {}): Promise
     sort_by: "name",
     sort_order: "asc",
   });
+  const keyword = input.keyword?.trim();
+  if (keyword) {
+    query.set("keyword", keyword);
+  }
 
   const data = await apiRequest<PageResponse<ApiPlatform>>(`${basePath}?${query.toString()}`);
   return normalizePlatformPage(data);

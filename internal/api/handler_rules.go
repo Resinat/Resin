@@ -2,9 +2,40 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/resin-proxy/resin/internal/service"
 )
+
+func ruleMatchesKeyword(rule service.RuleResponse, keyword string) bool {
+	contains := func(v string) bool {
+		return strings.Contains(strings.ToLower(v), keyword)
+	}
+
+	if contains(rule.URLPrefix) {
+		return true
+	}
+	for _, header := range rule.Headers {
+		if contains(header) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterRulesByKeyword(rules []service.RuleResponse, rawKeyword string) []service.RuleResponse {
+	keyword := strings.ToLower(strings.TrimSpace(rawKeyword))
+	if keyword == "" {
+		return rules
+	}
+	filtered := make([]service.RuleResponse, 0, len(rules))
+	for _, rule := range rules {
+		if ruleMatchesKeyword(rule, keyword) {
+			filtered = append(filtered, rule)
+		}
+	}
+	return filtered
+}
 
 // HandleListRules returns a handler for GET /api/v1/account-header-rules.
 func HandleListRules(cp *service.ControlPlaneService) http.HandlerFunc {
@@ -14,6 +45,7 @@ func HandleListRules(cp *service.ControlPlaneService) http.HandlerFunc {
 			writeServiceError(w, err)
 			return
 		}
+		rules = filterRulesByKeyword(rules, r.URL.Query().Get("keyword"))
 		pg, ok := parsePaginationOrWriteInvalid(w, r)
 		if !ok {
 			return

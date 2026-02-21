@@ -61,26 +61,12 @@ export function RulesPage() {
   const queryClient = useQueryClient();
 
   const rulesQuery = useQuery({
-    queryKey: ["header-rules"],
-    queryFn: listRules,
+    queryKey: ["header-rules", search],
+    queryFn: () => listRules(search),
     refetchInterval: 30_000,
   });
 
   const rules = rulesQuery.data ?? EMPTY_RULES;
-
-  const visibleRules = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    if (!keyword) {
-      return rules;
-    }
-
-    return rules.filter((rule) => {
-      return (
-        rule.url_prefix.toLowerCase().includes(keyword) ||
-        rule.headers.some((header) => header.toLowerCase().includes(keyword))
-      );
-    });
-  }, [rules, search]);
 
   const selectedRule = useMemo(() => {
     if (!selectedPrefix) {
@@ -291,14 +277,14 @@ export function RulesPage() {
           </div>
         ) : null}
 
-        {!rulesQuery.isLoading && !visibleRules.length ? (
+        {!rulesQuery.isLoading && !rules.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
             <p>没有匹配规则</p>
           </div>
         ) : null}
 
-        {visibleRules.length ? (
+        {rules.length ? (
           <div className="rules-table-wrap">
             <table className="rules-table">
               <thead>
@@ -310,7 +296,7 @@ export function RulesPage() {
                 </tr>
               </thead>
               <tbody>
-                {visibleRules.map((rule) => (
+                {rules.map((rule) => (
                   <tr
                     key={rule.url_prefix}
                     className="clickable-row"

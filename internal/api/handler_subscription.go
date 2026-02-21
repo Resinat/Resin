@@ -2,9 +2,32 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/resin-proxy/resin/internal/service"
 )
+
+func subscriptionMatchesKeyword(s service.SubscriptionResponse, keyword string) bool {
+	contains := func(v string) bool {
+		return strings.Contains(strings.ToLower(v), keyword)
+	}
+
+	return contains(s.ID) || contains(s.Name) || contains(s.URL)
+}
+
+func filterSubscriptionsByKeyword(subs []service.SubscriptionResponse, rawKeyword string) []service.SubscriptionResponse {
+	keyword := strings.ToLower(strings.TrimSpace(rawKeyword))
+	if keyword == "" {
+		return subs
+	}
+	filtered := make([]service.SubscriptionResponse, 0, len(subs))
+	for _, sub := range subs {
+		if subscriptionMatchesKeyword(sub, keyword) {
+			filtered = append(filtered, sub)
+		}
+	}
+	return filtered
+}
 
 func subscriptionSortKey(sortBy string, s service.SubscriptionResponse) string {
 	switch sortBy {
@@ -31,6 +54,7 @@ func HandleListSubscriptions(cp *service.ControlPlaneService) http.HandlerFunc {
 			writeServiceError(w, err)
 			return
 		}
+		subs = filterSubscriptionsByKeyword(subs, r.URL.Query().Get("keyword"))
 
 		sorting, ok := parseSortingOrWriteInvalid(
 			w,

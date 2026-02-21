@@ -1002,7 +1002,7 @@ Body（partial patch 示例）：
 
 #### 列出平台
 
-**GET** `/platforms?limit=&offset=`
+**GET** `/platforms?keyword=&limit=&offset=`
 
 #### 创建平台
 
@@ -1177,7 +1177,7 @@ API 阻塞到重建完成为止。
 
 #### 列出订阅
 
-**GET** `/subscriptions?enabled=&limit=&offset=&sort_by=&sort_order=`
+**GET** `/subscriptions?enabled=&keyword=&limit=&offset=&sort_by=&sort_order=`
 
 支持的 `sort_by`：`name`、`created_at`、`last_checked`、`last_updated`。默认按 `created_at` `asc` 排序。
 
@@ -1287,7 +1287,7 @@ API 阻塞到更新完成为止。
 
 #### 列出规则
 
-**GET** `/account-header-rules?limit=&offset=`
+**GET** `/account-header-rules?keyword=&limit=&offset=`
 
 #### Upsert 规则（幂等）
 

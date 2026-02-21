@@ -34,6 +34,7 @@ export type ListSubscriptionsInput = {
   enabled?: boolean;
   limit?: number;
   offset?: number;
+  keyword?: string;
 };
 
 export async function listSubscriptions(input: ListSubscriptionsInput = {}): Promise<PageResponse<Subscription>> {
@@ -46,6 +47,10 @@ export async function listSubscriptions(input: ListSubscriptionsInput = {}): Pro
 
   if (input.enabled !== undefined) {
     query.set("enabled", String(input.enabled));
+  }
+  const keyword = input.keyword?.trim();
+  if (keyword) {
+    query.set("keyword", keyword);
   }
 
   const data = await apiRequest<PageResponse<ApiSubscription>>(`${basePath}?${query.toString()}`);
