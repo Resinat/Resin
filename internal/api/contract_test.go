@@ -20,6 +20,7 @@ import (
 	"github.com/resin-proxy/resin/internal/metrics"
 	"github.com/resin-proxy/resin/internal/model"
 	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/proxy"
 	"github.com/resin-proxy/resin/internal/requestlog"
 	"github.com/resin-proxy/resin/internal/routing"
@@ -473,6 +474,57 @@ func TestAPIContract_PaginationAndSorting(t *testing.T) {
 	item1 := items[1].(map[string]any)
 	if item0["name"] != "beta" || item1["name"] != "zeta" {
 		t.Fatalf("unexpected order: got [%v, %v]", item0["name"], item1["name"])
+	}
+}
+
+func TestAPIContract_PlatformList_BuiltInFirstWithSortBy(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	if err := cp.Engine.UpsertPlatform(model.Platform{
+		ID:                     platform.DefaultPlatformID,
+		Name:                   platform.DefaultPlatformName,
+		StickyTTLNs:            int64(30 * time.Minute),
+		RegexFilters:           []string{},
+		RegionFilters:          []string{},
+		ReverseProxyMissAction: string(platform.ReverseProxyMissActionRandom),
+		AllocationPolicy:       string(platform.AllocationPolicyBalanced),
+		UpdatedAtNs:            time.Now().UnixNano(),
+	}); err != nil {
+		t.Fatalf("upsert default platform: %v", err)
+	}
+
+	_ = mustCreatePlatform(t, srv, "aaa")
+	_ = mustCreatePlatform(t, srv, "bbb")
+
+	rec := doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/platforms?sort_by=name&sort_order=desc&limit=3&offset=0",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list platforms status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	body := decodeJSONMap(t, rec)
+	items, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("items type: got %T", body["items"])
+	}
+	if len(items) != 3 {
+		t.Fatalf("items len: got %d, want %d", len(items), 3)
+	}
+
+	item0 := items[0].(map[string]any)
+	item1 := items[1].(map[string]any)
+	item2 := items[2].(map[string]any)
+	if item0["id"] != platform.DefaultPlatformID || item1["name"] != "bbb" || item2["name"] != "aaa" {
+		t.Fatalf(
+			"unexpected order: [%v,%v,%v]",
+			item0["name"], item1["name"], item2["name"],
+		)
 	}
 }
 

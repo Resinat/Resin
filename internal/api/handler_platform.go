@@ -2,8 +2,10 @@ package api
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
+	"github.com/resin-proxy/resin/internal/platform"
 	"github.com/resin-proxy/resin/internal/service"
 )
 
@@ -48,6 +50,27 @@ func platformSortKey(sortBy string, p service.PlatformResponse) string {
 	}
 }
 
+func comparePlatformsForList(a, b service.PlatformResponse, sorting Sorting) int {
+	aBuiltin := a.ID == platform.DefaultPlatformID
+	bBuiltin := b.ID == platform.DefaultPlatformID
+	if aBuiltin != bBuiltin {
+		if aBuiltin {
+			return -1
+		}
+		return 1
+	}
+
+	primary := strings.Compare(platformSortKey(sorting.SortBy, a), platformSortKey(sorting.SortBy, b))
+	if sorting.SortOrder == "desc" {
+		primary = -primary
+	}
+	if primary != 0 {
+		return primary
+	}
+	// keep stable deterministic output when primary sort key is equal
+	return strings.Compare(a.ID, b.ID)
+}
+
 // HandleListPlatforms returns a handler for GET /api/v1/platforms.
 func HandleListPlatforms(cp *service.ControlPlaneService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -62,8 +85,8 @@ func HandleListPlatforms(cp *service.ControlPlaneService) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		SortSlice(platforms, sorting, func(p service.PlatformResponse) string {
-			return platformSortKey(sorting.SortBy, p)
+		slices.SortStableFunc(platforms, func(a, b service.PlatformResponse) int {
+			return comparePlatformsForList(a, b, sorting)
 		})
 
 		pg, ok := parsePaginationOrWriteInvalid(w, r)
