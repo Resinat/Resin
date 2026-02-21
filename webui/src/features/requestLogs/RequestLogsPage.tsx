@@ -20,6 +20,7 @@ type FilterDraft = {
   from_local: string;
   to_local: string;
   platform_id: string;
+  platform_name: string;
   account: string;
   target_host: string;
   egress_ip: string;
@@ -33,6 +34,7 @@ const defaultFilters: FilterDraft = {
   from_local: "",
   to_local: "",
   platform_id: "",
+  platform_name: "",
   account: "",
   target_host: "",
   egress_ip: "",
@@ -99,6 +101,7 @@ function buildActiveFilters(draft: FilterDraft): Omit<RequestLogListFilters, "cu
     from: toRFC3339(draft.from_local),
     to: toRFC3339(draft.to_local),
     platform_id: draft.platform_id,
+    platform_name: draft.platform_name,
     account: draft.account,
     target_host: draft.target_host,
     egress_ip: draft.egress_ip,
@@ -312,6 +315,17 @@ export function RequestLogsPage() {
               id="logs-platform-id"
               value={draft.platform_id}
               onChange={(event) => setDraft((prev) => ({ ...prev, platform_id: event.target.value }))}
+            />
+          </div>
+
+          <div className="field-group">
+            <label className="field-label" htmlFor="logs-platform-name">
+              Platform Name
+            </label>
+            <Input
+              id="logs-platform-name"
+              value={draft.platform_name}
+              onChange={(event) => setDraft((prev) => ({ ...prev, platform_name: event.target.value }))}
             />
           </div>
 

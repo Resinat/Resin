@@ -28,6 +28,7 @@ export async function listRequestLogs(filters: RequestLogListFilters): Promise<R
   appendIfPresent(query, "from", filters.from);
   appendIfPresent(query, "to", filters.to);
   appendIfPresent(query, "platform_id", filters.platform_id);
+  appendIfPresent(query, "platform_name", filters.platform_name);
   appendIfPresent(query, "account", filters.account);
   appendIfPresent(query, "target_host", filters.target_host);
   appendIfPresent(query, "egress_ip", filters.egress_ip);

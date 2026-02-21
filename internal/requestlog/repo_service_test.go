@@ -25,6 +25,7 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 			ProxyType:         proxy.ProxyTypeForward,
 			ClientIP:          "10.0.0.1",
 			PlatformID:        "plat-1",
+			PlatformName:      "Platform One",
 			Account:           "acct-a",
 			TargetHost:        "example.com",
 			TargetURL:         "https://example.com/a",
@@ -44,20 +45,21 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 			RespBodyTruncated: true,
 		},
 		{
-			ID:          "log-b",
-			StartedAtNs: ts,
-			ProxyType:   proxy.ProxyTypeReverse,
-			ClientIP:    "10.0.0.2",
-			PlatformID:  "plat-2",
-			Account:     "acct-b",
-			TargetHost:  "example.org",
-			TargetURL:   "https://example.org/b",
-			DurationNs:  int64(20 * time.Millisecond),
-			NetOK:       false,
-			HTTPMethod:  "POST",
-			HTTPStatus:  502,
-			ReqBodyLen:  10,
-			RespBodyLen: 11,
+			ID:           "log-b",
+			StartedAtNs:  ts,
+			ProxyType:    proxy.ProxyTypeReverse,
+			ClientIP:     "10.0.0.2",
+			PlatformID:   "plat-2",
+			PlatformName: "Platform Two",
+			Account:      "acct-b",
+			TargetHost:   "example.org",
+			TargetURL:    "https://example.org/b",
+			DurationNs:   int64(20 * time.Millisecond),
+			NetOK:        false,
+			HTTPMethod:   "POST",
+			HTTPStatus:   502,
+			ReqBodyLen:   10,
+			RespBodyLen:  11,
 		},
 	}
 	inserted, err := repo.InsertBatch(rows)
@@ -97,6 +99,20 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 	}
 	if len(filtered) != 1 || filtered[0].ID != "log-a" {
 		t.Fatalf("filtered list: got %+v", filtered)
+	}
+
+	filteredByName, hasMore, nextCursor, err := repo.List(ListFilter{PlatformName: "Platform One", Limit: 10})
+	if err != nil {
+		t.Fatalf("repo.List filtered by platform_name: %v", err)
+	}
+	if hasMore {
+		t.Fatalf("filtered by platform_name hasMore: got true, want false")
+	}
+	if nextCursor != nil {
+		t.Fatalf("filtered by platform_name nextCursor: got %+v, want nil", nextCursor)
+	}
+	if len(filteredByName) != 1 || filteredByName[0].ID != "log-a" {
+		t.Fatalf("filtered by platform_name list: got %+v", filteredByName)
 	}
 
 	row, err := repo.GetByID("log-a")

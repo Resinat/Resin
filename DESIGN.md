@@ -1608,6 +1608,7 @@ Query（建议）：
 * `limit`: 分页大小，可选，默认 50，最大 10000
 * `cursor`: 游标分页位置，可选。由上一页返回的 `next_cursor` 透传。
 * `platform_id`: 平台ID，可选
+* `platform_name`: 平台名称，可选（精确匹配）
 * `account`: 账号，可选
 * `target_host`: 目标主机，可选
 * `egress_ip`: 出口IP，可选
