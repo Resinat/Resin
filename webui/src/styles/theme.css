@@ -973,6 +973,10 @@ a {
   padding: 16px;
 }
 
+.subscriptions-table-card .nodes-table-wrap {
+  margin-top: 0;
+}
+
 .subscriptions-toolbar {
   margin-top: 12px;
   display: flex;
@@ -1025,7 +1029,7 @@ a {
 }
 
 .subscriptions-table tbody tr {
-  cursor: default;
+  cursor: pointer;
 }
 
 .subscriptions-name-cell {

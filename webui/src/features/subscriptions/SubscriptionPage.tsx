@@ -13,7 +13,7 @@ import { Select } from "../../components/ui/Select";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
-import { formatDateTime, formatGoDuration } from "../../lib/time";
+import { formatDateTime, formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
   createSubscription,
   deleteSubscription,
@@ -156,7 +156,7 @@ export function SubscriptionPage() {
     defaultValues: {
       name: "",
       url: "",
-      update_interval: "5m",
+      update_interval: "12h",
       enabled: true,
       ephemeral: false,
     },
@@ -193,13 +193,11 @@ export function SubscriptionPage() {
     mutationFn: createSubscription,
     onSuccess: async (created) => {
       await invalidateSubscriptions();
-      setSelectedSubscriptionId(created.id);
-      setDrawerOpen(true);
       setCreateModalOpen(false);
       createForm.reset({
         name: "",
         url: "",
-        update_interval: "5m",
+        update_interval: "12h",
         enabled: true,
         ephemeral: false,
       });
@@ -398,7 +396,11 @@ export function SubscriptionPage() {
               </thead>
               <tbody>
                 {pagedSubscriptions.map((subscription) => (
-                  <tr key={subscription.id}>
+                  <tr
+                    key={subscription.id}
+                    className="clickable-row"
+                    onClick={() => openDrawer(subscription)}
+                  >
                     <td>
                       <p className="subscriptions-name-cell">{subscription.name}</p>
                     </td>
@@ -419,10 +421,10 @@ export function SubscriptionPage() {
                         )}
                       </div>
                     </td>
-                    <td>{formatDateTime(subscription.last_checked || "")}</td>
-                    <td>{formatDateTime(subscription.last_updated || "")}</td>
+                    <td>{formatRelativeTime(subscription.last_checked || "")}</td>
+                    <td>{formatRelativeTime(subscription.last_updated || "")}</td>
                     <td>
-                      <div className="subscriptions-row-actions">
+                      <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
                         <Button size="sm" variant="ghost" onClick={() => openDrawer(subscription)} title="编辑">
                           <Pencil size={14} />
                         </Button>
@@ -538,11 +540,11 @@ export function SubscriptionPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="edit-sub-interval">
-                      Update Interval
+                      更新间隔
                     </label>
                     <Input
                       id="edit-sub-interval"
-                      placeholder="例如 5m"
+                      placeholder="例如 12h"
                       invalid={Boolean(editForm.formState.errors.update_interval)}
                       {...editForm.register("update_interval")}
                     />
@@ -553,7 +555,7 @@ export function SubscriptionPage() {
 
                   <div className="field-group field-span-2">
                     <label className="field-label" htmlFor="edit-sub-url">
-                      URL
+                      订阅链接
                     </label>
                     <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
                     {editForm.formState.errors.url?.message ? (
@@ -627,7 +629,7 @@ export function SubscriptionPage() {
             <div className="modal-header">
               <h3>新建订阅</h3>
               <Button variant="ghost" size="sm" onClick={() => setCreateModalOpen(false)}>
-                关闭
+                <X size={16} />
               </Button>
             </div>
 
@@ -648,11 +650,11 @@ export function SubscriptionPage() {
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-sub-interval">
-                  Update Interval
+                  更新间隔
                 </label>
                 <Input
                   id="create-sub-interval"
-                  placeholder="例如 5m"
+                  placeholder="例如 12h"
                   invalid={Boolean(createForm.formState.errors.update_interval)}
                   {...createForm.register("update_interval")}
                 />
@@ -663,7 +665,7 @@ export function SubscriptionPage() {
 
               <div className="field-group field-span-2">
                 <label className="field-label" htmlFor="create-sub-url">
-                  URL
+                  订阅链接
                 </label>
                 <Input
                   id="create-sub-url"
@@ -686,7 +688,7 @@ export function SubscriptionPage() {
                 </label>
               </div>
 
-              <div className="detail-actions">
+              <div className="detail-actions" style={{ justifyContent: "flex-end" }}>
                 <Button type="submit" disabled={createMutation.isPending}>
                   {createMutation.isPending ? "创建中..." : "确认创建"}
                 </Button>

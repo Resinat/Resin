@@ -13,7 +13,7 @@ import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
-import { formatDateTime, formatGoDuration } from "../../lib/time";
+import { formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
   createPlatform,
   deletePlatform,
@@ -65,7 +65,7 @@ function parseLinesToList(input: string | undefined): string[] {
   }
 
   return input
-    .split(/[,\n]/)
+    .split(/\n/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
@@ -404,7 +404,7 @@ export function PlatformPage() {
                     {allocationPolicyLabel[platform.allocation_policy]} · Miss{" "}
                     {missActionLabel[platform.reverse_proxy_miss_action]}
                   </span>
-                  <span className="platform-tile-updated">{formatDateTime(platform.updated_at)}</span>
+                  <span className="platform-tile-updated">更新于 {formatRelativeTime(platform.updated_at)}</span>
                 </div>
               </button>
             );
@@ -501,7 +501,7 @@ export function PlatformPage() {
                     <label className="field-label" htmlFor="edit-regex">
                       Regex Filters
                     </label>
-                    <Textarea id="edit-regex" rows={4} placeholder="每行一条或使用逗号分隔" {...editForm.register("regex_filters_text")} />
+                    <Textarea id="edit-regex" rows={4} placeholder="每行一条" {...editForm.register("regex_filters_text")} />
                   </div>
 
                   <div className="field-group">
@@ -632,7 +632,7 @@ export function PlatformPage() {
                 <label className="field-label" htmlFor="create-regex">
                   Regex Filters（可选）
                 </label>
-                <Textarea id="create-regex" rows={4} placeholder="每行一条或使用逗号分隔" {...createForm.register("regex_filters_text")} />
+                <Textarea id="create-regex" rows={4} placeholder="每行一条" {...createForm.register("regex_filters_text")} />
               </div>
 
               <div className="field-group">
