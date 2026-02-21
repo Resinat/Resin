@@ -2183,10 +2183,12 @@ a {
 .toast-container {
   position: fixed;
   top: 22px;
-  right: 22px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 10000;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
   pointer-events: none;
   max-width: 420px;
@@ -2251,23 +2253,23 @@ a {
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateX(40px) scale(0.96);
+    transform: translateY(-20px) scale(0.96);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes toast-out {
   from {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateY(0) scale(1);
   }
 
   to {
     opacity: 0;
-    transform: translateX(40px) scale(0.92);
+    transform: translateY(-20px) scale(0.92);
   }
 }
