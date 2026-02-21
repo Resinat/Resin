@@ -835,7 +835,7 @@ export function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="dashboard-kpi-card">
+        <Card className="dashboard-kpi-card dashboard-kpi-card-with-badge">
           <div className="dashboard-kpi-icon shield">
             <Shield size={18} />
           </div>
@@ -846,7 +846,9 @@ export function DashboardPage() {
               healthy {formatCount(snapshotNodePool?.healthy_nodes ?? 0)} / total {formatCount(snapshotNodePool?.total_nodes ?? 0)}
             </p>
           </div>
-          <Badge variant={nodeHealthRate >= 0.75 ? "success" : "warning"}>{formatCount(snapshotNodePool?.egress_ip_count ?? 0)} IP</Badge>
+          <Badge className="dashboard-kpi-badge" variant={nodeHealthRate >= 0.75 ? "success" : "warning"}>
+            {formatCount(snapshotNodePool?.egress_ip_count ?? 0)} IP
+          </Badge>
         </Card>
 
         <Card className="dashboard-kpi-card">

@@ -655,6 +655,11 @@ a {
   color: var(--text-muted);
 }
 
+.dashboard-kpi-badge {
+  justify-self: end;
+  align-self: start;
+}
+
 .dashboard-main-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2190,6 +2195,10 @@ a {
 
   .dashboard-kpi-card {
     grid-template-columns: auto 1fr;
+  }
+
+  .dashboard-kpi-card.dashboard-kpi-card-with-badge {
+    grid-template-columns: auto 1fr auto;
   }
 
   .histogram-chart {
