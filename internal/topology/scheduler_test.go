@@ -545,6 +545,117 @@ func TestScheduler_DueCheck(t *testing.T) {
 	}
 }
 
+func TestScheduler_ForceRefreshAllAsync_ReturnsImmediately(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "Async", "http://example.com/async", true, false)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
+	fetcher := func(url string) ([]byte, error) {
+		close(fetchStarted)
+		<-releaseFetch
+		return makeSubscriptionJSON(), nil
+	}
+	sched := newTestScheduler(subMgr, pool, fetcher)
+
+	returned := make(chan struct{})
+	go func() {
+		sched.ForceRefreshAllAsync()
+		close(returned)
+	}()
+
+	select {
+	case <-returned:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("ForceRefreshAllAsync should return immediately")
+	}
+
+	select {
+	case <-fetchStarted:
+	case <-time.After(time.Second):
+		t.Fatal("background refresh did not start")
+	}
+
+	close(releaseFetch)
+	sched.Stop()
+}
+
+func TestScheduler_ForceRefreshAll_AfterStopDoesNotFetch(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "One", "http://example.com/one", true, false)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	var calls atomic.Int32
+	fetcher := func(url string) ([]byte, error) {
+		calls.Add(1)
+		return makeSubscriptionJSON(), nil
+	}
+	sched := newTestScheduler(subMgr, pool, fetcher)
+
+	sched.Stop()
+	sched.ForceRefreshAll()
+
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("expected no fetch attempts after stop, got %d", got)
+	}
+}
+
+func TestScheduler_StopCancelsInFlightForceRefreshDownload(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+
+	requestStarted := make(chan struct{})
+	requestDone := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-r.Context().Done()
+		close(requestDone)
+	}))
+	defer srv.Close()
+
+	sub := subscription.NewSubscription("s1", "One", srv.URL, true, false)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	downloader := netutil.NewDirectDownloader(
+		func() time.Duration { return 30 * time.Second },
+		func() string { return "resin-scheduler-stop-test" },
+	)
+	sched := NewSubscriptionScheduler(SchedulerConfig{
+		SubManager: subMgr,
+		Pool:       pool,
+		Downloader: downloader,
+	})
+
+	sched.ForceRefreshAllAsync()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expected in-flight download to start")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		sched.Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("scheduler Stop should cancel in-flight download and return promptly")
+	}
+
+	select {
+	case <-requestDone:
+	case <-time.After(time.Second):
+		t.Fatal("expected HTTP handler context to be canceled after scheduler stop")
+	}
+}
+
 // --- Test: Persistence callback invoked ---
 
 func TestScheduler_OnSubUpdated_Called(t *testing.T) {

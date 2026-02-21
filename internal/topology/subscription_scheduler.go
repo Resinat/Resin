@@ -17,9 +17,11 @@ const schedulerLookahead = 15 * time.Second
 
 // SubscriptionScheduler manages periodic subscription updates.
 type SubscriptionScheduler struct {
-	subManager *SubscriptionManager
-	pool       *GlobalNodePool
-	downloader netutil.Downloader
+	subManager     *SubscriptionManager
+	pool           *GlobalNodePool
+	downloader     netutil.Downloader
+	downloadCtx    context.Context
+	cancelDownload context.CancelFunc
 
 	// Fetcher fetches subscription data from a URL.
 	// Defaults to downloader.Download; injectable for testing.
@@ -43,12 +45,15 @@ type SchedulerConfig struct {
 
 // NewSubscriptionScheduler creates a new scheduler.
 func NewSubscriptionScheduler(cfg SchedulerConfig) *SubscriptionScheduler {
+	downloadCtx, cancelDownload := context.WithCancel(context.Background())
 	sched := &SubscriptionScheduler{
-		subManager:   cfg.SubManager,
-		pool:         cfg.Pool,
-		downloader:   cfg.Downloader,
-		onSubUpdated: cfg.OnSubUpdated,
-		stopCh:       make(chan struct{}),
+		subManager:     cfg.SubManager,
+		pool:           cfg.Pool,
+		downloader:     cfg.Downloader,
+		downloadCtx:    downloadCtx,
+		cancelDownload: cancelDownload,
+		onSubUpdated:   cfg.OnSubUpdated,
+		stopCh:         make(chan struct{}),
 	}
 	if cfg.Fetcher != nil {
 		sched.Fetcher = cfg.Fetcher
@@ -70,6 +75,7 @@ func (s *SubscriptionScheduler) Start() {
 // Stop signals the scheduler to stop and waits for it to finish.
 func (s *SubscriptionScheduler) Stop() {
 	close(s.stopCh)
+	s.cancelDownload()
 	s.wg.Wait()
 }
 
@@ -78,11 +84,26 @@ func (s *SubscriptionScheduler) Stop() {
 // lost data from weak persistence (DESIGN.md step 8 batch 3).
 func (s *SubscriptionScheduler) ForceRefreshAll() {
 	s.subManager.Range(func(id string, sub *subscription.Subscription) bool {
+		select {
+		case <-s.stopCh:
+			return false
+		default:
+		}
 		if sub.Enabled() {
 			s.UpdateSubscription(sub)
 		}
 		return true
 	})
+}
+
+// ForceRefreshAllAsync triggers ForceRefreshAll in a background goroutine.
+// The goroutine is tracked by scheduler waitgroup so Stop() waits for exit.
+func (s *SubscriptionScheduler) ForceRefreshAllAsync() {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.ForceRefreshAll()
+	}()
 }
 
 func (s *SubscriptionScheduler) tick() {
@@ -243,5 +264,5 @@ func (s *SubscriptionScheduler) RenameSubscription(sub *subscription.Subscriptio
 }
 
 func (s *SubscriptionScheduler) fetchViaDownloader(url string) ([]byte, error) {
-	return s.downloader.Download(context.Background(), url)
+	return s.downloader.Download(s.downloadCtx, url)
 }
