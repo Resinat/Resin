@@ -39,6 +39,7 @@ func NewServer(
 	authed := http.NewServeMux()
 	authed.Handle("GET /api/v1/system/info", HandleSystemInfo(systemInfo))
 	authed.Handle("GET /api/v1/system/config", HandleSystemConfig(runtimeCfg))
+	authed.Handle("GET /api/v1/system/config/default", HandleSystemDefaultConfig())
 
 	if cp != nil {
 		// System config mutations.

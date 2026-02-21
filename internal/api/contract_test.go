@@ -568,6 +568,49 @@ func TestAPIContract_SystemConfigPatchSemantics(t *testing.T) {
 	}
 }
 
+func TestAPIContract_SystemDefaultConfigSnapshot(t *testing.T) {
+	srv, _, _ := newControlPlaneTestServer(t)
+
+	patchRec := doJSONRequest(t, srv, http.MethodPatch, "/api/v1/system/config", map[string]any{
+		"user_agent":               "custom-agent",
+		"request_log_enabled":      true,
+		"max_consecutive_failures": 9,
+	}, true)
+	if patchRec.Code != http.StatusOK {
+		t.Fatalf("patch config status: got %d, want %d, body=%s", patchRec.Code, http.StatusOK, patchRec.Body.String())
+	}
+
+	defaultRec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/system/config/default", nil, true)
+	if defaultRec.Code != http.StatusOK {
+		t.Fatalf("default config status: got %d, want %d, body=%s", defaultRec.Code, http.StatusOK, defaultRec.Body.String())
+	}
+	defaultBody := decodeJSONMap(t, defaultRec)
+	if defaultBody["user_agent"] != "sing-box" {
+		t.Fatalf("default user_agent: got %v, want sing-box", defaultBody["user_agent"])
+	}
+	if defaultBody["request_log_enabled"] != false {
+		t.Fatalf("default request_log_enabled: got %v, want false", defaultBody["request_log_enabled"])
+	}
+	if defaultBody["max_consecutive_failures"] != float64(3) {
+		t.Fatalf("default max_consecutive_failures: got %v, want 3", defaultBody["max_consecutive_failures"])
+	}
+
+	currentRec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/system/config", nil, true)
+	if currentRec.Code != http.StatusOK {
+		t.Fatalf("current config status: got %d, want %d, body=%s", currentRec.Code, http.StatusOK, currentRec.Body.String())
+	}
+	currentBody := decodeJSONMap(t, currentRec)
+	if currentBody["user_agent"] != "custom-agent" {
+		t.Fatalf("current user_agent: got %v, want custom-agent", currentBody["user_agent"])
+	}
+	if currentBody["request_log_enabled"] != true {
+		t.Fatalf("current request_log_enabled: got %v, want true", currentBody["request_log_enabled"])
+	}
+	if currentBody["max_consecutive_failures"] != float64(9) {
+		t.Fatalf("current max_consecutive_failures: got %v, want 9", currentBody["max_consecutive_failures"])
+	}
+}
+
 func TestAPIContract_ModuleAndActionEndpoints(t *testing.T) {
 	srv, _, _ := newControlPlaneTestServer(t)
 

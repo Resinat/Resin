@@ -954,6 +954,35 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 }
 ```
 
+#### 获取全局配置默认值
+
+**GET** `/system/config/default`
+
+返回内置默认配置（编译期默认值），不受当前运行中 `PATCH /system/config` 改动影响。
+
+```json
+{
+  "user_agent": "sing-box",
+  "request_log_enabled": false,
+  "reverse_proxy_log_detail_enabled": false,
+  "reverse_proxy_log_req_headers_max_bytes": 4096,
+  "reverse_proxy_log_req_body_max_bytes": 1024,
+  "reverse_proxy_log_resp_headers_max_bytes": 1024,
+  "reverse_proxy_log_resp_body_max_bytes": 1024,
+  "max_consecutive_failures": 3,
+  "max_latency_test_interval": "5m",
+  "max_authority_latency_test_interval": "1h",
+  "max_egress_test_interval": "24h",
+  "latency_test_url": "https://www.gstatic.com/generate_204",
+  "latency_authorities": ["gstatic.com", "google.com", "cloudflare.com", "github.com"],
+  "p2c_latency_window": "10m",
+  "latency_decay_window": "10m",
+  "cache_flush_interval": "5m",
+  "cache_flush_dirty_threshold": 1000,
+  "ephemeral_node_evict_delay": "72h"
+}
+```
+
 #### 更新全局配置
 
 **PATCH** `/system/config`
