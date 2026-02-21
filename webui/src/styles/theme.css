@@ -455,7 +455,7 @@ a {
   display: grid;
   grid-template-columns: minmax(360px, 420px) minmax(0, 1fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .syscfg-layout {
@@ -496,6 +496,15 @@ a {
 .geoip-single-card,
 .geoip-batch-card {
   padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.geoip-status-card .geoip-actions,
+.geoip-single-card .geoip-result,
+.geoip-single-card .empty-box {
+  margin-top: auto;
+  padding-top: 16px;
 }
 
 .syscfg-form-card,
@@ -508,13 +517,6 @@ a {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 14px;
-}
-
-.geoip-status-card {
-  background:
-    radial-gradient(circle at 22% 10%, rgba(20, 112, 255, 0.16), transparent 42%),
-    radial-gradient(circle at 84% 86%, rgba(4, 136, 103, 0.12), transparent 42%),
-    var(--surface);
 }
 
 .syscfg-side {

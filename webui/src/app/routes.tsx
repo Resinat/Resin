@@ -30,7 +30,7 @@ export function AppRoutes() {
         <Route path="/nodes" element={<NodesPage />} />
         <Route path="/rules" element={<RulesPage />} />
         <Route path="/request-logs" element={<RequestLogsPage />} />
-        <Route path="/geoip" element={<GeoIPPage />} />
+        <Route path="/resources" element={<GeoIPPage />} />
         <Route path="/system-config" element={<SystemConfigPage />} />
       </Route>
 

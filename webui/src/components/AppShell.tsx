@@ -1,6 +1,6 @@
 import {
   Boxes,
-  Globe,
+  Database,
   LayoutDashboard,
   Logs,
   Network,
@@ -28,7 +28,7 @@ const navItems: NavItem[] = [
   { label: "节点池", path: "/nodes", icon: Network },
   { label: "Header 规则", path: "/rules", icon: ShieldCheck },
   { label: "请求日志", path: "/request-logs", icon: Logs },
-  { label: "GeoIP", path: "/geoip", icon: Globe },
+  { label: "资源", path: "/resources", icon: Database },
   { label: "系统配置", path: "/system-config", icon: Settings },
 ];
 
