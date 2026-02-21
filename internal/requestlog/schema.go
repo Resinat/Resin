@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS request_log_payloads (
 CREATE INDEX IF NOT EXISTS idx_request_logs_ts_ns        ON request_logs(ts_ns);
 CREATE INDEX IF NOT EXISTS idx_request_logs_proxy_type   ON request_logs(proxy_type);
 CREATE INDEX IF NOT EXISTS idx_request_logs_platform_id  ON request_logs(platform_id);
+CREATE INDEX IF NOT EXISTS idx_request_logs_platform_name ON request_logs(platform_name);
 CREATE INDEX IF NOT EXISTS idx_request_logs_plat_acct    ON request_logs(platform_id, account);
 CREATE INDEX IF NOT EXISTS idx_request_logs_target_host  ON request_logs(target_host);
 CREATE INDEX IF NOT EXISTS idx_request_logs_egress_ip    ON request_logs(egress_ip);

@@ -82,7 +82,15 @@ func (s *SubscriptionScheduler) Stop() {
 // ForceRefreshAll unconditionally updates ALL enabled subscriptions, regardless
 // of their next-check timestamps. Called once at startup to compensate for
 // lost data from weak persistence (DESIGN.md step 8 batch 3).
+// Updates run in parallel, and this method waits until all started updates exit.
 func (s *SubscriptionScheduler) ForceRefreshAll() {
+	select {
+	case <-s.stopCh:
+		return
+	default:
+	}
+
+	subsToRefresh := make([]*subscription.Subscription, 0, s.subManager.Size())
 	s.subManager.Range(func(id string, sub *subscription.Subscription) bool {
 		select {
 		case <-s.stopCh:
@@ -90,10 +98,33 @@ func (s *SubscriptionScheduler) ForceRefreshAll() {
 		default:
 		}
 		if sub.Enabled() {
-			s.UpdateSubscription(sub)
+			subsToRefresh = append(subsToRefresh, sub)
 		}
 		return true
 	})
+
+	var wg sync.WaitGroup
+	for _, sub := range subsToRefresh {
+		select {
+		case <-s.stopCh:
+			wg.Wait()
+			return
+		default:
+		}
+
+		wg.Add(1)
+		go func(sub *subscription.Subscription) {
+			defer wg.Done()
+			select {
+			case <-s.stopCh:
+				return
+			default:
+			}
+			s.UpdateSubscription(sub)
+		}(sub)
+	}
+
+	wg.Wait()
 }
 
 // ForceRefreshAllAsync triggers ForceRefreshAll in a background goroutine.
@@ -107,17 +138,52 @@ func (s *SubscriptionScheduler) ForceRefreshAllAsync() {
 }
 
 func (s *SubscriptionScheduler) tick() {
+	select {
+	case <-s.stopCh:
+		return
+	default:
+	}
+
 	now := time.Now().UnixNano()
+	dueSubs := make([]*subscription.Subscription, 0, s.subManager.Size())
 	s.subManager.Range(func(id string, sub *subscription.Subscription) bool {
+		select {
+		case <-s.stopCh:
+			return false
+		default:
+		}
 		if !sub.Enabled() {
 			return true
 		}
 		// Check if due: lastChecked + interval - lookahead <= now.
 		if sub.LastCheckedNs.Load()+sub.UpdateIntervalNs()-int64(schedulerLookahead) <= now {
-			s.UpdateSubscription(sub)
+			dueSubs = append(dueSubs, sub)
 		}
 		return true
 	})
+
+	var wg sync.WaitGroup
+	for _, sub := range dueSubs {
+		select {
+		case <-s.stopCh:
+			wg.Wait()
+			return
+		default:
+		}
+
+		wg.Add(1)
+		go func(sub *subscription.Subscription) {
+			defer wg.Done()
+			select {
+			case <-s.stopCh:
+				return
+			default:
+			}
+			s.UpdateSubscription(sub)
+		}(sub)
+	}
+
+	wg.Wait()
 }
 
 // UpdateSubscription fetches and parses outside the lock, then diffs and

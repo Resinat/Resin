@@ -2,6 +2,7 @@ package topology
 
 import (
 	"log"
+	"runtime"
 	"sync"
 	"time"
 
@@ -66,76 +67,115 @@ func (c *EphemeralCleaner) sweepWithHook(betweenScans func()) {
 	now := time.Now().UnixNano()
 	evictDelayNs := c.evictDelay().Nanoseconds()
 
+	type ephemeralSub struct {
+		id  string
+		sub *subscription.Subscription
+	}
+	ephemeralSubs := make([]ephemeralSub, 0, c.subManager.Size())
+
 	c.subManager.Range(func(id string, sub *subscription.Subscription) bool {
-		if !sub.Ephemeral() {
-			return true
-		}
-
-		// All candidate checks and evictions happen under the lock to
-		// prevent TOCTOU: a node that recovers between check and eviction
-		// would otherwise be erroneously removed.
-		var evictCount int
-		sub.WithOpLock(func() {
-			evictSet := make(map[node.Hash]struct{})
-			sub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {
-				entry, ok := c.pool.GetEntry(h)
-				if !ok {
-					return true
-				}
-				circuitSince := entry.CircuitOpenSince.Load()
-				if circuitSince > 0 && (now-circuitSince) > evictDelayNs {
-					evictSet[h] = struct{}{}
-				}
-				return true
-			})
-
-			if len(evictSet) == 0 {
-				return
-			}
-
-			// --- TOCTOU window: test hook ---
-			if betweenScans != nil {
-				betweenScans()
-			}
-
-			// Second check: re-verify each candidate. A node may have
-			// recovered between the initial scan and now.
-			confirmedEvict := make(map[node.Hash]struct{})
-			for h := range evictSet {
-				entry, ok := c.pool.GetEntry(h)
-				if !ok {
-					continue
-				}
-				cs := entry.CircuitOpenSince.Load()
-				if cs > 0 && (now-cs) > evictDelayNs {
-					confirmedEvict[h] = struct{}{}
-				}
-			}
-
-			if len(confirmedEvict) == 0 {
-				return
-			}
-
-			// Build new map without confirmed-evict hashes.
-			current := sub.ManagedNodes()
-			newMap := xsync.NewMap[node.Hash, []string]()
-			current.Range(func(h node.Hash, tags []string) bool {
-				if _, evict := confirmedEvict[h]; !evict {
-					newMap.Store(h, tags)
-				}
-				return true
-			})
-			sub.SwapManagedNodes(newMap)
-
-			for h := range confirmedEvict {
-				c.pool.RemoveNodeFromSub(h, sub.ID)
-			}
-			evictCount = len(confirmedEvict)
-		})
-
-		if evictCount > 0 {
-			log.Printf("[ephemeral] evicted %d nodes from sub %s", evictCount, id)
+		if sub.Ephemeral() {
+			ephemeralSubs = append(ephemeralSubs, ephemeralSub{id: id, sub: sub})
 		}
 		return true
 	})
+
+	if len(ephemeralSubs) == 0 {
+		return
+	}
+
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(ephemeralSubs) {
+		workers = len(ephemeralSubs)
+	}
+
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for _, item := range ephemeralSubs {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(id string, sub *subscription.Subscription) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			c.sweepOneSubscription(id, sub, now, evictDelayNs, betweenScans)
+		}(item.id, item.sub)
+	}
+	wg.Wait()
+}
+
+func (c *EphemeralCleaner) sweepOneSubscription(
+	id string,
+	sub *subscription.Subscription,
+	now int64,
+	evictDelayNs int64,
+	betweenScans func(),
+) {
+	// All candidate checks and evictions happen under the lock to
+	// prevent TOCTOU: a node that recovers between check and eviction
+	// would otherwise be erroneously removed.
+	var evictCount int
+	sub.WithOpLock(func() {
+		evictSet := make(map[node.Hash]struct{})
+		sub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {
+			entry, ok := c.pool.GetEntry(h)
+			if !ok {
+				return true
+			}
+			circuitSince := entry.CircuitOpenSince.Load()
+			if circuitSince > 0 && (now-circuitSince) > evictDelayNs {
+				evictSet[h] = struct{}{}
+			}
+			return true
+		})
+
+		if len(evictSet) == 0 {
+			return
+		}
+
+		// --- TOCTOU window: test hook ---
+		if betweenScans != nil {
+			betweenScans()
+		}
+
+		// Second check: re-verify each candidate. A node may have
+		// recovered between the initial scan and now.
+		confirmedEvict := make(map[node.Hash]struct{})
+		for h := range evictSet {
+			entry, ok := c.pool.GetEntry(h)
+			if !ok {
+				continue
+			}
+			cs := entry.CircuitOpenSince.Load()
+			if cs > 0 && (now-cs) > evictDelayNs {
+				confirmedEvict[h] = struct{}{}
+			}
+		}
+
+		if len(confirmedEvict) == 0 {
+			return
+		}
+
+		// Build new map without confirmed-evict hashes.
+		current := sub.ManagedNodes()
+		newMap := xsync.NewMap[node.Hash, []string]()
+		current.Range(func(h node.Hash, tags []string) bool {
+			if _, evict := confirmedEvict[h]; !evict {
+				newMap.Store(h, tags)
+			}
+			return true
+		})
+		sub.SwapManagedNodes(newMap)
+
+		for h := range confirmedEvict {
+			c.pool.RemoveNodeFromSub(h, sub.ID)
+		}
+		evictCount = len(confirmedEvict)
+	})
+
+	if evictCount > 0 {
+		log.Printf("[ephemeral] evicted %d nodes from sub %s", evictCount, id)
+	}
 }

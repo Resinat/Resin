@@ -12,7 +12,7 @@ import (
 
 // HandleListRequestLogs handles GET /api/v1/request-logs.
 // Query params: from, to (RFC3339Nano), limit, cursor,
-// platform_id, account, target_host, egress_ip, proxy_type, net_ok, http_status.
+// platform_id, platform_name, account, target_host, egress_ip, proxy_type, net_ok, http_status.
 func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("offset") != "" {
@@ -32,12 +32,13 @@ func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 
 		q := r.URL.Query()
 		f := requestlog.ListFilter{
-			PlatformID: q.Get("platform_id"),
-			Account:    q.Get("account"),
-			TargetHost: q.Get("target_host"),
-			EgressIP:   q.Get("egress_ip"),
-			Limit:      limit,
-			Cursor:     cursor,
+			PlatformID:   q.Get("platform_id"),
+			PlatformName: q.Get("platform_name"),
+			Account:      q.Get("account"),
+			TargetHost:   q.Get("target_host"),
+			EgressIP:     q.Get("egress_ip"),
+			Limit:        limit,
+			Cursor:       cursor,
 		}
 
 		if v := q.Get("from"); v != "" {

@@ -20,6 +20,7 @@ type FilterDraft = {
   from_local: string;
   to_local: string;
   platform_id: string;
+  platform_name: string;
   account: string;
   target_host: string;
   egress_ip: string;
@@ -33,6 +34,7 @@ const defaultFilters: FilterDraft = {
   from_local: "",
   to_local: "",
   platform_id: "",
+  platform_name: "",
   account: "",
   target_host: "",
   egress_ip: "",
@@ -109,6 +111,7 @@ function buildActiveFilters(draft: FilterDraft): Omit<RequestLogListFilters, "cu
     from,
     to: validRange ? to : undefined,
     platform_id: draft.platform_id,
+    platform_name: draft.platform_name,
     account: draft.account,
     target_host: draft.target_host,
     egress_ip: draft.egress_ip,
@@ -338,14 +341,14 @@ export function RequestLogsPage() {
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="logs-platform-id" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                Platform ID
+              <label htmlFor="logs-platform-name" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                Platform Name
               </label>
               <Input
-                id="logs-platform-id"
-                value={filters.platform_id}
-                onChange={(event) => updateFilter("platform_id", event.target.value)}
-                style={{ width: 160, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                id="logs-platform-name"
+                value={filters.platform_name}
+                onChange={(event) => updateFilter("platform_name", event.target.value)}
+                style={{ width: 180, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
               />
             </div>
 

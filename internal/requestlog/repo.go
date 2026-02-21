@@ -229,17 +229,18 @@ type PayloadRow struct {
 
 // ListFilter specifies query filters for listing logs.
 type ListFilter struct {
-	ProxyType  *int
-	PlatformID string
-	Account    string
-	TargetHost string
-	EgressIP   string
-	NetOK      *bool // true/false filter
-	HTTPStatus *int  // exact match
-	Before     int64 // ts_ns < Before (0 means no upper bound)
-	After      int64 // ts_ns > After (0 means no lower bound)
-	Limit      int
-	Cursor     *ListCursor
+	ProxyType    *int
+	PlatformID   string
+	PlatformName string
+	Account      string
+	TargetHost   string
+	EgressIP     string
+	NetOK        *bool // true/false filter
+	HTTPStatus   *int  // exact match
+	Before       int64 // ts_ns < Before (0 means no upper bound)
+	After        int64 // ts_ns > After (0 means no lower bound)
+	Limit        int
+	Cursor       *ListCursor
 }
 
 // ListCursor encodes a request-log pagination position.
@@ -485,6 +486,10 @@ func (r *Repo) queryLogs(db *sql.DB, f ListFilter, limit int) ([]LogSummary, err
 	if f.PlatformID != "" {
 		where = append(where, "platform_id = ?")
 		args = append(args, f.PlatformID)
+	}
+	if f.PlatformName != "" {
+		where = append(where, "platform_name = ?")
+		args = append(args, f.PlatformName)
 	}
 	if f.Account != "" {
 		where = append(where, "account = ?")
