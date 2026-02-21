@@ -8,6 +8,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
+import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
@@ -58,6 +59,7 @@ type PlatformCreateForm = z.infer<typeof platformCreateSchema>;
 type PlatformEditForm = z.infer<typeof platformEditSchema>;
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const EMPTY_PLATFORMS: Platform[] = [];
+const PAGE_SIZE_OPTIONS = [12, 24, 48, 96] as const;
 
 function parseLinesToList(input: string | undefined): string[] {
   if (!input) {
@@ -96,6 +98,8 @@ function fromApiError(error: unknown): string {
 
 export function PlatformPage() {
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(24);
   const [selectedPlatformId, setSelectedPlatformId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -104,31 +108,35 @@ export function PlatformPage() {
   const queryClient = useQueryClient();
 
   const platformsQuery = useQuery({
-    queryKey: ["platforms"],
-    queryFn: listPlatforms,
+    queryKey: ["platforms", "page", page, pageSize],
+    queryFn: () =>
+      listPlatforms({
+        limit: pageSize,
+        offset: page * pageSize,
+      }),
     refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
   });
 
-  const platforms = platformsQuery.data ?? EMPTY_PLATFORMS;
+  const platforms = platformsQuery.data?.items ?? EMPTY_PLATFORMS;
 
   const visiblePlatforms = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    const filtered = keyword
-      ? platforms.filter((platform) => {
-        return (
-          platform.name.toLowerCase().includes(keyword) ||
-          platform.id.toLowerCase().includes(keyword) ||
-          platform.region_filters.some((region) => region.toLowerCase().includes(keyword))
-        );
-      })
-      : platforms;
-
-    return [...filtered].sort((a, b) => {
-      const aBuiltin = a.id === ZERO_UUID ? 0 : 1;
-      const bBuiltin = b.id === ZERO_UUID ? 0 : 1;
-      return aBuiltin - bBuiltin;
+    if (!keyword) {
+      return platforms;
+    }
+    return platforms.filter((platform) => {
+      return (
+        platform.name.toLowerCase().includes(keyword) ||
+        platform.id.toLowerCase().includes(keyword) ||
+        platform.region_filters.some((region) => region.toLowerCase().includes(keyword))
+      );
     });
   }, [platforms, search]);
+
+  const totalPlatforms = platformsQuery.data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalPlatforms / pageSize));
+  const currentPage = Math.min(page, totalPages - 1);
 
   const selectedPlatform = useMemo(() => {
     if (!selectedPlatformId) {
@@ -299,6 +307,11 @@ export function PlatformPage() {
     setDrawerOpen(true);
   };
 
+  const changePageSize = (next: number) => {
+    setPageSize(next);
+    setPage(0);
+  };
+
   return (
     <section className="platform-page">
       <header className="module-header">
@@ -314,7 +327,7 @@ export function PlatformPage() {
         <div className="list-card-header">
           <div>
             <h3>平台列表</h3>
-            <p>共 {platforms.length} 个平台</p>
+            <p>共 {totalPlatforms} 个平台</p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <label className="search-box" htmlFor="platform-search" style={{ maxWidth: 180, margin: 0, gap: 6 }}>
@@ -323,7 +336,10 @@ export function PlatformPage() {
                 id="platform-search"
                 placeholder="搜索平台"
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(0);
+                }}
                 style={{ padding: "6px 10px", borderRadius: 8 }}
               />
             </label>
@@ -410,6 +426,16 @@ export function PlatformPage() {
             );
           })}
         </div>
+
+        <OffsetPagination
+          page={currentPage}
+          totalPages={totalPages}
+          totalItems={totalPlatforms}
+          pageSize={pageSize}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          onPageChange={setPage}
+          onPageSizeChange={changePageSize}
+        />
       </Card>
 
       {drawerOpen && selectedPlatform ? (

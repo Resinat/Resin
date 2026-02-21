@@ -16,16 +16,28 @@ function normalizePlatform(raw: ApiPlatform): Platform {
   };
 }
 
-export async function listPlatforms(): Promise<Platform[]> {
+function normalizePlatformPage(raw: PageResponse<ApiPlatform>): PageResponse<Platform> {
+  return {
+    ...raw,
+    items: raw.items.map(normalizePlatform),
+  };
+}
+
+export type ListPlatformsPageInput = {
+  limit?: number;
+  offset?: number;
+};
+
+export async function listPlatforms(input: ListPlatformsPageInput = {}): Promise<PageResponse<Platform>> {
   const query = new URLSearchParams({
-    limit: "1000",
-    offset: "0",
+    limit: String(input.limit ?? 50),
+    offset: String(input.offset ?? 0),
     sort_by: "name",
     sort_order: "asc",
   });
 
   const data = await apiRequest<PageResponse<ApiPlatform>>(`${basePath}?${query.toString()}`);
-  return data.items.map(normalizePlatform);
+  return normalizePlatformPage(data);
 }
 
 export async function createPlatform(input: PlatformCreateInput): Promise<Platform> {

@@ -12,6 +12,7 @@ import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime, formatRelativeTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
+import type { Platform } from "../platforms/types";
 import { listSubscriptions } from "../subscriptions/api";
 import { getNode, listNodes, probeEgress, probeLatency } from "./api";
 import { getAllRegions, getRegionName } from "./regions";
@@ -36,6 +37,7 @@ const defaultFilterDraft: NodeFilterDraft = {
 };
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200] as const;
+const EMPTY_PLATFORMS: Platform[] = [];
 
 function fromApiError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -130,10 +132,16 @@ export function NodesPage() {
 
   const platformsQuery = useQuery({
     queryKey: ["platforms", "all"],
-    queryFn: () => listPlatforms(),
+    queryFn: async () => {
+      const data = await listPlatforms({
+        limit: 100000,
+        offset: 0,
+      });
+      return data.items;
+    },
     staleTime: 60_000,
   });
-  const platforms = platformsQuery.data ?? [];
+  const platforms = platformsQuery.data ?? EMPTY_PLATFORMS;
 
   const subscriptionsQuery = useQuery({
     queryKey: ["subscriptions", "all"],
