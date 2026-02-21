@@ -338,8 +338,8 @@ func (a *resinApp) startBackgroundServices() {
 
 	// --- Step 8 Batch 3: Subscription scheduler (force full refresh on start) ---
 	a.topoRuntime.scheduler.Start()
-	a.topoRuntime.scheduler.ForceRefreshAll()
-	log.Println("Subscription scheduler started with forced full refresh (batch 3)")
+	a.topoRuntime.scheduler.ForceRefreshAllAsync()
+	log.Println("Subscription scheduler started; forced full refresh running in background (batch 3)")
 }
 
 func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
