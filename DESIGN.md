@@ -227,7 +227,7 @@ Resin 从订阅中获取节点配置。
 * ManagedNodes：xsync.Map<NodeHash, []string>，即订阅视图。Value 是 Tag 列表。
 
 #### 订阅解析器
-订阅解析器的职责是从订阅中提取节点信息。虽然未来可能会引入更多类型的订阅解析器，但是现阶段 Resin 只计划引入一种订阅解析器 `SingboxSubscriptionParser`。该解析器从机场提供的 Singbox json 订阅解析 outbounds 字段，得到 socks、http、shadowsocks、vmess、trojan、wireguard、hysteria、vless、shadowtls、tuic、hysteria2、anytls、tor、ssh、dns、naive 类型的节点，返回节点的原始 json 数据。
+订阅解析器的职责是从订阅中提取节点信息。虽然未来可能会引入更多类型的订阅解析器，但是现阶段 Resin 只计划引入一种订阅解析器 `SingboxSubscriptionParser`。该解析器从机场提供的 Singbox json 订阅解析 outbounds 字段，得到 socks、http、shadowsocks、vmess、trojan、wireguard、hysteria、vless、shadowtls、tuic、hysteria2、anytls、tor、ssh、naive 类型的节点，返回节点的原始 json 数据。
 
 #### 订阅的更新
 后台有一个订阅更新服务，每 13～17 秒扫描所有订阅。如果未来 15 秒内，订阅将达到或者已达到 UpdateInterval 时间没有更新（对比 LastChecked）会进行更新。
