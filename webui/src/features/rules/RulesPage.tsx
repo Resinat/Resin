@@ -256,21 +256,21 @@ export function RulesPage() {
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <label className="search-box" htmlFor="rules-search" style={{ maxWidth: 200, margin: 0, gap: 6 }}>
-              <Search size={14} />
+              <Search size={16} />
               <Input
                 id="rules-search"
-                placeholder="按 prefix / header 过滤"
+                placeholder="搜索规则"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 style={{ padding: "6px 10px", borderRadius: 8 }}
               />
             </label>
             <Button variant="secondary" size="sm" onClick={() => setCreateModalOpen(true)}>
-              <Plus size={14} />
+              <Plus size={16} />
               新建
             </Button>
             <Button variant="secondary" size="sm" onClick={() => setResolveModalOpen(true)}>
-              <Bug size={14} />
+              <Bug size={16} />
               调试
             </Button>
             <Button
@@ -279,7 +279,7 @@ export function RulesPage() {
               onClick={() => void rulesQuery.refetch()}
               disabled={rulesQuery.isFetching}
             >
-              <RefreshCw size={14} className={rulesQuery.isFetching ? "spin" : undefined} />
+              <RefreshCw size={16} className={rulesQuery.isFetching ? "spin" : undefined} />
               刷新
             </Button>
           </div>

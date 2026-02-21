@@ -408,11 +408,11 @@ export function NodesPage() {
 
             <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.125rem", marginLeft: "auto" }}>
               <Button size="sm" variant="secondary" onClick={refreshNodes} disabled={nodesQuery.isFetching} style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                <RefreshCw size={14} className={nodesQuery.isFetching ? "spin" : undefined} />
+                <RefreshCw size={16} className={nodesQuery.isFetching ? "spin" : undefined} />
                 刷新
               </Button>
               <Button size="sm" variant="secondary" onClick={resetFilters} style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                <Eraser size={14} />
+                <Eraser size={16} />
                 重置
               </Button>
             </div>

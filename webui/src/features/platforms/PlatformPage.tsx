@@ -317,8 +317,8 @@ export function PlatformPage() {
             <p>共 {totalPlatforms} 个平台</p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-            <label className="search-box" htmlFor="platform-search" style={{ maxWidth: 180, margin: 0, gap: 6 }}>
-              <Search size={14} />
+            <label className="search-box" htmlFor="platform-search" style={{ maxWidth: 200, margin: 0, gap: 6 }}>
+              <Search size={16} />
               <Input
                 id="platform-search"
                 placeholder="搜索平台"
@@ -335,7 +335,7 @@ export function PlatformPage() {
               size="sm"
               onClick={() => setCreateModalOpen(true)}
             >
-              <Plus size={14} />
+              <Plus size={16} />
               新建
             </Button>
             <Button
@@ -344,7 +344,7 @@ export function PlatformPage() {
               onClick={() => platformsQuery.refetch()}
               disabled={platformsQuery.isFetching}
             >
-              <RefreshCw size={14} className={platformsQuery.isFetching ? "spin" : undefined} />
+              <RefreshCw size={16} className={platformsQuery.isFetching ? "spin" : undefined} />
               刷新
             </Button>
           </div>

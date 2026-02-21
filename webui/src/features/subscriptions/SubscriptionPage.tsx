@@ -300,7 +300,7 @@ export function SubscriptionPage() {
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <label className="subscription-inline-filter" htmlFor="sub-status-filter" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Filter size={14} />
+              <Filter size={16} />
               <Select
                 id="sub-status-filter"
                 value={enabledFilter}
@@ -315,7 +315,7 @@ export function SubscriptionPage() {
               </Select>
             </label>
             <label className="search-box" htmlFor="subscription-search" style={{ maxWidth: 200, margin: 0, gap: 6 }}>
-              <Search size={14} />
+              <Search size={16} />
               <Input
                 id="subscription-search"
                 placeholder="搜索订阅"
@@ -332,7 +332,7 @@ export function SubscriptionPage() {
               size="sm"
               onClick={() => setCreateModalOpen(true)}
             >
-              <Plus size={14} />
+              <Plus size={16} />
               新建
             </Button>
             <Button
@@ -341,7 +341,7 @@ export function SubscriptionPage() {
               onClick={() => subscriptionsQuery.refetch()}
               disabled={subscriptionsQuery.isFetching}
             >
-              <RefreshCw size={14} className={subscriptionsQuery.isFetching ? "spin" : undefined} />
+              <RefreshCw size={16} className={subscriptionsQuery.isFetching ? "spin" : undefined} />
               刷新
             </Button>
           </div>
