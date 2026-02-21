@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"runtime"
 	"sync"
 	"time"
 
@@ -55,44 +56,89 @@ func (c *LeaseCleaner) sweep() {
 	now := time.Now()
 	nowNs := now.UnixNano()
 
+	type platformState struct {
+		platID string
+		state  *PlatformRoutingState
+	}
+	states := make([]platformState, 0, c.router.states.Size())
 	c.router.states.Range(func(platID string, state *PlatformRoutingState) bool {
-		// Iterate over all leases for this platform
-		state.Leases.Range(func(account string, lease Lease) bool {
-			// Check against stop signal
-			select {
-			case <-c.stopCh:
-				return false
-			default:
-			}
+		select {
+		case <-c.stopCh:
+			return false
+		default:
+		}
+		states = append(states, platformState{platID: platID, state: state})
+		return true
+	})
+	if len(states) == 0 {
+		return
+	}
 
-			if lease.ExpiryNs < nowNs {
-				// Expired. Use Compute to verify and delete atomically.
-				state.Leases.leases.Compute(account, func(current Lease, loaded bool) (Lease, xsync.ComputeOp) {
-					if !loaded {
-						return current, xsync.CancelOp
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(states) {
+		workers = len(states)
+	}
+
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for _, item := range states {
+		select {
+		case <-c.stopCh:
+			wg.Wait()
+			return
+		default:
+		}
+
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(platID string, state *PlatformRoutingState) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			c.sweepPlatformState(platID, state, nowNs)
+		}(item.platID, item.state)
+	}
+	wg.Wait()
+}
+
+func (c *LeaseCleaner) sweepPlatformState(platID string, state *PlatformRoutingState, nowNs int64) {
+	// Iterate over all leases for this platform
+	state.Leases.Range(func(account string, lease Lease) bool {
+		// Check against stop signal
+		select {
+		case <-c.stopCh:
+			return false
+		default:
+		}
+
+		if lease.ExpiryNs < nowNs {
+			// Expired. Use Compute to verify and delete atomically.
+			state.Leases.leases.Compute(account, func(current Lease, loaded bool) (Lease, xsync.ComputeOp) {
+				if !loaded {
+					return current, xsync.CancelOp
+				}
+				// Double-check expiry inside lock
+				if current.ExpiryNs < nowNs {
+					state.Leases.stats.Dec(current.EgressIP)
+
+					if c.router.onLeaseEvent != nil {
+						c.router.onLeaseEvent(LeaseEvent{
+							Type:        LeaseExpire,
+							PlatformID:  platID,
+							Account:     account,
+							NodeHash:    current.NodeHash,
+							EgressIP:    current.EgressIP,
+							CreatedAtNs: current.CreatedAtNs,
+						})
 					}
-					// Double-check expiry inside lock
-					if current.ExpiryNs < nowNs {
-						state.Leases.stats.Dec(current.EgressIP)
 
-						if c.router.onLeaseEvent != nil {
-							c.router.onLeaseEvent(LeaseEvent{
-								Type:        LeaseExpire,
-								PlatformID:  platID,
-								Account:     account,
-								NodeHash:    current.NodeHash,
-								EgressIP:    current.EgressIP,
-								CreatedAtNs: current.CreatedAtNs,
-							})
-						}
-
-						return current, xsync.DeleteOp
-					}
-					return current, xsync.CancelOp // Renewed concurrently, don't delete
-				})
-			}
-			return true
-		})
+					return current, xsync.DeleteOp
+				}
+				return current, xsync.CancelOp // Renewed concurrently, don't delete
+			})
+		}
 		return true
 	})
 }
