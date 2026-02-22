@@ -91,13 +91,15 @@ func (p *ForwardProxy) authenticate(r *http.Request) (string, string, *ProxyErro
 
 	// Empty configured proxy token means auth is intentionally disabled.
 	// In this mode, Proxy-Authorization is optional; when present and parseable,
-	// we still extract Platform:Account from the password field.
+	// we still extract Platform:Account identity.
+	// Accepted credential formats in Basic payload:
+	// 1) "platform:account" (two fields)
+	// 2) "token:platform:account" (legacy three-field shape)
 	if p.token == "" {
-		_, pass, ok := parseProxyAuthorization(auth)
+		platName, account, ok := parseProxyAuthorizationIdentityWhenAuthDisabled(auth)
 		if !ok {
 			return "", "", nil
 		}
-		platName, account := parsePlatformAccount(pass)
 		return platName, account, nil
 	}
 
@@ -114,30 +116,59 @@ func (p *ForwardProxy) authenticate(r *http.Request) (string, string, *ProxyErro
 }
 
 func parseProxyAuthorization(auth string) (user string, pass string, ok bool) {
-	if auth == "" {
-		return "", "", false
-	}
-
-	// Expect "<scheme> <base64>"; scheme is case-insensitive per RFC.
-	authFields := strings.Fields(auth)
-	if len(authFields) != 2 || !strings.EqualFold(authFields[0], "Basic") {
-		return "", "", false
-	}
-	decoded, err := base64.StdEncoding.DecodeString(authFields[1])
-	if err != nil {
+	credential, ok := parseProxyAuthorizationCredential(auth)
+	if !ok {
 		return "", "", false
 	}
 
 	// Format: user:pass where user=PROXY_TOKEN, pass=Platform:Account
 	// Split on first ":" to get user and pass.
-	userPass := string(decoded)
-	colonIdx := strings.IndexByte(userPass, ':')
+	colonIdx := strings.IndexByte(credential, ':')
 	if colonIdx < 0 {
 		return "", "", false
 	}
-	user = userPass[:colonIdx]
-	pass = userPass[colonIdx+1:]
+	user = credential[:colonIdx]
+	pass = credential[colonIdx+1:]
 	return user, pass, true
+}
+
+func parseProxyAuthorizationIdentityWhenAuthDisabled(auth string) (platName string, account string, ok bool) {
+	credential, ok := parseProxyAuthorizationCredential(auth)
+	if !ok {
+		return "", "", false
+	}
+
+	// When auth is disabled, allow direct "platform:account" identity.
+	if strings.Count(credential, ":") == 1 {
+		platName, account = parsePlatformAccount(credential)
+		return platName, account, true
+	}
+
+	// Backward compatible shape: "token:platform:account" -> parse from pass part.
+	colonIdx := strings.IndexByte(credential, ':')
+	if colonIdx < 0 {
+		return "", "", false
+	}
+	pass := credential[colonIdx+1:]
+	platName, account = parsePlatformAccount(pass)
+	return platName, account, true
+}
+
+func parseProxyAuthorizationCredential(auth string) (string, bool) {
+	if auth == "" {
+		return "", false
+	}
+
+	// Expect "<scheme> <base64>"; scheme is case-insensitive per RFC.
+	authFields := strings.Fields(auth)
+	if len(authFields) != 2 || !strings.EqualFold(authFields[0], "Basic") {
+		return "", false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(authFields[1])
+	if err != nil {
+		return "", false
+	}
+	return string(decoded), true
 }
 
 // hop-by-hop headers that must not be forwarded to the next hop.

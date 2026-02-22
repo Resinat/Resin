@@ -211,6 +211,20 @@ func TestForwardProxy_Authentication_Disabled_AllowsOptionalIdentity(t *testing.
 	}
 }
 
+func TestForwardProxy_Authentication_Disabled_AllowsTwoFieldIdentity(t *testing.T) {
+	fp := &ForwardProxy{token: "", events: NoOpEventEmitter{}}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("Proxy-Authorization", basicAuth("plat", "acct"))
+
+	plat, acct, err := fp.authenticate(req)
+	if err != nil {
+		t.Fatalf("unexpected auth error: %v", err)
+	}
+	if plat != "plat" || acct != "acct" {
+		t.Fatalf("got plat=%q acct=%q, want plat=%q acct=%q", plat, acct, "plat", "acct")
+	}
+}
+
 func TestForwardProxy_Authentication_ParsePlatformAccount(t *testing.T) {
 	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
 
