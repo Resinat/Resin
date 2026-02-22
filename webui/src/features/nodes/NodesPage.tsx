@@ -39,7 +39,7 @@ const defaultFilterDraft: NodeFilterDraft = {
   status: "all",
 };
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 200] as const;
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000, 2000, 5000] as const;
 const EMPTY_PLATFORMS: Platform[] = [];
 
 function fromApiError(error: unknown): string {
@@ -197,7 +197,7 @@ export function NodesPage() {
   const [sortBy, setSortBy] = useState<NodeSortBy>("tag");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<number>(50);
+  const [pageSize, setPageSize] = useState<number>(200);
   const [selectedNodeHash, setSelectedNodeHash] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { toasts, showToast, dismissToast } = useToast();

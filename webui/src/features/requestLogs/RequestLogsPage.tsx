@@ -43,8 +43,9 @@ const defaultFilters: FilterDraft = {
   proxy_type: "all",
   net_ok: "all",
   http_status: "",
-  limit: 50,
+  limit: 100,
 };
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000, 2000] as const;
 
 const PAYLOAD_TABS = ["req_headers", "req_body", "resp_headers", "resp_body"] as const;
 type PayloadTab = (typeof PAYLOAD_TABS)[number];
@@ -565,6 +566,7 @@ export function RequestLogsPage() {
           pageIndex={pageIndex}
           hasMore={hasMore}
           pageSize={filters.limit}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
           onPageSizeChange={(limit) => updateFilter("limit", limit)}
           onPrev={movePrev}
           onNext={moveNext}
