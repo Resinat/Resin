@@ -45,6 +45,7 @@ export type RequestLogListFilters = {
   http_status?: number;
   limit: number;
   cursor?: string;
+  fuzzy?: boolean;
 };
 
 export type RequestLogPayloads = {

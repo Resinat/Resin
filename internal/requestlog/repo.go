@@ -239,6 +239,7 @@ type ListFilter struct {
 	PlatformName string
 	Account      string
 	TargetHost   string
+	Fuzzy        bool // Enables substring matching on platform_id/platform_name/account/target_host.
 	EgressIP     string
 	NetOK        *bool // true/false filter
 	HTTPStatus   *int  // exact match
@@ -510,19 +511,35 @@ func (r *Repo) queryLogs(db *sql.DB, f ListFilter, limit int) ([]LogSummary, err
 		args = append(args, *f.ProxyType)
 	}
 	if f.PlatformID != "" {
-		where = append(where, "platform_id = ?")
+		if f.Fuzzy {
+			where = append(where, "instr(platform_id, ?) > 0")
+		} else {
+			where = append(where, "platform_id = ?")
+		}
 		args = append(args, f.PlatformID)
 	}
 	if f.PlatformName != "" {
-		where = append(where, "platform_name = ?")
+		if f.Fuzzy {
+			where = append(where, "instr(platform_name, ?) > 0")
+		} else {
+			where = append(where, "platform_name = ?")
+		}
 		args = append(args, f.PlatformName)
 	}
 	if f.Account != "" {
-		where = append(where, "account = ?")
+		if f.Fuzzy {
+			where = append(where, "instr(account, ?) > 0")
+		} else {
+			where = append(where, "account = ?")
+		}
 		args = append(args, f.Account)
 	}
 	if f.TargetHost != "" {
-		where = append(where, "target_host = ?")
+		if f.Fuzzy {
+			where = append(where, "instr(target_host, ?) > 0")
+		} else {
+			where = append(where, "target_host = ?")
+		}
 		args = append(args, f.TargetHost)
 	}
 	if f.EgressIP != "" {

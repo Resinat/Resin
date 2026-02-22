@@ -36,6 +36,7 @@ export async function listRequestLogs(filters: RequestLogListFilters): Promise<R
   appendIfPresent(query, "http_status", filters.http_status);
   appendIfPresent(query, "cursor", filters.cursor);
   appendIfPresent(query, "limit", filters.limit);
+  appendIfPresent(query, "fuzzy", filters.fuzzy);
 
   return apiRequest<RequestLogListResponse>(`${basePath}?${query.toString()}`);
 }

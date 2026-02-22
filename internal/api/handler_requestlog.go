@@ -12,7 +12,7 @@ import (
 
 // HandleListRequestLogs handles GET /api/v1/request-logs.
 // Query params: from, to (RFC3339Nano), limit, cursor,
-// platform_id, platform_name, account, target_host, egress_ip, proxy_type, net_ok, http_status.
+// platform_id, platform_name, account, target_host, egress_ip, proxy_type, net_ok, http_status, fuzzy.
 func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("offset") != "" {
@@ -79,6 +79,14 @@ func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 			return
 		}
 		f.HTTPStatus = httpStatus
+
+		fuzzy, ok := parseStrictBoolQuery(w, r, "fuzzy")
+		if !ok {
+			return
+		}
+		if fuzzy != nil {
+			f.Fuzzy = *fuzzy
+		}
 
 		rows, hasMore, nextCursor, err := repo.List(f)
 		if err != nil {

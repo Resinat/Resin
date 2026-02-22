@@ -1179,6 +1179,59 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 		t.Fatalf("platform_name filter first item platform_name: got %v, want %q", rowMap["platform_name"], "Platform One")
 	}
 
+	rec = doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/request-logs?platform_id="+url.QueryEscape("atform-1")+
+			"&platform_name="+url.QueryEscape("atform O")+
+			"&account="+url.QueryEscape("ct-1")+
+			"&target_host="+url.QueryEscape("ample.co")+
+			"&fuzzy=true&limit=20",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list request logs with fuzzy search status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	itemsRaw, ok = body["items"]
+	if !ok {
+		t.Fatalf("fuzzy filter missing items field: body=%s", rec.Body.String())
+	}
+	items, ok = itemsRaw.([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("fuzzy filter items: got %T len=%d, want 1", itemsRaw, len(items))
+	}
+	rowMap, ok = items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("fuzzy filter first item type: got %T", items[0])
+	}
+	if rowMap["id"] != logID {
+		t.Fatalf("fuzzy filter first item id: got %v, want %q", rowMap["id"], logID)
+	}
+
+	rec = doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/request-logs?platform_name="+url.QueryEscape("atform O")+"&limit=20",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list request logs strict partial status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	itemsRaw, ok = body["items"]
+	if !ok {
+		t.Fatalf("strict partial filter missing items field: body=%s", rec.Body.String())
+	}
+	items, ok = itemsRaw.([]any)
+	if !ok || len(items) != 0 {
+		t.Fatalf("strict partial filter items: got %T len=%d, want 0", itemsRaw, len(items))
+	}
+
 	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs/"+logID, nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("get request log status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -1227,6 +1280,7 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 		"/api/v1/request-logs?net_ok=maybe",
 		"/api/v1/request-logs?http_status=bad",
 		"/api/v1/request-logs?http_status=99",
+		"/api/v1/request-logs?fuzzy=1",
 	}
 	for _, path := range invalidCases {
 		rec = doJSONRequest(t, srv, http.MethodGet, path, nil, true)

@@ -115,6 +115,44 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 		t.Fatalf("filtered by platform_name list: got %+v", filteredByName)
 	}
 
+	fuzzyFiltered, hasMore, nextCursor, err := repo.List(ListFilter{
+		PlatformID:   "lat-1",
+		PlatformName: "form O",
+		Account:      "ct-a",
+		TargetHost:   "ample.c",
+		Fuzzy:        true,
+		Limit:        10,
+	})
+	if err != nil {
+		t.Fatalf("repo.List fuzzy filtered: %v", err)
+	}
+	if hasMore {
+		t.Fatalf("fuzzy filtered hasMore: got true, want false")
+	}
+	if nextCursor != nil {
+		t.Fatalf("fuzzy filtered nextCursor: got %+v, want nil", nextCursor)
+	}
+	if len(fuzzyFiltered) != 1 || fuzzyFiltered[0].ID != "log-a" {
+		t.Fatalf("fuzzy filtered list: got %+v", fuzzyFiltered)
+	}
+
+	strictPartial, hasMore, nextCursor, err := repo.List(ListFilter{
+		PlatformName: "form O",
+		Limit:        10,
+	})
+	if err != nil {
+		t.Fatalf("repo.List strict partial: %v", err)
+	}
+	if hasMore {
+		t.Fatalf("strict partial hasMore: got true, want false")
+	}
+	if nextCursor != nil {
+		t.Fatalf("strict partial nextCursor: got %+v, want nil", nextCursor)
+	}
+	if len(strictPartial) != 0 {
+		t.Fatalf("strict partial list len: got %d, want 0", len(strictPartial))
+	}
+
 	row, err := repo.GetByID("log-a")
 	if err != nil {
 		t.Fatalf("repo.GetByID: %v", err)

@@ -119,6 +119,7 @@ function buildActiveFilters(draft: FilterDraft): Omit<RequestLogListFilters, "cu
     net_ok: boolFromFilter(draft.net_ok),
     http_status: hasValidStatus ? status : undefined,
     limit: draft.limit,
+    fuzzy: true,
   };
 }
 
