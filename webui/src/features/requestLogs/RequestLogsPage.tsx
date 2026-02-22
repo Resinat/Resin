@@ -135,6 +135,32 @@ function proxyTypeLabel(proxyType: number): string {
   return String(proxyType);
 }
 
+function splitDateTime(input: string): { date: string; time: string } {
+  if (!input) {
+    return { date: "-", time: "-" };
+  }
+
+  const value = new Date(input);
+  if (Number.isNaN(value.getTime())) {
+    return { date: input, time: "-" };
+  }
+
+  const date = new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(value);
+
+  const time = new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(value);
+
+  return { date, time };
+}
+
 export function RequestLogsPage() {
   const [filters, setFilters] = useState<FilterDraft>(defaultFilters);
   const [cursorStack, setCursorStack] = useState<string[]>([""]);
@@ -500,7 +526,18 @@ export function RequestLogsPage() {
 
         {visibleLogs.length ? (
           <div className="nodes-table-wrap">
-            <table className="nodes-table subscriptions-table">
+            <table className="nodes-table subscriptions-table request-logs-table">
+              <colgroup>
+                <col className="request-log-col-time" />
+                <col className="request-log-col-proxy" />
+                <col className="request-log-col-platform-account" />
+                <col className="request-log-col-target" />
+                <col className="request-log-col-http" />
+                <col className="request-log-col-network" />
+                <col className="request-log-col-duration" />
+                <col className="request-log-col-traffic" />
+                <col className="request-log-col-node" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>时间</th>
@@ -517,13 +554,19 @@ export function RequestLogsPage() {
               <tbody>
                 {visibleLogs.map((log) => {
                   const isSelected = drawerVisible && log.id === detailLogId;
+                  const timeParts = splitDateTime(log.ts);
                   return (
                     <tr
                       key={log.id}
                       className={isSelected ? "nodes-row-selected" : "clickable-row"}
                       onClick={() => openDrawer(log.id)}
                     >
-                      <td>{formatDateTime(log.ts)}</td>
+                      <td>
+                        <div className="logs-cell-stack logs-time-cell">
+                          <span>{timeParts.date}</span>
+                          <small>{timeParts.time}</small>
+                        </div>
+                      </td>
                       <td>{proxyTypeLabel(log.proxy_type)}</td>
                       <td>
                         <div className="logs-cell-stack">

@@ -547,7 +547,17 @@ export function NodesPage() {
 
         {nodes.length ? (
           <div className="nodes-table-wrap">
-            <table className="nodes-table subscriptions-table">
+            <table className="nodes-table subscriptions-table node-pool-table">
+              <colgroup>
+                <col className="node-pool-col-name" />
+                <col className="node-pool-col-fit" />
+                <col className="node-pool-col-fit" />
+                <col className="node-pool-col-fit" />
+                <col className="node-pool-col-fit" />
+                <col className="node-pool-col-fit" />
+                <col className="node-pool-col-fit" />
+                <col className="node-pool-col-fit" />
+              </colgroup>
               <thead>
                 <tr>
                   <th>

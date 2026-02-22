@@ -1267,6 +1267,49 @@ a {
   cursor: pointer;
 }
 
+.request-logs-table {
+  min-width: 1220px;
+  table-layout: auto;
+}
+
+.request-logs-table col.request-log-col-platform-account {
+  width: 20%;
+}
+
+.request-logs-table col.request-log-col-target {
+  width: 30%;
+}
+
+.request-logs-table col.request-log-col-node {
+  width: 50%;
+}
+
+.request-logs-table th:nth-child(1),
+.request-logs-table td:nth-child(1),
+.request-logs-table th:nth-child(2),
+.request-logs-table td:nth-child(2),
+.request-logs-table th:nth-child(5),
+.request-logs-table td:nth-child(5),
+.request-logs-table th:nth-child(6),
+.request-logs-table td:nth-child(6),
+.request-logs-table th:nth-child(7),
+.request-logs-table td:nth-child(7),
+.request-logs-table th:nth-child(8),
+.request-logs-table td:nth-child(8) {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.request-logs-table td:nth-child(3) .logs-cell-stack>span,
+.request-logs-table td:nth-child(4) .logs-cell-stack>span,
+.request-logs-table td:nth-child(9) .logs-cell-stack>span {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .subscriptions-name-cell {
   font-weight: 700;
 }
@@ -1856,6 +1899,35 @@ a {
   color: var(--text-muted);
 }
 
+.node-pool-table {
+  table-layout: auto;
+}
+
+.node-pool-table col.node-pool-col-name {
+  width: 99%;
+}
+
+.node-pool-table col.node-pool-col-fit {
+  width: 1%;
+}
+
+.node-pool-table th:nth-child(n + 2),
+.node-pool-table td:nth-child(n + 2) {
+  white-space: nowrap;
+}
+
+.node-pool-table td:nth-child(1) .nodes-tag-cell {
+  max-width: 100%;
+}
+
+.node-pool-table td:nth-child(1) .nodes-tag-cell span {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .nodes-row-actions {
   display: inline-flex;
   gap: 6px;
@@ -1984,6 +2056,15 @@ a {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.logs-time-cell {
+  line-height: 1.2;
+}
+
+.logs-time-cell>small {
+  font-size: 13px;
+  color: inherit;
 }
 
 .logs-cell-stack>span {
