@@ -132,7 +132,7 @@ export function SubscriptionPage() {
     defaultValues: {
       name: "",
       url: "",
-      update_interval: "5m",
+      update_interval: "12h",
       enabled: true,
       ephemeral: false,
     },
