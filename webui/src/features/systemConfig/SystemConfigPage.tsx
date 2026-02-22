@@ -785,6 +785,10 @@ export function SystemConfigPage() {
                       <Input readOnly disabled value={envBaseline.log_dir} />
                     </div>
                     <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>统一监听地址</label>
+                      <Input readOnly disabled value={envBaseline.listen_address} />
+                    </div>
+                    <div className="field-group">
                       <label className="field-label" style={{ margin: 0 }}>控制面 API 端口</label>
                       <Input readOnly disabled value={String(envBaseline.api_port)} />
                     </div>
