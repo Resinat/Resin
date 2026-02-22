@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Eraser, Globe, RefreshCw, Sparkles, X, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -49,6 +50,75 @@ function fromApiError(error: unknown): string {
     return error.message;
   }
   return "未知错误";
+}
+
+function parseBoolParam(value: string | null): boolean | undefined {
+  if (value === null) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0") {
+    return false;
+  }
+
+  return undefined;
+}
+
+function parseStatusParam(value: string | null): NodeStatusFilter | undefined {
+  if (value === null) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "all" || normalized === "healthy" || normalized === "circuit_open" || normalized === "error") {
+    return normalized;
+  }
+
+  return undefined;
+}
+
+function statusFromQuery(params: URLSearchParams): NodeStatusFilter {
+  const explicitStatus = parseStatusParam(params.get("status"));
+  if (explicitStatus) {
+    return explicitStatus;
+  }
+
+  const hasOutbound = parseBoolParam(params.get("has_outbound"));
+  const circuitOpen = parseBoolParam(params.get("circuit_open"));
+
+  if (hasOutbound === false) {
+    return "error";
+  }
+  if (hasOutbound === true && circuitOpen === true) {
+    return "circuit_open";
+  }
+  if (hasOutbound === true && circuitOpen === false) {
+    return "healthy";
+  }
+
+  return "all";
+}
+
+function trimQueryValue(params: URLSearchParams, key: string): string {
+  return params.get(key)?.trim() ?? "";
+}
+
+function draftFromQuery(search: string): NodeFilterDraft {
+  const params = new URLSearchParams(search);
+  const tagKeyword = trimQueryValue(params, "tag_keyword") || trimQueryValue(params, "tag");
+
+  return {
+    platform_id: trimQueryValue(params, "platform_id"),
+    subscription_id: trimQueryValue(params, "subscription_id"),
+    tag_keyword: tagKeyword,
+    region: trimQueryValue(params, "region").toUpperCase(),
+    egress_ip: trimQueryValue(params, "egress_ip"),
+    status: statusFromQuery(params),
+  };
 }
 
 
@@ -119,8 +189,11 @@ function regionToFlag(region: string | undefined): string {
 }
 
 export function NodesPage() {
-  const [draftFilters, setDraftFilters] = useState<NodeFilterDraft>(defaultFilterDraft);
-  const [activeFilters, setActiveFilters] = useState<NodeListFilters>(draftToActiveFilters(defaultFilterDraft));
+  const location = useLocation();
+  const [draftFilters, setDraftFilters] = useState<NodeFilterDraft>(() => draftFromQuery(location.search));
+  const [activeFilters, setActiveFilters] = useState<NodeListFilters>(() =>
+    draftToActiveFilters(draftFromQuery(location.search))
+  );
   const [sortBy, setSortBy] = useState<NodeSortBy>("tag");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [page, setPage] = useState(0);

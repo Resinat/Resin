@@ -413,6 +413,42 @@ a {
   gap: 10px;
 }
 
+.platform-detail-header-footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.platform-detail-header-footer .platform-tile-facts {
+  flex: 1 1 auto;
+}
+
+.platform-detail-node-link {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.platform-detail-node-link:hover {
+  color: var(--primary-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.platform-detail-node-link:focus-visible {
+  outline: none;
+  border-radius: 8px;
+  box-shadow: 0 0 0 2px rgba(20, 112, 255, 0.22);
+}
+
 .platform-detail-header-main {
   display: flex;
   align-items: flex-start;

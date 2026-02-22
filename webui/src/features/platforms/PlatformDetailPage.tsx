@@ -1,9 +1,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Link2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { z } from "zod";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -286,27 +286,33 @@ export function PlatformDetailPage() {
                 <span>更新于 {formatRelativeTime(platform.updated_at)}</span>
               </div>
             </div>
-            <div className="platform-tile-facts">
-              <span className="platform-fact">
-                <span>区域</span>
-                <strong>{regionCount}</strong>
-              </span>
-              <span className="platform-fact">
-                <span>正则</span>
-                <strong>{regexCount}</strong>
-              </span>
-              <span className="platform-fact">
-                <span>TTL</span>
-                <strong>{stickyTTL}</strong>
-              </span>
-              <span className="platform-fact">
-                <span>策略</span>
-                <strong>{allocationPolicyLabel[platform.allocation_policy]}</strong>
-              </span>
-              <span className="platform-fact">
-                <span>Miss</span>
-                <strong>{missActionLabel[platform.reverse_proxy_miss_action]}</strong>
-              </span>
+            <div className="platform-detail-header-footer">
+              <div className="platform-tile-facts">
+                <span className="platform-fact">
+                  <span>区域</span>
+                  <strong>{regionCount}</strong>
+                </span>
+                <span className="platform-fact">
+                  <span>正则</span>
+                  <strong>{regexCount}</strong>
+                </span>
+                <span className="platform-fact">
+                  <span>TTL</span>
+                  <strong>{stickyTTL}</strong>
+                </span>
+                <span className="platform-fact">
+                  <span>策略</span>
+                  <strong>{allocationPolicyLabel[platform.allocation_policy]}</strong>
+                </span>
+                <span className="platform-fact">
+                  <span>Miss</span>
+                  <strong>{missActionLabel[platform.reverse_proxy_miss_action]}</strong>
+                </span>
+              </div>
+              <Link to={`/nodes?platform_id=${encodeURIComponent(platform.id)}`} className="platform-detail-node-link">
+                <Link2 size={14} />
+                <span>可路由节点</span>
+              </Link>
             </div>
           </Card>
 

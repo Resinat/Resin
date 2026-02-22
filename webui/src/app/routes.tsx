@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { LoginPage } from "../features/auth/LoginPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
@@ -11,6 +11,11 @@ import { RequestLogsPage } from "../features/requestLogs/RequestLogsPage";
 import { RulesPage } from "../features/rules/RulesPage";
 import { SubscriptionPage } from "../features/subscriptions/SubscriptionPage";
 import { SystemConfigPage } from "../features/systemConfig/SystemConfigPage";
+
+function NodesRoute() {
+  const location = useLocation();
+  return <NodesPage key={location.search} />;
+}
 
 export function AppRoutes() {
   return (
@@ -29,7 +34,7 @@ export function AppRoutes() {
         <Route path="/platforms" element={<PlatformPage />} />
         <Route path="/platforms/:platformId" element={<PlatformDetailPage />} />
         <Route path="/subscriptions" element={<SubscriptionPage />} />
-        <Route path="/nodes" element={<NodesPage />} />
+        <Route path="/nodes" element={<NodesRoute />} />
         <Route path="/rules" element={<RulesPage />} />
         <Route path="/request-logs" element={<RequestLogsPage />} />
         <Route path="/resources" element={<GeoIPPage />} />
