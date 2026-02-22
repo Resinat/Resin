@@ -285,10 +285,10 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 		writeProxyError(w, proxyErr)
 		return
 	}
-
-	// Dial succeeded — network is healthy.
-	lifecycle.setNetOK(true)
-	go p.health.RecordResult(nodeHashRaw, true)
+	recordConnectResult := func(ok bool) {
+		lifecycle.setNetOK(ok)
+		go p.health.RecordResult(nodeHashRaw, ok)
+	}
 
 	// Wrap with counting conn for traffic/connection metrics.
 	var upstreamBase net.Conn = rawConn
@@ -307,6 +307,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		upstreamConn.Close()
 		lifecycle.setHTTPStatus(ErrUpstreamRequestFailed.HTTPCode)
+		recordConnectResult(false)
 		writeProxyError(w, ErrUpstreamRequestFailed)
 		return
 	}
@@ -314,6 +315,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	clientConn, clientBuf, err := hijacker.Hijack()
 	if err != nil {
 		upstreamConn.Close()
+		recordConnectResult(false)
 		return
 	}
 
@@ -321,11 +323,13 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	if _, err := clientBuf.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		upstreamConn.Close()
 		clientConn.Close()
+		recordConnectResult(false)
 		return
 	}
 	if err := clientBuf.Flush(); err != nil {
 		upstreamConn.Close()
 		clientConn.Close()
+		recordConnectResult(false)
 		return
 	}
 	lifecycle.setHTTPStatus(http.StatusOK)
@@ -336,22 +340,28 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		upstreamConn.Close()
 		clientConn.Close()
+		recordConnectResult(false)
 		return
 	}
 
 	// Bidirectional tunnel — no HTTP error responses after this point.
-	egressBytesCh := make(chan int64, 1)
+	type copyResult struct {
+		n int64
+	}
+	egressBytesCh := make(chan copyResult, 1)
 	go func() {
 		defer upstreamConn.Close()
 		defer clientConn.Close()
 		n, _ := io.Copy(upstreamConn, clientToUpstream)
-		egressBytesCh <- n
+		egressBytesCh <- copyResult{n: n}
 	}()
 	ingressBytes, _ := io.Copy(clientConn, upstreamConn)
 	lifecycle.addIngressBytes(ingressBytes)
 	clientConn.Close()
 	upstreamConn.Close()
-	lifecycle.addEgressBytes(<-egressBytesCh)
+	egressResult := <-egressBytesCh
+	lifecycle.addEgressBytes(egressResult.n)
+	recordConnectResult(ingressBytes > 0 && egressResult.n > 0)
 }
 
 // makeTunnelClientReader returns a reader for client->upstream copy that

@@ -277,6 +277,7 @@ func TestReverseProxy_E2ECapturesDetailPayloads(t *testing.T) {
 func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 	env := newProxyE2EEnv(t)
 	emitter := newMockEventEmitter()
+	health := &mockHealthRecorder{}
 
 	targetLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -299,7 +300,7 @@ func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 		ProxyToken: "tok",
 		Router:     env.router,
 		Pool:       env.pool,
-		Health:     &mockHealthRecorder{},
+		Health:     health,
 		Events:     emitter,
 	})
 	proxySrv := httptest.NewServer(fp)
@@ -361,6 +362,9 @@ func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 
 	select {
 	case logEv := <-emitter.logCh:
+		if !logEv.NetOK {
+			t.Fatal("CONNECT log net_ok: got false, want true")
+		}
 		if logEv.EgressBytes != int64(len(payload)) {
 			t.Fatalf("EgressBytes: got %d, want %d", logEv.EgressBytes, len(payload))
 		}
@@ -370,4 +374,113 @@ func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("expected CONNECT log event")
 	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if health.resultCalls.Load() > 0 {
+			if health.lastSuccess.Load() != 1 {
+				t.Fatalf("RecordResult lastSuccess: got %d, want 1", health.lastSuccess.Load())
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("expected RecordResult call for CONNECT success")
+}
+
+func TestForwardProxy_CONNECTZeroTrafficMarkedFailed(t *testing.T) {
+	env := newProxyE2EEnv(t)
+	emitter := newMockEventEmitter()
+	health := &mockHealthRecorder{}
+
+	targetLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen target: %v", err)
+	}
+	defer targetLn.Close()
+
+	targetDone := make(chan struct{})
+	go func() {
+		defer close(targetDone)
+		conn, err := targetLn.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = io.Copy(io.Discard, conn)
+	}()
+
+	fp := NewForwardProxy(ForwardProxyConfig{
+		ProxyToken: "tok",
+		Router:     env.router,
+		Pool:       env.pool,
+		Health:     health,
+		Events:     emitter,
+	})
+	proxySrv := httptest.NewServer(fp)
+	defer proxySrv.Close()
+
+	proxyAddr := strings.TrimPrefix(proxySrv.URL, "http://")
+	clientConn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatalf("dial proxy: %v", err)
+	}
+
+	targetAddr := targetLn.Addr().String()
+	req := fmt.Sprintf(
+		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
+		targetAddr,
+		targetAddr,
+		basicAuth("tok", "plat"),
+	)
+	if _, err := clientConn.Write([]byte(req)); err != nil {
+		t.Fatalf("write connect request: %v", err)
+	}
+
+	reader := bufio.NewReader(clientConn)
+	statusLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read status line: %v", err)
+	}
+	if !strings.Contains(statusLine, "200 Connection Established") {
+		t.Fatalf("unexpected CONNECT status line: %q", statusLine)
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read response headers: %v", err)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+	_ = clientConn.Close()
+	<-targetDone
+
+	select {
+	case logEv := <-emitter.logCh:
+		if logEv.HTTPStatus != http.StatusOK {
+			t.Fatalf("HTTPStatus: got %d, want %d", logEv.HTTPStatus, http.StatusOK)
+		}
+		if logEv.NetOK {
+			t.Fatal("CONNECT zero-traffic log net_ok: got true, want false")
+		}
+		if logEv.EgressBytes != 0 || logEv.IngressBytes != 0 {
+			t.Fatalf("CONNECT zero-traffic bytes: ingress=%d egress=%d, want both 0", logEv.IngressBytes, logEv.EgressBytes)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected CONNECT log event")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if health.resultCalls.Load() > 0 {
+			if health.lastSuccess.Load() != 0 {
+				t.Fatalf("RecordResult lastSuccess: got %d, want 0", health.lastSuccess.Load())
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("expected RecordResult call for CONNECT zero-traffic failure")
 }
