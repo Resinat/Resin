@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
+import { CursorPagination } from "../../components/ui/CursorPagination";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { ToastContainer } from "../../components/ui/Toast";
@@ -448,23 +449,6 @@ export function RequestLogsPage() {
                 />
               </div>
 
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                <label htmlFor="logs-limit" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  每页条数
-                </label>
-                <Select
-                  id="logs-limit"
-                  value={String(filters.limit)}
-                  onChange={(event) => updateFilter("limit", Number(event.target.value))}
-                  style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-                >
-                  <option value="20">20</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                  <option value="200">200</option>
-                </Select>
-              </div>
-
               <div style={{ flex: "0 0 auto", display: "flex", gap: "0.5rem", marginBottom: "0.125rem", marginLeft: "auto" }}>
                 <Button
                   size="sm"
@@ -573,19 +557,14 @@ export function RequestLogsPage() {
           </div>
         ) : null}
 
-        <div className="nodes-pagination">
-          <p className="nodes-pagination-meta">
-            第 {pageIndex + 1} 页 · {hasMore ? "存在下一页" : "无更多数据"}
-          </p>
-          <div className="nodes-pagination-controls">
-            <Button variant="secondary" size="sm" onClick={movePrev} disabled={pageIndex <= 0}>
-              上一页
-            </Button>
-            <Button variant="secondary" size="sm" onClick={moveNext} disabled={!hasMore}>
-              下一页
-            </Button>
-          </div>
-        </div>
+        <CursorPagination
+          pageIndex={pageIndex}
+          hasMore={hasMore}
+          pageSize={filters.limit}
+          onPageSizeChange={(limit) => updateFilter("limit", limit)}
+          onPrev={movePrev}
+          onNext={moveNext}
+        />
       </Card>
 
       {drawerVisible && detailLog ? (
