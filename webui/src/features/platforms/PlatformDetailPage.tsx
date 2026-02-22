@@ -57,7 +57,7 @@ const DETAIL_TABS: Array<{ key: PlatformDetailTab; label: string; hint: string }
   { key: "ops", label: "运维", hint: "重建、重置、删除操作" },
 ];
 
-function parseLinesToList(input: string | undefined): string[] {
+function parseLinesToList(input: string | undefined, normalize?: (value: string) => string): string[] {
   if (!input) {
     return [];
   }
@@ -65,7 +65,8 @@ function parseLinesToList(input: string | undefined): string[] {
   return input
     .split(/\n/)
     .map((item) => item.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((item) => (normalize ? normalize(item) : item));
 }
 
 function platformToEditForm(platform: Platform): PlatformEditForm {
@@ -145,7 +146,7 @@ export function PlatformDetailPage() {
         name: formData.name.trim(),
         sticky_ttl: formData.sticky_ttl?.trim() || "",
         regex_filters: parseLinesToList(formData.regex_filters_text),
-        region_filters: parseLinesToList(formData.region_filters_text),
+        region_filters: parseLinesToList(formData.region_filters_text, (value) => value.toLowerCase()),
         reverse_proxy_miss_action: formData.reverse_proxy_miss_action,
         allocation_policy: formData.allocation_policy,
       });

@@ -53,7 +53,7 @@ const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const EMPTY_PLATFORMS: Platform[] = [];
 const PAGE_SIZE_OPTIONS = [12, 24, 48, 96] as const;
 
-function parseLinesToList(input: string | undefined): string[] {
+function parseLinesToList(input: string | undefined, normalize?: (value: string) => string): string[] {
   if (!input) {
     return [];
   }
@@ -61,7 +61,8 @@ function parseLinesToList(input: string | undefined): string[] {
   return input
     .split(/\n/)
     .map((item) => item.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((item) => (normalize ? normalize(item) : item));
 }
 
 function fromApiError(error: unknown): string {
@@ -133,7 +134,7 @@ export function PlatformPage() {
       name: values.name.trim(),
       sticky_ttl: values.sticky_ttl?.trim() || undefined,
       regex_filters: parseLinesToList(values.regex_filters_text),
-      region_filters: parseLinesToList(values.region_filters_text),
+      region_filters: parseLinesToList(values.region_filters_text, (value) => value.toLowerCase()),
       reverse_proxy_miss_action: values.reverse_proxy_miss_action,
       allocation_policy: values.allocation_policy,
     });
