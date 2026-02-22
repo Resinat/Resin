@@ -23,6 +23,7 @@ type NodeStatusFilter = "all" | "healthy" | "circuit_open" | "error";
 type NodeFilterDraft = {
   platform_id: string;
   subscription_id: string;
+  tag_keyword: string;
   region: string;
   egress_ip: string;
   status: NodeStatusFilter;
@@ -31,6 +32,7 @@ type NodeFilterDraft = {
 const defaultFilterDraft: NodeFilterDraft = {
   platform_id: "",
   subscription_id: "",
+  tag_keyword: "",
   region: "",
   egress_ip: "",
   status: "all",
@@ -75,6 +77,7 @@ function draftToActiveFilters(draft: NodeFilterDraft): NodeListFilters {
   return {
     platform_id: draft.platform_id,
     subscription_id: draft.subscription_id,
+    tag_keyword: draft.tag_keyword,
     region: draft.region,
     egress_ip: draft.egress_ip,
     circuit_open,
@@ -355,6 +358,19 @@ export function NodesPage() {
                   </option>
                 ))}
               </Select>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="node-tag-keyword" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                节点名
+              </label>
+              <Input
+                id="node-tag-keyword"
+                value={draftFilters.tag_keyword}
+                onChange={(event) => handleFilterChange("tag_keyword", event.target.value)}
+                placeholder="模糊搜索"
+                style={{ width: 160, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>

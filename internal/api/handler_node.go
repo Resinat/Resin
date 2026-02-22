@@ -97,6 +97,9 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 		if v := q.Get("egress_ip"); v != "" {
 			filters.EgressIP = &v
 		}
+		if v := strings.TrimSpace(q.Get("tag_keyword")); v != "" {
+			filters.TagKeyword = &v
+		}
 
 		circuitOpen, ok := parseBoolQueryOrWriteInvalid(w, r, "circuit_open")
 		if !ok {

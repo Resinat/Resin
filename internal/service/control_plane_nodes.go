@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"time"
 
 	"github.com/resin-proxy/resin/internal/node"
@@ -20,6 +21,7 @@ type NodeFilters struct {
 	HasOutbound    *bool
 	EgressIP       *string
 	ProbedSince    *time.Time
+	TagKeyword     *string
 }
 
 // ListNodes returns nodes from the pool with optional filters.
@@ -107,6 +109,37 @@ func (s *ControlPlaneService) ListNodes(filters NodeFilters) ([]NodeSummary, err
 }
 
 func (s *ControlPlaneService) nodeEntryMatchesFilters(entry *node.NodeEntry, filters NodeFilters) bool {
+	// Node tag fuzzy search filter.
+	if filters.TagKeyword != nil {
+		keyword := strings.ToLower(strings.TrimSpace(*filters.TagKeyword))
+		if keyword != "" {
+			matched := false
+			for _, subID := range entry.SubscriptionIDs() {
+				sub := s.SubMgr.Lookup(subID)
+				if sub == nil {
+					continue
+				}
+				tags, ok := sub.ManagedNodes().Load(entry.Hash)
+				if !ok {
+					continue
+				}
+				for _, tag := range tags {
+					displayTag := sub.Name() + "/" + tag
+					if strings.Contains(strings.ToLower(displayTag), keyword) {
+						matched = true
+						break
+					}
+				}
+				if matched {
+					break
+				}
+			}
+			if !matched {
+				return false
+			}
+		}
+	}
+
 	// Region filter.
 	if filters.Region != nil {
 		egressIP := entry.GetEgressIP()

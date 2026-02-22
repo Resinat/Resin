@@ -11,11 +11,22 @@ import (
 )
 
 func addNodeForNodeListTest(t *testing.T, cp *service.ControlPlaneService, sub *subscription.Subscription, raw string, egressIP string) {
+	addNodeForNodeListTestWithTag(t, cp, sub, raw, egressIP, "tag")
+}
+
+func addNodeForNodeListTestWithTag(
+	t *testing.T,
+	cp *service.ControlPlaneService,
+	sub *subscription.Subscription,
+	raw string,
+	egressIP string,
+	tag string,
+) {
 	t.Helper()
 
 	hash := node.HashFromRawOptions([]byte(raw))
 	cp.Pool.AddNodeFromSub(hash, []byte(raw), sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag"})
+	sub.ManagedNodes().Store(hash, []string{tag})
 
 	if egressIP == "" {
 		return
@@ -25,6 +36,32 @@ func addNodeForNodeListTest(t *testing.T, cp *service.ControlPlaneService, sub *
 		t.Fatalf("node %s missing after add", hash.Hex())
 	}
 	entry.SetEgressIP(netip.MustParseAddr(egressIP))
+}
+
+func TestHandleListNodes_TagKeywordFiltersByNodeName(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	subA := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	cp.SubMgr.Register(subA)
+
+	addNodeForNodeListTestWithTag(t, cp, subA, `{"type":"ss","server":"1.1.1.1","port":443}`, "", "hongkong-fast-01")
+	addNodeForNodeListTestWithTag(t, cp, subA, `{"type":"ss","server":"2.2.2.2","port":443}`, "", "japan-slow-01")
+
+	rec := doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/nodes?subscription_id="+subA.ID+"&tag_keyword=FAST",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list nodes with tag_keyword status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["total"] != float64(1) {
+		t.Fatalf("tag_keyword total: got %v, want 1", body["total"])
+	}
 }
 
 func TestHandleListNodes_UniqueEgressIPsUsesFilteredResult(t *testing.T) {

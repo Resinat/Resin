@@ -30,11 +30,22 @@ func addRoutableNodeForSubscription(
 	raw []byte,
 	egressIP string,
 ) node.Hash {
+	return addRoutableNodeForSubscriptionWithTag(t, pool, sub, raw, egressIP, "tag")
+}
+
+func addRoutableNodeForSubscriptionWithTag(
+	t *testing.T,
+	pool *topology.GlobalNodePool,
+	sub *subscription.Subscription,
+	raw []byte,
+	egressIP string,
+	tag string,
+) node.Hash {
 	t.Helper()
 
 	hash := node.HashFromRawOptions(raw)
 	pool.AddNodeFromSub(hash, raw, sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag"})
+	sub.ManagedNodes().Store(hash, []string{tag})
 
 	entry, ok := pool.GetEntry(hash)
 	if !ok {
@@ -227,5 +238,48 @@ func TestListNodes_ProbedSinceUsesLastLatencyProbeAttempt(t *testing.T) {
 	}
 	if len(nodes) != 0 {
 		t.Fatalf("ListNodes(after) len = %d, want 0", len(nodes))
+	}
+}
+
+func TestListNodes_TagKeywordFuzzyMatchIsCaseInsensitive(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := newNodeListTestPool(subMgr)
+
+	sub := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subMgr.Register(sub)
+
+	matchHash := addRoutableNodeForSubscriptionWithTag(
+		t,
+		pool,
+		sub,
+		[]byte(`{"type":"ss","server":"1.1.1.1","port":443}`),
+		"203.0.113.30",
+		"hongkong-fast-01",
+	)
+	_ = addRoutableNodeForSubscriptionWithTag(
+		t,
+		pool,
+		sub,
+		[]byte(`{"type":"ss","server":"2.2.2.2","port":443}`),
+		"203.0.113.31",
+		"japan-slow-01",
+	)
+
+	cp := &ControlPlaneService{
+		Pool:   pool,
+		SubMgr: subMgr,
+		GeoIP:  &geoip.Service{},
+	}
+
+	keyword := "FAST"
+	nodes, err := cp.ListNodes(NodeFilters{TagKeyword: &keyword})
+	if err != nil {
+		t.Fatalf("ListNodes(tag_keyword): %v", err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("ListNodes(tag_keyword) len = %d, want 1", len(nodes))
+	}
+	if nodes[0].NodeHash != matchHash.Hex() {
+		t.Fatalf("ListNodes(tag_keyword) hash = %q, want %q", nodes[0].NodeHash, matchHash.Hex())
 	}
 }
