@@ -109,16 +109,33 @@ func (e *NodeEntry) SubscriptionCount() int {
 // MatchRegexs tests whether the node matches ALL given regex filters.
 // A match means any tag from any enabled subscription satisfies all regexes.
 // Tags are tested in the format "<subscriptionName>/<tag>".
-// An empty regex list matches everything.
+// For an empty regex list:
+//   - if subLookup is nil, it matches everything (compatibility fallback);
+//   - otherwise, it matches only when at least one enabled subscription exists.
 func (e *NodeEntry) MatchRegexs(regexes []*regexp.Regexp, subLookup SubLookupFunc) bool {
-	if len(regexes) == 0 {
-		return true
+	if subLookup == nil {
+		return len(regexes) == 0
 	}
 
 	e.mu.RLock()
 	subs := make([]string, len(e.subscriptionIDs))
 	copy(subs, e.subscriptionIDs)
 	e.mu.RUnlock()
+
+	if len(regexes) == 0 {
+		for _, subID := range subs {
+			_, enabled, _, ok := subLookup(subID, e.Hash)
+			if ok && enabled {
+				return true
+			}
+		}
+		// Empty regex with lookup still requires at least one enabled subscription.
+		return false
+	}
+
+	if len(subs) == 0 {
+		return false
+	}
 
 	for _, subID := range subs {
 		name, enabled, tags, ok := subLookup(subID, e.Hash)

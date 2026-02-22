@@ -546,7 +546,7 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 	}
 
 	var subLookup node.SubLookupFunc
-	if len(regexFilters) > 0 {
+	if s.Pool != nil {
 		subLookup = s.Pool.MakeSubLookup()
 	}
 	var regionFilterSet map[string]struct{}
@@ -559,7 +559,7 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 
 	var result []NodeSummary
 	s.Pool.Range(func(h node.Hash, entry *node.NodeEntry) bool {
-		if len(regexFilters) > 0 && !entry.MatchRegexs(regexFilters, subLookup) {
+		if !entry.MatchRegexs(regexFilters, subLookup) {
 			return true
 		}
 		if len(regionFilterSet) > 0 {

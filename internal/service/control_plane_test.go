@@ -426,6 +426,8 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	})
 
 	subMgr := topology.NewSubscriptionManager()
+	sub := subscription.NewSubscription("sub-1", "sub", "https://example.com/sub", true, false)
+	subMgr.Register(sub)
 	pool := topology.NewGlobalNodePool(topology.PoolConfig{
 		SubLookup:              subMgr.Lookup,
 		GeoLookup:              func(netip.Addr) string { return "us" },
@@ -438,6 +440,7 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
 	hash := node.HashFromRawOptions(raw)
 	entry := node.NewNodeEntry(hash, raw, time.Now(), 16)
+	entry.AddSubscriptionID(sub.ID)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
 	entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
 		Ewma:        50 * time.Millisecond,

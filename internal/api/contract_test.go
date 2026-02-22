@@ -26,6 +26,7 @@ import (
 	"github.com/resin-proxy/resin/internal/routing"
 	"github.com/resin-proxy/resin/internal/service"
 	"github.com/resin-proxy/resin/internal/state"
+	"github.com/resin-proxy/resin/internal/subscription"
 	"github.com/resin-proxy/resin/internal/testutil"
 	"github.com/resin-proxy/resin/internal/topology"
 )
@@ -484,6 +485,7 @@ func TestAPIContract_PlatformListIncludesRoutableNodeCount(t *testing.T) {
 	srv, cp, _ := newControlPlaneTestServer(t)
 
 	platformID := mustCreatePlatform(t, srv, "routable-count-target")
+	cp.SubMgr.Register(subscription.NewSubscription("sub-test", "sub-test", "https://example.com/sub", true, false))
 
 	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
 	hash := node.HashFromRawOptions(raw)

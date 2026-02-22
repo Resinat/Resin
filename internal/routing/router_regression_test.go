@@ -109,6 +109,8 @@ func newRoutableEntry(t *testing.T, raw, ip string) (node.Hash, *node.NodeEntry)
 	rawOpts := json.RawMessage(raw)
 	h := node.HashFromRawOptions(rawOpts)
 	e := node.NewNodeEntry(h, rawOpts, time.Now(), 16)
+	// Empty platform regex still requires at least one enabled subscription.
+	e.AddSubscriptionID("sub-test")
 
 	parsedIP, err := netip.ParseAddr(ip)
 	if err != nil {

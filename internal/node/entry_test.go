@@ -51,6 +51,32 @@ func TestNodeEntry_MatchRegexs_EmptyRegex(t *testing.T) {
 	}
 }
 
+func TestNodeEntry_MatchRegexs_EmptyRegex_RequiresEnabledSubscriptionWhenLookupProvided(t *testing.T) {
+	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
+	e := NewNodeEntry(h, nil, time.Now(), 0)
+	e.AddSubscriptionID("sub-disabled")
+
+	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
+		switch subID {
+		case "sub-disabled":
+			return "SubDisabled", false, []string{"node-a"}, true
+		case "sub-enabled":
+			return "SubEnabled", true, []string{"node-b"}, true
+		default:
+			return "", false, nil, false
+		}
+	}
+
+	if e.MatchRegexs([]*regexp.Regexp{}, lookup) {
+		t.Fatal("empty regex with lookup should not match when all subscriptions are disabled")
+	}
+
+	e.AddSubscriptionID("sub-enabled")
+	if !e.MatchRegexs([]*regexp.Regexp{}, lookup) {
+		t.Fatal("empty regex with lookup should match when any subscription is enabled")
+	}
+}
+
 func TestNodeEntry_MatchRegexs_Basic(t *testing.T) {
 	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
 	e := NewNodeEntry(h, nil, time.Now(), 0)

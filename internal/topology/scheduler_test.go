@@ -990,3 +990,49 @@ func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews(t *testing.T) {
 		t.Fatalf("expected node in view after re-enable, got %d", plat.View().Size())
 	}
 }
+
+func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews_EmptyRegex(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "Provider", "http://example.com", true, false)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+
+	// Empty regex should still require at least one enabled subscription.
+	plat := platform.NewPlatform("p1", "All", nil, nil)
+	pool.RegisterPlatform(plat)
+
+	raw := json.RawMessage(`{"type":"shadowsocks","server":"1.1.1.1","server_port":443}`)
+	h := node.HashFromRawOptions(raw)
+
+	mn := xsync.NewMap[node.Hash, []string]()
+	mn.Store(h, []string{"node-a"})
+	sub.SwapManagedNodes(mn)
+
+	pool.AddNodeFromSub(h, raw, "s1")
+	entry, _ := pool.GetEntry(h)
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        100 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	ob := testutil.NewNoopOutbound()
+	entry.Outbound.Store(&ob)
+	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+
+	pool.RebuildAllPlatforms()
+	if plat.View().Size() != 1 {
+		t.Fatalf("expected node in view while enabled, got %d", plat.View().Size())
+	}
+
+	sched := newTestScheduler(subMgr, pool, nil)
+
+	sched.SetSubscriptionEnabled(sub, false)
+	if plat.View().Size() != 0 {
+		t.Fatalf("expected 0 nodes in view after disable with empty regex, got %d", plat.View().Size())
+	}
+
+	sched.SetSubscriptionEnabled(sub, true)
+	if plat.View().Size() != 1 {
+		t.Fatalf("expected node in view after re-enable with empty regex, got %d", plat.View().Size())
+	}
+}
