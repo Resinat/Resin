@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -94,6 +95,50 @@ func TestHealthz_NoAuth(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("healthz should not require auth, got status %d", rec.Code)
+	}
+}
+
+// --- embedded WebUI ---
+
+func TestWebUI_IndexServed(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ctype := rec.Header().Get("Content-Type"); !strings.Contains(ctype, "text/html") {
+		t.Fatalf("content-type: got %q, want contains text/html", ctype)
+	}
+	if !strings.Contains(rec.Body.String(), "<div id=\"root\"></div>") {
+		t.Fatalf("unexpected index body: %q", rec.Body.String())
+	}
+}
+
+func TestWebUI_SPARouteFallback(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/platforms/demo", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(rec.Body.String(), "<div id=\"root\"></div>") {
+		t.Fatalf("unexpected fallback body: %q", rec.Body.String())
+	}
+}
+
+func TestWebUI_MissingAsset404(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/assets/does-not-exist.js", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
 

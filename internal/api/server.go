@@ -150,6 +150,7 @@ func NewServerWithAddress(
 
 	limitedAuthed := RequestBodyLimitMiddleware(apiMaxBodyBytes, authed)
 	mux.Handle("/api/", AuthMiddleware(adminToken, limitedAuthed))
+	registerEmbeddedWebUI(mux)
 
 	srv := &http.Server{
 		Addr:    net.JoinHostPort(listenAddress, strconv.Itoa(port)),

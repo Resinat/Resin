@@ -58,20 +58,20 @@ git clone https://github.com/Resinat/Resin.git
 cd resin
 ```
 
-2. **构建与运行后端网关**
-```bash
-go build -o resin ./cmd/resin
-./resin
-```
-> *(程序启动后，会在指定目录生成 `state.db` 与相关工作目录。具体信息见系统日志)*
-
-3. **构建并在独立服务上托管管理后台 (WebUI)**
+2. **构建 WebUI 并编译后端（自动内嵌到二进制）**
 ```bash
 cd webui
 pnpm install
 pnpm build
+cd ..
+
+go build -o resin ./cmd/resin
+./resin
 ```
-*(使用 Nginx 等提供商将 `dist` 目录下的静态编译资源作为默认托管站点即可)*
+> *(程序启动后，会在指定目录生成 `state.db` 与相关工作目录。具体信息见系统日志。WebUI 可直接通过 API 端口根路径访问，例如 `http://127.0.0.1:2620/`。)*
+
+3. **可选：独立托管 WebUI**
+如果你仍希望将前端独立部署，可继续使用 `webui/dist` 通过 Nginx 等静态服务托管。
 
 ---
 
