@@ -328,6 +328,19 @@ export function NodesPage() {
             }}
           >
             <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+              <label htmlFor="node-tag-keyword" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                节点名
+              </label>
+              <Input
+                id="node-tag-keyword"
+                value={draftFilters.tag_keyword}
+                onChange={(event) => handleFilterChange("tag_keyword", event.target.value)}
+                placeholder="模糊搜索"
+                style={{ width: 160, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
               <label htmlFor="node-platform-id" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
                 仅显示被此平台路由的节点
               </label>
@@ -363,19 +376,6 @@ export function NodesPage() {
                   </option>
                 ))}
               </Select>
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-              <label htmlFor="node-tag-keyword" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                节点名
-              </label>
-              <Input
-                id="node-tag-keyword"
-                value={draftFilters.tag_keyword}
-                onChange={(event) => handleFilterChange("tag_keyword", event.target.value)}
-                placeholder="模糊搜索"
-                style={{ width: 160, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
-              />
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
