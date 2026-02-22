@@ -222,6 +222,8 @@ func buildReverseTargetURL(parsed *parsedPath, rawQuery string) (*url.URL, *Prox
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeReverse, false)
+	var egressBodyCounter *countingReadCloser
+	var ingressBodyCounter *countingReadCloser
 	detailCfg := reverseDetailCaptureConfig{
 		Enabled:             false,
 		ReqHeadersMaxBytes:  -1,
@@ -237,11 +239,16 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if detailCfg.Enabled {
 		reqHeaders, reqHeadersLen, reqHeadersTruncated := captureHeadersWithLimit(r.Header, detailCfg.ReqHeadersMaxBytes)
 		lifecycle.setReqHeadersCaptured(reqHeaders, reqHeadersLen, reqHeadersTruncated)
-		if r.Body != nil && r.Body != http.NoBody {
-			reqBodyCapture := newPayloadCaptureReadCloser(r.Body, detailCfg.ReqBodyMaxBytes)
-			r.Body = reqBodyCapture
+	}
+	if r.Body != nil && r.Body != http.NoBody {
+		body := r.Body
+		if detailCfg.Enabled {
+			reqBodyCapture := newPayloadCaptureReadCloser(body, detailCfg.ReqBodyMaxBytes)
+			body = reqBodyCapture
 			lifecycle.setReqBodyCapture(reqBodyCapture)
 		}
+		egressBodyCounter = newCountingReadCloser(body)
+		r.Body = egressBodyCounter
 	}
 	defer lifecycle.finish()
 
@@ -313,6 +320,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			req.URL = target
 			req.Host = parsed.Host
 			stripForwardingIdentityHeaders(req.Header)
+			lifecycle.addEgressBytes(headerWireLen(req.Header))
 
 			// Add httptrace for TLS latency measurement on HTTPS.
 			if parsed.Protocol == "https" {
@@ -335,14 +343,21 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 		ModifyResponse: func(resp *http.Response) error {
 			lifecycle.setHTTPStatus(resp.StatusCode)
-			if detailCfg.Enabled {
-				respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
-				lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
-				if resp.Body != nil && resp.Body != http.NoBody {
-					respBodyCapture := newPayloadCaptureReadCloser(resp.Body, detailCfg.RespBodyMaxBytes)
-					resp.Body = respBodyCapture
+			lifecycle.addIngressBytes(headerWireLen(resp.Header))
+			if resp.Body != nil && resp.Body != http.NoBody {
+				body := resp.Body
+				if detailCfg.Enabled {
+					respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
+					lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
+					respBodyCapture := newPayloadCaptureReadCloser(body, detailCfg.RespBodyMaxBytes)
+					body = respBodyCapture
 					lifecycle.setRespBodyCapture(respBodyCapture)
 				}
+				ingressBodyCounter = newCountingReadCloser(body)
+				resp.Body = ingressBodyCounter
+			} else if detailCfg.Enabled {
+				respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
+				lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
 			}
 			// Intentional coarse-grained policy:
 			// mark node success once upstream response headers arrive.
@@ -356,6 +371,12 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy.ServeHTTP(w, r)
+	if egressBodyCounter != nil {
+		lifecycle.addEgressBytes(egressBodyCounter.Total())
+	}
+	if ingressBodyCounter != nil {
+		lifecycle.addIngressBytes(ingressBodyCounter.Total())
+	}
 }
 
 // resolveDefaultPlatform looks up the default platform for REJECT/RANDOM

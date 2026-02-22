@@ -76,6 +76,18 @@ func (l *requestLifecycle) setHTTPStatus(code int) {
 	l.log.HTTPStatus = code
 }
 
+func (l *requestLifecycle) addIngressBytes(n int64) {
+	if n > 0 {
+		l.log.IngressBytes += n
+	}
+}
+
+func (l *requestLifecycle) addEgressBytes(n int64) {
+	if n > 0 {
+		l.log.EgressBytes += n
+	}
+}
+
 func (l *requestLifecycle) setNetOK(ok bool) {
 	l.finished.NetOK = ok
 	l.log.NetOK = ok

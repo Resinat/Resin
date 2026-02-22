@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS request_logs (
 	net_ok                INTEGER NOT NULL DEFAULT 0,
 	http_method           TEXT NOT NULL DEFAULT '',
 	http_status           INTEGER NOT NULL DEFAULT 0,
+	ingress_bytes         INTEGER NOT NULL DEFAULT 0,
+	egress_bytes          INTEGER NOT NULL DEFAULT 0,
 	payload_present       INTEGER NOT NULL DEFAULT 0,
 	req_headers_len       INTEGER NOT NULL DEFAULT 0,
 	req_body_len          INTEGER NOT NULL DEFAULT 0,

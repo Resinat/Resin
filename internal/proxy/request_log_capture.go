@@ -17,6 +17,16 @@ func captureRequestHeaders(header http.Header) []byte {
 	return buf.Bytes()
 }
 
+// headerWireLen returns canonical wire-format header bytes length.
+func headerWireLen(header http.Header) int64 {
+	if header == nil || len(header) == 0 {
+		return 0
+	}
+	var buf bytes.Buffer
+	_ = header.Write(&buf)
+	return int64(buf.Len())
+}
+
 func captureHeadersWithLimit(header http.Header, maxBytes int) ([]byte, int, bool) {
 	payload := captureRequestHeaders(header)
 	totalLen := len(payload)
@@ -77,4 +87,30 @@ func (c *payloadCaptureReadCloser) TotalLen() int {
 
 func (c *payloadCaptureReadCloser) Truncated() bool {
 	return c.totalLen > c.payload.Len()
+}
+
+// countingReadCloser wraps a body stream and records total read bytes.
+type countingReadCloser struct {
+	rc    io.ReadCloser
+	total int64
+}
+
+func newCountingReadCloser(rc io.ReadCloser) *countingReadCloser {
+	return &countingReadCloser{rc: rc}
+}
+
+func (c *countingReadCloser) Read(p []byte) (int, error) {
+	n, err := c.rc.Read(p)
+	if n > 0 {
+		c.total += int64(n)
+	}
+	return n, err
+}
+
+func (c *countingReadCloser) Close() error {
+	return c.rc.Close()
+}
+
+func (c *countingReadCloser) Total() int64 {
+	return c.total
 }
