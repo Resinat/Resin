@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Download, Eraser, FileText, RefreshCw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Eraser, Eye, RefreshCw, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -10,6 +11,7 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime } from "../../lib/time";
+import { getSystemConfig } from "../systemConfig/api";
 import { getRequestLog, getRequestLogPayloads, listRequestLogs } from "./api";
 import type { RequestLogItem, RequestLogListFilters } from "./types";
 
@@ -121,10 +123,10 @@ function buildActiveFilters(draft: FilterDraft): Omit<RequestLogListFilters, "cu
 
 function proxyTypeLabel(proxyType: number): string {
   if (proxyType === 1) {
-    return "1 (Forward)";
+    return "正向代理";
   }
   if (proxyType === 2) {
-    return "2 (Reverse)";
+    return "反向代理";
   }
   return String(proxyType);
 }
@@ -138,6 +140,12 @@ export function RequestLogsPage() {
   const [payloadForId, setPayloadForId] = useState("");
   const [payloadTab, setPayloadTab] = useState<PayloadTab>("req_headers");
   const { toasts, dismissToast } = useToast();
+
+  const configQuery = useQuery({
+    queryKey: ["system-config"],
+    queryFn: getSystemConfig,
+    staleTime: 60_000,
+  });
 
   const activeFilters = useMemo(() => buildActiveFilters(filters), [filters]);
   const cursor = cursorStack[pageIndex] || "";
@@ -296,6 +304,13 @@ export function RequestLogsPage() {
           <h2>请求日志</h2>
           <p className="module-description">筛选条件修改后立即生效。</p>
         </div>
+        {!configQuery.isLoading && configQuery.data && (
+          <Link to="/system-config" style={{ display: "flex", textDecoration: "none" }}>
+            <Badge variant={configQuery.data.request_log_enabled ? "success" : "warning"} style={{ cursor: "pointer", fontSize: "13px", padding: "6px 12px" }}>
+              {configQuery.data.request_log_enabled ? "当前实时日志记录已开启" : "当前实时日志记录未开启"}
+            </Badge>
+          </Link>
+        )}
       </header>
 
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
@@ -387,8 +402,8 @@ export function RequestLogsPage() {
                   style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
                 >
                   <option value="all">全部</option>
-                  <option value="1">1 (Forward)</option>
-                  <option value="2">2 (Reverse)</option>
+                  <option value="1">正向代理</option>
+                  <option value="2">反向代理</option>
                 </Select>
               </div>
 
@@ -508,9 +523,8 @@ export function RequestLogsPage() {
                   <th>HTTP</th>
                   <th>网络</th>
                   <th>耗时</th>
+                  <th>出口 IP</th>
                   <th>节点</th>
-                  <th>Payload</th>
-                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -546,20 +560,11 @@ export function RequestLogsPage() {
                         <Badge variant={log.net_ok ? "success" : "warning"}>{log.net_ok ? "ok" : "failed"}</Badge>
                       </td>
                       <td>{log.duration_ms} ms</td>
+                      <td>{log.egress_ip || "-"}</td>
                       <td>
                         <div className="logs-cell-stack">
                           <span title={log.node_tag}>{log.node_tag || "-"}</span>
                           <small title={log.node_hash}>{log.node_hash || "-"}</small>
-                        </div>
-                      </td>
-                      <td>
-                        {log.payload_present ? <Badge variant="neutral">yes</Badge> : <Badge variant="warning">no</Badge>}
-                      </td>
-                      <td>
-                        <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
-                          <Button size="sm" variant="ghost" title="查看详情" onClick={() => openDrawer(log.id)}>
-                            <FileText size={14} />
-                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -687,12 +692,12 @@ export function RequestLogsPage() {
                 <div className="platform-ops-list">
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>加载 Payload</h5>
+                      <h5>查看 Payload</h5>
                       <p className="platform-op-hint">仅在需要时加载，避免影响列表浏览性能。</p>
                     </div>
-                    <Button onClick={loadPayload} disabled={!detailLog.payload_present || payloadQuery.isFetching}>
-                      <Download size={14} />
-                      {payloadQuery.isFetching ? "加载中..." : "加载 Payload"}
+                    <Button variant="secondary" onClick={loadPayload} disabled={!detailLog.payload_present || payloadQuery.isFetching}>
+                      <Eye size={14} />
+                      {payloadQuery.isFetching ? "加载中..." : "查看 Payload"}
                     </Button>
                   </div>
                 </div>
