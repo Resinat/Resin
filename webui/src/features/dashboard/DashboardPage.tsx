@@ -1005,7 +1005,7 @@ export function DashboardPage() {
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>连接趋势</h3>
+            <h3>连接峰值</h3>
             <p>实时 inbound / outbound</p>
           </div>
           <TrendChart
