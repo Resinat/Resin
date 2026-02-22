@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/service"
+	"github.com/Resinat/Resin/internal/service"
 )
 
 func nodeTagSortKey(n service.NodeSummary) string {

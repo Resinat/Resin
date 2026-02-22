@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/proxy"
 )
 
 // Service provides an async request log writer.

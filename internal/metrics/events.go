@@ -1,7 +1,7 @@
 // Package metrics implements the metrics collection, aggregation, and storage subsystem.
 package metrics
 
-import "github.com/resin-proxy/resin/internal/proxy"
+import "github.com/Resinat/Resin/internal/proxy"
 
 // ProbeKind represents the type of probe that was executed.
 type ProbeKind string

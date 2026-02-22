@@ -9,14 +9,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/geoip"
-	"github.com/resin-proxy/resin/internal/netutil"
-	"github.com/resin-proxy/resin/internal/probe"
-	"github.com/resin-proxy/resin/internal/proxy"
-	"github.com/resin-proxy/resin/internal/routing"
-	"github.com/resin-proxy/resin/internal/state"
-	"github.com/resin-proxy/resin/internal/topology"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/geoip"
+	"github.com/Resinat/Resin/internal/netutil"
+	"github.com/Resinat/Resin/internal/probe"
+	"github.com/Resinat/Resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/routing"
+	"github.com/Resinat/Resin/internal/state"
+	"github.com/Resinat/Resin/internal/topology"
 )
 
 // ServiceError wraps an error with a code for API response mapping.

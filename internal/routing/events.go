@@ -3,7 +3,7 @@ package routing
 import (
 	"net/netip"
 
-	"github.com/resin-proxy/resin/internal/node"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 type LeaseEventType int

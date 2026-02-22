@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/model"
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/platform"
-	"github.com/resin-proxy/resin/internal/state"
-	"github.com/resin-proxy/resin/internal/topology"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/platform"
+	"github.com/Resinat/Resin/internal/state"
+	"github.com/Resinat/Resin/internal/topology"
 )
 
 func newBootstrapTestRuntime(runtimeCfg *config.RuntimeConfig) (*topology.SubscriptionManager, *topology.GlobalNodePool) {

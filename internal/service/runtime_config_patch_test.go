@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/proxy"
-	"github.com/resin-proxy/resin/internal/state"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/state"
 )
 
 type patchHarness struct {

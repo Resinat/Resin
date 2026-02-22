@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/netutil"
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/scanloop"
-	"github.com/resin-proxy/resin/internal/topology"
+	"github.com/Resinat/Resin/internal/netutil"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/scanloop"
+	"github.com/Resinat/Resin/internal/topology"
 )
 
 // Fetcher executes an HTTP request through the given node, returning

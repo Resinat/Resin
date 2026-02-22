@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/model"
-	"github.com/resin-proxy/resin/internal/proxy"
-	"github.com/resin-proxy/resin/internal/state"
+	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/state"
 	"golang.org/x/net/http/httpguts"
 )
 

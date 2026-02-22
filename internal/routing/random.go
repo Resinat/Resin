@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/platform"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/platform"
 )
 
 var ErrNoAvailableNodes = errors.New("no available nodes")

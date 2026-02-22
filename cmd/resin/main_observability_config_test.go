@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
+	"github.com/Resinat/Resin/internal/config"
 )
 
 func TestDeriveRequestLogRuntimeSettings_FromEnv(t *testing.T) {

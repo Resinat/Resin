@@ -3,7 +3,7 @@ package proxy
 import (
 	"testing"
 
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 func TestNormalizeRulePrefix(t *testing.T) {

@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/resin-proxy/resin/internal/platform"
-	"github.com/resin-proxy/resin/internal/service"
+	"github.com/Resinat/Resin/internal/platform"
+	"github.com/Resinat/Resin/internal/service"
 )
 
 func platformMatchesKeyword(p service.PlatformResponse, keyword string) bool {

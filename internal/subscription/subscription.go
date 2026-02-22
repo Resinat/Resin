@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/puzpuzpuz/xsync/v4"
-	"github.com/resin-proxy/resin/internal/node"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 // Subscription represents a subscription's runtime state.

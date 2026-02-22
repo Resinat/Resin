@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/resin-proxy/resin/internal/node"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 func makeHash(data string) node.Hash {

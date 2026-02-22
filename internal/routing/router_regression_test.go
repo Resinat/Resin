@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/platform"
-	"github.com/resin-proxy/resin/internal/testutil"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/platform"
+	"github.com/Resinat/Resin/internal/testutil"
 )
 
 type routerTestPool struct {

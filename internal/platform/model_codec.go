@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 func isLowerAlpha2(s string) bool {

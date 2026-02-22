@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 func TestFlushWorker_ThresholdTriggered(t *testing.T) {

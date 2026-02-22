@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 // newTestEngine sets up a full StateEngine with both DBs in temp dirs.

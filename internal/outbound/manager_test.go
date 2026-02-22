@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/testutil"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/testutil"
 	"github.com/sagernet/sing-box/adapter"
 	M "github.com/sagernet/sing/common/metadata"
 )

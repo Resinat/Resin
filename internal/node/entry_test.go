@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/testutil"
+	"github.com/Resinat/Resin/internal/testutil"
 )
 
 func TestNodeEntry_SubscriptionIDs(t *testing.T) {

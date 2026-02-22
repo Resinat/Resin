@@ -3,7 +3,7 @@ package buildinfo
 
 // Set via -ldflags at build time:
 //
-//	go build -ldflags "-X github.com/resin-proxy/resin/internal/buildinfo.Version=1.0.0 ..."
+//	go build -ldflags "-X github.com/Resinat/Resin/internal/buildinfo.Version=1.0.0 ..."
 var (
 	Version   = "dev"
 	GitCommit = "unknown"

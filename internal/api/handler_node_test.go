@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/probe"
-	"github.com/resin-proxy/resin/internal/service"
-	"github.com/resin-proxy/resin/internal/subscription"
-	"github.com/resin-proxy/resin/internal/testutil"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/probe"
+	"github.com/Resinat/Resin/internal/service"
+	"github.com/Resinat/Resin/internal/subscription"
+	"github.com/Resinat/Resin/internal/testutil"
 )
 
 func addNodeForNodeListTest(t *testing.T, cp *service.ControlPlaneService, sub *subscription.Subscription, raw string, egressIP string) {

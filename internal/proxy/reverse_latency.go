@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/node"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 type reverseLatencyReporter struct {

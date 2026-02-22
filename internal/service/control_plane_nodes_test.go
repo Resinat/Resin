@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/geoip"
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/platform"
-	"github.com/resin-proxy/resin/internal/probe"
-	"github.com/resin-proxy/resin/internal/subscription"
-	"github.com/resin-proxy/resin/internal/testutil"
-	"github.com/resin-proxy/resin/internal/topology"
+	"github.com/Resinat/Resin/internal/geoip"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/platform"
+	"github.com/Resinat/Resin/internal/probe"
+	"github.com/Resinat/Resin/internal/subscription"
+	"github.com/Resinat/Resin/internal/testutil"
+	"github.com/Resinat/Resin/internal/topology"
 )
 
 func newNodeListTestPool(subMgr *topology.SubscriptionManager) *topology.GlobalNodePool {

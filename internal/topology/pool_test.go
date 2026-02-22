@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/puzpuzpuz/xsync/v4"
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/platform"
-	"github.com/resin-proxy/resin/internal/subscription"
-	"github.com/resin-proxy/resin/internal/testutil"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/platform"
+	"github.com/Resinat/Resin/internal/subscription"
+	"github.com/Resinat/Resin/internal/testutil"
 )
 
 func newTestPool(subMgr *SubscriptionManager) *GlobalNodePool {

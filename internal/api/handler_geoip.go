@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/resin-proxy/resin/internal/service"
+	"github.com/Resinat/Resin/internal/service"
 )
 
 // HandleGeoIPStatus returns a handler for GET /api/v1/geoip/status.

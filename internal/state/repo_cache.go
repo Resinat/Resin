@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 // CacheRepo wraps cache.db and provides batch read/write for weak-persist data.

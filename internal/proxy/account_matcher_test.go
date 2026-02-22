@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 func mustHeaders(raw string) []string {

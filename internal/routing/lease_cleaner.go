@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/puzpuzpuz/xsync/v4"
-	"github.com/resin-proxy/resin/internal/scanloop"
+	"github.com/Resinat/Resin/internal/scanloop"
 )
 
 // LeaseCleaner periodically sweeps for expired leases.

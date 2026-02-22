@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"sync/atomic"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/service"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/service"
 )
 
 type systemEnvConfigResponse struct {

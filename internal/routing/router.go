@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/puzpuzpuz/xsync/v4"
-	"github.com/resin-proxy/resin/internal/model"
-	"github.com/resin-proxy/resin/internal/netutil"
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/platform"
+	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/netutil"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/platform"
 )
 
 var (

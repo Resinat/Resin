@@ -18,7 +18,7 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 	"github.com/robfig/cron/v3"
 
-	"github.com/resin-proxy/resin/internal/netutil"
+	"github.com/Resinat/Resin/internal/netutil"
 )
 
 // GeoReader abstracts the GeoIP database reader (e.g., maxminddb reader).

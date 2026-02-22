@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/netutil"
-	"github.com/resin-proxy/resin/internal/outbound"
-	"github.com/resin-proxy/resin/internal/routing"
+	"github.com/Resinat/Resin/internal/netutil"
+	"github.com/Resinat/Resin/internal/outbound"
+	"github.com/Resinat/Resin/internal/routing"
 	M "github.com/sagernet/sing/common/metadata"
 )
 

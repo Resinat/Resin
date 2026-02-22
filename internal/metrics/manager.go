@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/proxy"
 )
 
 // RuntimeStatsProvider supplies node-pool/platform/lease/latency stats from

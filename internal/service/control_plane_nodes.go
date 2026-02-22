@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/probe"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/probe"
 )
 
 // ------------------------------------------------------------------

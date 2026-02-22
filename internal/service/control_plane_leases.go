@@ -3,8 +3,8 @@ package service
 import (
 	"time"
 
-	"github.com/resin-proxy/resin/internal/model"
-	"github.com/resin-proxy/resin/internal/routing"
+	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/routing"
 )
 
 // ------------------------------------------------------------------

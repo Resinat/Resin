@@ -9,7 +9,7 @@ import (
 	"net/http/httptrace"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/node"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 // DirectFetcher creates a Fetcher that performs direct HTTP requests

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/service"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/service"
 )
 
 func newTestServer() *Server {

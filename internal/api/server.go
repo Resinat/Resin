@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/metrics"
-	"github.com/resin-proxy/resin/internal/requestlog"
-	"github.com/resin-proxy/resin/internal/service"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/metrics"
+	"github.com/Resinat/Resin/internal/requestlog"
+	"github.com/Resinat/Resin/internal/service"
 )
 
 // Server wraps the HTTP server and mux for the Resin API.

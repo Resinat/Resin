@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/resin-proxy/resin/internal/testutil"
+	"github.com/Resinat/Resin/internal/testutil"
 )
 
 func TestHTTPGetViaOutbound_RequireStatusOK(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/resin-proxy/resin/internal/service"
+	"github.com/Resinat/Resin/internal/service"
 )
 
 func validateAccountPath(r *http.Request) (string, error) {

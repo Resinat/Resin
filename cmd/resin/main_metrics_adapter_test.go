@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/testutil"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/testutil"
 )
 
 func TestNodePoolStatsAdapter_HealthyNodesRequiresOutbound(t *testing.T) {

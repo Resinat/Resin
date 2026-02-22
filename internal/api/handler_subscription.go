@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/resin-proxy/resin/internal/service"
+	"github.com/Resinat/Resin/internal/service"
 )
 
 func subscriptionMatchesKeyword(s service.SubscriptionResponse, keyword string) bool {

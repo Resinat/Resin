@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/resin-proxy/resin/internal/routing"
+	"github.com/Resinat/Resin/internal/routing"
 )
 
 // ProxyError represents a structured proxy error response.

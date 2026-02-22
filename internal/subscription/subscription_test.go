@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/puzpuzpuz/xsync/v4"
-	"github.com/resin-proxy/resin/internal/node"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 func TestNewSubscription(t *testing.T) {

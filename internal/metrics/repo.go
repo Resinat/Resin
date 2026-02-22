@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/resin-proxy/resin/internal/state"
+	"github.com/Resinat/Resin/internal/state"
 )
 
 // MetricsDBDDL defines the schema for metrics.db.

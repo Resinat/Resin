@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/metrics"
+	"github.com/Resinat/Resin/internal/metrics"
 )
 
 // ---- shared time-range parsing ----

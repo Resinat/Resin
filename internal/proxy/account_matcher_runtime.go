@@ -3,7 +3,7 @@ package proxy
 import (
 	"sync/atomic"
 
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 // AccountMatcherRuntime stores the current account matcher in an atomic pointer.

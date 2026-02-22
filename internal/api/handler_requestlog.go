@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/requestlog"
+	"github.com/Resinat/Resin/internal/requestlog"
 )
 
 // HandleListRequestLogs handles GET /api/v1/request-logs.

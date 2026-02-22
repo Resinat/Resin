@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 func TestBuildFromModel_Success(t *testing.T) {

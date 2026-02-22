@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/puzpuzpuz/xsync/v4"
-	"github.com/resin-proxy/resin/internal/netutil"
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/scanloop"
-	"github.com/resin-proxy/resin/internal/subscription"
+	"github.com/Resinat/Resin/internal/netutil"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/scanloop"
+	"github.com/Resinat/Resin/internal/subscription"
 )
 
 const schedulerLookahead = 15 * time.Second

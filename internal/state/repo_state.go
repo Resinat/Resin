@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/model"
-	"github.com/resin-proxy/resin/internal/platform"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/platform"
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )

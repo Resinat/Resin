@@ -8,10 +8,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/resin-proxy/resin/internal/netutil"
-	"github.com/resin-proxy/resin/internal/outbound"
-	"github.com/resin-proxy/resin/internal/platform"
-	"github.com/resin-proxy/resin/internal/routing"
+	"github.com/Resinat/Resin/internal/netutil"
+	"github.com/Resinat/Resin/internal/outbound"
+	"github.com/Resinat/Resin/internal/platform"
+	"github.com/Resinat/Resin/internal/routing"
 )
 
 // PlatformLookup provides read-only access to platforms.

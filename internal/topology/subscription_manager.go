@@ -2,7 +2,7 @@ package topology
 
 import (
 	"github.com/puzpuzpuz/xsync/v4"
-	"github.com/resin-proxy/resin/internal/subscription"
+	"github.com/Resinat/Resin/internal/subscription"
 )
 
 // SubscriptionManager holds all subscription instances and provides

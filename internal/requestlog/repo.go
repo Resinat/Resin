@@ -14,8 +14,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/resin-proxy/resin/internal/proxy"
-	"github.com/resin-proxy/resin/internal/state"
+	"github.com/Resinat/Resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/state"
 )
 
 const logSummarySelectColumns = "id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, duration_ns, net_ok, http_method, http_status, ingress_bytes, egress_bytes, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated"

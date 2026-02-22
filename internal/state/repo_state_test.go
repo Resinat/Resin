@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 // helper: create a state.db in a temp dir, init DDL, return StateRepo + cleanup.

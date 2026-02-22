@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 // AccountRuleMatcher provides longest-prefix rule matching for account headers.

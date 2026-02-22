@@ -1,4 +1,4 @@
-module github.com/resin-proxy/resin
+module github.com/Resinat/Resin
 
 go 1.25.5
 

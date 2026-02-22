@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/resin-proxy/resin/internal/model"
+	"github.com/Resinat/Resin/internal/model"
 )
 
 // NodeLatencyDirtyKey is the composite key for the node_latency dirty set.

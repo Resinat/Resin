@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/metrics"
-	"github.com/resin-proxy/resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/metrics"
+	"github.com/Resinat/Resin/internal/proxy"
 )
 
 type testPlatformStats struct {

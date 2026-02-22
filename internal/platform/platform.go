@@ -6,7 +6,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/resin-proxy/resin/internal/node"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 // DefaultPlatformID is the well-known UUID of the built-in Default platform.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/proxy"
 )
 
 func TestQueryHistoryTraffic_AdvancesStaleBucketWithoutBucketLoop(t *testing.T) {

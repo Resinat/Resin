@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/platform"
+	"github.com/Resinat/Resin/internal/platform"
 	"github.com/robfig/cron/v3"
 )
 

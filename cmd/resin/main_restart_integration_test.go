@@ -8,17 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/config"
-	"github.com/resin-proxy/resin/internal/metrics"
-	"github.com/resin-proxy/resin/internal/model"
-	"github.com/resin-proxy/resin/internal/node"
-	"github.com/resin-proxy/resin/internal/outbound"
-	"github.com/resin-proxy/resin/internal/platform"
-	"github.com/resin-proxy/resin/internal/proxy"
-	"github.com/resin-proxy/resin/internal/requestlog"
-	"github.com/resin-proxy/resin/internal/routing"
-	"github.com/resin-proxy/resin/internal/state"
-	"github.com/resin-proxy/resin/internal/testutil"
+	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/metrics"
+	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/outbound"
+	"github.com/Resinat/Resin/internal/platform"
+	"github.com/Resinat/Resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/requestlog"
+	"github.com/Resinat/Resin/internal/routing"
+	"github.com/Resinat/Resin/internal/state"
+	"github.com/Resinat/Resin/internal/testutil"
 )
 
 func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {

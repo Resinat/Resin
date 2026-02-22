@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/node"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 // RetryDownloader decorates a Downloader with proxy retry logic.

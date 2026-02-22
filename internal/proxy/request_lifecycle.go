@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/routing"
+	"github.com/Resinat/Resin/internal/routing"
 )
 
 // requestLifecycle captures mutable per-request telemetry and emits both

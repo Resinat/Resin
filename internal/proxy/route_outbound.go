@@ -1,8 +1,8 @@
 package proxy
 
 import (
-	"github.com/resin-proxy/resin/internal/outbound"
-	"github.com/resin-proxy/resin/internal/routing"
+	"github.com/Resinat/Resin/internal/outbound"
+	"github.com/Resinat/Resin/internal/routing"
 	"github.com/sagernet/sing-box/adapter"
 )
 

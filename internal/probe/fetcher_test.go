@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/resin-proxy/resin/internal/node"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 func TestDirectFetcher_HTTPFallbackLatencyNonZero(t *testing.T) {
