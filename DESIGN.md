@@ -1982,6 +1982,7 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * RESIN_CACHE_DIR：缓存目录。默认 /var/cache/resin
 * RESIN_STATE_DIR：配置目录。默认 /var/lib/resin
 * RESIN_LOG_DIR：日志目录。默认 /var/log/resin
+* RESIN_LISTEN_ADDRESS：API/前向代理/反向代理统一监听地址。默认 `0.0.0.0`
 * RESIN_API_PORT：API 端口。默认 2620
 * RESIN_API_MAX_BODY_BYTES：控制面 API（`/api/*`）请求体最大字节数。超限返回 `413 PAYLOAD_TOO_LARGE`。仅作用于控制面，不作用于正/反向代理数据面。默认 1048576（1 MiB）。
 * RESIN_FORWARD_PROXY_PORT：前向代理端口。默认 2621

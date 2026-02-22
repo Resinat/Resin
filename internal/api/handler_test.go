@@ -19,6 +19,7 @@ func newTestServer() *Server {
 		CacheDir:                              "/tmp/resin/cache",
 		StateDir:                              "/tmp/resin/state",
 		LogDir:                                "/tmp/resin/log",
+		ListenAddress:                         "127.0.0.1",
 		APIPort:                               2620,
 		ForwardProxyPort:                      2621,
 		ReverseProxyPort:                      2622,
@@ -233,6 +234,9 @@ func TestSystemEnvConfig_OK(t *testing.T) {
 
 	if body["cache_dir"] != "/tmp/resin/cache" {
 		t.Errorf("cache_dir: got %q, want %q", body["cache_dir"], "/tmp/resin/cache")
+	}
+	if body["listen_address"] != "127.0.0.1" {
+		t.Errorf("listen_address: got %q, want %q", body["listen_address"], "127.0.0.1")
 	}
 	if body["default_platform_sticky_ttl"] != "168h0m0s" {
 		t.Errorf("default_platform_sticky_ttl: got %q, want %q", body["default_platform_sticky_ttl"], "168h0m0s")

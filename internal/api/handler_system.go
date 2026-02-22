@@ -12,6 +12,7 @@ type systemEnvConfigResponse struct {
 	CacheDir                              string          `json:"cache_dir"`
 	StateDir                              string          `json:"state_dir"`
 	LogDir                                string          `json:"log_dir"`
+	ListenAddress                         string          `json:"listen_address"`
 	APIPort                               int             `json:"api_port"`
 	ForwardProxyPort                      int             `json:"forward_proxy_port"`
 	ReverseProxyPort                      int             `json:"reverse_proxy_port"`
@@ -103,6 +104,7 @@ func systemEnvConfigSnapshot(envCfg *config.EnvConfig) *systemEnvConfigResponse 
 		CacheDir:                              envCfg.CacheDir,
 		StateDir:                              envCfg.StateDir,
 		LogDir:                                envCfg.LogDir,
+		ListenAddress:                         envCfg.ListenAddress,
 		APIPort:                               envCfg.APIPort,
 		ForwardProxyPort:                      envCfg.ForwardProxyPort,
 		ReverseProxyPort:                      envCfg.ReverseProxyPort,

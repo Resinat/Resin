@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -367,7 +368,8 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		MatcherRuntime: a.accountMatcher,
 	}
 
-	a.apiSrv = api.NewServer(
+	a.apiSrv = api.NewServerWithAddress(
+		a.envCfg.ListenAddress,
 		a.envCfg.APIPort,
 		a.envCfg.AdminToken,
 		systemInfo,
@@ -400,7 +402,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		TransportPool:     a.transportPool,
 	})
 
-	forwardLn, err := net.Listen("tcp", fmt.Sprintf(":%d", a.envCfg.ForwardProxyPort))
+	forwardLn, err := net.Listen("tcp", formatListenAddress(a.envCfg.ListenAddress, a.envCfg.ForwardProxyPort))
 	if err != nil {
 		return fmt.Errorf("forward proxy listen: %w", err)
 	}
@@ -420,7 +422,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		TransportPool:     a.transportPool,
 	})
 
-	reverseLn, err := net.Listen("tcp", fmt.Sprintf(":%d", a.envCfg.ReverseProxyPort))
+	reverseLn, err := net.Listen("tcp", formatListenAddress(a.envCfg.ListenAddress, a.envCfg.ReverseProxyPort))
 	if err != nil {
 		return fmt.Errorf("reverse proxy listen: %w", err)
 	}
@@ -470,15 +472,15 @@ func (a *resinApp) startServers() <-chan error {
 	}
 
 	go func() {
-		log.Printf("Resin API server starting on :%d", a.envCfg.APIPort)
+		log.Printf("Resin API server starting on %s", formatListenURL(a.envCfg.ListenAddress, a.envCfg.APIPort))
 		reportServerErr("api server", a.apiSrv.ListenAndServe())
 	}()
 	go func() {
-		log.Printf("Forward proxy starting on :%d", a.envCfg.ForwardProxyPort)
+		log.Printf("Forward proxy starting on %s", formatListenURL(a.envCfg.ListenAddress, a.envCfg.ForwardProxyPort))
 		reportServerErr("forward proxy", a.forwardSrv.Serve(a.forwardLn))
 	}()
 	go func() {
-		log.Printf("Reverse proxy starting on :%d", a.envCfg.ReverseProxyPort)
+		log.Printf("Reverse proxy starting on %s", formatListenURL(a.envCfg.ListenAddress, a.envCfg.ReverseProxyPort))
 		reportServerErr("reverse proxy", a.reverseSrv.Serve(a.reverseLn))
 	}()
 
@@ -498,6 +500,14 @@ func waitForShutdown(serverErrCh <-chan error) error {
 		log.Printf("Received server runtime error (%v), shutting down...", err)
 		return err
 	}
+}
+
+func formatListenAddress(listenAddress string, port int) string {
+	return net.JoinHostPort(listenAddress, strconv.Itoa(port))
+}
+
+func formatListenURL(listenAddress string, port int) string {
+	return "http://" + formatListenAddress(listenAddress, port)
 }
 
 func (a *resinApp) shutdown(ctx context.Context) {

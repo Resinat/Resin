@@ -35,6 +35,7 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	assertEqual(t, "CacheDir", cfg.CacheDir, "/var/cache/resin")
 	assertEqual(t, "StateDir", cfg.StateDir, "/var/lib/resin")
 	assertEqual(t, "LogDir", cfg.LogDir, "/var/log/resin")
+	assertEqual(t, "ListenAddress", cfg.ListenAddress, "0.0.0.0")
 
 	// Ports
 	assertEqual(t, "APIPort", cfg.APIPort, 2620)
@@ -78,6 +79,7 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	envs := requiredEnvs()
 	envs["RESIN_CACHE_DIR"] = "/tmp/cache"
+	envs["RESIN_LISTEN_ADDRESS"] = "127.0.0.1"
 	envs["RESIN_API_PORT"] = "8080"
 	envs["RESIN_API_MAX_BODY_BYTES"] = "2097152"
 	envs["RESIN_PROBE_CONCURRENCY"] = "500"
@@ -101,6 +103,7 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	}
 
 	assertEqual(t, "CacheDir", cfg.CacheDir, "/tmp/cache")
+	assertEqual(t, "ListenAddress", cfg.ListenAddress, "127.0.0.1")
 	assertEqual(t, "APIPort", cfg.APIPort, 8080)
 	assertEqual(t, "APIMaxBodyBytes", cfg.APIMaxBodyBytes, 2097152)
 	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 500)
@@ -166,6 +169,18 @@ func TestLoadEnvConfig_ProxyTokenForbiddenChars(t *testing.T) {
 			assertContains(t, err.Error(), "must not contain")
 		})
 	}
+}
+
+func TestLoadEnvConfig_EmptyListenAddress(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_LISTEN_ADDRESS"] = "   "
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for empty listen address")
+	}
+	assertContains(t, err.Error(), "RESIN_LISTEN_ADDRESS")
 }
 
 func TestLoadEnvConfig_InvalidPort(t *testing.T) {

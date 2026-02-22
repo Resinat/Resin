@@ -2,8 +2,9 @@ package api
 
 import (
 	"context"
-	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"sync/atomic"
 
 	"github.com/resin-proxy/resin/internal/config"
@@ -21,6 +22,33 @@ type Server struct {
 // NewServer creates a new API server wired with all routes.
 // cp may be nil if the control plane is not yet initialized.
 func NewServer(
+	port int,
+	adminToken string,
+	systemInfo service.SystemInfo,
+	runtimeCfg *atomic.Pointer[config.RuntimeConfig],
+	envCfg *config.EnvConfig,
+	cp *service.ControlPlaneService,
+	apiMaxBodyBytes int64,
+	requestlogRepo *requestlog.Repo,
+	metricsManager *metrics.Manager,
+) *Server {
+	return NewServerWithAddress(
+		"",
+		port,
+		adminToken,
+		systemInfo,
+		runtimeCfg,
+		envCfg,
+		cp,
+		apiMaxBodyBytes,
+		requestlogRepo,
+		metricsManager,
+	)
+}
+
+// NewServerWithAddress creates a new API server with an explicit listen address.
+func NewServerWithAddress(
+	listenAddress string,
 	port int,
 	adminToken string,
 	systemInfo service.SystemInfo,
@@ -124,7 +152,7 @@ func NewServer(
 	mux.Handle("/api/", AuthMiddleware(adminToken, limitedAuthed))
 
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr:    net.JoinHostPort(listenAddress, strconv.Itoa(port)),
 		Handler: mux,
 	}
 

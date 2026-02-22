@@ -21,6 +21,9 @@ type EnvConfig struct {
 	StateDir string
 	LogDir   string
 
+	// Network
+	ListenAddress string
+
 	// Ports
 	APIPort          int
 	ForwardProxyPort int
@@ -75,6 +78,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.CacheDir = envStr("RESIN_CACHE_DIR", "/var/cache/resin")
 	cfg.StateDir = envStr("RESIN_STATE_DIR", "/var/lib/resin")
 	cfg.LogDir = envStr("RESIN_LOG_DIR", "/var/log/resin")
+	cfg.ListenAddress = strings.TrimSpace(envStr("RESIN_LISTEN_ADDRESS", "0.0.0.0"))
 
 	// --- Ports ---
 	cfg.APIPort = envInt("RESIN_API_PORT", 2620, &errs)
@@ -135,6 +139,9 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		if strings.Contains(cfg.ProxyToken, ":") || strings.Contains(cfg.ProxyToken, "@") {
 			errs = append(errs, "RESIN_PROXY_TOKEN must not contain ':' or '@'")
 		}
+	}
+	if cfg.ListenAddress == "" {
+		errs = append(errs, "RESIN_LISTEN_ADDRESS must not be empty")
 	}
 
 	validatePort("RESIN_API_PORT", cfg.APIPort, &errs)
