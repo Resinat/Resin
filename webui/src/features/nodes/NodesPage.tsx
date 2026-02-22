@@ -240,7 +240,8 @@ export function NodesPage() {
         `出口探测完成：egress=${result.egress_ip || "-"}，region=${result.region || "-"}，latency=${formatLatency(result.latency_ewma_ms)}`
       );
     },
-    onError: (error) => {
+    onError: async (error) => {
+      await refreshNodes();
       showToast("error", fromApiError(error));
     },
   });
@@ -251,7 +252,8 @@ export function NodesPage() {
       await refreshNodes();
       showToast("success", `延迟探测完成：latency=${formatLatency(result.latency_ewma_ms)}`);
     },
-    onError: (error) => {
+    onError: async (error) => {
+      await refreshNodes();
       showToast("error", fromApiError(error));
     },
   });
