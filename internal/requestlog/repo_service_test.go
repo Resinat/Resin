@@ -120,10 +120,10 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 	}
 
 	fuzzyFiltered, hasMore, nextCursor, err := repo.List(ListFilter{
-		PlatformID:   "lat-1",
-		PlatformName: "form O",
-		Account:      "ct-a",
-		TargetHost:   "ample.c",
+		PlatformID:   "LAT-1",
+		PlatformName: "FORM o",
+		Account:      "CT-A",
+		TargetHost:   "AMPLE.C",
 		Fuzzy:        true,
 		Limit:        10,
 	})

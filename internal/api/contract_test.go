@@ -1287,10 +1287,10 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 		t,
 		srv,
 		http.MethodGet,
-		"/api/v1/request-logs?platform_id="+url.QueryEscape("atform-1")+
-			"&platform_name="+url.QueryEscape("atform O")+
-			"&account="+url.QueryEscape("ct-1")+
-			"&target_host="+url.QueryEscape("ample.co")+
+		"/api/v1/request-logs?platform_id="+url.QueryEscape("ATFORM-1")+
+			"&platform_name="+url.QueryEscape("ATFORM o")+
+			"&account="+url.QueryEscape("CT-1")+
+			"&target_host="+url.QueryEscape("AMPLE.CO")+
 			"&fuzzy=true&limit=20",
 		nil,
 		true,
