@@ -550,7 +550,22 @@ export function RequestLogsPage() {
                       <td>{formatBytes((log.ingress_bytes || 0) + (log.egress_bytes || 0))}</td>
                       <td>
                         <div className="logs-cell-stack">
-                          <span title={log.node_tag}>{log.node_tag || "-"}</span>
+                          {log.node_tag ? (
+                            <Link
+                              to={`/nodes?tag_keyword=${encodeURIComponent(log.node_tag)}`}
+                              title={`在节点池搜索 ${log.node_tag}`}
+                              onClick={(event) => event.stopPropagation()}
+                              style={{
+                                color: "var(--accent-primary)",
+                                textDecoration: "none",
+                                width: "fit-content",
+                              }}
+                            >
+                              {log.node_tag}
+                            </Link>
+                          ) : (
+                            <span>-</span>
+                          )}
                           <small title={log.egress_ip}>{log.egress_ip || "-"}</small>
                         </div>
                       </td>
