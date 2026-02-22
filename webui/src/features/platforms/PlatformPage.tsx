@@ -247,7 +247,7 @@ export function PlatformPage() {
                   </span>
                 </div>
                 <div className="platform-tile-foot">
-                  <span className="platform-tile-meta">节点 {platform.routable_node_count}</span>
+                  <span className="platform-tile-meta">{platform.routable_node_count} 个可用节点</span>
                   <span className="platform-tile-meta platform-tile-updated">更新于 {formatRelativeTime(platform.updated_at)}</span>
                 </div>
               </button>

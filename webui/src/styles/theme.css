@@ -114,9 +114,9 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1d7dff, #19a7f8);
-  color: #fff;
-  box-shadow: 0 8px 18px rgba(24, 113, 244, 0.25);
+  background: #fff;
+  /* border: 1px solid var(--border); */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .brand-title {
