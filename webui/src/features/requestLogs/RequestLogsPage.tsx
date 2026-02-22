@@ -11,6 +11,7 @@ import { Select } from "../../components/ui/Select";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
+import { formatBytes } from "../../lib/bytes";
 import { formatDateTime } from "../../lib/time";
 import { getSystemConfig } from "../systemConfig/api";
 import { getRequestLog, getRequestLogPayloads, listRequestLogs } from "./api";
@@ -508,6 +509,7 @@ export function RequestLogsPage() {
                   <th>HTTP</th>
                   <th>网络</th>
                   <th>耗时</th>
+                  <th>流量</th>
                   <th>节点</th>
                 </tr>
               </thead>
@@ -544,6 +546,7 @@ export function RequestLogsPage() {
                         <Badge variant={log.net_ok ? "success" : "warning"}>{log.net_ok ? "ok" : "failed"}</Badge>
                       </td>
                       <td>{log.duration_ms} ms</td>
+                      <td>{formatBytes((log.ingress_bytes || 0) + (log.egress_bytes || 0))}</td>
                       <td>
                         <div className="logs-cell-stack">
                           <span title={log.node_tag}>{log.node_tag || "-"}</span>
@@ -652,6 +655,19 @@ export function RequestLogsPage() {
                   <h4>Target</h4>
                   <p>{detailLog.target_host || "-"}</p>
                   <code>{detailLog.target_url || "-"}</code>
+                </div>
+
+                <div className="logs-detail-block">
+                  <h4>Traffic</h4>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                    <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {formatBytes((detailLog.ingress_bytes || 0) + (detailLog.egress_bytes || 0))}
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      <span> {formatBytes(detailLog.ingress_bytes || 0)} 下载</span>
+                      <span> {formatBytes(detailLog.egress_bytes || 0)} 上传</span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="logs-detail-block">

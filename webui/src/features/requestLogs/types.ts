@@ -15,6 +15,8 @@ export type RequestLogItem = {
   net_ok: boolean;
   http_method: string;
   http_status: number;
+  ingress_bytes: number;
+  egress_bytes: number;
   payload_present: boolean;
   req_headers_len: number;
   req_body_len: number;
