@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS nodes_dynamic (
 	failure_count      INTEGER NOT NULL DEFAULT 0,
 	circuit_open_since INTEGER NOT NULL DEFAULT 0,
 	egress_ip          TEXT NOT NULL DEFAULT '',
+	egress_region      TEXT NOT NULL DEFAULT '',
 	egress_updated_at_ns INTEGER NOT NULL DEFAULT 0,
 	last_latency_probe_attempt_ns INTEGER NOT NULL DEFAULT 0,
 	last_authority_latency_probe_attempt_ns INTEGER NOT NULL DEFAULT 0,

@@ -202,3 +202,48 @@ func TestNodeEntry_EgressIP(t *testing.T) {
 		t.Fatalf("expected %s, got %s", ip, got)
 	}
 }
+
+func TestNodeEntry_EgressRegion(t *testing.T) {
+	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)
+
+	if got := e.GetEgressRegion(); got != "" {
+		t.Fatalf("default egress region: got %q, want empty", got)
+	}
+
+	e.SetEgressRegion("US")
+	if got := e.GetEgressRegion(); got != "us" {
+		t.Fatalf("normalized egress region: got %q, want %q", got, "us")
+	}
+
+	e.SetEgressRegion("")
+	if got := e.GetEgressRegion(); got != "" {
+		t.Fatalf("cleared egress region: got %q, want empty", got)
+	}
+}
+
+func TestNodeEntry_GetRegion_UsesStoredThenGeoIPFallback(t *testing.T) {
+	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)
+	e.SetEgressIP(netip.MustParseAddr("203.0.113.1"))
+
+	geoLookupCalled := false
+	geoLookup := func(_ netip.Addr) string {
+		geoLookupCalled = true
+		return "jp"
+	}
+
+	if got := e.GetRegion(geoLookup); got != "jp" {
+		t.Fatalf("fallback region: got %q, want %q", got, "jp")
+	}
+	if !geoLookupCalled {
+		t.Fatal("expected geo lookup to be called without stored region")
+	}
+
+	geoLookupCalled = false
+	e.SetEgressRegion("US")
+	if got := e.GetRegion(geoLookup); got != "us" {
+		t.Fatalf("stored region: got %q, want %q", got, "us")
+	}
+	if geoLookupCalled {
+		t.Fatal("geo lookup should not be called when stored region exists")
+	}
+}

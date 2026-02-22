@@ -552,8 +552,12 @@ func (p *GlobalNodePool) RecordLatency(hash node.Hash, rawTarget string, latency
 }
 
 // UpdateNodeEgressIP records an egress probe attempt and optionally updates
-// the node's egress IP when ip != nil.
-func (p *GlobalNodePool) UpdateNodeEgressIP(hash node.Hash, ip *netip.Addr) {
+// the node's egress IP and explicit region metadata.
+// Region update rules:
+//   - ip=nil,  loc=nil: keep both IP and region unchanged.
+//   - ip!=nil, loc=nil: keep region if IP unchanged; clear region if IP changed.
+//   - loc!=nil: set region to loc (normalized).
+func (p *GlobalNodePool) UpdateNodeEgressIP(hash node.Hash, ip *netip.Addr, loc *string) {
 	entry, ok := p.nodes.Load(hash)
 	if !ok {
 		return
@@ -562,26 +566,39 @@ func (p *GlobalNodePool) UpdateNodeEgressIP(hash node.Hash, ip *netip.Addr) {
 	nowNs := time.Now().UnixNano()
 	entry.LastEgressUpdateAttempt.Store(nowNs)
 
-	if ip == nil {
-		if p.onNodeDynamicChanged != nil {
-			p.onNodeDynamicChanged(hash)
+	oldIP := entry.GetEgressIP()
+	oldRegion := entry.GetEgressRegion()
+	ipChanged := false
+
+	if ip != nil {
+		// Record successful egress-IP sample timestamp.
+		entry.LastEgressUpdate.Store(nowNs)
+		if oldIP != *ip {
+			entry.SetEgressIP(*ip)
+			ipChanged = true
 		}
-		return
 	}
 
-	// Record successful egress-IP sample timestamp.
-	entry.LastEgressUpdate.Store(nowNs)
-	old := entry.GetEgressIP()
-	if old == *ip {
-		if p.onNodeDynamicChanged != nil {
-			p.onNodeDynamicChanged(hash)
+	regionChanged := false
+	switch {
+	case loc != nil:
+		entry.SetEgressRegion(*loc)
+		regionChanged = oldRegion != entry.GetEgressRegion()
+	case ip == nil:
+		// Attempt-only update: keep region as-is.
+	case !ipChanged:
+		// IP unchanged and no explicit region: keep existing region.
+	default:
+		// IP changed without explicit region: clear stale region metadata.
+		if oldRegion != "" {
+			entry.SetEgressRegion("")
+			regionChanged = true
 		}
-		return // no IP change — skip platform notifications
 	}
 
-	entry.SetEgressIP(*ip)
-
-	p.notifyAllPlatformsDirty(hash)
+	if ipChanged || regionChanged {
+		p.notifyAllPlatformsDirty(hash)
+	}
 	if p.onNodeDynamicChanged != nil {
 		p.onNodeDynamicChanged(hash)
 	}

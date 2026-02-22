@@ -142,11 +142,11 @@ func (s *ControlPlaneService) nodeEntryMatchesFilters(entry *node.NodeEntry, fil
 
 	// Region filter.
 	if filters.Region != nil {
-		egressIP := entry.GetEgressIP()
-		if !egressIP.IsValid() {
-			return false
+		region := entry.GetRegion(nil)
+		if s.GeoIP != nil {
+			region = entry.GetRegion(s.GeoIP.Lookup)
 		}
-		if s.GeoIP.Lookup(egressIP) != *filters.Region {
+		if region == "" || region != *filters.Region {
 			return false
 		}
 	}
@@ -199,12 +199,17 @@ func (s *ControlPlaneService) ProbeEgress(hashStr string) (*probe.EgressProbeRes
 	if err != nil {
 		return nil, invalidArg("node_hash: invalid format")
 	}
-	if _, ok := s.Pool.GetEntry(h); !ok {
+	entry, ok := s.Pool.GetEntry(h)
+	if !ok {
 		return nil, notFound("node not found")
 	}
 	result, err := s.ProbeMgr.ProbeEgressSync(h)
 	if err != nil {
 		return nil, internal("egress probe failed", err)
+	}
+	result.Region = entry.GetRegion(nil)
+	if s.GeoIP != nil {
+		result.Region = entry.GetRegion(s.GeoIP.Lookup)
 	}
 	return result, nil
 }

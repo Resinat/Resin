@@ -102,6 +102,7 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 	}
 
 	entry1.SetEgressIP(egressIP)
+	entry1.SetEgressRegion("hk")
 	entry1.LastEgressUpdate.Store(egressUpdatedAt)
 	entry1.LastEgressUpdateAttempt.Store(egressAttemptAt)
 	entry1.LastLatencyProbeAttempt.Store(latencyAttemptAt)
@@ -226,6 +227,9 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 	}
 	if got := entry2.GetEgressIP(); got != egressIP {
 		t.Fatalf("egress_ip: got %s, want %s", got, egressIP)
+	}
+	if got := entry2.GetEgressRegion(); got != "hk" {
+		t.Fatalf("egress_region: got %q, want %q", got, "hk")
 	}
 	if got := entry2.LastEgressUpdate.Load(); got != egressUpdatedAt {
 		t.Fatalf("egress_updated_at_ns: got %d, want %d", got, egressUpdatedAt)

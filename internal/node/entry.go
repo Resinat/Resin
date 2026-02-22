@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/netip"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,7 @@ type NodeEntry struct {
 	FailureCount     atomic.Int32
 	CircuitOpenSince atomic.Int64               // unix-nano; 0 = not open
 	egressIP         atomic.Pointer[netip.Addr] // nil before first store
+	egressRegion     atomic.Pointer[string]     // lowercase country code from probe trace; nil when unknown
 	LastEgressUpdate atomic.Int64               // unix-nano of last successful egress-IP sample
 	// Probe-attempt timestamps (unix-nano). These are updated regardless of
 	// probe success/failure, and are used by probe schedulers.
@@ -172,6 +174,43 @@ func (e *NodeEntry) GetEgressIP() netip.Addr {
 // SetEgressIP stores the node's egress IP.
 func (e *NodeEntry) SetEgressIP(ip netip.Addr) {
 	e.egressIP.Store(&ip)
+}
+
+// GetEgressRegion returns the node's stored region from probe metadata,
+// or empty string if unknown.
+func (e *NodeEntry) GetEgressRegion() string {
+	ptr := e.egressRegion.Load()
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
+}
+
+// SetEgressRegion stores the node's explicit probe region.
+// Empty input clears the stored value.
+func (e *NodeEntry) SetEgressRegion(region string) {
+	region = strings.ToLower(strings.TrimSpace(region))
+	if region == "" {
+		e.egressRegion.Store(nil)
+		return
+	}
+	e.egressRegion.Store(&region)
+}
+
+// GetRegion resolves a node region using explicit probe metadata first,
+// then GeoIP fallback from egress IP.
+func (e *NodeEntry) GetRegion(geoLookup func(netip.Addr) string) string {
+	if region := e.GetEgressRegion(); region != "" {
+		return region
+	}
+	if geoLookup == nil {
+		return ""
+	}
+	egressIP := e.GetEgressIP()
+	if !egressIP.IsValid() {
+		return ""
+	}
+	return geoLookup(egressIP)
 }
 
 // SetLastError sets the node's error string (thread-safe).

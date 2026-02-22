@@ -281,7 +281,7 @@ func TestUpdateNodeEgressIP_Change(t *testing.T) {
 	pool.AddNodeFromSub(h, []byte(raw), "s1")
 
 	ip1 := netip.MustParseAddr("1.2.3.4")
-	pool.UpdateNodeEgressIP(h, &ip1)
+	pool.UpdateNodeEgressIP(h, &ip1, nil)
 	if dynamicCount.Load() != 1 {
 		t.Fatalf("expected 1 callback on first IP set, got %d", dynamicCount.Load())
 	}
@@ -292,15 +292,84 @@ func TestUpdateNodeEgressIP_Change(t *testing.T) {
 	}
 
 	// Same IP still updates probe-attempt timestamp.
-	pool.UpdateNodeEgressIP(h, &ip1)
+	pool.UpdateNodeEgressIP(h, &ip1, nil)
 	if dynamicCount.Load() != 2 {
 		t.Fatalf("expected callback on same IP attempt, got %d", dynamicCount.Load())
 	}
 
 	// Different IP → callback.
 	ip2 := netip.MustParseAddr("5.6.7.8")
-	pool.UpdateNodeEgressIP(h, &ip2)
+	pool.UpdateNodeEgressIP(h, &ip2, nil)
 	if dynamicCount.Load() != 3 {
 		t.Fatalf("expected 3 callbacks after IP change, got %d", dynamicCount.Load())
+	}
+}
+
+func TestUpdateNodeEgressIP_LocStateMachine(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "url", true, false)
+	subMgr.Register(sub)
+
+	pool := NewGlobalNodePool(PoolConfig{
+		SubLookup:              subMgr.Lookup,
+		GeoLookup:              func(_ netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+	})
+
+	plat := platform.NewPlatform("p1", "JP-Only", nil, []string{"jp"})
+	pool.RegisterPlatform(plat)
+
+	h := addTestNode(pool, sub, `{"type":"ss","n":"egress-loc"}`)
+	entry, _ := pool.GetEntry(h)
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        30 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	ob := testutil.NewNoopOutbound()
+	entry.Outbound.Store(&ob)
+
+	ip := netip.MustParseAddr("1.2.3.4")
+	locJP := "jp"
+	pool.UpdateNodeEgressIP(h, &ip, &locJP)
+	if got := entry.GetEgressRegion(); got != "jp" {
+		t.Fatalf("egress region: got %q, want %q", got, "jp")
+	}
+	if plat.View().Size() != 1 {
+		t.Fatal("node should be routable with explicit jp region")
+	}
+
+	locUS := "us"
+	pool.UpdateNodeEgressIP(h, &ip, &locUS)
+	if got := entry.GetEgressRegion(); got != "us" {
+		t.Fatalf("egress region: got %q, want %q", got, "us")
+	}
+	if plat.View().Size() != 0 {
+		t.Fatal("same IP but changed region should trigger platform re-evaluation")
+	}
+
+	// ip unchanged + loc=nil => keep region.
+	pool.UpdateNodeEgressIP(h, &ip, nil)
+	if got := entry.GetEgressRegion(); got != "us" {
+		t.Fatalf("egress region should keep when ip unchanged and loc=nil: got %q", got)
+	}
+
+	// ip=nil + loc=nil => keep both ip and region.
+	pool.UpdateNodeEgressIP(h, nil, nil)
+	if got := entry.GetEgressRegion(); got != "us" {
+		t.Fatalf("egress region should remain unchanged on nil/nil attempt: got %q", got)
+	}
+	if got := entry.GetEgressIP(); got != ip {
+		t.Fatalf("egress IP should remain on attempt-only update: got %v, want %v", got, ip)
+	}
+
+	// ip changed + loc=nil => clear region.
+	ip2 := netip.MustParseAddr("5.6.7.8")
+	pool.UpdateNodeEgressIP(h, &ip2, nil)
+	if got := entry.GetEgressRegion(); got != "" {
+		t.Fatalf("egress region should clear when ip changed and loc=nil: got %q", got)
+	}
+	if got := entry.GetEgressIP(); got != ip2 {
+		t.Fatalf("egress IP should update on ip change: got %v, want %v", got, ip2)
 	}
 }

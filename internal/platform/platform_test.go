@@ -177,6 +177,30 @@ func TestPlatform_EvaluateNode_RegionFilter_NoEgressIP(t *testing.T) {
 	}
 }
 
+func TestPlatform_EvaluateNode_RegionFilter_PrefersStoredRegion(t *testing.T) {
+	p := NewPlatform("p1", "Test", nil, []string{"jp"})
+	h := makeHash(`{"type":"ss"}`)
+	entry := makeFullyRoutableEntry(h, "sub1")
+	entry.SetEgressRegion("jp")
+
+	geoCalled := false
+	geoLookup := func(netip.Addr) string {
+		geoCalled = true
+		return "us"
+	}
+
+	p.FullRebuild(func(fn func(node.Hash, *node.NodeEntry) bool) {
+		fn(h, entry)
+	}, alwaysLookup, geoLookup)
+
+	if p.View().Size() != 1 {
+		t.Fatal("stored region should be used before GeoIP fallback")
+	}
+	if geoCalled {
+		t.Fatal("GeoIP lookup should be skipped when stored region exists")
+	}
+}
+
 func TestPlatform_NotifyDirty_AddRemove(t *testing.T) {
 	p := NewPlatform("p1", "Test", nil, nil)
 	h := makeHash(`{"type":"ss"}`)

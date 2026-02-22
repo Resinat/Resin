@@ -81,6 +81,7 @@ func (r *CacheRepo) BulkUpsertNodesDynamic(nodes []model.NodeDynamic) error {
 				n.FailureCount,
 				n.CircuitOpenSince,
 				n.EgressIP,
+				n.EgressRegion,
 				n.EgressUpdatedAtNs,
 				n.LastLatencyProbeAttemptNs,
 				n.LastAuthorityLatencyProbeAttemptNs,
@@ -107,7 +108,7 @@ func (r *CacheRepo) BulkDeleteNodesDynamic(hashes []string) error {
 // LoadAllNodesDynamic reads all node dynamic records.
 func (r *CacheRepo) LoadAllNodesDynamic() ([]model.NodeDynamic, error) {
 	rows, err := r.db.Query(`
-		SELECT hash, failure_count, circuit_open_since, egress_ip, egress_updated_at_ns,
+		SELECT hash, failure_count, circuit_open_since, egress_ip, egress_region, egress_updated_at_ns,
 		       last_latency_probe_attempt_ns, last_authority_latency_probe_attempt_ns, last_egress_update_attempt_ns
 		FROM nodes_dynamic`)
 	if err != nil {
@@ -123,6 +124,7 @@ func (r *CacheRepo) LoadAllNodesDynamic() ([]model.NodeDynamic, error) {
 			&n.FailureCount,
 			&n.CircuitOpenSince,
 			&n.EgressIP,
+			&n.EgressRegion,
 			&n.EgressUpdatedAtNs,
 			&n.LastLatencyProbeAttemptNs,
 			&n.LastAuthorityLatencyProbeAttemptNs,
@@ -391,6 +393,7 @@ func (r *CacheRepo) FlushTx(ops FlushOps) error {
 				n.FailureCount,
 				n.CircuitOpenSince,
 				n.EgressIP,
+				n.EgressRegion,
 				n.EgressUpdatedAtNs,
 				n.LastLatencyProbeAttemptNs,
 				n.LastAuthorityLatencyProbeAttemptNs,
@@ -449,14 +452,15 @@ const (
 			created_at_ns    = excluded.created_at_ns`
 
 	upsertNodesDynamicSQL = `INSERT INTO nodes_dynamic (
-			hash, failure_count, circuit_open_since, egress_ip, egress_updated_at_ns,
+			hash, failure_count, circuit_open_since, egress_ip, egress_region, egress_updated_at_ns,
 			last_latency_probe_attempt_ns, last_authority_latency_probe_attempt_ns, last_egress_update_attempt_ns
 		)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(hash) DO UPDATE SET
 			failure_count                          = excluded.failure_count,
 			circuit_open_since                     = excluded.circuit_open_since,
 			egress_ip                              = excluded.egress_ip,
+			egress_region                          = excluded.egress_region,
 			egress_updated_at_ns                   = excluded.egress_updated_at_ns,
 			last_latency_probe_attempt_ns          = excluded.last_latency_probe_attempt_ns,
 			last_authority_latency_probe_attempt_ns = excluded.last_authority_latency_probe_attempt_ns,

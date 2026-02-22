@@ -8,6 +8,7 @@ import (
 	"github.com/resin-proxy/resin/internal/geoip"
 	"github.com/resin-proxy/resin/internal/node"
 	"github.com/resin-proxy/resin/internal/platform"
+	"github.com/resin-proxy/resin/internal/probe"
 	"github.com/resin-proxy/resin/internal/subscription"
 	"github.com/resin-proxy/resin/internal/testutil"
 	"github.com/resin-proxy/resin/internal/topology"
@@ -281,5 +282,89 @@ func TestListNodes_TagKeywordFuzzyMatchIsCaseInsensitive(t *testing.T) {
 	}
 	if nodes[0].NodeHash != matchHash.Hex() {
 		t.Fatalf("ListNodes(tag_keyword) hash = %q, want %q", nodes[0].NodeHash, matchHash.Hex())
+	}
+}
+
+func TestListNodes_RegionFilterAndSummaryPreferStoredRegion(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := newNodeListTestPool(subMgr)
+
+	sub := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subMgr.Register(sub)
+
+	hash := addRoutableNodeForSubscription(
+		t,
+		pool,
+		sub,
+		[]byte(`{"type":"ss","server":"1.1.1.1","port":443}`),
+		"203.0.113.40",
+	)
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing", hash.Hex())
+	}
+	entry.SetEgressRegion("jp")
+
+	cp := &ControlPlaneService{
+		Pool:   pool,
+		SubMgr: subMgr,
+		GeoIP:  &geoip.Service{}, // empty service returns "", forcing stored-region path
+	}
+
+	region := "jp"
+	nodes, err := cp.ListNodes(NodeFilters{Region: &region})
+	if err != nil {
+		t.Fatalf("ListNodes(region): %v", err)
+	}
+	if len(nodes) != 1 || nodes[0].NodeHash != hash.Hex() {
+		t.Fatalf("region-filtered nodes = %+v, want [%s]", nodes, hash.Hex())
+	}
+
+	got, err := cp.GetNode(hash.Hex())
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.Region != "jp" {
+		t.Fatalf("summary region: got %q, want %q", got.Region, "jp")
+	}
+}
+
+func TestProbeEgress_ReturnsRegion(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := newNodeListTestPool(subMgr)
+
+	sub := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subMgr.Register(sub)
+
+	hash := addRoutableNodeForSubscription(
+		t,
+		pool,
+		sub,
+		[]byte(`{"type":"ss","server":"1.1.1.1","port":443}`),
+		"203.0.113.60",
+	)
+
+	cp := &ControlPlaneService{
+		Pool:   pool,
+		SubMgr: subMgr,
+		GeoIP:  &geoip.Service{}, // empty service keeps focus on stored region from loc
+		ProbeMgr: probe.NewProbeManager(probe.ProbeConfig{
+			Pool: pool,
+			Fetcher: func(_ node.Hash, _ string) ([]byte, time.Duration, error) {
+				return []byte("ip=198.51.100.88\nloc=JP"), 20 * time.Millisecond, nil
+			},
+		}),
+	}
+
+	got, err := cp.ProbeEgress(hash.Hex())
+	if err != nil {
+		t.Fatalf("ProbeEgress: %v", err)
+	}
+	if got.EgressIP != "198.51.100.88" {
+		t.Fatalf("egress_ip: got %q, want %q", got.EgressIP, "198.51.100.88")
+	}
+	if got.Region != "jp" {
+		t.Fatalf("region: got %q, want %q", got.Region, "jp")
 	}
 }

@@ -455,7 +455,10 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 	egressIP := entry.GetEgressIP()
 	if egressIP.IsValid() {
 		ns.EgressIP = egressIP.String()
-		ns.Region = s.GeoIP.Lookup(egressIP)
+		ns.Region = entry.GetRegion(nil)
+		if s.GeoIP != nil {
+			ns.Region = entry.GetRegion(s.GeoIP.Lookup)
+		}
 	}
 
 	if leu := entry.LastEgressUpdate.Load(); leu > 0 {
@@ -546,11 +549,13 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 			return true
 		}
 		if len(regionFilterSet) > 0 {
-			egressIP := entry.GetEgressIP()
-			if !egressIP.IsValid() {
+			region := entry.GetRegion(nil)
+			if s.GeoIP != nil {
+				region = entry.GetRegion(s.GeoIP.Lookup)
+			}
+			if region == "" {
 				return true
 			}
-			region := s.GeoIP.Lookup(egressIP)
 			if _, ok := regionFilterSet[region]; !ok {
 				return true
 			}
