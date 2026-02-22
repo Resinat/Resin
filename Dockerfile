@@ -22,7 +22,7 @@ ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIME=unknown
 
-RUN CGO_ENABLED=0 go build -trimpath \
+RUN CGO_ENABLED=0 go build -trimpath -tags "with_quic with_wireguard" \
   -ldflags="-s -w \
   -X github.com/Resinat/Resin/internal/buildinfo.Version=${VERSION} \
   -X github.com/Resinat/Resin/internal/buildinfo.GitCommit=${GIT_COMMIT} \
