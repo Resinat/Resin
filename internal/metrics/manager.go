@@ -427,12 +427,12 @@ func (m *Manager) takeThroughputSample(ts time.Time) {
 }
 
 func (m *Manager) takeConnectionsSample(ts time.Time) {
-	snap := m.collector.Snapshot()
+	inboundMax, outboundMax := m.collector.SwapConnectionWindowMax()
 
 	m.connectionsRing.Push(RealtimeSample{
 		Timestamp:     ts,
-		InboundConns:  snap.InboundConns,
-		OutboundConns: snap.OutboundConns,
+		InboundConns:  inboundMax,
+		OutboundConns: outboundMax,
 	})
 }
 
