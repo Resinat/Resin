@@ -5,6 +5,7 @@ import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { GeoIPPage } from "../features/geoip/GeoIPPage";
 import { NodesPage } from "../features/nodes/NodesPage";
 import { RequireAuth } from "../features/auth/RequireAuth";
+import { PlatformDetailPage } from "../features/platforms/PlatformDetailPage";
 import { PlatformPage } from "../features/platforms/PlatformPage";
 import { RequestLogsPage } from "../features/requestLogs/RequestLogsPage";
 import { RulesPage } from "../features/rules/RulesPage";
@@ -26,6 +27,7 @@ export function AppRoutes() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/platforms" element={<PlatformPage />} />
+        <Route path="/platforms/:platformId" element={<PlatformDetailPage />} />
         <Route path="/subscriptions" element={<SubscriptionPage />} />
         <Route path="/nodes" element={<NodesPage />} />
         <Route path="/rules" element={<RulesPage />} />

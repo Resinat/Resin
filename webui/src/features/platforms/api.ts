@@ -45,6 +45,11 @@ export async function listPlatforms(input: ListPlatformsPageInput = {}): Promise
   return normalizePlatformPage(data);
 }
 
+export async function getPlatform(id: string): Promise<Platform> {
+  const data = await apiRequest<ApiPlatform>(`${basePath}/${id}`);
+  return normalizePlatform(data);
+}
+
 export async function createPlatform(input: PlatformCreateInput): Promise<Platform> {
   const data = await apiRequest<ApiPlatform>(basePath, {
     method: "POST",

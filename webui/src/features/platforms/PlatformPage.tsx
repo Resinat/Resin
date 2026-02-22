@@ -1,8 +1,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Plus, RefreshCw, Search, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Plus, RefreshCw, Search, Sparkles } from "lucide-react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -15,15 +16,7 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatGoDuration, formatRelativeTime } from "../../lib/time";
-import {
-  createPlatform,
-  deletePlatform,
-  listPlatforms,
-  rebuildPlatform,
-  resetPlatform,
-  updatePlatform,
-} from "./api";
-import { PlatformMonitorPanel } from "./PlatformMonitorPanel";
+import { createPlatform, listPlatforms } from "./api";
 import type { Platform, PlatformAllocationPolicy, PlatformMissAction } from "./types";
 
 const allocationPolicies: PlatformAllocationPolicy[] = [
@@ -54,10 +47,8 @@ const platformCreateSchema = z.object({
   allocation_policy: z.enum(allocationPolicies),
 });
 
-const platformEditSchema = platformCreateSchema;
-
 type PlatformCreateForm = z.infer<typeof platformCreateSchema>;
-type PlatformEditForm = z.infer<typeof platformEditSchema>;
+
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const EMPTY_PLATFORMS: Platform[] = [];
 const PAGE_SIZE_OPTIONS = [12, 24, 48, 96] as const;
@@ -73,20 +64,6 @@ function parseLinesToList(input: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function platformToEditForm(platform: Platform): PlatformEditForm {
-  const regexFilters = Array.isArray(platform.regex_filters) ? platform.regex_filters : [];
-  const regionFilters = Array.isArray(platform.region_filters) ? platform.region_filters : [];
-
-  return {
-    name: platform.name,
-    sticky_ttl: platform.sticky_ttl,
-    regex_filters_text: regexFilters.join("\n"),
-    region_filters_text: regionFilters.join("\n"),
-    reverse_proxy_miss_action: platform.reverse_proxy_miss_action,
-    allocation_policy: platform.allocation_policy,
-  };
-}
-
 function fromApiError(error: unknown): string {
   if (error instanceof ApiError) {
     return `${error.code}: ${error.message}`;
@@ -98,11 +75,10 @@ function fromApiError(error: unknown): string {
 }
 
 export function PlatformPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(24);
-  const [selectedPlatformId, setSelectedPlatformId] = useState("");
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const { toasts, showToast, dismissToast } = useToast();
 
@@ -126,13 +102,6 @@ export function PlatformPage() {
   const totalPages = Math.max(1, Math.ceil(totalPlatforms / pageSize));
   const currentPage = Math.min(page, totalPages - 1);
 
-  const selectedPlatform = useMemo(() => {
-    if (!selectedPlatformId) {
-      return null;
-    }
-    return platforms.find((item) => item.id === selectedPlatformId) ?? null;
-  }, [platforms, selectedPlatformId]);
-
   const createForm = useForm<PlatformCreateForm>({
     resolver: zodResolver(platformCreateSchema),
     defaultValues: {
@@ -145,122 +114,14 @@ export function PlatformPage() {
     },
   });
 
-  const editForm = useForm<PlatformEditForm>({
-    resolver: zodResolver(platformEditSchema),
-    defaultValues: {
-      name: "",
-      sticky_ttl: "",
-      regex_filters_text: "",
-      region_filters_text: "",
-      reverse_proxy_miss_action: "RANDOM",
-      allocation_policy: "BALANCED",
-    },
-  });
-
-  useEffect(() => {
-    if (!selectedPlatform) {
-      return;
-    }
-    editForm.reset(platformToEditForm(selectedPlatform));
-  }, [selectedPlatform, editForm]);
-
-  useEffect(() => {
-    if (!drawerOpen) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      setDrawerOpen(false);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [drawerOpen]);
-
-  const invalidatePlatforms = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["platforms"] });
-  };
-
   const createMutation = useMutation({
     mutationFn: createPlatform,
     onSuccess: async (created) => {
-      await invalidatePlatforms();
+      await queryClient.invalidateQueries({ queryKey: ["platforms"] });
       setCreateModalOpen(false);
       createForm.reset();
       showToast("success", `平台 ${created.name} 创建成功`);
-    },
-    onError: (error) => {
-      showToast("error", fromApiError(error));
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async (formData: PlatformEditForm) => {
-      if (!selectedPlatform) {
-        throw new Error("请选择要编辑的平台");
-      }
-
-      return updatePlatform(selectedPlatform.id, {
-        name: formData.name.trim(),
-        sticky_ttl: formData.sticky_ttl?.trim() || "",
-        regex_filters: parseLinesToList(formData.regex_filters_text),
-        region_filters: parseLinesToList(formData.region_filters_text),
-        reverse_proxy_miss_action: formData.reverse_proxy_miss_action,
-        allocation_policy: formData.allocation_policy,
-      });
-    },
-    onSuccess: async (updated) => {
-      await invalidatePlatforms();
-      setSelectedPlatformId(updated.id);
-      showToast("success", `平台 ${updated.name} 已更新`);
-    },
-    onError: (error) => {
-      showToast("error", fromApiError(error));
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: async (platform: Platform) => {
-      await deletePlatform(platform.id);
-      return platform;
-    },
-    onSuccess: async (deleted) => {
-      await invalidatePlatforms();
-      if (selectedPlatformId === deleted.id) {
-        setDrawerOpen(false);
-        setSelectedPlatformId("");
-      }
-      showToast("success", `平台 ${deleted.name} 已删除`);
-    },
-    onError: (error) => {
-      showToast("error", fromApiError(error));
-    },
-  });
-
-  const resetMutation = useMutation({
-    mutationFn: async (platform: Platform) => {
-      return resetPlatform(platform.id);
-    },
-    onSuccess: async (updated) => {
-      await invalidatePlatforms();
-      setSelectedPlatformId(updated.id);
-      showToast("success", `平台 ${updated.name} 已重置为默认配置`);
-    },
-    onError: (error) => {
-      showToast("error", fromApiError(error));
-    },
-  });
-
-  const rebuildMutation = useMutation({
-    mutationFn: async (platform: Platform) => {
-      await rebuildPlatform(platform.id);
-      return platform;
-    },
-    onSuccess: (platform) => {
-      showToast("success", `平台 ${platform.name} 已完成路由视图重建`);
+      navigate(`/platforms/${created.id}`);
     },
     onError: (error) => {
       showToast("error", fromApiError(error));
@@ -278,23 +139,6 @@ export function PlatformPage() {
     });
   });
 
-  const onEditSubmit = editForm.handleSubmit(async (values) => {
-    await updateMutation.mutateAsync(values);
-  });
-
-  const handleDelete = async (platform: Platform) => {
-    const confirmed = window.confirm(`确认删除平台 ${platform.name}？该操作不可撤销。`);
-    if (!confirmed) {
-      return;
-    }
-    await deleteMutation.mutateAsync(platform);
-  };
-
-  const openDrawer = (platform: Platform) => {
-    setSelectedPlatformId(platform.id);
-    setDrawerOpen(true);
-  };
-
   const changePageSize = (next: number) => {
     setPageSize(next);
     setPage(0);
@@ -305,7 +149,7 @@ export function PlatformPage() {
       <header className="module-header">
         <div>
           <h2>Platform 管理</h2>
-          <p className="module-description">管理平台的过滤策略、分配策略，并执行重建/重置等运维操作。</p>
+          <p className="module-description">平台列表入口。点击卡片进入专有详情页，并通过横向标签切换监控、配置和运维操作。</p>
         </div>
       </header>
 
@@ -371,7 +215,6 @@ export function PlatformPage() {
 
         <div className="platform-card-grid">
           {platforms.map((platform) => {
-            const isActive = drawerOpen && platform.id === selectedPlatformId;
             const regionCount = platform.region_filters.length;
             const regexCount = platform.regex_filters.length;
             const stickyTTL = formatGoDuration(platform.sticky_ttl, "默认");
@@ -380,8 +223,8 @@ export function PlatformPage() {
               <button
                 key={platform.id}
                 type="button"
-                className={`platform-tile ${isActive ? "platform-tile-active" : ""}`}
-                onClick={() => openDrawer(platform)}
+                className="platform-tile"
+                onClick={() => navigate(`/platforms/${platform.id}`)}
               >
                 <div className="platform-tile-head">
                   <p>{platform.name}</p>
@@ -425,170 +268,6 @@ export function PlatformPage() {
           onPageSizeChange={changePageSize}
         />
       </Card>
-
-      {drawerOpen && selectedPlatform ? (
-        <div
-          className="drawer-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`编辑平台 ${selectedPlatform.name}`}
-          onClick={() => setDrawerOpen(false)}
-        >
-          <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <h3>{selectedPlatform.name}</h3>
-                <p>{selectedPlatform.id}</p>
-              </div>
-              <div className="drawer-header-actions">
-                <Badge variant={selectedPlatform.id === ZERO_UUID ? "warning" : "success"}>
-                  {selectedPlatform.id === ZERO_UUID ? "内置平台" : "自定义平台"}
-                </Badge>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="关闭编辑面板"
-                  onClick={() => setDrawerOpen(false)}
-                >
-                  <X size={16} />
-                </Button>
-              </div>
-            </div>
-
-            <div className="platform-drawer-layout">
-              <PlatformMonitorPanel platform={selectedPlatform} />
-
-              <section className="platform-drawer-section">
-                <div className="platform-drawer-section-head">
-                  <h4>平台配置</h4>
-                  <p>修改平台配置后，点击右下角保存。</p>
-                </div>
-
-                <form className="form-grid platform-config-form" onSubmit={onEditSubmit}>
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-name">
-                      名称
-                    </label>
-                    <Input id="edit-name" invalid={Boolean(editForm.formState.errors.name)} {...editForm.register("name")} />
-                    {editForm.formState.errors.name?.message ? (
-                      <p className="field-error">{editForm.formState.errors.name.message}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-sticky">
-                      Sticky TTL
-                    </label>
-                    <Input
-                      id="edit-sticky"
-                      placeholder="例如 168h"
-                      invalid={Boolean(editForm.formState.errors.sticky_ttl)}
-                      {...editForm.register("sticky_ttl")}
-                    />
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-miss-action">
-                      Reverse Proxy Miss Action
-                    </label>
-                    <Select id="edit-miss-action" {...editForm.register("reverse_proxy_miss_action")}>
-                      {missActions.map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-policy">
-                      Allocation Policy
-                    </label>
-                    <Select id="edit-policy" {...editForm.register("allocation_policy")}>
-                      {allocationPolicies.map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-regex">
-                      Regex Filters
-                    </label>
-                    <Textarea id="edit-regex" rows={4} placeholder="每行一条" {...editForm.register("regex_filters_text")} />
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-region">
-                      Region Filters
-                    </label>
-                    <Textarea id="edit-region" rows={4} placeholder="每行一条，如 hk / us" {...editForm.register("region_filters_text")} />
-                  </div>
-
-                  <div className="platform-config-actions">
-                    <Button type="submit" disabled={updateMutation.isPending}>
-                      {updateMutation.isPending ? "保存中..." : "保存配置"}
-                    </Button>
-                  </div>
-                </form>
-              </section>
-
-              <section className="platform-drawer-section platform-ops-section">
-                <div className="platform-drawer-section-head">
-                  <h4>运维操作</h4>
-                  <p>以下操作会直接作用于当前平台，请谨慎执行。</p>
-                </div>
-
-                <div className="platform-ops-list">
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>重建路由池</h5>
-                      <p className="platform-op-hint">重新构建当前平台的路由视图与可用节点池，不改变配置项。</p>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void rebuildMutation.mutateAsync(selectedPlatform)}
-                      disabled={rebuildMutation.isPending}
-                    >
-                      {rebuildMutation.isPending ? "重建中..." : "重建路由池"}
-                    </Button>
-                  </div>
-
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>重置为默认配置</h5>
-                      <p className="platform-op-hint">恢复平台默认策略，并覆盖当前自定义配置。</p>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void resetMutation.mutateAsync(selectedPlatform)}
-                      disabled={resetMutation.isPending}
-                    >
-                      {resetMutation.isPending ? "重置中..." : "重置为默认配置"}
-                    </Button>
-                  </div>
-
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>删除平台</h5>
-                      <p className="platform-op-hint">永久删除当前平台及其配置，操作不可撤销。</p>
-                    </div>
-                    <Button
-                      variant="danger"
-                      onClick={() => void handleDelete(selectedPlatform)}
-                      disabled={deleteMutation.isPending}
-                    >
-                      {deleteMutation.isPending ? "删除中..." : "删除平台"}
-                    </Button>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </Card>
-        </div>
-      ) : null}
 
       {createModalOpen ? (
         <div className="modal-overlay" role="dialog" aria-modal="true">
