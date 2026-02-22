@@ -586,7 +586,6 @@ export function RequestLogsPage() {
                 <p>{detailLog.id}</p>
               </div>
               <div className="drawer-header-actions">
-                <Badge variant={detailLog.net_ok ? "success" : "warning"}>{detailLog.net_ok ? "Net OK" : "Net Failed"}</Badge>
                 <Button variant="ghost" size="sm" aria-label="关闭详情面板" onClick={() => setDrawerOpen(false)}>
                   <X size={16} />
                 </Button>
@@ -651,29 +650,27 @@ export function RequestLogsPage() {
                   <p>请求目标与命中节点信息。</p>
                 </div>
 
-                <div className="logs-detail-block">
-                  <h4>Target</h4>
-                  <p>{detailLog.target_host || "-"}</p>
-                  <code>{detailLog.target_url || "-"}</code>
-                </div>
+                <div className="stats-grid">
+                  <div>
+                    <span>Target</span>
+                    <p>{detailLog.target_host || "-"}</p>
+                    <code style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{detailLog.target_url || "-"}</code>
+                  </div>
 
-                <div className="logs-detail-block">
-                  <h4>Traffic</h4>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
-                    <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {formatBytes((detailLog.ingress_bytes || 0) + (detailLog.egress_bytes || 0))}
-                    </span>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      <span> {formatBytes(detailLog.ingress_bytes || 0)} 下载</span>
-                      <span> {formatBytes(detailLog.egress_bytes || 0)} 上传</span>
+                  <div>
+                    <span>Traffic</span>
+                    <p>{formatBytes((detailLog.ingress_bytes || 0) + (detailLog.egress_bytes || 0))}</p>
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
+                      <span>↓ {formatBytes(detailLog.ingress_bytes || 0)}</span>
+                      <span>↑ {formatBytes(detailLog.egress_bytes || 0)}</span>
                     </div>
                   </div>
-                </div>
 
-                <div className="logs-detail-block">
-                  <h4>Node</h4>
-                  <p>{detailLog.node_tag || "-"}</p>
-                  <code>{detailLog.node_hash || "-"}</code>
+                  <div>
+                    <span>Node</span>
+                    <p>{detailLog.node_tag || "-"}</p>
+                    <code style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{detailLog.node_hash || "-"}</code>
+                  </div>
                 </div>
               </section>
 
