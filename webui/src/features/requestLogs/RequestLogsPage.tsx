@@ -523,7 +523,6 @@ export function RequestLogsPage() {
                   <th>HTTP</th>
                   <th>网络</th>
                   <th>耗时</th>
-                  <th>出口 IP</th>
                   <th>节点</th>
                 </tr>
               </thead>
@@ -560,11 +559,10 @@ export function RequestLogsPage() {
                         <Badge variant={log.net_ok ? "success" : "warning"}>{log.net_ok ? "ok" : "failed"}</Badge>
                       </td>
                       <td>{log.duration_ms} ms</td>
-                      <td>{log.egress_ip || "-"}</td>
                       <td>
                         <div className="logs-cell-stack">
                           <span title={log.node_tag}>{log.node_tag || "-"}</span>
-                          <small title={log.node_hash}>{log.node_hash || "-"}</small>
+                          <small title={log.egress_ip}>{log.egress_ip || "-"}</small>
                         </div>
                       </td>
                     </tr>
@@ -695,16 +693,18 @@ export function RequestLogsPage() {
                       <h5>查看 Payload</h5>
                       <p className="platform-op-hint">仅在需要时加载，避免影响列表浏览性能。</p>
                     </div>
-                    <Button variant="secondary" onClick={loadPayload} disabled={!detailLog.payload_present || payloadQuery.isFetching}>
+                    <Button
+                      variant="secondary"
+                      onClick={loadPayload}
+                      disabled={!detailLog.payload_present || payloadQuery.isFetching}
+                      title={!detailLog.payload_present ? "该条日志未记录 payload。" : undefined}
+                    >
                       <Eye size={14} />
                       {payloadQuery.isFetching ? "加载中..." : "查看 Payload"}
                     </Button>
                   </div>
                 </div>
 
-                {!detailLog.payload_present ? (
-                  <div className="callout callout-warning">该条日志未记录 payload。</div>
-                ) : null}
 
                 {payloadOpen ? (
                   <section className="logs-payload-section">
