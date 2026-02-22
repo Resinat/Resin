@@ -1887,6 +1887,120 @@ a {
   margin-top: 4px;
 }
 
+.platform-monitor-section {
+  border-color: rgba(37, 72, 120, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(245, 251, 255, 0.95)),
+    radial-gradient(circle at 6% 12%, rgba(32, 104, 246, 0.11), transparent 46%);
+}
+
+.platform-monitor-head {
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.platform-monitor-range {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.platform-monitor-range span {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.platform-monitor-range .select {
+  min-width: 128px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-radius: 9px;
+}
+
+.platform-monitor-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.platform-monitor-kpi-card {
+  margin: 0;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+  min-height: 88px;
+}
+
+.platform-monitor-kpi-label {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.platform-monitor-kpi-value {
+  margin: 4px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: #143f77;
+}
+
+.platform-monitor-kpi-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #52637c;
+}
+
+.platform-monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.platform-monitor-grid .dashboard-panel {
+  margin: 0;
+  padding: 12px;
+}
+
+.platform-monitor-span-2 {
+  grid-column: span 2;
+}
+
+.platform-monitor-snapshot-list {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.platform-monitor-snapshot-list>div {
+  border: 1px solid rgba(37, 72, 120, 0.14);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 9px 10px;
+}
+
+.platform-monitor-snapshot-list span {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.platform-monitor-snapshot-list p {
+  margin-top: 3px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #173f74;
+}
+
+.platform-monitor-refreshing {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .platform-ops-list {
   --platform-op-btn-width: 164px;
   display: flex;
@@ -2050,6 +2164,22 @@ a {
     width: 100%;
   }
 
+  .platform-monitor-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-monitor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .platform-monitor-span-2 {
+    grid-column: span 1;
+  }
+
+  .platform-monitor-snapshot-list {
+    grid-template-columns: 1fr;
+  }
+
   .stats-grid {
     grid-template-columns: 1fr;
   }
@@ -2179,6 +2309,20 @@ a {
 
   .histogram-chart {
     height: 204px;
+  }
+
+  .platform-monitor-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .platform-monitor-range {
+    width: 100%;
+  }
+
+  .platform-monitor-range .select {
+    width: 100%;
+    min-width: 0;
   }
 }
 
