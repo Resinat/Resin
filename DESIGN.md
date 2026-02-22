@@ -611,6 +611,8 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 * `net_ok`：网络层是否成功 (0/1)。
 * `http_method`：HTTP 方法。CONNECT 模式记录为 CONNECT。
 * `http_status`：HTTP 状态码。
+* `ingress_bytes`：下行字节数（从上游到客户端，header+body）。
+* `egress_bytes`：上行字节数（从客户端到上游，header+body）。
 * `payload_present`：是否包含 Payload (0/1)。
 * `req_headers_len`：请求头长度（字节）。
 * `req_body_len`：请求体长度（字节）。
@@ -1641,6 +1643,8 @@ Query（建议）：
       "net_ok": 1,
       "http_method": "GET",
       "http_status": 200,
+      "ingress_bytes": 1024,
+      "egress_bytes": 512,
       "payload_present": 0,
       "req_headers_len": 0,
       "req_body_len": 0,

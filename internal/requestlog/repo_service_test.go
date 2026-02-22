@@ -33,6 +33,8 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 			NetOK:             true,
 			HTTPMethod:        "GET",
 			HTTPStatus:        200,
+			IngressBytes:      1234,
+			EgressBytes:       567,
 			ReqHeadersLen:     8,
 			ReqBodyLen:        7,
 			RespHeadersLen:    6,
@@ -58,6 +60,8 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 			NetOK:        false,
 			HTTPMethod:   "POST",
 			HTTPStatus:   502,
+			IngressBytes: 2222,
+			EgressBytes:  1111,
 			ReqBodyLen:   10,
 			RespBodyLen:  11,
 		},
@@ -121,6 +125,9 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 	}
 	if row == nil || !row.PayloadPresent {
 		t.Fatalf("expected payload-present log row, got %+v", row)
+	}
+	if row.IngressBytes != 1234 || row.EgressBytes != 567 {
+		t.Fatalf("traffic bytes not persisted: ingress=%d egress=%d", row.IngressBytes, row.EgressBytes)
 	}
 	if !row.ReqBodyTruncated || !row.RespBodyTruncated {
 		t.Fatalf("truncated flags not persisted: %+v", row)

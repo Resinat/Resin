@@ -150,18 +150,21 @@ func stripHopByHopHeaders(header http.Header) {
 	}
 }
 
-// copyEndToEndHeaders copies only end-to-end headers from src to dst.
-func copyEndToEndHeaders(dst, src http.Header) {
+// copyEndToEndHeaders copies only end-to-end headers from src to dst and
+// returns the canonical wire-format header length after filtering.
+func copyEndToEndHeaders(dst, src http.Header) int64 {
 	if dst == nil || src == nil {
-		return
+		return 0
 	}
 	headers := src.Clone()
 	stripHopByHopHeaders(headers)
+	totalLen := headerWireLen(headers)
 	for k, vv := range headers {
 		for _, v := range vv {
 			dst.Add(k, v)
 		}
 	}
+	return totalLen
 }
 
 // prepareForwardOutboundRequest clones an inbound forward-proxy request into a
@@ -199,9 +202,18 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	transport := p.outboundHTTPTransport(routed)
 	outReq := prepareForwardOutboundRequest(r)
+	lifecycle.addEgressBytes(headerWireLen(outReq.Header))
+	var egressBodyCounter *countingReadCloser
+	if outReq.Body != nil && outReq.Body != http.NoBody {
+		egressBodyCounter = newCountingReadCloser(outReq.Body)
+		outReq.Body = egressBodyCounter
+	}
 
 	// Forward the request.
 	resp, err := transport.RoundTrip(outReq)
+	if egressBodyCounter != nil {
+		lifecycle.addEgressBytes(egressBodyCounter.Total())
+	}
 	if err != nil {
 		proxyErr := classifyUpstreamError(err)
 		if proxyErr == nil {
@@ -219,9 +231,11 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycle.setNetOK(true)
 
 	// Copy end-to-end response headers and body.
-	copyEndToEndHeaders(w.Header(), resp.Header)
+	lifecycle.addIngressBytes(copyEndToEndHeaders(w.Header(), resp.Header))
 	w.WriteHeader(resp.StatusCode)
-	if _, copyErr := io.Copy(w, resp.Body); copyErr != nil {
+	copiedBytes, copyErr := io.Copy(w, resp.Body)
+	lifecycle.addIngressBytes(copiedBytes)
+	if copyErr != nil {
 		if shouldRecordForwardCopyFailure(r, copyErr) {
 			lifecycle.setNetOK(false)
 			go p.health.RecordResult(routed.Route.NodeHash, false)
@@ -326,14 +340,18 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Bidirectional tunnel — no HTTP error responses after this point.
+	egressBytesCh := make(chan int64, 1)
 	go func() {
 		defer upstreamConn.Close()
 		defer clientConn.Close()
-		io.Copy(upstreamConn, clientToUpstream)
+		n, _ := io.Copy(upstreamConn, clientToUpstream)
+		egressBytesCh <- n
 	}()
-	io.Copy(clientConn, upstreamConn)
+	ingressBytes, _ := io.Copy(clientConn, upstreamConn)
+	lifecycle.addIngressBytes(ingressBytes)
 	clientConn.Close()
 	upstreamConn.Close()
+	lifecycle.addEgressBytes(<-egressBytesCh)
 }
 
 // makeTunnelClientReader returns a reader for client->upstream copy that

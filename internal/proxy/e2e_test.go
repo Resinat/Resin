@@ -88,6 +88,7 @@ func newProxyE2EEnv(t *testing.T) *proxyE2EEnv {
 
 func TestForwardProxy_E2EHTTPSuccess(t *testing.T) {
 	env := newProxyE2EEnv(t)
+	emitter := newMockEventEmitter()
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Proxy-Authorization"); got != "" {
@@ -110,11 +111,12 @@ func TestForwardProxy_E2EHTTPSuccess(t *testing.T) {
 		Router:     env.router,
 		Pool:       env.pool,
 		Health:     &mockHealthRecorder{},
-		Events:     NoOpEventEmitter{},
+		Events:     emitter,
 	})
 
 	req := httptest.NewRequest(http.MethodGet, upstream.URL+"/v1/ping?q=1", nil)
 	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	req.Header.Set("X-Test", "1")
 	w := httptest.NewRecorder()
 
 	fp.ServeHTTP(w, req)
@@ -128,6 +130,18 @@ func TestForwardProxy_E2EHTTPSuccess(t *testing.T) {
 	}
 	if got := w.Body.String(); got != "forward-e2e" {
 		t.Fatalf("body: got %q, want %q", got, "forward-e2e")
+	}
+
+	select {
+	case logEv := <-emitter.logCh:
+		if logEv.EgressBytes <= 0 {
+			t.Fatalf("EgressBytes: got %d, want > 0", logEv.EgressBytes)
+		}
+		if logEv.IngressBytes < int64(len("forward-e2e")) {
+			t.Fatalf("IngressBytes: got %d, want >= %d", logEv.IngressBytes, len("forward-e2e"))
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected forward log event")
 	}
 }
 
@@ -249,6 +263,12 @@ func TestReverseProxy_E2ECapturesDetailPayloads(t *testing.T) {
 			t.Fatalf("RespBody meta: len=%d truncated=%v, want len=%d truncated=false",
 				logEv.RespBodyLen, logEv.RespBodyTruncated, len(upstreamBody))
 		}
+		if logEv.EgressBytes < int64(len(reqBody)) {
+			t.Fatalf("EgressBytes: got %d, want >= %d", logEv.EgressBytes, len(reqBody))
+		}
+		if logEv.IngressBytes < int64(len(upstreamBody)) {
+			t.Fatalf("IngressBytes: got %d, want >= %d", logEv.IngressBytes, len(upstreamBody))
+		}
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("expected reverse log event")
 	}
@@ -256,6 +276,7 @@ func TestReverseProxy_E2ECapturesDetailPayloads(t *testing.T) {
 
 func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 	env := newProxyE2EEnv(t)
+	emitter := newMockEventEmitter()
 
 	targetLn, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -279,7 +300,7 @@ func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 		Router:     env.router,
 		Pool:       env.pool,
 		Health:     &mockHealthRecorder{},
-		Events:     NoOpEventEmitter{},
+		Events:     emitter,
 	})
 	proxySrv := httptest.NewServer(fp)
 	defer proxySrv.Close()
@@ -337,4 +358,16 @@ func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 
 	_ = clientConn.Close()
 	<-targetDone
+
+	select {
+	case logEv := <-emitter.logCh:
+		if logEv.EgressBytes != int64(len(payload)) {
+			t.Fatalf("EgressBytes: got %d, want %d", logEv.EgressBytes, len(payload))
+		}
+		if logEv.IngressBytes != int64(len(payload)) {
+			t.Fatalf("IngressBytes: got %d, want %d", logEv.IngressBytes, len(payload))
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected CONNECT log event")
+	}
 }

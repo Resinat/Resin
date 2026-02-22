@@ -58,6 +58,8 @@ type RequestLogEntry struct {
 	NetOK        bool
 	HTTPMethod   string
 	HTTPStatus   int
+	IngressBytes int64 // bytes from upstream to client (header + body)
+	EgressBytes  int64 // bytes from client to upstream (header + body)
 
 	// Optional detail payload (mainly for reverse proxy request logging).
 	ReqHeaders           []byte

@@ -283,6 +283,8 @@ func seedObservabilityData(
 			NetOK:                true,
 			HTTPMethod:           "GET",
 			HTTPStatus:           200,
+			IngressBytes:         210,
+			EgressBytes:          120,
 			ReqHeadersLen:        10,
 			ReqBodyLen:           11,
 			RespHeadersLen:       12,
@@ -1003,6 +1005,9 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	}
 	if row["payload_present"] != true {
 		t.Fatalf("payload_present: got %v, want true", row["payload_present"])
+	}
+	if row["ingress_bytes"] != float64(210) || row["egress_bytes"] != float64(120) {
+		t.Fatalf("traffic bytes mismatch: ingress=%v egress=%v", row["ingress_bytes"], row["egress_bytes"])
 	}
 
 	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs/"+logID+"/payloads", nil, true)

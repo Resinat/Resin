@@ -17,7 +17,7 @@ import (
 	"github.com/resin-proxy/resin/internal/state"
 )
 
-const logSummarySelectColumns = "id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, duration_ns, net_ok, http_method, http_status, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated"
+const logSummarySelectColumns = "id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, duration_ns, net_ok, http_method, http_status, ingress_bytes, egress_bytes, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated"
 
 // Repo manages rolling SQLite databases for request logs.
 // Each DB is named request_logs-<unix_ms>.db and lives in logDir.
@@ -109,10 +109,11 @@ func (r *Repo) InsertBatch(entries []proxy.RequestLogEntry) (int, error) {
 		platform_id, platform_name, account,
 		target_host, target_url, node_hash, node_tag, egress_ip,
 		duration_ns, net_ok, http_method, http_status,
+		ingress_bytes, egress_bytes,
 		payload_present,
 		req_headers_len, req_body_len, resp_headers_len, resp_body_len,
 		req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated
-	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return 0, fmt.Errorf("requestlog repo prepare log: %w", err)
 	}
@@ -147,6 +148,7 @@ func (r *Repo) InsertBatch(entries []proxy.RequestLogEntry) (int, error) {
 			e.PlatformID, e.PlatformName, e.Account,
 			e.TargetHost, e.TargetURL, e.NodeHash, e.NodeTag, e.EgressIP,
 			e.DurationNs, netOK, e.HTTPMethod, e.HTTPStatus,
+			e.IngressBytes, e.EgressBytes,
 			hasPayload,
 			e.ReqHeadersLen, e.ReqBodyLen, e.RespHeadersLen, e.RespBodyLen,
 			boolToInt(e.ReqHeadersTruncated), boolToInt(e.ReqBodyTruncated),
@@ -206,6 +208,8 @@ type LogSummary struct {
 	NetOK        bool   `json:"net_ok"`
 	HTTPMethod   string `json:"http_method"`
 	HTTPStatus   int    `json:"http_status"`
+	IngressBytes int64  `json:"ingress_bytes"`
+	EgressBytes  int64  `json:"egress_bytes"`
 
 	PayloadPresent       bool `json:"payload_present"`
 	ReqHeadersLen        int  `json:"req_headers_len"`
@@ -585,7 +589,7 @@ func scanLogSummary(s rowScanner) (LogSummary, error) {
 		&row.ID, &row.TsNs, &row.ProxyType, &row.ClientIP,
 		&row.PlatformID, &row.PlatformName, &row.Account,
 		&row.TargetHost, &row.TargetURL, &row.NodeHash, &row.NodeTag, &row.EgressIP,
-		&row.DurationNs, &netOK, &row.HTTPMethod, &row.HTTPStatus,
+		&row.DurationNs, &netOK, &row.HTTPMethod, &row.HTTPStatus, &row.IngressBytes, &row.EgressBytes,
 		&payloadPresent,
 		&row.ReqHeadersLen, &row.ReqBodyLen, &row.RespHeadersLen, &row.RespBodyLen,
 		&rht, &rbt, &rsht, &rsbt,
