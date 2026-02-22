@@ -80,7 +80,7 @@ func newMajorFlowHarness(t *testing.T, subscriptionUserAgent string) *majorFlowH
 	pool.SetOnNodeAdded(func(hash node.Hash) {
 		outboundMgr.EnsureNodeOutbound(hash)
 		ip := netip.MustParseAddr("203.0.113.55")
-		pool.UpdateNodeEgressIP(hash, &ip)
+		pool.UpdateNodeEgressIP(hash, &ip, nil)
 		latency := 25 * time.Millisecond
 		pool.RecordLatency(hash, "example.com", &latency)
 	})

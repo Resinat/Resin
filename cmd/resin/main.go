@@ -435,6 +435,7 @@ func newFlushReaders(
 				FailureCount:                       int(entry.FailureCount.Load()),
 				CircuitOpenSince:                   entry.CircuitOpenSince.Load(),
 				EgressIP:                           egressStr,
+				EgressRegion:                       entry.GetEgressRegion(),
 				EgressUpdatedAtNs:                  entry.LastEgressUpdate.Load(),
 				LastLatencyProbeAttemptNs:          entry.LastLatencyProbeAttempt.Load(),
 				LastAuthorityLatencyProbeAttemptNs: entry.LastAuthorityLatencyProbeAttempt.Load(),
@@ -767,6 +768,7 @@ func restoreBootstrapNodeDynamics(
 				entry.SetEgressIP(ip)
 			}
 		}
+		entry.SetEgressRegion(nd.EgressRegion)
 		entry.LastEgressUpdate.Store(nd.EgressUpdatedAtNs)
 	}
 	log.Printf("Loaded %d node dynamic states from cache.db", len(dynamics))

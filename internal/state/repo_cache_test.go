@@ -85,6 +85,7 @@ func TestCacheRepo_NodesDynamic_BulkUpsertAndLoad(t *testing.T) {
 			FailureCount:                       3,
 			CircuitOpenSince:                   1000,
 			EgressIP:                           "1.2.3.4",
+			EgressRegion:                       "us",
 			EgressUpdatedAtNs:                  500,
 			LastLatencyProbeAttemptNs:          700,
 			LastAuthorityLatencyProbeAttemptNs: 800,
@@ -101,6 +102,9 @@ func TestCacheRepo_NodesDynamic_BulkUpsertAndLoad(t *testing.T) {
 	}
 	if len(loaded) != 1 || loaded[0].FailureCount != 3 {
 		t.Fatalf("unexpected: %+v", loaded)
+	}
+	if loaded[0].EgressRegion != "us" {
+		t.Fatalf("egress_region: got %q, want %q", loaded[0].EgressRegion, "us")
 	}
 	if loaded[0].LastLatencyProbeAttemptNs != 700 ||
 		loaded[0].LastAuthorityLatencyProbeAttemptNs != 800 ||

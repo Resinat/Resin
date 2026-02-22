@@ -129,7 +129,7 @@ func (p *Platform) evaluateNode(
 
 	// 4. Region filter (when configured).
 	if len(p.RegionFilters) > 0 {
-		region := geoLookup(egressIP)
+		region := entry.GetRegion(geoLookup)
 		if !matchRegion(region, p.RegionFilters) {
 			return false
 		}

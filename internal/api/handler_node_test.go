@@ -4,10 +4,13 @@ import (
 	"net/http"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/resin-proxy/resin/internal/node"
+	"github.com/resin-proxy/resin/internal/probe"
 	"github.com/resin-proxy/resin/internal/service"
 	"github.com/resin-proxy/resin/internal/subscription"
+	"github.com/resin-proxy/resin/internal/testutil"
 )
 
 func addNodeForNodeListTest(t *testing.T, cp *service.ControlPlaneService, sub *subscription.Subscription, raw string, egressIP string) {
@@ -89,5 +92,43 @@ func TestHandleListNodes_UniqueEgressIPsUsesFilteredResult(t *testing.T) {
 	}
 	if body["unique_egress_ips"] != float64(1) {
 		t.Fatalf("filtered unique_egress_ips: got %v, want 1", body["unique_egress_ips"])
+	}
+}
+
+func TestHandleProbeEgress_ReturnsRegion(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	sub := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	cp.SubMgr.Register(sub)
+
+	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
+	hash := node.HashFromRawOptions(raw)
+	cp.Pool.AddNodeFromSub(hash, raw, sub.ID)
+	sub.ManagedNodes().Store(hash, []string{"tag"})
+
+	entry, ok := cp.Pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing after add", hash.Hex())
+	}
+	ob := testutil.NewNoopOutbound()
+	entry.Outbound.Store(&ob)
+
+	cp.ProbeMgr = probe.NewProbeManager(probe.ProbeConfig{
+		Pool: cp.Pool,
+		Fetcher: func(_ node.Hash, _ string) ([]byte, time.Duration, error) {
+			return []byte("ip=203.0.113.88\nloc=JP"), 25 * time.Millisecond, nil
+		},
+	})
+
+	rec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/nodes/"+hash.Hex()+"/actions/probe-egress", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("probe-egress status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["egress_ip"] != "203.0.113.88" {
+		t.Fatalf("egress_ip: got %v, want %q", body["egress_ip"], "203.0.113.88")
+	}
+	if body["region"] != "jp" {
+		t.Fatalf("region: got %v, want %q", body["region"], "jp")
 	}
 }

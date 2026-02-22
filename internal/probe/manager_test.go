@@ -36,7 +36,7 @@ func TestProbeEgress_Success(t *testing.T) {
 	}
 	storeOutbound(entry)
 
-	traceBody := []byte("fl=123\nip=203.0.113.1\nts=1234567890")
+	traceBody := []byte("fl=123\nip=203.0.113.1\nloc=US\nts=1234567890")
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
 		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
@@ -59,6 +59,9 @@ func TestProbeEgress_Success(t *testing.T) {
 	want := netip.MustParseAddr("203.0.113.1")
 	if got != want {
 		t.Fatalf("egress IP: got %v, want %v", got, want)
+	}
+	if got := entry.GetEgressRegion(); got != "us" {
+		t.Fatalf("egress region: got %q, want %q", got, "us")
 	}
 
 	// Verify RecordLatency for cloudflare.com.
@@ -241,6 +244,36 @@ func TestProbeEgress_ZeroLatencyIgnored(t *testing.T) {
 	}
 	if got := entry.GetEgressIP(); got != netip.MustParseAddr("203.0.113.1") {
 		t.Fatalf("egress IP: got %v, want 203.0.113.1", got)
+	}
+}
+
+func TestProbeEgress_WithoutLoc_ClearsStoredRegion(t *testing.T) {
+	pool := topology.NewGlobalNodePool(topology.PoolConfig{
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+	})
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"egress-clear-loc"}`))
+	pool.AddNodeFromSub(hash, []byte(`{"type":"egress-clear-loc"}`), "sub1")
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	storeOutbound(entry)
+	entry.SetEgressRegion("jp")
+
+	mgr := NewProbeManager(ProbeConfig{
+		Pool: pool,
+		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
+			return []byte("ip=203.0.113.1"), 10 * time.Millisecond, nil
+		},
+	})
+
+	mgr.probeEgress(hash, entry)
+
+	if got := entry.GetEgressRegion(); got != "" {
+		t.Fatalf("egress region: got %q, want empty", got)
 	}
 }
 
@@ -516,20 +549,37 @@ func TestIsLatencyProbeDue_UsesAttemptTimestamps(t *testing.T) {
 
 // TestParseCloudflareTrace_Success verifies IP extraction from trace body.
 func TestParseCloudflareTrace_Success(t *testing.T) {
-	body := []byte("fl=abc\nip=1.2.3.4\nts=12345")
-	addr, err := ParseCloudflareTrace(body)
+	body := []byte("fl=abc\nip=1.2.3.4\nloc=US\nts=12345")
+	addr, loc, err := ParseCloudflareTrace(body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if addr != netip.MustParseAddr("1.2.3.4") {
 		t.Fatalf("got %v, want 1.2.3.4", addr)
 	}
+	if loc == nil || *loc != "us" {
+		t.Fatalf("loc: got %v, want %q", loc, "us")
+	}
+}
+
+func TestParseCloudflareTrace_WithoutLoc(t *testing.T) {
+	body := []byte("fl=abc\nip=1.2.3.4\nts=12345")
+	addr, loc, err := ParseCloudflareTrace(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr != netip.MustParseAddr("1.2.3.4") {
+		t.Fatalf("got %v, want 1.2.3.4", addr)
+	}
+	if loc != nil {
+		t.Fatalf("loc: got %v, want nil", loc)
+	}
 }
 
 // TestParseCloudflareTrace_NoIP verifies error when ip= field is missing.
 func TestParseCloudflareTrace_NoIP(t *testing.T) {
 	body := []byte("fl=abc\nts=12345")
-	_, err := ParseCloudflareTrace(body)
+	_, _, err := ParseCloudflareTrace(body)
 	if err == nil {
 		t.Fatal("expected error when ip field is missing")
 	}

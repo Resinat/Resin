@@ -47,6 +47,7 @@ type NodeDynamic struct {
 	FailureCount                       int    `json:"failure_count"`
 	CircuitOpenSince                   int64  `json:"circuit_open_since"`
 	EgressIP                           string `json:"egress_ip"`
+	EgressRegion                       string `json:"egress_region"`
 	EgressUpdatedAtNs                  int64  `json:"egress_updated_at_ns"`
 	LastLatencyProbeAttemptNs          int64  `json:"last_latency_probe_attempt_ns"`
 	LastAuthorityLatencyProbeAttemptNs int64  `json:"last_authority_latency_probe_attempt_ns"`

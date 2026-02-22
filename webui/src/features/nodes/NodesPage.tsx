@@ -192,7 +192,10 @@ export function NodesPage() {
     mutationFn: async (hash: string) => probeEgress(hash),
     onSuccess: async (result) => {
       await refreshNodes();
-      showToast("success", `出口探测完成：egress=${result.egress_ip || "-"}，latency=${formatLatency(result.latency_ewma_ms)}`);
+      showToast(
+        "success",
+        `出口探测完成：egress=${result.egress_ip || "-"}，region=${result.region || "-"}，latency=${formatLatency(result.latency_ewma_ms)}`
+      );
     },
     onError: (error) => {
       showToast("error", fromApiError(error));

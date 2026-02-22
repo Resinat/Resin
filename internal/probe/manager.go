@@ -163,6 +163,7 @@ func (m *ProbeManager) TriggerImmediateEgressProbe(hash node.Hash) {
 // EgressProbeResult holds the results of a synchronous egress probe.
 type EgressProbeResult struct {
 	EgressIP      string  `json:"egress_ip"`
+	Region        string  `json:"region,omitempty"`
 	LatencyEwmaMs float64 `json:"latency_ewma_ms"`
 }
 
@@ -449,7 +450,7 @@ func (m *ProbeManager) performEgressProbe(hash node.Hash) (netip.Addr, egressPro
 	body, latency, err := m.fetcher(hash, egressTraceURL)
 	if err != nil {
 		m.pool.RecordResult(hash, false)
-		m.pool.UpdateNodeEgressIP(hash, nil)
+		m.pool.UpdateNodeEgressIP(hash, nil, nil)
 		return netip.Addr{}, egressProbeFetchError, err
 	}
 
@@ -458,12 +459,12 @@ func (m *ProbeManager) performEgressProbe(hash node.Hash) (netip.Addr, egressPro
 		m.pool.RecordLatency(hash, egressTraceDomain, &latency)
 	}
 
-	ip, err := ParseCloudflareTrace(body)
+	ip, loc, err := ParseCloudflareTrace(body)
 	if err != nil {
-		m.pool.UpdateNodeEgressIP(hash, nil)
+		m.pool.UpdateNodeEgressIP(hash, nil, nil)
 		return netip.Addr{}, egressProbeParseError, err
 	}
-	m.pool.UpdateNodeEgressIP(hash, &ip)
+	m.pool.UpdateNodeEgressIP(hash, &ip, loc)
 	return ip, egressProbeNoError, nil
 }
 

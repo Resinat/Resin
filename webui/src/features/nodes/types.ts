@@ -49,6 +49,7 @@ export type NodeListQuery = NodeListFilters & {
 
 export type EgressProbeResult = {
   egress_ip: string;
+  region?: string;
   latency_ewma_ms: number;
 };
 
