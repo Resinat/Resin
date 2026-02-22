@@ -31,3 +31,25 @@ func TestCollector_RecordLatency_BoundaryAndOverflowBuckets(t *testing.T) {
 		t.Fatalf("overflow bucket count: got %d, want %d", snap.LatencyBuckets[regularBins], 2)
 	}
 }
+
+func TestCollector_SwapConnectionWindowMax_TracksPeakAndResetsBaseline(t *testing.T) {
+	c := NewCollector(100, 3000)
+
+	// inbound: 0 -> 1 -> 2 -> 1, outbound: 0 -> 1 -> 0
+	c.RecordConnection(ConnInbound, 1)
+	c.RecordConnection(ConnInbound, 1)
+	c.RecordConnection(ConnInbound, -1)
+	c.RecordConnection(ConnOutbound, 1)
+	c.RecordConnection(ConnOutbound, -1)
+
+	inboundMax, outboundMax := c.SwapConnectionWindowMax()
+	if inboundMax != 2 || outboundMax != 1 {
+		t.Fatalf("first window max mismatch: inbound=%d outbound=%d", inboundMax, outboundMax)
+	}
+
+	// No new events: next window max should reflect current active levels.
+	inboundMax, outboundMax = c.SwapConnectionWindowMax()
+	if inboundMax != 1 || outboundMax != 0 {
+		t.Fatalf("second window max mismatch: inbound=%d outbound=%d", inboundMax, outboundMax)
+	}
+}

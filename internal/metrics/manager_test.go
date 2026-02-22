@@ -100,6 +100,37 @@ func TestTakeSample_ConnectionsAndLeasesUseDedicatedRings(t *testing.T) {
 	}
 }
 
+func TestTakeConnectionsSample_UsesWindowMaxActiveConnections(t *testing.T) {
+	mgr := NewManager(ManagerConfig{
+		ConnectionsRealtimeCapacity: 8,
+		ConnectionsIntervalSec:      5,
+	})
+
+	mgr.OnConnectionLifecycle(proxy.ConnectionInbound, proxy.ConnectionOpen)
+	mgr.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionOpen)
+	mgr.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionOpen)
+	mgr.OnConnectionLifecycle(proxy.ConnectionOutbound, proxy.ConnectionClose)
+	mgr.takeConnectionsSample(time.Unix(5, 0))
+
+	first, ok := mgr.ConnectionsRing().Latest()
+	if !ok {
+		t.Fatal("expected first sample in connections ring")
+	}
+	if first.InboundConns != 1 || first.OutboundConns != 2 {
+		t.Fatalf("first sample mismatch: %+v", first)
+	}
+
+	// No lifecycle events in this window: values should reflect steady active counts.
+	mgr.takeConnectionsSample(time.Unix(10, 0))
+	second, ok := mgr.ConnectionsRing().Latest()
+	if !ok {
+		t.Fatal("expected second sample in connections ring")
+	}
+	if second.InboundConns != 1 || second.OutboundConns != 1 {
+		t.Fatalf("second sample mismatch: %+v", second)
+	}
+}
+
 func TestOnLeaseEvent_IgnoresNonPositiveLifetimeSamples(t *testing.T) {
 	mgr := NewManager(ManagerConfig{
 		LeasesRealtimeCapacity: 8,

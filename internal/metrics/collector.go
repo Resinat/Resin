@@ -20,8 +20,12 @@ type counters struct {
 	egressBytes     atomic.Int64
 	inboundConns    atomic.Int64
 	outboundConns   atomic.Int64
-	probeEgress     atomic.Int64
-	probeLatency    atomic.Int64
+	// Window peaks for realtime connection sampling. These track the maximum
+	// active connections observed since the previous sample.
+	inboundConnsPeak  atomic.Int64
+	outboundConnsPeak atomic.Int64
+	probeEgress       atomic.Int64
+	probeLatency      atomic.Int64
 
 	// Latency histogram: fixed-bucket durations.
 	// Each regular bucket[i] = count of requests with latency in
@@ -141,10 +145,47 @@ func (c *Collector) RecordTraffic(ingress, egress int64) {
 // RecordConnection records a connection lifecycle event.
 func (c *Collector) RecordConnection(dir ConnectionDirection, delta int64) {
 	if dir == ConnInbound {
-		c.global.inboundConns.Add(delta)
+		current := c.global.inboundConns.Add(delta)
+		if delta > 0 {
+			recordPeak(&c.global.inboundConnsPeak, current)
+		}
 	} else {
-		c.global.outboundConns.Add(delta)
+		current := c.global.outboundConns.Add(delta)
+		if delta > 0 {
+			recordPeak(&c.global.outboundConnsPeak, current)
+		}
 	}
+}
+
+func recordPeak(peak *atomic.Int64, value int64) {
+	for {
+		current := peak.Load()
+		if value <= current {
+			return
+		}
+		if peak.CompareAndSwap(current, value) {
+			return
+		}
+	}
+}
+
+// SwapConnectionWindowMax atomically returns the maximum active connections
+// observed since the previous call, then resets next-window baselines to the
+// current active connection counts.
+func (c *Collector) SwapConnectionWindowMax() (inboundMax, outboundMax int64) {
+	inboundCurrent := c.global.inboundConns.Load()
+	outboundCurrent := c.global.outboundConns.Load()
+
+	inboundMax = c.global.inboundConnsPeak.Swap(inboundCurrent)
+	outboundMax = c.global.outboundConnsPeak.Swap(outboundCurrent)
+
+	if inboundCurrent > inboundMax {
+		inboundMax = inboundCurrent
+	}
+	if outboundCurrent > outboundMax {
+		outboundMax = outboundCurrent
+	}
+	return inboundMax, outboundMax
 }
 
 // RecordProbe records a probe attempt.
