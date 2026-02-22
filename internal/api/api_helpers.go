@@ -17,7 +17,7 @@ import (
 
 const (
 	defaultPageLimit = 50
-	maxPageLimit     = 10000
+	maxPageLimit     = 100000
 )
 
 // Pagination holds parsed limit/offset values.

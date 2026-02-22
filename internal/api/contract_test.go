@@ -1037,7 +1037,7 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 
 	invalidCases := []string{
 		"/api/v1/request-logs?limit=bad",
-		"/api/v1/request-logs?limit=10001",
+		"/api/v1/request-logs?limit=100001",
 		"/api/v1/request-logs?offset=1",
 		"/api/v1/request-logs?cursor=not-base64",
 		"/api/v1/request-logs?proxy_type=3",

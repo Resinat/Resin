@@ -266,9 +266,6 @@ func (r *Repo) List(f ListFilter) ([]LogSummary, bool, *ListCursor, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	if limit > 10000 {
-		limit = 10000
-	}
 	// Fetch one extra row across retained DBs to derive has_more.
 	fetchLimit := limit + 1
 	var results []LogSummary

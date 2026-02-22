@@ -115,7 +115,7 @@ func parseRequestLogLimitQuery(w http.ResponseWriter, r *http.Request) (int, boo
 		return 0, false
 	}
 	if n > maxPageLimit {
-		writeInvalidArgument(w, "limit: must be <= 10000")
+		writeInvalidArgument(w, "limit: must be <= "+strconv.Itoa(maxPageLimit))
 		return 0, false
 	}
 	if n > 0 {
