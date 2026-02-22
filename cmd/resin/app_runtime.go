@@ -87,6 +87,9 @@ func newResinApp(envCfg *config.EnvConfig, engine *state.StateEngine) (*resinApp
 		runtimeCfg: &atomic.Pointer[config.RuntimeConfig]{},
 	}
 	app.runtimeCfg.Store(loadRuntimeConfig(engine))
+	if err := ensureDefaultAccountHeaderRule(engine); err != nil {
+		return nil, err
+	}
 	app.accountMatcher = buildAccountMatcher(engine)
 
 	retryDL, err := app.initTopologyRuntime(engine)

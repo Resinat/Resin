@@ -395,6 +395,23 @@ func ensureDefaultPlatform(
 	return nil
 }
 
+var defaultFallbackAccountHeaders = []string{"Authorization", "x-api-key"}
+
+func ensureDefaultAccountHeaderRule(engine *state.StateEngine) error {
+	created, err := engine.EnsureAccountHeaderRule(model.AccountHeaderRule{
+		URLPrefix:   "*",
+		Headers:     append([]string(nil), defaultFallbackAccountHeaders...),
+		UpdatedAtNs: time.Now().UnixNano(),
+	})
+	if err != nil {
+		return fmt.Errorf("ensure default account header fallback rule: %w", err)
+	}
+	if created {
+		log.Printf("Created built-in account header fallback rule %q", "*")
+	}
+	return nil
+}
+
 func newFlushReaders(
 	pool *topology.GlobalNodePool,
 	subManager *topology.SubscriptionManager,

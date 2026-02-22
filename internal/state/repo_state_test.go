@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -354,6 +355,49 @@ func TestStateRepo_AccountHeaderRules_UpsertCreatedFlag(t *testing.T) {
 	}
 	if created {
 		t.Fatal("expected second upsert to report created=false")
+	}
+}
+
+func TestStateRepo_EnsureAccountHeaderRule_InsertsOnlyWhenMissing(t *testing.T) {
+	repo := newTestStateRepo(t)
+	now := time.Now().UnixNano()
+
+	created, err := repo.EnsureAccountHeaderRule(model.AccountHeaderRule{
+		URLPrefix:   "*",
+		Headers:     []string{"Authorization", "x-api-key"},
+		UpdatedAtNs: now,
+	})
+	if err != nil {
+		t.Fatalf("EnsureAccountHeaderRule first call: %v", err)
+	}
+	if !created {
+		t.Fatal("expected first ensure call to create row")
+	}
+
+	created, err = repo.EnsureAccountHeaderRule(model.AccountHeaderRule{
+		URLPrefix:   "*",
+		Headers:     []string{"X-Should-Not-Overwrite"},
+		UpdatedAtNs: now + 1,
+	})
+	if err != nil {
+		t.Fatalf("EnsureAccountHeaderRule second call: %v", err)
+	}
+	if created {
+		t.Fatal("expected second ensure call to skip existing row")
+	}
+
+	list, err := repo.ListAccountHeaderRules()
+	if err != nil {
+		t.Fatalf("ListAccountHeaderRules: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected exactly one rule, got %d", len(list))
+	}
+	if list[0].URLPrefix != "*" {
+		t.Fatalf("url_prefix = %q, want %q", list[0].URLPrefix, "*")
+	}
+	if !reflect.DeepEqual(list[0].Headers, []string{"Authorization", "x-api-key"}) {
+		t.Fatalf("headers = %v, want %v", list[0].Headers, []string{"Authorization", "x-api-key"})
 	}
 }
 

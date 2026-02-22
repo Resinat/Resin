@@ -24,6 +24,8 @@ type RuleResponse struct {
 	UpdatedAt string   `json:"updated_at"`
 }
 
+const fallbackRulePrefix = "*"
+
 func normalizeRulePrefix(prefix string) (string, *ServiceError) {
 	normalized, err := proxy.NormalizeRulePrefix(prefix)
 	if err != nil {
@@ -115,6 +117,9 @@ func (s *ControlPlaneService) DeleteAccountHeaderRule(prefix string) error {
 	normalizedPrefix, verr := normalizeRulePrefix(prefix)
 	if verr != nil {
 		return verr
+	}
+	if normalizedPrefix == fallbackRulePrefix {
+		return invalidArg(`fallback rule "*" cannot be deleted`)
 	}
 	if err := s.Engine.DeleteAccountHeaderRule(normalizedPrefix); err != nil {
 		if errors.Is(err, state.ErrNotFound) {

@@ -63,6 +63,10 @@ function RuleHeadersPreview({ rule }: { rule: Rule }) {
   );
 }
 
+function isFallbackRule(rule: Rule): boolean {
+  return rule.url_prefix === "*";
+}
+
 export function RulesPage() {
   const [search, setSearch] = useState("");
   const [selectedPrefix, setSelectedPrefix] = useState("");
@@ -190,6 +194,10 @@ export function RulesPage() {
   });
 
   const handleDelete = async (rule: Rule) => {
+    if (isFallbackRule(rule)) {
+      showToast("error", '兜底规则 "*" 不允许删除');
+      return;
+    }
     const confirmed = window.confirm(`确认删除规则 ${rule.url_prefix} 吗？`);
     if (!confirmed) {
       return;
@@ -329,8 +337,8 @@ export function RulesPage() {
                           size="sm"
                           variant="ghost"
                           onClick={() => void handleDelete(rule)}
-                          disabled={deleteMutation.isPending}
-                          title="删除"
+                          disabled={deleteMutation.isPending || isFallbackRule(rule)}
+                          title={isFallbackRule(rule) ? '兜底规则 "*" 不可删除' : "删除"}
                           style={{ color: "var(--delete-btn-color, #c27070)" }}
                         >
                           <Trash2 size={14} />
@@ -410,12 +418,16 @@ export function RulesPage() {
                     <article className="platform-op-item">
                       <div className="platform-op-copy">
                         <h5>删除规则</h5>
-                        <p className="platform-op-hint">删除后该 prefix 将不再生效。</p>
+                        <p className="platform-op-hint">
+                          {isFallbackRule(selectedRule)
+                            ? '兜底规则 "*" 仅允许编辑，不允许删除。'
+                            : "删除后该 prefix 将不再生效。"}
+                        </p>
                       </div>
                       <Button
                         variant="danger"
                         onClick={() => void handleDelete(selectedRule)}
-                        disabled={deleteMutation.isPending}
+                        disabled={deleteMutation.isPending || isFallbackRule(selectedRule)}
                       >
                         删除
                       </Button>

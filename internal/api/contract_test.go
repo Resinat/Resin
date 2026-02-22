@@ -1088,6 +1088,43 @@ func TestAPIContract_DeleteRuleRejectsInvalidPrefix(t *testing.T) {
 	assertErrorCode(t, rec, "INVALID_ARGUMENT")
 }
 
+func TestAPIContract_DeleteFallbackRuleRejected(t *testing.T) {
+	srv, _, _ := newControlPlaneTestServer(t)
+
+	rec := doJSONRequest(t, srv, http.MethodPut, "/api/v1/account-header-rules/%2A", map[string]any{
+		"headers": []string{"Authorization", "x-api-key"},
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create fallback rule status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodDelete, "/api/v1/account-header-rules/%2A", nil, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("delete fallback rule status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "INVALID_ARGUMENT")
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/account-header-rules", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list rules status after delete fallback attempt: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	items, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("rule items type: got %T", body["items"])
+	}
+	if len(items) != 1 {
+		t.Fatalf("rule items len: got %d, want %d, body=%s", len(items), 1, rec.Body.String())
+	}
+	rule, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("rule item type: got %T", items[0])
+	}
+	if rule["url_prefix"] != "*" {
+		t.Fatalf("fallback rule should remain, got url_prefix=%v", rule["url_prefix"])
+	}
+}
+
 func TestAPIContract_UpsertRuleRequiresPathPrefix(t *testing.T) {
 	srv, _, _ := newControlPlaneTestServer(t)
 

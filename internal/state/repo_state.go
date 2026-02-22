@@ -307,6 +307,29 @@ func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 
 // --- account_header_rules ---
 
+// EnsureAccountHeaderRule inserts a rule by url_prefix only when it does not
+// already exist and reports whether the row was newly created.
+func (r *StateRepo) EnsureAccountHeaderRule(rule model.AccountHeaderRule) (bool, error) {
+	headersJSON, err := encodeStringSliceJSON(rule.Headers)
+	if err != nil {
+		return false, fmt.Errorf("encode account header rule %q headers: %w", rule.URLPrefix, err)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	result, err := r.db.Exec(`
+		INSERT INTO account_header_rules (url_prefix, headers_json, updated_at_ns)
+		VALUES (?, ?, ?)
+		ON CONFLICT(url_prefix) DO NOTHING
+	`, rule.URLPrefix, headersJSON, rule.UpdatedAtNs)
+	if err != nil {
+		return false, err
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, nil
+}
+
 // UpsertAccountHeaderRuleWithCreated inserts or updates a rule by url_prefix and
 // reports whether the row was newly created.
 func (r *StateRepo) UpsertAccountHeaderRuleWithCreated(rule model.AccountHeaderRule) (bool, error) {

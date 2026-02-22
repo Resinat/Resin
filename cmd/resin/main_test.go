@@ -131,6 +131,67 @@ func TestBootstrapTopology_DefaultPlatformCreationIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestEnsureDefaultAccountHeaderRule_CreatesFallbackWhenMissing(t *testing.T) {
+	engine, closer, err := state.PersistenceBootstrap(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("PersistenceBootstrap: %v", err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+
+	if err := ensureDefaultAccountHeaderRule(engine); err != nil {
+		t.Fatalf("ensureDefaultAccountHeaderRule: %v", err)
+	}
+	if err := ensureDefaultAccountHeaderRule(engine); err != nil {
+		t.Fatalf("ensureDefaultAccountHeaderRule second call: %v", err)
+	}
+
+	rules, err := engine.ListAccountHeaderRules()
+	if err != nil {
+		t.Fatalf("ListAccountHeaderRules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 fallback rule, got %d", len(rules))
+	}
+	if rules[0].URLPrefix != "*" {
+		t.Fatalf("fallback url_prefix = %q, want %q", rules[0].URLPrefix, "*")
+	}
+	if !reflect.DeepEqual(rules[0].Headers, []string{"Authorization", "x-api-key"}) {
+		t.Fatalf("fallback headers = %v, want %v", rules[0].Headers, []string{"Authorization", "x-api-key"})
+	}
+}
+
+func TestEnsureDefaultAccountHeaderRule_DoesNotOverwriteExistingFallback(t *testing.T) {
+	engine, closer, err := state.PersistenceBootstrap(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("PersistenceBootstrap: %v", err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+
+	custom := model.AccountHeaderRule{
+		URLPrefix:   "*",
+		Headers:     []string{"X-Custom-Account"},
+		UpdatedAtNs: time.Now().UnixNano(),
+	}
+	if _, err := engine.UpsertAccountHeaderRuleWithCreated(custom); err != nil {
+		t.Fatalf("seed fallback rule: %v", err)
+	}
+
+	if err := ensureDefaultAccountHeaderRule(engine); err != nil {
+		t.Fatalf("ensureDefaultAccountHeaderRule: %v", err)
+	}
+
+	rules, err := engine.ListAccountHeaderRules()
+	if err != nil {
+		t.Fatalf("ListAccountHeaderRules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 fallback rule, got %d", len(rules))
+	}
+	if !reflect.DeepEqual(rules[0].Headers, custom.Headers) {
+		t.Fatalf("fallback headers should stay custom, got %v, want %v", rules[0].Headers, custom.Headers)
+	}
+}
+
 func TestBootstrapTopology_DefaultPlatformByNameDoesNotSatisfyDefaultID(t *testing.T) {
 	engine, closer, err := state.PersistenceBootstrap(t.TempDir(), t.TempDir())
 	if err != nil {

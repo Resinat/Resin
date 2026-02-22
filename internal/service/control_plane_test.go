@@ -368,6 +368,50 @@ func TestDeleteAccountHeaderRule_DoesNotFallbackForLegacyMixedCaseRows(t *testin
 	}
 }
 
+func TestDeleteAccountHeaderRule_RejectsFallbackRule(t *testing.T) {
+	dir := t.TempDir()
+	engine, closer, err := state.PersistenceBootstrap(
+		filepath.Join(dir, "state"),
+		filepath.Join(dir, "cache"),
+	)
+	if err != nil {
+		t.Fatalf("PersistenceBootstrap: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = closer.Close()
+	})
+
+	fallback := model.AccountHeaderRule{
+		URLPrefix:   "*",
+		Headers:     []string{"Authorization", "x-api-key"},
+		UpdatedAtNs: time.Now().UnixNano(),
+	}
+	if _, err := engine.UpsertAccountHeaderRuleWithCreated(fallback); err != nil {
+		t.Fatalf("seed fallback rule: %v", err)
+	}
+
+	cp := &ControlPlaneService{
+		Engine:         engine,
+		MatcherRuntime: proxy.NewAccountMatcherRuntime(nil),
+	}
+	err = cp.DeleteAccountHeaderRule("*")
+	var svcErr *ServiceError
+	if !errors.As(err, &svcErr) {
+		t.Fatalf("DeleteAccountHeaderRule error type = %T, want *ServiceError", err)
+	}
+	if svcErr.Code != "INVALID_ARGUMENT" {
+		t.Fatalf("DeleteAccountHeaderRule error code = %q, want INVALID_ARGUMENT", svcErr.Code)
+	}
+
+	rules, err := engine.ListAccountHeaderRules()
+	if err != nil {
+		t.Fatalf("ListAccountHeaderRules: %v", err)
+	}
+	if len(rules) != 1 || rules[0].URLPrefix != "*" {
+		t.Fatalf("expected fallback rule to remain, got %+v", rules)
+	}
+}
+
 func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	dir := t.TempDir()
 	engine, closer, err := state.PersistenceBootstrap(
