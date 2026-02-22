@@ -106,6 +106,92 @@ func TestEphemeralCleaner_ConfirmedEviction(t *testing.T) {
 	}
 }
 
+func TestEphemeralCleaner_NoOutboundErrorEvicted(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := NewGlobalNodePool(PoolConfig{
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 2 },
+	})
+
+	sub := subscription.NewSubscription("sub-no-ob-err", "ephemeral-sub", "http://example.com", true, true)
+	subMgr.Register(sub)
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"no-outbound-error-node"}`))
+	pool.AddNodeFromSub(hash, []byte(`{"type":"no-outbound-error-node"}`), sub.ID)
+	sub.ManagedNodes().Store(hash, []string{"tag1"})
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	entry.SetLastError("outbound build: boom")
+
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+	cleaner.sweep()
+
+	if _, still := sub.ManagedNodes().Load(hash); still {
+		t.Fatal("expected no-outbound error node to be evicted from subscription")
+	}
+}
+
+func TestEphemeralCleaner_NoOutboundWithoutErrorSkipped(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := NewGlobalNodePool(PoolConfig{
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 2 },
+	})
+
+	sub := subscription.NewSubscription("sub-no-ob-ok", "ephemeral-sub", "http://example.com", true, true)
+	subMgr.Register(sub)
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"no-outbound-without-error-node"}`))
+	pool.AddNodeFromSub(hash, []byte(`{"type":"no-outbound-without-error-node"}`), sub.ID)
+	sub.ManagedNodes().Store(hash, []string{"tag1"})
+
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+	cleaner.sweep()
+
+	if _, still := sub.ManagedNodes().Load(hash); !still {
+		t.Fatal("node without outbound but no error should not be evicted")
+	}
+}
+
+func TestEphemeralCleaner_TOCTOU_NoOutboundErrorRecoveredBetweenScans(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := NewGlobalNodePool(PoolConfig{
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 2 },
+	})
+
+	sub := subscription.NewSubscription("sub-no-ob-toctou", "ephemeral-sub", "http://example.com", true, true)
+	subMgr.Register(sub)
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"no-outbound-toctou-node"}`))
+	pool.AddNodeFromSub(hash, []byte(`{"type":"no-outbound-toctou-node"}`), sub.ID)
+	sub.ManagedNodes().Store(hash, []string{"tag1"})
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	entry.SetLastError("outbound build: boom")
+
+	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+
+	hookCalled := false
+	cleaner.sweepWithHook(func() {
+		hookCalled = true
+		entry.SetLastError("")
+	})
+
+	if !hookCalled {
+		t.Fatal("betweenScans hook was not called — node may not have been a candidate")
+	}
+	if _, still := sub.ManagedNodes().Load(hash); !still {
+		t.Fatal("TOCTOU regression: recovered no-outbound error node was evicted")
+	}
+}
+
 // TestEphemeralCleaner_NonEphemeralSkipped verifies non-ephemeral subs are skipped.
 func TestEphemeralCleaner_NonEphemeralSkipped(t *testing.T) {
 	subMgr := NewSubscriptionManager()

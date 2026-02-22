@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/scanloop"
 	"github.com/Resinat/Resin/internal/subscription"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
-// EphemeralCleaner periodically removes circuit-broken nodes from ephemeral subscriptions.
+// EphemeralCleaner periodically removes unhealthy nodes from ephemeral subscriptions.
 type EphemeralCleaner struct {
 	subManager *SubscriptionManager
 	pool       *GlobalNodePool
@@ -124,8 +124,7 @@ func (c *EphemeralCleaner) sweepOneSubscription(
 			if !ok {
 				return true
 			}
-			circuitSince := entry.CircuitOpenSince.Load()
-			if circuitSince > 0 && (now-circuitSince) > evictDelayNs {
+			if c.shouldEvictEntry(entry, now, evictDelayNs) {
 				evictSet[h] = struct{}{}
 			}
 			return true
@@ -148,8 +147,7 @@ func (c *EphemeralCleaner) sweepOneSubscription(
 			if !ok {
 				continue
 			}
-			cs := entry.CircuitOpenSince.Load()
-			if cs > 0 && (now-cs) > evictDelayNs {
+			if c.shouldEvictEntry(entry, now, evictDelayNs) {
 				confirmedEvict[h] = struct{}{}
 			}
 		}
@@ -178,4 +176,20 @@ func (c *EphemeralCleaner) sweepOneSubscription(
 	if evictCount > 0 {
 		log.Printf("[ephemeral] evicted %d nodes from sub %s", evictCount, id)
 	}
+}
+
+func (c *EphemeralCleaner) shouldEvictEntry(entry *node.NodeEntry, now int64, evictDelayNs int64) bool {
+	if entry == nil {
+		return false
+	}
+
+	// Outbound build failed and node is still without outbound.
+	// For ephemeral subscriptions, this node should be dropped quickly.
+	if !entry.HasOutbound() && entry.GetLastError() != "" {
+		return true
+	}
+
+	// Circuit remains open beyond configured eviction delay.
+	circuitSince := entry.CircuitOpenSince.Load()
+	return circuitSince > 0 && (now-circuitSince) > evictDelayNs
 }
