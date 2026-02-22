@@ -83,8 +83,8 @@ go build -tags "with_quic with_wireguard with_grpc with_utls with_embedded_tor w
 请使用 `Proxy-Authorization` 头传递业务信息，格式为：`令牌:平台:账号`。
 
 ```bash
-curl -x http://127.0.0.1:8080 \
-  -H "Proxy-Authorization: Basic my-token:Default:Tom" \
+curl -x http://127.0.0.1:2621 \
+  -U "my-token:Default:Tom" \
   https://api.example.com/ip
 ```
 *（多次运行该命令，系统将始终为 Account `Tom` 返回稳定一致的出口 IP。）*
@@ -94,7 +94,7 @@ curl -x http://127.0.0.1:8080 \
 URL 格式为：`/令牌/平台:账号/协议/目标地址`：
 
 ```bash
-curl "http://127.0.0.1:8080/my-token/Default:Tom/https/api.example.com/ip"
+curl "http://127.0.0.1:2622/my-token/Default:Tom/https/api.example.com/ip"
 ```
 *（Resin 会通过绑定的固定 IP 向上游网站发起请求，并返回结果。）*
 
