@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Eraser, Globe, RefreshCw, Sparkles, X, Zap } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useLocation } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -41,6 +41,20 @@ const defaultFilterDraft: NodeFilterDraft = {
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000, 2000, 5000] as const;
 const EMPTY_PLATFORMS: Platform[] = [];
+const NODE_FILTER_ITEM_STYLE: CSSProperties = {
+  flex: "1 1 120px",
+  minWidth: "80px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "0.25rem",
+};
+const NODE_FILTER_CONTROL_STYLE: CSSProperties = {
+  width: "100%",
+  padding: "4px 8px",
+  fontSize: "0.875rem",
+  minHeight: "32px",
+  height: "32px",
+};
 
 function fromApiError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -400,7 +414,7 @@ export function NodesPage() {
               alignItems: "flex-end",
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-tag-keyword" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
                 节点名
               </label>
@@ -409,19 +423,19 @@ export function NodesPage() {
                 value={draftFilters.tag_keyword}
                 onChange={(event) => handleFilterChange("tag_keyword", event.target.value)}
                 placeholder="模糊搜索"
-                style={{ width: 160, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                style={NODE_FILTER_CONTROL_STYLE}
               />
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-platform-id" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                仅显示被此平台路由的节点
+                被此平台路由
               </label>
               <Select
                 id="node-platform-id"
                 value={draftFilters.platform_id}
                 onChange={(event) => handleFilterChange("platform_id", event.target.value)}
-                style={{ width: 180, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                style={NODE_FILTER_CONTROL_STYLE}
               >
                 <option value="">无限制</option>
                 {platforms.map((p) => (
@@ -432,15 +446,15 @@ export function NodesPage() {
               </Select>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-subscription-id" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                来自此订阅的节点
+                来自此订阅
               </label>
               <Select
                 id="node-subscription-id"
                 value={draftFilters.subscription_id}
                 onChange={(event) => handleFilterChange("subscription_id", event.target.value)}
-                style={{ width: 140, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                style={NODE_FILTER_CONTROL_STYLE}
               >
                 <option value="">全部</option>
                 {subscriptions.map((s) => (
@@ -451,7 +465,7 @@ export function NodesPage() {
               </Select>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-region" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
                 区域
               </label>
@@ -459,7 +473,7 @@ export function NodesPage() {
                 id="node-region"
                 value={draftFilters.region}
                 onChange={(event) => handleFilterChange("region", event.target.value)}
-                style={{ width: 100, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                style={NODE_FILTER_CONTROL_STYLE}
               >
                 <option value="">全部</option>
                 {allRegions.map((r) => (
@@ -470,7 +484,7 @@ export function NodesPage() {
               </Select>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-egress-ip" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
                 出口 IP
               </label>
@@ -479,11 +493,11 @@ export function NodesPage() {
                 value={draftFilters.egress_ip}
                 onChange={(event) => handleFilterChange("egress_ip", event.target.value)}
                 placeholder="IP / CIDR"
-                style={{ width: 120, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                style={NODE_FILTER_CONTROL_STYLE}
               />
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+            <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-status" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
                 状态
               </label>
@@ -491,7 +505,7 @@ export function NodesPage() {
                 id="node-status"
                 value={draftFilters.status}
                 onChange={(event) => handleFilterChange("status", event.target.value)}
-                style={{ width: 90, padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
+                style={NODE_FILTER_CONTROL_STYLE}
               >
                 <option value="all">全部</option>
                 <option value="healthy">健康</option>
