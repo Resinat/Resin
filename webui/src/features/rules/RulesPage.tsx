@@ -48,8 +48,8 @@ function RuleHeadersPreview({ rule }: { rule: Rule }) {
     return <span className="muted">-</span>;
   }
 
-  const displayHeaders = rule.headers.slice(0, 2);
-  const extraCount = rule.headers.length - 2;
+  const displayHeaders = rule.headers.slice(0, 20);
+  const extraCount = rule.headers.length - 20;
 
   return (
     <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
