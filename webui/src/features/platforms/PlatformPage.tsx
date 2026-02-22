@@ -247,11 +247,8 @@ export function PlatformPage() {
                   </span>
                 </div>
                 <div className="platform-tile-foot">
-                  {/* <span>
-                    {allocationPolicyLabel[platform.allocation_policy]} · {" "}
-                    {missActionLabel[platform.reverse_proxy_miss_action]}
-                  </span> */}
-                  <span className="platform-tile-updated">更新于 {formatRelativeTime(platform.updated_at)}</span>
+                  <span className="platform-tile-meta">节点 {platform.routable_node_count}</span>
+                  <span className="platform-tile-meta platform-tile-updated">更新于 {formatRelativeTime(platform.updated_at)}</span>
                 </div>
               </button>
             );

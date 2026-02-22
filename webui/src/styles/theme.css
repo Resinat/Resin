@@ -1316,9 +1316,12 @@ a {
   font-size: 12px;
 }
 
+.platform-tile-meta {
+  white-space: nowrap;
+}
+
 .platform-tile-updated {
   margin-left: auto;
-  white-space: nowrap;
 }
 
 .muted {

@@ -1025,6 +1025,7 @@ Body（partial patch 示例）：
   "sticky_ttl": "30m",
   "regex_filters": ["^sub1/.*", ".*hk.*"],
   "region_filters": ["hk","us"],
+  "routable_node_count": 123,
   "reverse_proxy_miss_action": "RANDOM|REJECT",
   "allocation_policy": "BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP",
   "updated_at": "2026-02-10T12:34:56Z"
@@ -1056,7 +1057,7 @@ Body：
 
 * 必填字段：`name`
 * 可选字段：`sticky_ttl`、`regex_filters`、`region_filters`、`reverse_proxy_miss_action`、`allocation_policy`
-* 不可传字段：`id`、`updated_at`
+* 不可传字段：`id`、`updated_at`、`routable_node_count`
 * 省略可选字段时，使用当前环境变量默认平台设置（`RESIN_DEFAULT_PLATFORM_*`）对应值
 
 关键校验：
@@ -1094,7 +1095,7 @@ Body（partial patch 示例）：
 
 * 必填字段：无
 * 可改字段：`name`、`sticky_ttl`、`regex_filters`、`region_filters`、`reverse_proxy_miss_action`、`allocation_policy`
-* 不可改字段：`id`、`updated_at`
+* 不可改字段：`id`、`updated_at`、`routable_node_count`
 
 关键校验：与“创建平台”一致。
 

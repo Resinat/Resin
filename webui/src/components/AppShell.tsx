@@ -4,10 +4,10 @@ import {
   LayoutDashboard,
   Logs,
   Network,
-  Route,
+  Regex,
+  Rss,
+  Server,
   Settings,
-  ShieldCheck,
-  Split,
 } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -23,10 +23,10 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { label: "总览看板", path: "/dashboard", icon: LayoutDashboard },
-  { label: "平台管理", path: "/platforms", icon: Route },
-  { label: "订阅管理", path: "/subscriptions", icon: Split },
+  { label: "平台管理", path: "/platforms", icon: Server },
+  { label: "订阅管理", path: "/subscriptions", icon: Rss },
   { label: "节点池", path: "/nodes", icon: Network },
-  { label: "请求头规则", path: "/rules", icon: ShieldCheck },
+  { label: "请求头规则", path: "/rules", icon: Regex },
   { label: "请求日志", path: "/request-logs", icon: Logs },
   { label: "资源", path: "/resources", icon: Database },
   { label: "系统配置", path: "/system-config", icon: Settings },

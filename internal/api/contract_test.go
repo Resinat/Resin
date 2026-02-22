@@ -26,6 +26,7 @@ import (
 	"github.com/resin-proxy/resin/internal/routing"
 	"github.com/resin-proxy/resin/internal/service"
 	"github.com/resin-proxy/resin/internal/state"
+	"github.com/resin-proxy/resin/internal/testutil"
 	"github.com/resin-proxy/resin/internal/topology"
 )
 
@@ -476,6 +477,62 @@ func TestAPIContract_PaginationAndSorting(t *testing.T) {
 	item1 := items[1].(map[string]any)
 	if item0["name"] != "beta" || item1["name"] != "zeta" {
 		t.Fatalf("unexpected order: got [%v, %v]", item0["name"], item1["name"])
+	}
+}
+
+func TestAPIContract_PlatformListIncludesRoutableNodeCount(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	platformID := mustCreatePlatform(t, srv, "routable-count-target")
+
+	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
+	hash := node.HashFromRawOptions(raw)
+	cp.Pool.AddNodeFromSub(hash, raw, "sub-test")
+
+	entry, ok := cp.Pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing after AddNodeFromSub", hash.Hex())
+	}
+	entry.SetEgressIP(netip.MustParseAddr("203.0.113.10"))
+	if entry.LatencyTable == nil {
+		t.Fatalf("node %s latency table not initialized", hash.Hex())
+	}
+	entry.LatencyTable.Update("example.com", 25*time.Millisecond, 10*time.Minute)
+	ob := testutil.NewNoopOutbound()
+	entry.Outbound.Store(&ob)
+	cp.Pool.NotifyNodeDirty(hash)
+
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/platforms?keyword=routable-count-target", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list platforms status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	body := decodeJSONMap(t, rec)
+	items, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("items type: got %T", body["items"])
+	}
+	if len(items) != 1 {
+		t.Fatalf("items len: got %d, want %d", len(items), 1)
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["id"] != platformID {
+		t.Fatalf("item id: got %v, want %s", item["id"], platformID)
+	}
+	if item["routable_node_count"] != float64(1) {
+		t.Fatalf("routable_node_count: got %v, want %v", item["routable_node_count"], 1)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/platforms/"+platformID, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get platform status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if body["routable_node_count"] != float64(1) {
+		t.Fatalf("get platform routable_node_count: got %v, want %v", body["routable_node_count"], 1)
 	}
 }
 
