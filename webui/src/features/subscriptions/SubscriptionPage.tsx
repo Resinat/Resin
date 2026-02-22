@@ -1,8 +1,9 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Filter, Info, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
+import { AlertTriangle, Eye, Filter, Info, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
+import { Link } from "react-router-dom";
 import { z } from "zod";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -375,6 +376,7 @@ export function SubscriptionPage() {
                   <th>名称</th>
                   <th>订阅站点</th>
                   <th>更新间隔</th>
+                  <th>节点数</th>
                   <th>状态</th>
                   <th>上次检查</th>
                   <th>上次更新</th>
@@ -397,6 +399,7 @@ export function SubscriptionPage() {
                       </p>
                     </td>
                     <td>{formatGoDuration(subscription.update_interval)}</td>
+                    <td>{subscription.node_count}</td>
                     <td>
                       <div className="subscriptions-status-cell">
                         {!subscription.enabled ? (
@@ -412,6 +415,14 @@ export function SubscriptionPage() {
                     <td>{formatRelativeTime(subscription.last_updated || "")}</td>
                     <td>
                       <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
+                        <Link
+                          className="btn btn-ghost btn-sm"
+                          to={`/nodes?subscription_id=${encodeURIComponent(subscription.id)}`}
+                          title="预览节点池"
+                          aria-label={`预览订阅 ${subscription.name} 的节点池`}
+                        >
+                          <Eye size={14} />
+                        </Link>
                         <Button size="sm" variant="ghost" onClick={() => openDrawer(subscription)} title="编辑">
                           <Pencil size={14} />
                         </Button>

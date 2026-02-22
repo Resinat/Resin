@@ -3,6 +3,7 @@ export type Subscription = {
   name: string;
   url: string;
   update_interval: string;
+  node_count: number;
   ephemeral: boolean;
   enabled: boolean;
   created_at: string;

@@ -54,6 +54,9 @@ func TestAPIContract_SubscriptionRefreshAction_E2EHTTPSource(t *testing.T) {
 	if subID == "" {
 		t.Fatalf("create subscription missing id: body=%s", createRec.Body.String())
 	}
+	if got := createBody["node_count"]; got != float64(0) {
+		t.Fatalf("create subscription node_count: got %v, want %v", got, 0)
+	}
 
 	refreshRec := doJSONRequest(
 		t,
@@ -94,6 +97,9 @@ func TestAPIContract_SubscriptionRefreshAction_E2EHTTPSource(t *testing.T) {
 		if s, _ := v.(string); s != "" {
 			t.Fatalf("last_error should be empty after successful refresh, got %q", s)
 		}
+	}
+	if got := subBody["node_count"]; got != float64(1) {
+		t.Fatalf("subscription node_count after refresh: got %v, want %v", got, 1)
 	}
 
 	nodesRec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/nodes?subscription_id="+subID, nil, true)

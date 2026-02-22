@@ -25,6 +25,7 @@ type SubscriptionResponse struct {
 	Name           string `json:"name"`
 	URL            string `json:"url"`
 	UpdateInterval string `json:"update_interval"`
+	NodeCount      int    `json:"node_count"`
 	Ephemeral      bool   `json:"ephemeral"`
 	Enabled        bool   `json:"enabled"`
 	CreatedAt      string `json:"created_at"`
@@ -34,11 +35,17 @@ type SubscriptionResponse struct {
 }
 
 func subToResponse(sub *subscription.Subscription) SubscriptionResponse {
+	nodeCount := 0
+	if managed := sub.ManagedNodes(); managed != nil {
+		nodeCount = managed.Size()
+	}
+
 	resp := SubscriptionResponse{
 		ID:             sub.ID,
 		Name:           sub.Name(),
 		URL:            sub.URL(),
 		UpdateInterval: time.Duration(sub.UpdateIntervalNs()).String(),
+		NodeCount:      nodeCount,
 		Ephemeral:      sub.Ephemeral(),
 		Enabled:        sub.Enabled(),
 		CreatedAt:      time.Unix(0, sub.CreatedAtNs).UTC().Format(time.RFC3339Nano),
