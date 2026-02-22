@@ -113,6 +113,20 @@ curl "http://127.0.0.1:8080/my-token/Default:Tom/https/api.example.com/ip"
 
 部署 Resin，构建您的专属智能代理池。🌊
 
+## 接入第三方项目
+
+### 低侵入接入
+TODO
+
+### 深度接入
+对于纯 API 请求，推荐接入反向代理。
+给 Coding Agent 的 Prompt：
+> 修改这个项目。
+> 配置文件里引入 resin_reverse_proxy_url 与 resin_platform_name 配置。
+> Resin 是一个外部代理池，通过反向代理的形式提供代理。
+> Resin 通过路径 `<resin-reverse-proxy-url>/PROXY_TOKEN/Platform:Account/protocol/host/path?query` 解析反向代理请求；其中 `Platform:Account` 必须是单个路径段。protocol 是 `http/https` 之一；host 可以是域名，可以是 IP，可以加端口。例子：http://resin:2622/dummy-token/Default:Tom/https/api.example.com/healthz，表示 Resin 以 Default:Tom 作为业务身份，智能选择节点请求 https://api.example.com/healthz。
+> 该项目中任何涉及具体账号的网络请求，都必须走 Resin 反向代理。其中 Platform 字段是 resin_platform_name。Account 字段是可以区分账号的标识，包括但不限于账号 ID、账号邮箱、账号 Token、账号哈希值等。
+
 ---
 
 ## ⚠️ 免责声明
