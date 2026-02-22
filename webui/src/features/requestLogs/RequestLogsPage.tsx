@@ -563,8 +563,8 @@ export function RequestLogsPage() {
                     >
                       <td>
                         <div className="logs-cell-stack logs-time-cell">
-                          <span>{timeParts.date}</span>
-                          <small>{timeParts.time}</small>
+                          <span>{timeParts.time}</span>
+                          <small>{timeParts.date}</small>
                         </div>
                       </td>
                       <td>{proxyTypeLabel(log.proxy_type)}</td>
