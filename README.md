@@ -55,7 +55,7 @@ git clone https://github.com/your-org/resin.git
 cd resin
 
 # 2. 编译项目
-go build -tags "with_quic with_wireguard with_grpc with_utls with_embedded_tor with_tailscale with_naive_outbound" -o resin ./cmd/resin
+go build -tags "with_quic with_wireguard with_grpc with_utls with_embedded_tor with_naive_outbound" -o resin ./cmd/resin
 
 # 3. 运行程序
 ./resin
