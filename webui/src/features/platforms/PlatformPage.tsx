@@ -23,6 +23,7 @@ import {
   resetPlatform,
   updatePlatform,
 } from "./api";
+import { PlatformMonitorPanel } from "./PlatformMonitorPanel";
 import type { Platform, PlatformAllocationPolicy, PlatformMissAction } from "./types";
 
 const allocationPolicies: PlatformAllocationPolicy[] = [
@@ -455,6 +456,8 @@ export function PlatformPage() {
             </div>
 
             <div className="platform-drawer-layout">
+              <PlatformMonitorPanel platform={selectedPlatform} />
+
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
                   <h4>平台配置</h4>
