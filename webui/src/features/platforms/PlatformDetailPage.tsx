@@ -29,13 +29,13 @@ const missActions: PlatformMissAction[] = ["RANDOM", "REJECT"];
 
 const allocationPolicyLabel: Record<PlatformAllocationPolicy, string> = {
   BALANCED: "均衡",
-  PREFER_LOW_LATENCY: "低延迟",
-  PREFER_IDLE_IP: "空闲优先",
+  PREFER_LOW_LATENCY: "优先低延迟",
+  PREFER_IDLE_IP: "优先空闲出口 IP",
 };
 
 const missActionLabel: Record<PlatformMissAction, string> = {
-  RANDOM: "随机",
-  REJECT: "拒绝",
+  RANDOM: "随机选择节点",
+  REJECT: "拒绝代理请求",
 };
 
 const platformEditSchema = z.object({
@@ -186,7 +186,7 @@ export function PlatformDetailPage() {
       return platform;
     },
     onSuccess: (updated) => {
-      showToast("success", `平台 ${updated.name} 已完成路由视图重建`);
+      showToast("success", `平台 ${updated.name} 已完成节点池重建`);
     },
     onError: (error) => {
       showToast("error", fromApiError(error));
@@ -234,8 +234,8 @@ export function PlatformDetailPage() {
     <section className="platform-page platform-detail-page">
       <header className="module-header">
         <div>
-          <h2>Platform 详情</h2>
-          <p className="module-description">使用横向标签切换监控、配置和运维操作，减少抽屉内过长滚动。</p>
+          <h2>平台详情</h2>
+          <p className="module-description">调整当前平台策略，并执行维护操作。</p>
         </div>
         <div className="platform-detail-toolbar">
           <Button variant="secondary" size="sm" onClick={() => navigate("/platforms")}>
@@ -297,7 +297,7 @@ export function PlatformDetailPage() {
                   <strong>{regexCount}</strong>
                 </span>
                 <span className="platform-fact">
-                  <span>TTL</span>
+                  <span>租约时长</span>
                   <strong>{stickyTTL}</strong>
                 </span>
                 <span className="platform-fact">
@@ -305,7 +305,7 @@ export function PlatformDetailPage() {
                   <strong>{allocationPolicyLabel[platform.allocation_policy]}</strong>
                 </span>
                 <span className="platform-fact">
-                  <span>Miss</span>
+                  <span>未命中策略</span>
                   <strong>{missActionLabel[platform.reverse_proxy_miss_action]}</strong>
                 </span>
               </div>
@@ -317,7 +317,7 @@ export function PlatformDetailPage() {
           </Card>
 
           <Card className="platform-cards-container platform-detail-main-card">
-            <div className="platform-detail-tabs" role="tablist" aria-label="Platform 详情板块">
+            <div className="platform-detail-tabs" role="tablist" aria-label="平台详情板块">
               {DETAIL_TABS.map((tab) => {
                 const selected = activeTab === tab.key;
                 return (
@@ -374,7 +374,7 @@ export function PlatformDetailPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-sticky">
-                      Sticky TTL
+                      租约保持时长
                     </label>
                     <Input
                       id="detail-edit-sticky"
@@ -386,12 +386,12 @@ export function PlatformDetailPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-miss-action">
-                      Reverse Proxy Miss Action
+                      反向代理未命中策略
                     </label>
                     <Select id="detail-edit-miss-action" {...editForm.register("reverse_proxy_miss_action")}>
                       {missActions.map((item) => (
                         <option key={item} value={item}>
-                          {missActionLabel[item]} ({item})
+                          {missActionLabel[item]}
                         </option>
                       ))}
                     </Select>
@@ -399,12 +399,12 @@ export function PlatformDetailPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-policy">
-                      Allocation Policy
+                      节点分配策略
                     </label>
                     <Select id="detail-edit-policy" {...editForm.register("allocation_policy")}>
                       {allocationPolicies.map((item) => (
                         <option key={item} value={item}>
-                          {allocationPolicyLabel[item]} ({item})
+                          {allocationPolicyLabel[item]}
                         </option>
                       ))}
                     </Select>
@@ -412,14 +412,14 @@ export function PlatformDetailPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-regex">
-                      Regex Filters
+                      节点名正则过滤规则
                     </label>
                     <Textarea id="detail-edit-regex" rows={6} placeholder="每行一条" {...editForm.register("regex_filters_text")} />
                   </div>
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-region">
-                      Region Filters
+                      地区过滤规则
                     </label>
                     <Textarea
                       id="detail-edit-region"
@@ -454,7 +454,7 @@ export function PlatformDetailPage() {
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
                       <h5>重建路由池</h5>
-                      <p className="platform-op-hint">重新构建当前平台的路由视图与可用节点池，不改变配置项。</p>
+                      <p className="platform-op-hint">重新整理当前平台可用节点，不会修改配置。</p>
                     </div>
                     <Button variant="secondary" onClick={() => void rebuildMutation.mutateAsync()} disabled={rebuildMutation.isPending}>
                       {rebuildMutation.isPending ? "重建中..." : "重建路由池"}
@@ -464,7 +464,7 @@ export function PlatformDetailPage() {
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
                       <h5>重置为默认配置</h5>
-                      <p className="platform-op-hint">恢复平台默认策略，并覆盖当前自定义配置。</p>
+                      <p className="platform-op-hint">恢复默认设置，并覆盖当前修改。</p>
                     </div>
                     <Button variant="secondary" onClick={() => void resetMutation.mutateAsync()} disabled={resetMutation.isPending}>
                       {resetMutation.isPending ? "重置中..." : "重置为默认配置"}

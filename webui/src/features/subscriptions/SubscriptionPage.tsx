@@ -286,7 +286,7 @@ export function SubscriptionPage() {
       <header className="module-header">
         <div>
           <h2>订阅管理</h2>
-          <p className="module-description">维护订阅源、更新周期与开关状态，并支持手动触发刷新。</p>
+          <p className="module-description">保障订阅按计划更新，异常时可一键刷新。</p>
         </div>
       </header>
 
@@ -503,7 +503,7 @@ export function SubscriptionPage() {
                 </div>
 
                 {selectedSubscription.last_error ? (
-                  <div className="callout callout-error">Last Error: {selectedSubscription.last_error}</div>
+                  <div className="callout callout-error">最近错误：{selectedSubscription.last_error}</div>
                 ) : (
                   <div className="callout callout-success">最近一次刷新无错误</div>
                 )}
@@ -551,11 +551,11 @@ export function SubscriptionPage() {
                   <div className="checkbox-group field-span-2">
                     <label className="checkbox-line">
                       <input type="checkbox" {...editForm.register("enabled")} />
-                      <span>Enabled</span>
+                      <span>启用</span>
                     </label>
                     <label className="checkbox-line">
                       <input type="checkbox" {...editForm.register("ephemeral")} />
-                      <span>Ephemeral</span>
+                      <span>临时订阅</span>
                     </label>
                   </div>
 
@@ -576,7 +576,7 @@ export function SubscriptionPage() {
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
                       <h5>手动刷新</h5>
-                      <p className="platform-op-hint">立即触发一次订阅源拉取并刷新对应节点。</p>
+                      <p className="platform-op-hint">立即刷新订阅并同步节点。</p>
                     </div>
                     <Button
                       variant="secondary"
@@ -664,11 +664,11 @@ export function SubscriptionPage() {
               <div className="checkbox-group field-span-2">
                 <label className="checkbox-line">
                   <input type="checkbox" {...createForm.register("enabled")} />
-                  <span>Enabled</span>
+                  <span>启用</span>
                 </label>
                 <label className="checkbox-line">
                   <input type="checkbox" {...createForm.register("ephemeral")} />
-                  <span>Ephemeral</span>
+                  <span>临时订阅</span>
                 </label>
               </div>
 

@@ -7,6 +7,7 @@ export type Platform = {
   sticky_ttl: string;
   regex_filters: string[];
   region_filters: string[];
+  routable_node_count: number;
   reverse_proxy_miss_action: PlatformMissAction;
   allocation_policy: PlatformAllocationPolicy;
   updated_at: string;

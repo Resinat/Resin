@@ -310,7 +310,7 @@ export function NodesPage() {
       await refreshNodes();
       showToast(
         "success",
-        `出口探测完成：egress=${result.egress_ip || "-"}，region=${result.region || "-"}，latency=${formatLatency(result.latency_ewma_ms)}`
+        `出口探测完成：出口 IP=${result.egress_ip || "-"}，区域=${result.region || "-"}，延迟=${formatLatency(result.latency_ewma_ms)}`
       );
     },
     onError: async (error) => {
@@ -323,7 +323,7 @@ export function NodesPage() {
     mutationFn: async (hash: string) => probeLatency(hash),
     onSuccess: async (result) => {
       await refreshNodes();
-      showToast("success", `延迟探测完成：latency=${formatLatency(result.latency_ewma_ms)}`);
+      showToast("success", `延迟探测完成：延迟=${formatLatency(result.latency_ewma_ms)}`);
     },
     onError: async (error) => {
       await refreshNodes();
@@ -378,7 +378,7 @@ export function NodesPage() {
       <header className="module-header">
         <div>
           <h2>节点池</h2>
-          <p className="module-description">节点管理主视图采用服务端分页表格，支持表头排序与行内探测动作。</p>
+          <p className="module-description">快速定位异常节点并进行探测处理。</p>
         </div>
       </header>
 
@@ -538,7 +538,7 @@ export function NodesPage() {
                 <tr>
                   <th>
                     <button type="button" className="table-sort-btn" onClick={() => changeSort("tag")}>
-                      Tag
+                      节点名
                       <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
                     </button>
                   </th>
@@ -701,7 +701,7 @@ export function NodesPage() {
                     </div>
                   </div>
                   <div>
-                    <span>Egress IP</span>
+                    <span>出口 IP</span>
                     <p>{detailNode.egress_ip || "-"}</p>
                   </div>
                   <div>
@@ -715,17 +715,16 @@ export function NodesPage() {
                 </div>
 
                 {detailNode.last_error ? (
-                  <div className="callout callout-error">Last Error: {detailNode.last_error}</div>
+                  <div className="callout callout-error">最近错误：{detailNode.last_error}</div>
                 ) : null}
               </section>
 
               <section className="platform-drawer-section tags-section">
                 <div className="platform-drawer-section-head">
                   <h4>节点别名</h4>
-                  <p>节点池中不同名但实际相同的节点</p>
                 </div>
                 {!detailNode.tags.length ? (
-                  <p className="muted">无 tag 信息</p>
+                  <p className="muted">无节点名信息</p>
                 ) : (
                   <div className="tag-list">
                     {detailNode.tags.map((tag) => (
@@ -747,7 +746,7 @@ export function NodesPage() {
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
                       <h5>出口探测</h5>
-                      <p className="platform-op-hint">检测节点的外部 IP 地址。</p>
+                      <p className="platform-op-hint">检查节点当前出口 IP。</p>
                     </div>
                     <Button
                       variant="secondary"
@@ -760,7 +759,7 @@ export function NodesPage() {
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
                       <h5>延迟探测</h5>
-                      <p className="platform-op-hint">向目标地址发送请求以评估延迟。</p>
+                      <p className="platform-op-hint">检测节点网络延迟。</p>
                     </div>
                     <Button
                       variant="secondary"

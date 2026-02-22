@@ -22,11 +22,11 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
-  { label: "Platform 管理", path: "/platforms", icon: Route },
+  { label: "总览看板", path: "/dashboard", icon: LayoutDashboard },
+  { label: "平台管理", path: "/platforms", icon: Route },
   { label: "订阅管理", path: "/subscriptions", icon: Split },
   { label: "节点池", path: "/nodes", icon: Network },
-  { label: "Header 规则", path: "/rules", icon: ShieldCheck },
+  { label: "请求头规则", path: "/rules", icon: ShieldCheck },
   { label: "请求日志", path: "/request-logs", icon: Logs },
   { label: "资源", path: "/resources", icon: Database },
   { label: "系统配置", path: "/system-config", icon: Settings },
@@ -49,8 +49,8 @@ export function AppShell() {
             <Boxes size={18} />
           </div>
           <div>
-            <p className="brand-title">Resin Control</p>
-            <p className="brand-subtitle">Modern Ops Console</p>
+            <p className="brand-title">Resin</p>
+            <p className="brand-subtitle">高性能粘性代理池 · 管理面板</p>
           </div>
         </div>
 

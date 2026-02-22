@@ -80,7 +80,7 @@ export function GeoIPPage() {
 
   const singleRegion = useMemo(() => {
     if (!singleResult || !singleResult.region) {
-      return "(empty)";
+      return "（空）";
     }
     const code = singleResult.region.toUpperCase();
     const name = getRegionName(code);
@@ -96,7 +96,7 @@ export function GeoIPPage() {
       <header className="module-header">
         <div>
           <h2>资源</h2>
-          <p className="module-description">GeoIP 状态、单 IP 查询与数据库更新的运维工作台。</p>
+          <p className="module-description">查询 IP 所在地区，并维护 GeoIP 数据库。</p>
         </div>
       </header>
 
@@ -106,7 +106,7 @@ export function GeoIPPage() {
         <div className="list-card-header">
           <div>
             <h3>GeoIP</h3>
-            <p>包含数据库状态与单 IP 查询模块</p>
+            <p>可查看数据库状态并进行 IP 查询。</p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => void statusQuery.refetch()} disabled={statusQuery.isFetching}>
             <RefreshCw size={16} className={statusQuery.isFetching ? "spin" : undefined} />
@@ -133,11 +133,11 @@ export function GeoIPPage() {
 
             <div className="geoip-status-grid">
               <div className="geoip-kv">
-                <span>DB MTime</span>
+                <span>数据库更新时间</span>
                 <p>{hasDBTime ? formatDateTime(status?.db_mtime || "") : "-"}</p>
               </div>
               <div className="geoip-kv">
-                <span>Next Scheduled Update</span>
+                <span>下次计划更新</span>
                 <p>{hasNextSchedule ? formatDateTime(status?.next_scheduled_update || "") : "-"}</p>
               </div>
             </div>
@@ -157,7 +157,7 @@ export function GeoIPPage() {
             <div className="detail-header">
               <div>
                 <h3>单 IP 查询</h3>
-                <p>使用 GET `/api/v1/geoip/lookup`</p>
+                <p>输入 IP 后点击查询。</p>
               </div>
             </div>
 
@@ -196,7 +196,7 @@ export function GeoIPPage() {
                   <p>{singleResult.ip}</p>
                 </div>
                 <div>
-                  <span>Region</span>
+                  <span>区域</span>
                   <p>{singleRegion}</p>
                 </div>
               </div>

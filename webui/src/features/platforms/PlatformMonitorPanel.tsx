@@ -818,7 +818,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
       <div className="platform-drawer-section-head platform-monitor-head">
         <div>
           <h4>平台监控</h4>
-          <p>平台维度监控：租约、请求质量、访问延迟、租约存活时长和节点池快照。</p>
+          <p>查看当前平台的租约、请求成功率、延迟和节点情况。</p>
         </div>
 
         <label className="platform-monitor-range" htmlFor="platform-monitor-range">
@@ -852,7 +852,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
           <div>
             <p className="platform-monitor-kpi-label">活跃租约</p>
             <p className="platform-monitor-kpi-value">{formatCount(latestActiveLeases)}</p>
-            <p className="platform-monitor-kpi-sub">实时序列最新值</p>
+            <p className="platform-monitor-kpi-sub">当前实时值</p>
           </div>
         </Card>
 
@@ -887,7 +887,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
           <div>
             <p className="platform-monitor-kpi-label">租约 P50 存活时长</p>
             <p className="platform-monitor-kpi-value">{formatLatency(latestP50LeaseMs)}</p>
-            <p className="platform-monitor-kpi-sub">历史租约生命周期分位</p>
+            <p className="platform-monitor-kpi-sub">历史租约时长统计</p>
           </div>
         </Card>
       </div>
@@ -902,7 +902,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
             data={leaseTrendData}
             emptyText="暂无租约实时数据"
             yTickFormatter={formatShortNumber}
-            lines={[{ dataKey: "active_leases", name: "Active Leases", color: "#2068f6" }]}
+            lines={[{ dataKey: "active_leases", name: "活跃租约", color: "#2068f6" }]}
           />
         </Card>
 
@@ -943,19 +943,19 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
 
           <div className="platform-monitor-snapshot-list">
             <div>
-              <span>Routable Node Count</span>
+              <span>可路由节点数</span>
               <p>{formatCount(snapshotNodePool?.routable_node_count ?? 0)}</p>
             </div>
             <div>
-              <span>Egress IP Count</span>
+              <span>出口 IP 数</span>
               <p>{formatCount(snapshotNodePool?.egress_ip_count ?? 0)}</p>
             </div>
             <div>
-              <span>Latency Samples</span>
+              <span>延迟样本数</span>
               <p>{formatCount(snapshotLatency?.sample_count ?? 0)}</p>
             </div>
             <div>
-              <span>Snapshot Updated</span>
+              <span>快照更新时间</span>
               <p>{snapshotLatency?.generated_at ? formatClock(snapshotLatency.generated_at) : "--"}</p>
             </div>
           </div>
@@ -964,7 +964,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
         <Card className="dashboard-panel platform-monitor-span-2">
           <div className="dashboard-panel-header">
             <h3>访问延迟分布（历史最新桶）</h3>
-            <p>History Access Latency</p>
+            <p>历史访问延迟分布</p>
           </div>
           <LatencyHistogram buckets={latestAccessLatency?.buckets ?? []} emptyText="暂无访问延迟分布数据" />
           <div className="dashboard-summary-inline">
@@ -977,7 +977,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
         <Card className="dashboard-panel platform-monitor-span-2">
           <div className="dashboard-panel-header">
             <h3>节点延迟分布（实时快照）</h3>
-            <p>Snapshot Node Latency Distribution</p>
+            <p>实时节点延迟分布快照</p>
           </div>
           <LatencyHistogram buckets={snapshotLatency?.buckets ?? []} emptyText="暂无节点延迟快照数据" />
           <div className="dashboard-summary-inline">

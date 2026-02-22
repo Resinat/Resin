@@ -91,7 +91,7 @@ function decodeBase64ToText(raw: string): string {
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     return new TextDecoder().decode(bytes);
   } catch {
-    return "[base64 decode failed]";
+    return "[Base64 解码失败]";
   }
 }
 
@@ -305,7 +305,7 @@ export function RequestLogsPage() {
       <header className="module-header">
         <div>
           <h2>请求日志</h2>
-          <p className="module-description">筛选条件修改后立即生效。</p>
+          <p className="module-description">按条件检索请求记录，快速定位问题。</p>
         </div>
         {!configQuery.isLoading && configQuery.data && (
           <Link to="/system-config" style={{ display: "flex", textDecoration: "none" }}>
@@ -354,7 +354,7 @@ export function RequestLogsPage() {
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-platform-name" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  Platform
+                  平台
                 </label>
                 <Input
                   id="logs-platform-name"
@@ -366,7 +366,7 @@ export function RequestLogsPage() {
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-account" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  Account
+                  账号
                 </label>
                 <Input
                   id="logs-account"
@@ -378,7 +378,7 @@ export function RequestLogsPage() {
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-target-host" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  Target Host
+                  目标主机
                 </label>
                 <Input
                   id="logs-target-host"
@@ -396,7 +396,7 @@ export function RequestLogsPage() {
             >
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-proxy-type" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  Proxy Type
+                  代理类型
                 </label>
                 <Select
                   id="logs-proxy-type"
@@ -412,7 +412,7 @@ export function RequestLogsPage() {
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-egress-ip" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  Egress IP
+                  出口 IP
                 </label>
                 <Input
                   id="logs-egress-ip"
@@ -433,8 +433,8 @@ export function RequestLogsPage() {
                   style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
                 >
                   <option value="all">全部</option>
-                  <option value="true">ok</option>
-                  <option value="false">failed</option>
+                  <option value="true">成功</option>
+                  <option value="false">失败</option>
                 </Select>
               </div>
 
@@ -543,7 +543,7 @@ export function RequestLogsPage() {
                         </div>
                       </td>
                       <td>
-                        <Badge variant={log.net_ok ? "success" : "warning"}>{log.net_ok ? "ok" : "failed"}</Badge>
+                        <Badge variant={log.net_ok ? "success" : "warning"}>{log.net_ok ? "成功" : "失败"}</Badge>
                       </td>
                       <td>{log.duration_ms} ms</td>
                       <td>{formatBytes((log.ingress_bytes || 0) + (log.egress_bytes || 0))}</td>
@@ -612,7 +612,7 @@ export function RequestLogsPage() {
                     <p>{formatDateTime(detailLog.ts)}</p>
                   </div>
                   <div>
-                    <span>Proxy Type</span>
+                    <span>代理类型</span>
                     <p>{proxyTypeLabel(detailLog.proxy_type)}</p>
                   </div>
                   <div>
@@ -626,19 +626,19 @@ export function RequestLogsPage() {
                     <p>{detailLog.duration_ms} ms</p>
                   </div>
                   <div>
-                    <span>Platform</span>
+                    <span>平台</span>
                     <p>{detailLog.platform_name || "-"}</p>
                   </div>
                   <div>
-                    <span>Account</span>
+                    <span>账号</span>
                     <p>{detailLog.account || "-"}</p>
                   </div>
                   <div>
-                    <span>Egress IP</span>
+                    <span>出口 IP</span>
                     <p>{detailLog.egress_ip || "-"}</p>
                   </div>
                   <div>
-                    <span>Client IP</span>
+                    <span>客户端 IP</span>
                     <p>{detailLog.client_ip || "-"}</p>
                   </div>
                 </div>
@@ -652,13 +652,13 @@ export function RequestLogsPage() {
 
                 <div className="stats-grid">
                   <div>
-                    <span>Target</span>
+                    <span>目标地址</span>
                     <p>{detailLog.target_host || "-"}</p>
                     <code style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{detailLog.target_url || "-"}</code>
                   </div>
 
                   <div>
-                    <span>Traffic</span>
+                    <span>流量</span>
                     <p>{formatBytes((detailLog.ingress_bytes || 0) + (detailLog.egress_bytes || 0))}</p>
                     <div style={{ display: 'flex', gap: '8px', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
                       <span>↓ {formatBytes(detailLog.ingress_bytes || 0)}</span>
@@ -667,7 +667,7 @@ export function RequestLogsPage() {
                   </div>
 
                   <div>
-                    <span>Node</span>
+                    <span>节点</span>
                     <p>{detailLog.node_tag || "-"}</p>
                     <code style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{detailLog.node_hash || "-"}</code>
                   </div>
@@ -676,24 +676,23 @@ export function RequestLogsPage() {
 
               <section className="platform-drawer-section platform-ops-section">
                 <div className="platform-drawer-section-head">
-                  <h4>Payload</h4>
+                  <h4>报文内容</h4>
                   <p>按需加载并查看请求/响应内容。</p>
                 </div>
 
                 <div className="platform-ops-list">
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>查看 Payload</h5>
-                      <p className="platform-op-hint">仅在需要时加载，避免影响列表浏览性能。</p>
+                      <h5>查看报文内容</h5>
                     </div>
                     <Button
                       variant="secondary"
                       onClick={loadPayload}
                       disabled={!detailLog.payload_present || payloadQuery.isFetching}
-                      title={!detailLog.payload_present ? "该条日志未记录 payload。" : undefined}
+                      title={!detailLog.payload_present ? "该条日志未记录报文内容。" : undefined}
                     >
                       <Eye size={14} />
-                      {payloadQuery.isFetching ? "加载中..." : "查看 Payload"}
+                      {payloadQuery.isFetching ? "加载中..." : "查看报文内容"}
                     </Button>
                   </div>
                 </div>
@@ -704,10 +703,10 @@ export function RequestLogsPage() {
                     <div className="logs-payload-tabs">
                       {PAYLOAD_TABS.map((tab) => {
                         const labelMap: Record<PayloadTab, string> = {
-                          req_headers: "Req Headers",
-                          req_body: "Req Body",
-                          resp_headers: "Resp Headers",
-                          resp_body: "Resp Body",
+                          req_headers: "请求头",
+                          req_body: "请求体",
+                          resp_headers: "响应头",
+                          resp_body: "响应体",
                         };
 
                         const truncated = payloadQuery.data ? payloadQuery.data.truncated[tab] : false;
@@ -720,7 +719,7 @@ export function RequestLogsPage() {
                             onClick={() => setPayloadTab(tab)}
                           >
                             <span>{labelMap[tab]}</span>
-                            {truncated ? <Badge variant="warning">truncated</Badge> : null}
+                            {truncated ? <Badge variant="warning">已截断</Badge> : null}
                           </button>
                         );
                       })}
@@ -733,7 +732,7 @@ export function RequestLogsPage() {
                       </div>
                     ) : null}
 
-                    <pre className="logs-payload-box">{payloadText || "(empty)"}</pre>
+                    <pre className="logs-payload-box">{payloadText || "（空）"}</pre>
                   </section>
                 ) : null}
               </section>

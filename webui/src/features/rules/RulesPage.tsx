@@ -118,10 +118,10 @@ export function RulesPage() {
       const prefix = createPrefix.trim();
       const headers = parseHeaderList(createHeadersRaw);
       if (!prefix) {
-        throw new Error("url_prefix 不能为空");
+        throw new Error("地址前缀不能为空");
       }
       if (!headers.length) {
-        throw new Error("headers 不能为空");
+        throw new Error("请求头不能为空");
       }
       return upsertRule(prefix, headers);
     },
@@ -142,10 +142,10 @@ export function RulesPage() {
       const prefix = formPrefix.trim();
       const headers = parseHeaderList(formHeadersRaw);
       if (!prefix) {
-        throw new Error("url_prefix 不能为空");
+        throw new Error("地址前缀不能为空");
       }
       if (!headers.length) {
-        throw new Error("headers 不能为空");
+        throw new Error("请求头不能为空");
       }
       return upsertRule(prefix, headers);
     },
@@ -245,8 +245,8 @@ export function RulesPage() {
     <section className="rules-page">
       <header className="module-header">
         <div>
-          <h2>Header 规则</h2>
-          <p className="module-description">管理 URL 前缀匹配规则，并实时调试 resolve 结果。</p>
+          <h2>请求头规则</h2>
+          <p className="module-description">为不同地址设置请求头规则，并先测试后应用。</p>
         </div>
       </header>
 
@@ -359,7 +359,7 @@ export function RulesPage() {
             <div className="drawer-header">
               <div>
                 <h3>{selectedRule?.url_prefix || "规则编辑"}</h3>
-                <p>编辑当前 Header 规则</p>
+                <p>编辑当前规则</p>
               </div>
               <div className="drawer-header-actions">
                 <Button variant="ghost" size="sm" onClick={() => setDrawerOpen(false)}>
@@ -371,14 +371,14 @@ export function RulesPage() {
             <div className="platform-drawer-layout">
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
-                  <h4>Rule Editor</h4>
-                  <p>编辑 prefix 与 headers 并保存。</p>
+                  <h4>规则编辑</h4>
+                  <p>修改地址前缀和请求头后保存。</p>
                 </div>
 
                 <form className="form-grid single-column" onSubmit={handleUpdateSubmit}>
                   <div className="field-group">
                     <label className="field-label" htmlFor="rule-prefix">
-                      URL Prefix
+                      地址前缀
                     </label>
                     <Input
                       id="rule-prefix"
@@ -390,7 +390,7 @@ export function RulesPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="rule-headers">
-                      Headers
+                      请求头
                     </label>
                     <Textarea
                       id="rule-headers"
@@ -421,7 +421,7 @@ export function RulesPage() {
                         <p className="platform-op-hint">
                           {isFallbackRule(selectedRule)
                             ? '兜底规则 "*" 仅允许编辑，不允许删除。'
-                            : "删除后该 prefix 将不再生效。"}
+                            : "删除后该规则将不再生效。"}
                         </p>
                       </div>
                       <Button
@@ -441,12 +441,12 @@ export function RulesPage() {
       ) : null}
 
       {resolveModalOpen ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Resolve 调试">
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="规则测试">
           <Card className="modal-card rules-resolve-modal-card">
             <div className="modal-header">
               <div>
-                <h3>Resolve 调试</h3>
-                <p>输入 URL 查看命中的规则与 headers</p>
+                <h3>规则测试</h3>
+                <p>输入地址查看命中规则和请求头。</p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setResolveModalOpen(false)}>
                 <X size={16} />
@@ -456,7 +456,7 @@ export function RulesPage() {
             <div className="rules-resolve-modal-body">
               <div className="field-group">
                 <label className="field-label" htmlFor="resolve-url">
-                  URL
+                  目标地址
                 </label>
                 <Input
                   id="resolve-url"
@@ -472,17 +472,17 @@ export function RulesPage() {
                   onClick={() => void resolveMutation.mutateAsync()}
                   disabled={resolveMutation.isPending}
                 >
-                  {resolveMutation.isPending ? "解析中..." : "执行 Resolve"}
+                  {resolveMutation.isPending ? "测试中..." : "开始测试"}
                 </Button>
               </div>
 
               {resolveOutput ? (
                 <div className="resolve-result">
                   <p>
-                    <strong>Matched Prefix:</strong> {resolveOutput.matched_url_prefix || "(none)"}
+                    <strong>命中前缀：</strong> {resolveOutput.matched_url_prefix || "无"}
                   </p>
                   <div className="resolve-headers">
-                    <strong>Headers:</strong>
+                    <strong>命中请求头：</strong>
                     {resolveOutput.headers?.length ? (
                       <div className="resolve-badges">
                         {resolveOutput.headers.map((header) => (
@@ -492,7 +492,7 @@ export function RulesPage() {
                         ))}
                       </div>
                     ) : (
-                      <p className="muted">(none)</p>
+                      <p className="muted">无</p>
                     )}
                   </div>
                 </div>
@@ -515,7 +515,7 @@ export function RulesPage() {
             <form className="form-grid single-column" onSubmit={handleCreateSubmit}>
               <div className="field-group">
                 <label className="field-label" htmlFor="create-rule-prefix">
-                  URL Prefix
+                  地址前缀
                 </label>
                 <Input
                   id="create-rule-prefix"
@@ -527,7 +527,7 @@ export function RulesPage() {
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-rule-headers">
-                  Headers
+                  请求头
                 </label>
                 <Textarea
                   id="create-rule-headers"

@@ -29,13 +29,13 @@ const missActions: PlatformMissAction[] = ["RANDOM", "REJECT"];
 
 const allocationPolicyLabel: Record<PlatformAllocationPolicy, string> = {
   BALANCED: "均衡",
-  PREFER_LOW_LATENCY: "低延迟",
-  PREFER_IDLE_IP: "空闲优先",
+  PREFER_LOW_LATENCY: "优先低延迟",
+  PREFER_IDLE_IP: "优先空闲出口 IP",
 };
 
 const missActionLabel: Record<PlatformMissAction, string> = {
-  RANDOM: "随机",
-  REJECT: "拒绝",
+  RANDOM: "随机选择节点",
+  REJECT: "拒绝代理请求",
 };
 
 const platformCreateSchema = z.object({
@@ -148,8 +148,8 @@ export function PlatformPage() {
     <section className="platform-page">
       <header className="module-header">
         <div>
-          <h2>Platform 管理</h2>
-          <p className="module-description">平台列表入口。点击卡片进入专有详情页，并通过横向标签切换监控、配置和运维操作。</p>
+          <h2>平台管理</h2>
+          <p className="module-description">集中维护平台策略与节点分配规则。</p>
         </div>
       </header>
 
@@ -242,15 +242,15 @@ export function PlatformPage() {
                     <strong>{regexCount}</strong>
                   </span>
                   <span className="platform-fact">
-                    <span>TTL</span>
+                    <span>租约时长</span>
                     <strong>{stickyTTL}</strong>
                   </span>
                 </div>
                 <div className="platform-tile-foot">
-                  <span>
-                    {allocationPolicyLabel[platform.allocation_policy]} · Miss{" "}
+                  {/* <span>
+                    {allocationPolicyLabel[platform.allocation_policy]} · {" "}
                     {missActionLabel[platform.reverse_proxy_miss_action]}
-                  </span>
+                  </span> */}
                   <span className="platform-tile-updated">更新于 {formatRelativeTime(platform.updated_at)}</span>
                 </div>
               </button>
@@ -273,7 +273,7 @@ export function PlatformPage() {
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <Card className="modal-card">
             <div className="modal-header">
-              <h3>新建 Platform</h3>
+              <h3>新建平台</h3>
               <Button variant="ghost" size="sm" onClick={() => setCreateModalOpen(false)}>
                 关闭
               </Button>
@@ -292,19 +292,19 @@ export function PlatformPage() {
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-sticky">
-                  Sticky TTL（可选）
+                  租约保持时长（可选）
                 </label>
                 <Input id="create-sticky" placeholder="例如 168h" {...createForm.register("sticky_ttl")} />
               </div>
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-miss-action">
-                  Reverse Proxy Miss Action
+                  反向代理未命中策略
                 </label>
                 <Select id="create-miss-action" {...createForm.register("reverse_proxy_miss_action")}>
                   {missActions.map((item) => (
                     <option key={item} value={item}>
-                      {item}
+                      {missActionLabel[item]}
                     </option>
                   ))}
                 </Select>
@@ -312,12 +312,12 @@ export function PlatformPage() {
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-policy">
-                  Allocation Policy
+                  节点分配策略
                 </label>
                 <Select id="create-policy" {...createForm.register("allocation_policy")}>
                   {allocationPolicies.map((item) => (
                     <option key={item} value={item}>
-                      {item}
+                      {allocationPolicyLabel[item]}
                     </option>
                   ))}
                 </Select>
@@ -325,14 +325,14 @@ export function PlatformPage() {
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-regex">
-                  Regex Filters（可选）
+                  节点名正则过滤规则（可选）
                 </label>
                 <Textarea id="create-regex" rows={4} placeholder="每行一条" {...createForm.register("regex_filters_text")} />
               </div>
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-region">
-                  Region Filters（可选）
+                  地区过滤规则（可选）
                 </label>
                 <Textarea id="create-region" rows={4} placeholder="每行一条，如 hk / us" {...createForm.register("region_filters_text")} />
               </div>

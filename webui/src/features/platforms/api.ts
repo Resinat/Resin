@@ -6,6 +6,7 @@ const basePath = "/api/v1/platforms";
 type ApiPlatform = Omit<Platform, "regex_filters" | "region_filters"> & {
   regex_filters?: string[] | null;
   region_filters?: string[] | null;
+  routable_node_count?: number | null;
 };
 
 function normalizePlatform(raw: ApiPlatform): Platform {
@@ -13,6 +14,7 @@ function normalizePlatform(raw: ApiPlatform): Platform {
     ...raw,
     regex_filters: Array.isArray(raw.regex_filters) ? raw.regex_filters : [],
     region_filters: Array.isArray(raw.region_filters) ? raw.region_filters : [],
+    routable_node_count: typeof raw.routable_node_count === "number" ? raw.routable_node_count : 0,
   };
 }
 

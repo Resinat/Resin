@@ -56,7 +56,7 @@ const EDITABLE_FIELDS: Array<keyof RuntimeConfig> = [
 ];
 
 const FIELD_LABELS: Record<keyof RuntimeConfig, string> = {
-  user_agent: "请求 User Agent",
+  user_agent: "User-Agent",
   request_log_enabled: "启用请求日志",
   reverse_proxy_log_detail_enabled: "记录详细反代日志",
   reverse_proxy_log_req_headers_max_bytes: "请求头最大字节数",
@@ -74,6 +74,17 @@ const FIELD_LABELS: Record<keyof RuntimeConfig, string> = {
   cache_flush_interval: "缓存异步刷盘间隔",
   cache_flush_dirty_threshold: "缓存刷盘脏阈值",
   ephemeral_node_evict_delay: "临时节点驱逐延迟",
+};
+
+const ALLOCATION_POLICY_LABELS: Record<string, string> = {
+  BALANCED: "均衡",
+  PREFER_LOW_LATENCY: "优先低延迟",
+  PREFER_IDLE_IP: "优先空闲出口 IP",
+};
+
+const MISS_ACTION_LABELS: Record<string, string> = {
+  RANDOM: "随机选择节点",
+  REJECT: "拒绝代理请求",
 };
 
 function fromApiError(error: unknown): string {
@@ -141,15 +152,15 @@ function parseAuthorities(raw: string): string[] {
 function parseForm(form: RuntimeConfigForm): RuntimeConfig {
   const userAgent = form.user_agent.trim();
   if (!userAgent) {
-    throw new Error("User Agent 不能为空");
+    throw new Error("User-Agent 不能为空");
   }
 
   const latencyURL = form.latency_test_url.trim();
   if (!latencyURL) {
-    throw new Error("Latency Test URL 不能为空");
+    throw new Error("延迟测试目标 URL 不能为空");
   }
   if (!latencyURL.startsWith("http://") && !latencyURL.startsWith("https://")) {
-    throw new Error("Latency Test URL 必须是 http/https 地址");
+    throw new Error("延迟测试目标 URL 必须是 http/https 地址");
   }
 
   return {
@@ -157,33 +168,41 @@ function parseForm(form: RuntimeConfigForm): RuntimeConfig {
     request_log_enabled: form.request_log_enabled,
     reverse_proxy_log_detail_enabled: form.reverse_proxy_log_detail_enabled,
     reverse_proxy_log_req_headers_max_bytes: parseNonNegativeInt(
-      "Req Headers Max Bytes",
+      "请求头最大字节数",
       form.reverse_proxy_log_req_headers_max_bytes,
     ),
-    reverse_proxy_log_req_body_max_bytes: parseNonNegativeInt("Req Body Max Bytes", form.reverse_proxy_log_req_body_max_bytes),
+    reverse_proxy_log_req_body_max_bytes: parseNonNegativeInt("请求体最大字节数", form.reverse_proxy_log_req_body_max_bytes),
     reverse_proxy_log_resp_headers_max_bytes: parseNonNegativeInt(
-      "Resp Headers Max Bytes",
+      "响应头最大字节数",
       form.reverse_proxy_log_resp_headers_max_bytes,
     ),
     reverse_proxy_log_resp_body_max_bytes: parseNonNegativeInt(
-      "Resp Body Max Bytes",
+      "响应体最大字节数",
       form.reverse_proxy_log_resp_body_max_bytes,
     ),
-    max_consecutive_failures: parseNonNegativeInt("Max Consecutive Failures", form.max_consecutive_failures),
-    max_latency_test_interval: parseDurationField("Max Latency Test Interval", form.max_latency_test_interval),
+    max_consecutive_failures: parseNonNegativeInt("最大连续失败次数", form.max_consecutive_failures),
+    max_latency_test_interval: parseDurationField("节点延迟最大测试间隔", form.max_latency_test_interval),
     max_authority_latency_test_interval: parseDurationField(
-      "Max Authority Latency Test Interval",
+      "权威域名最大测试间隔",
       form.max_authority_latency_test_interval,
     ),
-    max_egress_test_interval: parseDurationField("Max Egress Test Interval", form.max_egress_test_interval),
+    max_egress_test_interval: parseDurationField("出口 IP 更新检查间隔", form.max_egress_test_interval),
     latency_test_url: latencyURL,
     latency_authorities: parseAuthorities(form.latency_authorities_raw),
-    p2c_latency_window: parseDurationField("P2C Latency Window", form.p2c_latency_window),
-    latency_decay_window: parseDurationField("Latency Decay Window", form.latency_decay_window),
-    cache_flush_interval: parseDurationField("Cache Flush Interval", form.cache_flush_interval),
-    cache_flush_dirty_threshold: parseNonNegativeInt("Cache Flush Dirty Threshold", form.cache_flush_dirty_threshold),
-    ephemeral_node_evict_delay: parseDurationField("Ephemeral Node Evict Delay", form.ephemeral_node_evict_delay),
+    p2c_latency_window: parseDurationField("P2C 延迟衰减窗口", form.p2c_latency_window),
+    latency_decay_window: parseDurationField("历史延迟衰减窗口", form.latency_decay_window),
+    cache_flush_interval: parseDurationField("缓存异步刷盘间隔", form.cache_flush_interval),
+    cache_flush_dirty_threshold: parseNonNegativeInt("缓存刷盘脏阈值", form.cache_flush_dirty_threshold),
+    ephemeral_node_evict_delay: parseDurationField("临时节点驱逐延迟", form.ephemeral_node_evict_delay),
   };
+}
+
+function displayAllocationPolicy(value: string): string {
+  return ALLOCATION_POLICY_LABELS[value] ?? value;
+}
+
+function displayMissAction(value: string): string {
+  return MISS_ACTION_LABELS[value] ?? value;
 }
 
 function arrayEquals(a: string[], b: string[]): boolean {
@@ -410,7 +429,7 @@ export function SystemConfigPage() {
       <header className="module-header">
         <div>
           <h2>系统配置</h2>
-          <p className="module-description">分组编辑 RuntimeConfig，保存时仅提交差异字段并展示 PATCH 预览。</p>
+          <p className="module-description">按需调整系统参数，保存后立即生效。</p>
         </div>
       </header>
 
@@ -438,8 +457,8 @@ export function SystemConfigPage() {
             <Card className="syscfg-form-card platform-directory-card">
               <div className="detail-header">
                 <div>
-                  <h3>Runtime Settings</h3>
-                  <p>按功能分组编辑，支持立即回滚草稿。</p>
+                  <h3>运行时配置</h3>
+                  <p>按分类查看和修改设置，可随时撤销未保存更改。</p>
                 </div>
                 <Button variant="secondary" size="sm" onClick={() => void reloadFromServer()} disabled={configQuery.isFetching}>
                   <RefreshCw size={16} className={configQuery.isFetching ? "spin" : undefined} />
@@ -453,7 +472,7 @@ export function SystemConfigPage() {
                   <div className="field-group">
                     <div style={{ display: "flex", alignItems: "center" }}>
                       <label className="field-label" htmlFor="sys-user-agent" style={{ margin: 0 }}>
-                        请求 User Agent
+                        User-Agent
                       </label>
                       {renderRestoreButton("user_agent")}
                     </div>
@@ -774,7 +793,7 @@ export function SystemConfigPage() {
                       <Input readOnly disabled value={String(envBaseline.forward_proxy_port)} />
                     </div>
                     <div className="field-group">
-                      <label className="field-label" style={{ margin: 0 }}>混合反代端口</label>
+                      <label className="field-label" style={{ margin: 0 }}>反向代理端口</label>
                       <Input readOnly disabled value={String(envBaseline.reverse_proxy_port)} />
                     </div>
                   </div>
@@ -831,11 +850,11 @@ export function SystemConfigPage() {
                     </div>
                     <div className="field-group">
                       <label className="field-label" style={{ margin: 0 }}>默认节点分配策略</label>
-                      <Input readOnly disabled value={envBaseline.default_platform_allocation_policy} />
+                      <Input readOnly disabled value={displayAllocationPolicy(envBaseline.default_platform_allocation_policy)} />
                     </div>
                     <div className="field-group">
                       <label className="field-label" style={{ margin: 0 }}>默认反代不匹配行为</label>
-                      <Input readOnly disabled value={envBaseline.default_platform_reverse_proxy_miss_action} />
+                      <Input readOnly disabled value={displayMissAction(envBaseline.default_platform_reverse_proxy_miss_action)} />
                     </div>
                     <div className="field-group field-span-2">
                       <label className="field-label" style={{ margin: 0 }}>默认正则黑名单</label>
@@ -920,11 +939,11 @@ export function SystemConfigPage() {
                   <h4>服务鉴权状态</h4>
                   <div className="syscfg-checkbox-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)", opacity: 0.7 }}>
-                      <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>已配置 Admin Token</span>
+                      <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>已配置管理端令牌</span>
                       <Switch checked={envBaseline.admin_token_set} disabled />
                     </div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface-sunken, rgba(0,0,0,0.02))", padding: "12px 16px", borderRadius: "8px", border: "1px solid var(--border)", opacity: 0.7 }}>
-                      <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>已配置 Proxy Token</span>
+                      <span className="field-label" style={{ margin: 0, fontWeight: 500 }}>已配置代理令牌</span>
                       <Switch checked={envBaseline.proxy_token_set} disabled />
                     </div>
                   </div>
@@ -960,13 +979,13 @@ export function SystemConfigPage() {
               ) : (
                 <div className="empty-box">
                   <Sparkles size={16} />
-                  <p>等待配置变更</p>
+                  <p>修改后会在这里显示变更项</p>
                 </div>
               )}
 
               <div style={{ marginTop: "16px" }}>
                 <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "8px" }}>
-                  PATCH Preview {customPatchText !== null && <span style={{ color: "var(--primary)" }}>(已手动修改)</span>}
+                  保存内容预览 {customPatchText !== null && <span style={{ color: "var(--primary)" }}>(已手动修改)</span>}
                 </p>
                 <Textarea
                   value={displayedPatchText}
