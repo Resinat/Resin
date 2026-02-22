@@ -1495,6 +1495,50 @@ a {
   accent-color: var(--primary);
 }
 
+.subscription-switch-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.subscription-switch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-sunken, rgba(0, 0, 0, 0.02));
+}
+
+.subscription-switch-label {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3f4b63;
+  cursor: pointer;
+}
+
+.subscription-info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  opacity: 0.55;
+  cursor: help;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.subscription-info-icon:hover,
+.subscription-info-icon:focus-visible {
+  opacity: 0.9;
+  color: #4d5f7b;
+}
+
 .tags-section {
   margin-top: 12px;
 }
@@ -2486,6 +2530,10 @@ a {
 
   .subscriptions-row-actions {
     flex-wrap: wrap;
+  }
+
+  .subscription-switch-group {
+    grid-template-columns: 1fr;
   }
 
   .logs-filter-grid {

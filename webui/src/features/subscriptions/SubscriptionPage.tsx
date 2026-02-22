@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Filter, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
+import { AlertTriangle, Filter, Info, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -10,6 +10,7 @@ import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
+import { Switch } from "../../components/ui/Switch";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
@@ -45,6 +46,7 @@ type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+const SUBSCRIPTION_DISABLE_HINT = "禁用订阅后，节点不会进入各平台的路由池，但不会从全局节点池中删除。";
 
 function extractHostname(url: string): string {
   try {
@@ -548,15 +550,27 @@ export function SubscriptionPage() {
                     ) : null}
                   </div>
 
-                  <div className="checkbox-group field-span-2">
-                    <label className="checkbox-line">
-                      <input type="checkbox" {...editForm.register("enabled")} />
-                      <span>启用</span>
-                    </label>
-                    <label className="checkbox-line">
-                      <input type="checkbox" {...editForm.register("ephemeral")} />
-                      <span>临时订阅</span>
-                    </label>
+                  <div className="subscription-switch-group field-span-2">
+                    <div className="subscription-switch-item">
+                      <label className="subscription-switch-label" htmlFor="edit-sub-enabled">
+                        <span>启用</span>
+                        <span
+                          className="subscription-info-icon"
+                          title={SUBSCRIPTION_DISABLE_HINT}
+                          aria-label={SUBSCRIPTION_DISABLE_HINT}
+                          tabIndex={0}
+                        >
+                          <Info size={13} />
+                        </span>
+                      </label>
+                      <Switch id="edit-sub-enabled" {...editForm.register("enabled")} />
+                    </div>
+                    <div className="subscription-switch-item">
+                      <label className="subscription-switch-label" htmlFor="edit-sub-ephemeral">
+                        临时订阅
+                      </label>
+                      <Switch id="edit-sub-ephemeral" {...editForm.register("ephemeral")} />
+                    </div>
                   </div>
 
                   <div className="platform-config-actions">
@@ -661,15 +675,27 @@ export function SubscriptionPage() {
                 ) : null}
               </div>
 
-              <div className="checkbox-group field-span-2">
-                <label className="checkbox-line">
-                  <input type="checkbox" {...createForm.register("enabled")} />
-                  <span>启用</span>
-                </label>
-                <label className="checkbox-line">
-                  <input type="checkbox" {...createForm.register("ephemeral")} />
-                  <span>临时订阅</span>
-                </label>
+              <div className="subscription-switch-group field-span-2">
+                <div className="subscription-switch-item">
+                  <label className="subscription-switch-label" htmlFor="create-sub-enabled">
+                    <span>启用</span>
+                    <span
+                      className="subscription-info-icon"
+                      title={SUBSCRIPTION_DISABLE_HINT}
+                      aria-label={SUBSCRIPTION_DISABLE_HINT}
+                      tabIndex={0}
+                    >
+                      <Info size={13} />
+                    </span>
+                  </label>
+                  <Switch id="create-sub-enabled" {...createForm.register("enabled")} />
+                </div>
+                <div className="subscription-switch-item">
+                  <label className="subscription-switch-label" htmlFor="create-sub-ephemeral">
+                    临时订阅
+                  </label>
+                  <Switch id="create-sub-ephemeral" {...createForm.register("ephemeral")} />
+                </div>
               </div>
 
               <div className="detail-actions" style={{ justifyContent: "flex-end" }}>
