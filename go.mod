@@ -3,6 +3,7 @@ module github.com/Resinat/Resin
 go 1.25.5
 
 require (
+	github.com/ccojocar/zxcvbn-go v1.0.4
 	github.com/maypok86/otter v1.2.4
 	github.com/puzpuzpuz/xsync/v4 v4.4.0
 	github.com/robfig/cron/v3 v3.0.1

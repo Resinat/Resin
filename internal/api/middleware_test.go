@@ -74,6 +74,21 @@ func TestAuthMiddleware_InvalidFormat(t *testing.T) {
 	}
 }
 
+func TestAuthMiddleware_EmptyConfiguredToken_DisablesAuth(t *testing.T) {
+	handler := AuthMiddleware("", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status: got %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
 func TestRequestBodyLimitMiddleware_TooLarge(t *testing.T) {
 	handler := RequestBodyLimitMiddleware(4, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, err := io.ReadAll(r.Body)

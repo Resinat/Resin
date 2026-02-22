@@ -114,9 +114,11 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.RequestLogDBMaxMB = envInt("RESIN_REQUEST_LOG_DB_MAX_MB", 512, &errs)
 	cfg.RequestLogDBRetainCount = envInt("RESIN_REQUEST_LOG_DB_RETAIN_COUNT", 5, &errs)
 
-	// --- Auth (required) ---
-	cfg.AdminToken = envStr("RESIN_ADMIN_TOKEN", "")
-	cfg.ProxyToken = envStr("RESIN_PROXY_TOKEN", "")
+	// --- Auth (must be defined; empty means auth disabled) ---
+	adminToken, hasAdminToken := os.LookupEnv("RESIN_ADMIN_TOKEN")
+	proxyToken, hasProxyToken := os.LookupEnv("RESIN_PROXY_TOKEN")
+	cfg.AdminToken = adminToken
+	cfg.ProxyToken = proxyToken
 
 	// --- Metrics ---
 	cfg.MetricThroughputIntervalSeconds = envInt("RESIN_METRIC_THROUGHPUT_INTERVAL_SECONDS", 1, &errs)
@@ -130,13 +132,13 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.MetricLatencyBinOverflowMS = envInt("RESIN_METRIC_LATENCY_BIN_OVERFLOW_MS", 3000, &errs)
 
 	// --- Validation ---
-	if cfg.AdminToken == "" {
-		errs = append(errs, "RESIN_ADMIN_TOKEN is required")
+	if !hasAdminToken {
+		errs = append(errs, "RESIN_ADMIN_TOKEN must be defined (can be empty)")
 	}
-	if cfg.ProxyToken == "" {
-		errs = append(errs, "RESIN_PROXY_TOKEN is required")
+	if !hasProxyToken {
+		errs = append(errs, "RESIN_PROXY_TOKEN must be defined (can be empty)")
 	} else {
-		if strings.Contains(cfg.ProxyToken, ":") || strings.Contains(cfg.ProxyToken, "@") {
+		if cfg.ProxyToken != "" && (strings.Contains(cfg.ProxyToken, ":") || strings.Contains(cfg.ProxyToken, "@")) {
 			errs = append(errs, "RESIN_PROXY_TOKEN must not contain ':' or '@'")
 		}
 	}

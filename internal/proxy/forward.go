@@ -88,34 +88,56 @@ func (p *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // authenticate parses Proxy-Authorization and returns (platformName, account, error).
 func (p *ForwardProxy) authenticate(r *http.Request) (string, string, *ProxyError) {
 	auth := r.Header.Get("Proxy-Authorization")
-	if auth == "" {
-		return "", "", ErrAuthRequired
-	}
-	// Expect "<scheme> <base64>"; scheme is case-insensitive per RFC.
-	authFields := strings.Fields(auth)
-	if len(authFields) != 2 || !strings.EqualFold(authFields[0], "Basic") {
-		return "", "", ErrAuthRequired
-	}
-	decoded, err := base64.StdEncoding.DecodeString(authFields[1])
-	if err != nil {
-		return "", "", ErrAuthRequired
-	}
-	// Format: user:pass where user=PROXY_TOKEN, pass=Platform:Account
-	// Split on first ":" to get user and pass.
-	userPass := string(decoded)
-	colonIdx := strings.IndexByte(userPass, ':')
-	if colonIdx < 0 {
-		return "", "", ErrAuthRequired
-	}
-	user := userPass[:colonIdx]
-	pass := userPass[colonIdx+1:]
 
+	// Empty configured proxy token means auth is intentionally disabled.
+	// In this mode, Proxy-Authorization is optional; when present and parseable,
+	// we still extract Platform:Account from the password field.
+	if p.token == "" {
+		_, pass, ok := parseProxyAuthorization(auth)
+		if !ok {
+			return "", "", nil
+		}
+		platName, account := parsePlatformAccount(pass)
+		return platName, account, nil
+	}
+
+	user, pass, ok := parseProxyAuthorization(auth)
+	if !ok {
+		return "", "", ErrAuthRequired
+	}
 	if user != p.token {
 		return "", "", ErrAuthFailed
 	}
 
 	platName, account := parsePlatformAccount(pass)
 	return platName, account, nil
+}
+
+func parseProxyAuthorization(auth string) (user string, pass string, ok bool) {
+	if auth == "" {
+		return "", "", false
+	}
+
+	// Expect "<scheme> <base64>"; scheme is case-insensitive per RFC.
+	authFields := strings.Fields(auth)
+	if len(authFields) != 2 || !strings.EqualFold(authFields[0], "Basic") {
+		return "", "", false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(authFields[1])
+	if err != nil {
+		return "", "", false
+	}
+
+	// Format: user:pass where user=PROXY_TOKEN, pass=Platform:Account
+	// Split on first ":" to get user and pass.
+	userPass := string(decoded)
+	colonIdx := strings.IndexByte(userPass, ':')
+	if colonIdx < 0 {
+		return "", "", false
+	}
+	user = userPass[:colonIdx]
+	pass = userPass[colonIdx+1:]
+	return user, pass, true
 }
 
 // hop-by-hop headers that must not be forwarded to the next hop.

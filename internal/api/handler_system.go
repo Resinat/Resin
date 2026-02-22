@@ -46,6 +46,8 @@ type systemEnvConfigResponse struct {
 	MetricLatencyBinOverflowMS            int             `json:"metric_latency_bin_overflow_ms"`
 	AdminTokenSet                         bool            `json:"admin_token_set"`
 	ProxyTokenSet                         bool            `json:"proxy_token_set"`
+	AdminTokenWeak                        bool            `json:"admin_token_weak"`
+	ProxyTokenWeak                        bool            `json:"proxy_token_weak"`
 }
 
 // HandleSystemInfo returns a handler for GET /api/v1/system/info.
@@ -100,6 +102,8 @@ func systemEnvConfigSnapshot(envCfg *config.EnvConfig) *systemEnvConfigResponse 
 	if envCfg == nil {
 		return nil
 	}
+	adminTokenSet := envCfg.AdminToken != ""
+	proxyTokenSet := envCfg.ProxyToken != ""
 	return &systemEnvConfigResponse{
 		CacheDir:                              envCfg.CacheDir,
 		StateDir:                              envCfg.StateDir,
@@ -136,7 +140,9 @@ func systemEnvConfigSnapshot(envCfg *config.EnvConfig) *systemEnvConfigResponse 
 		MetricLeasesRetentionSeconds:          envCfg.MetricLeasesRetentionSeconds,
 		MetricLatencyBinWidthMS:               envCfg.MetricLatencyBinWidthMS,
 		MetricLatencyBinOverflowMS:            envCfg.MetricLatencyBinOverflowMS,
-		AdminTokenSet:                         envCfg.AdminToken != "",
-		ProxyTokenSet:                         envCfg.ProxyToken != "",
+		AdminTokenSet:                         adminTokenSet,
+		ProxyTokenSet:                         proxyTokenSet,
+		AdminTokenWeak:                        adminTokenSet && config.IsWeakToken(envCfg.AdminToken),
+		ProxyTokenWeak:                        proxyTokenSet && config.IsWeakToken(envCfg.ProxyToken),
 	}
 }

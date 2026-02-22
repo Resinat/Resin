@@ -57,6 +57,8 @@ export type EnvConfig = {
   metric_latency_bin_overflow_ms: number;
   admin_token_set: boolean;
   proxy_token_set: boolean;
+  admin_token_weak: boolean;
+  proxy_token_weak: boolean;
 };
 
 export type RuntimeConfigPatch = Partial<RuntimeConfig>;

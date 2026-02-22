@@ -135,7 +135,7 @@ func TestLoadEnvConfig_MissingAdminToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing RESIN_ADMIN_TOKEN")
 	}
-	assertContains(t, err.Error(), "RESIN_ADMIN_TOKEN is required")
+	assertContains(t, err.Error(), "RESIN_ADMIN_TOKEN must be defined (can be empty)")
 }
 
 func TestLoadEnvConfig_MissingProxyToken(t *testing.T) {
@@ -146,7 +146,19 @@ func TestLoadEnvConfig_MissingProxyToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing RESIN_PROXY_TOKEN")
 	}
-	assertContains(t, err.Error(), "RESIN_PROXY_TOKEN is required")
+	assertContains(t, err.Error(), "RESIN_PROXY_TOKEN must be defined (can be empty)")
+}
+
+func TestLoadEnvConfig_EmptyTokensAllowedWhenDefined(t *testing.T) {
+	t.Setenv("RESIN_ADMIN_TOKEN", "")
+	t.Setenv("RESIN_PROXY_TOKEN", "")
+
+	cfg, err := LoadEnvConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertEqual(t, "AdminToken", cfg.AdminToken, "")
+	assertEqual(t, "ProxyToken", cfg.ProxyToken, "")
 }
 
 func TestLoadEnvConfig_ProxyTokenForbiddenChars(t *testing.T) {

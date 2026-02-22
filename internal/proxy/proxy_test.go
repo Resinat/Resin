@@ -168,6 +168,49 @@ func TestForwardProxy_AuthFailed(t *testing.T) {
 	}
 }
 
+func TestForwardProxy_Authentication_DisabledWhenProxyTokenEmpty(t *testing.T) {
+	fp := &ForwardProxy{token: "", events: NoOpEventEmitter{}}
+
+	tests := []struct {
+		name string
+		auth string
+	}{
+		{name: "missing"},
+		{name: "invalid_scheme", auth: "Digest abc"},
+		{name: "invalid_base64", auth: "Basic %%%"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "http://example.com/", nil)
+			if tt.auth != "" {
+				req.Header.Set("Proxy-Authorization", tt.auth)
+			}
+			plat, acct, err := fp.authenticate(req)
+			if err != nil {
+				t.Fatalf("unexpected auth error: %v", err)
+			}
+			if plat != "" || acct != "" {
+				t.Fatalf("expected empty identity, got plat=%q acct=%q", plat, acct)
+			}
+		})
+	}
+}
+
+func TestForwardProxy_Authentication_Disabled_AllowsOptionalIdentity(t *testing.T) {
+	fp := &ForwardProxy{token: "", events: NoOpEventEmitter{}}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("Proxy-Authorization", basicAuth("any-token", "plat:acct"))
+
+	plat, acct, err := fp.authenticate(req)
+	if err != nil {
+		t.Fatalf("unexpected auth error: %v", err)
+	}
+	if plat != "plat" || acct != "acct" {
+		t.Fatalf("got plat=%q acct=%q, want plat=%q acct=%q", plat, acct, "plat", "acct")
+	}
+}
+
 func TestForwardProxy_Authentication_ParsePlatformAccount(t *testing.T) {
 	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
 
@@ -487,6 +530,28 @@ func TestReverseParsePath_TokenMismatch(t *testing.T) {
 	_, err := rp.parsePath("/wrong/plat/https/example.com/")
 	if err != ErrAuthFailed {
 		t.Fatalf("expected AUTH_FAILED, got %v", err)
+	}
+}
+
+func TestReverseParsePath_TokenIgnoredWhenProxyTokenEmpty(t *testing.T) {
+	rp := &ReverseProxy{token: "", events: NoOpEventEmitter{}}
+	parsed, err := rp.parsePath("/any-value/plat:acct/https/example.com/path")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if parsed.PlatformName != "plat" || parsed.Account != "acct" {
+		t.Fatalf("unexpected parsed identity: plat=%q acct=%q", parsed.PlatformName, parsed.Account)
+	}
+}
+
+func TestReverseParsePath_EmptyAuthSegmentAllowedWhenProxyTokenEmpty(t *testing.T) {
+	rp := &ReverseProxy{token: "", events: NoOpEventEmitter{}}
+	parsed, err := rp.parsePath("//plat:acct/https/example.com/path")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if parsed.PlatformName != "plat" || parsed.Account != "acct" {
+		t.Fatalf("unexpected parsed identity: plat=%q acct=%q", parsed.PlatformName, parsed.Account)
 	}
 }
 

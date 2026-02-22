@@ -10,6 +10,12 @@ import (
 // If validation fails, it returns 401 Unauthorized with a JSON error body.
 func AuthMiddleware(adminToken string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Empty configured admin token means auth is intentionally disabled.
+		if adminToken == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		auth := r.Header.Get("Authorization")
 		if auth == "" {
 			WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing Authorization header")

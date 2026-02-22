@@ -891,6 +891,12 @@ func TestAPIContract_SystemEnvConfigSnapshot(t *testing.T) {
 	if body["proxy_token_set"] != false {
 		t.Fatalf("proxy_token_set: got %v, want false", body["proxy_token_set"])
 	}
+	if body["admin_token_weak"] != false {
+		t.Fatalf("admin_token_weak: got %v, want false", body["admin_token_weak"])
+	}
+	if body["proxy_token_weak"] != false {
+		t.Fatalf("proxy_token_weak: got %v, want false", body["proxy_token_weak"])
+	}
 	if _, ok := body["admin_token"]; ok {
 		t.Fatalf("admin_token should not be exposed: body=%s", rec.Body.String())
 	}

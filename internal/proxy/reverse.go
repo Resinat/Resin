@@ -151,7 +151,7 @@ func (p *ReverseProxy) parsePath(rawPath string) (*parsedPath, *ProxyError) {
 	if perr != nil {
 		return nil, perr
 	}
-	if token != p.token {
+	if p.token != "" && token != p.token {
 		return nil, ErrAuthFailed
 	}
 

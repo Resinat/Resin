@@ -1,4 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Database,
   LayoutDashboard,
   Logs,
@@ -13,6 +15,7 @@ import { motion } from "framer-motion";
 import { Button } from "./ui/Button";
 import { cn } from "../lib/cn";
 import { useAuthStore } from "../features/auth/auth-store";
+import { getEnvConfig } from "../features/systemConfig/api";
 
 type NavItem = {
   label: string;
@@ -33,7 +36,29 @@ const navItems: NavItem[] = [
 
 export function AppShell() {
   const clearToken = useAuthStore((state) => state.clearToken);
+  const token = useAuthStore((state) => state.token);
   const navigate = useNavigate();
+  const envConfigQuery = useQuery({
+    queryKey: ["system-config-env", "shell"],
+    queryFn: getEnvConfig,
+    staleTime: 30_000,
+  });
+
+  const envConfig = envConfigQuery.data;
+  const authWarnings: string[] = [];
+  if (envConfig && !envConfig.admin_token_set) {
+    authWarnings.push("RESIN_ADMIN_TOKEN 为空，控制面 API 免认证");
+  }
+  if (envConfig && !envConfig.proxy_token_set) {
+    authWarnings.push("RESIN_PROXY_TOKEN 为空，正/反向代理免认证");
+  }
+  if (envConfig && envConfig.admin_token_set && envConfig.admin_token_weak) {
+    authWarnings.push("RESIN_ADMIN_TOKEN 强度较弱，建议更换为更高熵随机令牌");
+  }
+  if (envConfig && envConfig.proxy_token_set && envConfig.proxy_token_weak) {
+    authWarnings.push("RESIN_PROXY_TOKEN 强度较弱，建议更换为更高熵随机令牌");
+  }
+  const showAuthWarning = authWarnings.length > 0;
 
   const logout = () => {
     clearToken();
@@ -69,10 +94,24 @@ export function AppShell() {
           })}
         </nav>
 
+        {showAuthWarning ? (
+          <div className="callout callout-warning sidebar-warning" role="alert">
+            <AlertTriangle size={16} />
+            <div className="sidebar-warning-copy">
+              <strong>安全警告</strong>
+              <span>{authWarnings.join("；")}。</span>
+            </div>
+          </div>
+        ) : null}
+
         <div className="sidebar-footer">
-          <Button variant="secondary" className="w-full" onClick={logout}>
-            退出登录
-          </Button>
+          {token ? (
+            <Button variant="secondary" className="w-full" onClick={logout}>
+              退出登录
+            </Button>
+          ) : (
+            <p className="sidebar-hint">当前为免认证访问模式</p>
+          )}
         </div>
       </aside>
 

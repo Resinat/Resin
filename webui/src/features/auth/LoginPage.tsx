@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { LockKeyhole, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -20,6 +20,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const setToken = useAuthStore((state) => state.setToken);
+  const storedToken = useAuthStore((state) => state.token);
   const [submitError, setSubmitError] = useState("");
 
   const {
@@ -30,6 +31,42 @@ export function LoginPage() {
     resolver: zodResolver(formSchema),
     defaultValues: { token: "" },
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const next = params.get("next") || "/platforms";
+
+    if (storedToken) {
+      navigate(next, { replace: true });
+      return;
+    }
+
+    let active = true;
+    const controller = new AbortController();
+
+    const checkAuthMode = async () => {
+      try {
+        const response = await fetch("/api/v1/system/info", {
+          method: "GET",
+          signal: controller.signal,
+        });
+        if (!active) {
+          return;
+        }
+        if (response.ok) {
+          navigate(next, { replace: true });
+        }
+      } catch {
+        // Keep login page for secured deployments or temporary network errors.
+      }
+    };
+    void checkAuthMode();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [location.search, navigate, storedToken]);
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitError("");

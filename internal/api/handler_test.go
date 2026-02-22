@@ -295,6 +295,12 @@ func TestSystemEnvConfig_OK(t *testing.T) {
 	if body["proxy_token_set"] != true {
 		t.Errorf("proxy_token_set: got %v, want true", body["proxy_token_set"])
 	}
+	if body["admin_token_weak"] != false {
+		t.Errorf("admin_token_weak: got %v, want false", body["admin_token_weak"])
+	}
+	if body["proxy_token_weak"] != false {
+		t.Errorf("proxy_token_weak: got %v, want false", body["proxy_token_weak"])
+	}
 	if _, ok := body["admin_token"]; ok {
 		t.Error("admin_token should not be exposed in /system/config/env")
 	}

@@ -2008,8 +2008,9 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * RESIN_REQUEST_LOG_DB_RETAIN_COUNT：保留的历史日志数据库文件数量（滚动日志），默认 5。
 
 认证设置：
-* RESIN_ADMIN_TOKEN：访问 WebAPI 的认证 Token。
-* RESIN_PROXY_TOKEN：访问代理的认证 Token。不能包含 : @ 符号。
+* RESIN_ADMIN_TOKEN：访问 WebAPI 的认证 Token。环境变量必须定义；允许为空字符串。为空时关闭控制面鉴权。
+* RESIN_PROXY_TOKEN：访问代理的认证 Token。环境变量必须定义；允许为空字符串。为空时关闭正向/反向代理鉴权；非空时不能包含 : @ 符号。
+* 当 Token 非空但强度较弱时（使用 zxcvbn-go 评分，`Score < 3`），WebUI 首页会显示安全告警条幅（不阻止启动）。
 
 数据统计设置：
 * `RESIN_METRIC_THROUGHPUT_INTERVAL_SECONDS`：统计网速的时间间隔，默认 1s。
