@@ -1603,15 +1603,6 @@ a {
   color: #4d5f7b;
 }
 
-.tags-section {
-  margin-top: 12px;
-}
-
-.tags-section h4 {
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-
 .tag-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

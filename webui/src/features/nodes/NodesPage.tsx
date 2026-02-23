@@ -802,7 +802,7 @@ export function NodesPage() {
                 ) : null}
               </section>
 
-              <section className="platform-drawer-section tags-section">
+              <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
                   <h4>节点别名</h4>
                 </div>
