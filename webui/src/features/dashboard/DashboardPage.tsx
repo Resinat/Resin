@@ -186,10 +186,6 @@ function formatShortNumber(value: number): string {
   return `${Math.round(value)}`;
 }
 
-function formatShortPercent(value: number): string {
-  return `${value.toFixed(0)}%`;
-}
-
 function formatLatencyAxisTick(value: number): string {
   if (!Number.isFinite(value) || value < 0) {
     return "0ms";
@@ -850,7 +846,7 @@ export function DashboardPage() {
     [historyRequestItems],
   );
   const requestTotals = requestItems.map((item) => item.total_requests);
-  const requestSuccessRates = requestItems.map((item) => item.success_rate * 100);
+  const requestSuccesses = requestItems.map((item) => item.success_requests);
   const requestLabels = requestItems.map((item) => item.bucket_start);
 
   const historyNodePoolItems = globalData?.history_node_pool.items;
@@ -878,7 +874,6 @@ export function DashboardPage() {
   const totalTrafficBytes = sum(trafficIngress) + sum(trafficEgress);
   const totalRequests = sum(requestTotals);
   const successRequests = requestItems.reduce((acc, item) => acc + item.success_requests, 0);
-  const aggregatedSuccessRate = successRate(totalRequests, successRequests);
 
   const snapshotNodePool = globalData?.snapshot_node_pool;
   const nodeHealthRate = snapshotNodePool ? successRate(snapshotNodePool.total_nodes, snapshotNodePool.healthy_nodes) : 0;
@@ -1072,24 +1067,28 @@ export function DashboardPage() {
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>请求质量</h3>
-            <p>请求成功率（%）</p>
+            <h3>请求统计</h3>
+            <p>总请求数 / 成功请求数</p>
           </div>
           <TrendChart
             labels={requestLabels}
-            formatYAxisLabel={formatShortPercent}
+            formatYAxisLabel={formatShortNumber}
             series={[
               {
-                name: "成功率 %",
-                values: requestSuccessRates,
+                name: "总请求数",
+                values: requestTotals,
+                color: "#2467e4",
+              },
+              {
+                name: "成功请求数",
+                values: requestSuccesses,
                 color: "#0f9d8b",
-                fillColor: "rgba(15, 157, 139, 0.14)",
               },
             ]}
           />
           <div className="dashboard-summary-inline">
             <span>总请求 {formatCount(totalRequests)}</span>
-            <span>成功率 {formatPercent(aggregatedSuccessRate)}</span>
+            <span>成功请求 {formatCount(successRequests)}</span>
           </div>
         </Card>
 
