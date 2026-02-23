@@ -707,8 +707,8 @@ export function SubscriptionPage() {
 
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>清理熔断节点</h5>
-                      <p className="platform-op-hint">立即清理当前熔断，或无 outbound 且存在错误的节点。</p>
+                      <h5>清理失效节点</h5>
+                      <p className="platform-op-hint">立即清理当前熔断，或出错错误的节点。（订阅更新后节点可能会被重新添加）</p>
                     </div>
                     <Button
                       variant="secondary"
