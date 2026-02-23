@@ -15,7 +15,7 @@ import "./styles/theme.css";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <AppProviders>
-      <BrowserRouter>
+      <BrowserRouter basename="/ui">
         <AppRoutes />
       </BrowserRouter>
     </AppProviders>

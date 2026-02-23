@@ -10,20 +10,16 @@ services:
       RESIN_ADMIN_TOKEN: ${RESIN_ADMIN_TOKEN}
       RESIN_PROXY_TOKEN: ${RESIN_PROXY_TOKEN}
       RESIN_LISTEN_ADDRESS: 0.0.0.0
-      RESIN_API_PORT: 2620
-      RESIN_FORWARD_PROXY_PORT: 2621
-      RESIN_REVERSE_PROXY_PORT: 2622
+      RESIN_PORT: 2260
       TZ: ${TZ:-UTC}
     ports:
-      - "2620:2620"
-      - "2621:2621"
-      - "2622:2622"
+      - "2260:2260"
     volumes:
       - resin_cache:/var/cache/resin
       - resin_state:/var/lib/resin
       - resin_log:/var/log/resin
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2620/healthz >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2260/healthz >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -25,10 +25,8 @@ type EnvConfig struct {
 	ListenAddress string
 
 	// Ports
-	APIPort          int
-	ForwardProxyPort int
-	ReverseProxyPort int
-	APIMaxBodyBytes  int
+	ResinPort       int
+	APIMaxBodyBytes int
 
 	// Core
 	MaxLatencyTableEntries                int
@@ -81,9 +79,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.ListenAddress = strings.TrimSpace(envStr("RESIN_LISTEN_ADDRESS", "0.0.0.0"))
 
 	// --- Ports ---
-	cfg.APIPort = envInt("RESIN_API_PORT", 2620, &errs)
-	cfg.ForwardProxyPort = envInt("RESIN_FORWARD_PROXY_PORT", 2621, &errs)
-	cfg.ReverseProxyPort = envInt("RESIN_REVERSE_PROXY_PORT", 2622, &errs)
+	cfg.ResinPort = envInt("RESIN_PORT", 2260, &errs)
 	cfg.APIMaxBodyBytes = envInt("RESIN_API_MAX_BODY_BYTES", 1<<20, &errs)
 
 	// --- Core ---
@@ -141,14 +137,15 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		if cfg.ProxyToken != "" && (strings.Contains(cfg.ProxyToken, ":") || strings.Contains(cfg.ProxyToken, "@")) {
 			errs = append(errs, "RESIN_PROXY_TOKEN must not contain ':' or '@'")
 		}
+		if cfg.ProxyToken == "api" || cfg.ProxyToken == "healthz" || cfg.ProxyToken == "ui" {
+			errs = append(errs, "RESIN_PROXY_TOKEN must not be reserved keyword: api, healthz, ui")
+		}
 	}
 	if cfg.ListenAddress == "" {
 		errs = append(errs, "RESIN_LISTEN_ADDRESS must not be empty")
 	}
 
-	validatePort("RESIN_API_PORT", cfg.APIPort, &errs)
-	validatePort("RESIN_FORWARD_PROXY_PORT", cfg.ForwardProxyPort, &errs)
-	validatePort("RESIN_REVERSE_PROXY_PORT", cfg.ReverseProxyPort, &errs)
+	validatePort("RESIN_PORT", cfg.ResinPort, &errs)
 	validatePositive("RESIN_API_MAX_BODY_BYTES", cfg.APIMaxBodyBytes, &errs)
 
 	validatePositive("RESIN_MAX_LATENCY_TABLE_ENTRIES", cfg.MaxLatencyTableEntries, &errs)

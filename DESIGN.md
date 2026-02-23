@@ -829,7 +829,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 ## WebAPI
 ### 概览
 
-* Base URL：`http://<host>:${RESIN_API_PORT}/api/v1`
+* Base URL：`http://<host>:${RESIN_PORT}/api/v1`
 * Content-Type：`application/json; charset=utf-8`
 * 鉴权：控制面 Admin Token
 
@@ -1982,11 +1982,9 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * RESIN_CACHE_DIR：缓存目录。默认 /var/cache/resin
 * RESIN_STATE_DIR：配置目录。默认 /var/lib/resin
 * RESIN_LOG_DIR：日志目录。默认 /var/log/resin
-* RESIN_LISTEN_ADDRESS：API/前向代理/反向代理统一监听地址。默认 `0.0.0.0`
-* RESIN_API_PORT：API 端口。默认 2620
+* RESIN_LISTEN_ADDRESS：Resin 统一监听地址。默认 `0.0.0.0`
+* RESIN_PORT：Resin 单端口（控制面 API + 正向代理 + 反向代理 + WebUI）。默认 2260
 * RESIN_API_MAX_BODY_BYTES：控制面 API（`/api/*`）请求体最大字节数。超限返回 `413 PAYLOAD_TOO_LARGE`。仅作用于控制面，不作用于正/反向代理数据面。默认 1048576（1 MiB）。
-* RESIN_FORWARD_PROXY_PORT：前向代理端口。默认 2621
-* RESIN_REVERSE_PROXY_PORT：反向代理端口。默认 2622
 
 核心设置：
 * `RESIN_MAX_LATENCY_TABLE_ENTRIES`：每个节点的延迟表的最大表项数。默认 128。
@@ -2009,7 +2007,7 @@ GeoIP 与订阅的下载都有错误重试的需求。
 
 认证设置：
 * RESIN_ADMIN_TOKEN：访问 WebAPI 的认证 Token。环境变量必须定义；允许为空字符串。为空时关闭控制面鉴权。
-* RESIN_PROXY_TOKEN：访问代理的认证 Token。环境变量必须定义；允许为空字符串。为空时关闭正向/反向代理鉴权；非空时不能包含 : @ 符号。
+* RESIN_PROXY_TOKEN：访问代理的认证 Token。环境变量必须定义；允许为空字符串。为空时关闭正向/反向代理鉴权；非空时不能包含 : @ 符号，且不能取保留值 `api`、`healthz`、`ui`。
 * 当 Token 非空但强度较弱时（使用 zxcvbn-go 评分，`Score < 3`），WebUI 首页会显示安全告警条幅（不阻止启动）。
 
 数据统计设置：

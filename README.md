@@ -61,7 +61,7 @@ go build -tags "with_quic with_wireguard with_grpc with_utls with_embedded_tor w
 ./resin
 ```
 
-启动后，Resin 会在本地开启代理网关和控制面板（端口由配置指定）。
+启动后，Resin 会在本地开启统一单端口服务（默认 `2260`）。WebUI 挂载在 `/ui/`，访问根路径 `/` 会自动重定向到 `/ui/`。
 
 ---
 
@@ -83,7 +83,7 @@ go build -tags "with_quic with_wireguard with_grpc with_utls with_embedded_tor w
 请使用 `Proxy-Authorization` 头传递业务信息，格式为：`令牌:平台:账号`。
 
 ```bash
-curl -x http://127.0.0.1:2621 \
+curl -x http://127.0.0.1:2260 \
   -U "my-token:Default:Tom" \
   https://api.example.com/ip
 ```
@@ -94,7 +94,7 @@ curl -x http://127.0.0.1:2621 \
 URL 格式为：`/令牌/平台:账号/协议/目标地址`：
 
 ```bash
-curl "http://127.0.0.1:2622/my-token/Default:Tom/https/api.example.com/ip"
+curl "http://127.0.0.1:2260/my-token/Default:Tom/https/api.example.com/ip"
 ```
 *（Resin 会通过绑定的固定 IP 向上游网站发起请求，并返回结果。）*
 
@@ -121,12 +121,16 @@ TODO
 ### 深度接入
 对于纯 API 请求，推荐接入反向代理。
 给 Coding Agent 的 Prompt：
-> 修改这个项目。
-> 配置文件里引入 resin_reverse_proxy_url 与 resin_platform_name 配置。
-> Resin 是一个外部代理池，通过反向代理的形式提供代理。
-> Resin 通过路径 `<resin-reverse-proxy-url>/PROXY_TOKEN/Platform:Account/protocol/host/path?query` 解析反向代理请求；其中 `Platform:Account` 必须是单个路径段。protocol 是 `http/https` 之一；host 可以是域名，可以是 IP，可以加端口。例子：http://resin:2622/dummy-token/Default:Tom/https/api.example.com/healthz，表示 Resin 以 Default:Tom 作为业务身份，智能选择节点请求 https://api.example.com/healthz。
-> 该项目中任何涉及具体账号的网络请求，都必须走 Resin 反向代理。其中 Platform 字段是 resin_platform_name。Account 字段是可以区分账号的标识，包括但不限于账号 ID、账号邮箱、账号 Token、账号哈希值等。
 
+```
+修改这个项目，使其接入外部粘性代理池。
+Resin 是一个外部代理池，通过反向代理的形式提供代理。Resin 通过 Platform:Account 来识别业务身份，从而提供粘性代理。
+* 配置文件里引入 resin_url 与 resin_platform_name 配置。
+* Resin 通过路径 `<resin-url>/<token>/Platform:Account/protocol/host/path?query` 解析反向代理请求；其中 `Platform:Account` 必须是单个路径段。protocol 是 `http/https` 之一；host 可以是域名，可以是 IP，可以加端口。例子：http://resin:2260/dummy-token/Default:Tom/https/api.example.com/healthz，表示 Resin 以 Default:Tom 作为业务身份，智能选择节点请求 https://api.example.com/healthz。
+* 该项目中任何涉及具体账号的网络请求，都必须走 Resin 反向代理。其中 Platform 字段是 resin_platform_name。Account 字段是可以区分账号的标识，包括但不限于账号 ID、账号邮箱、账号 Token、账号哈希值等。同一个账号的标识一定要稳定。不能一会使用这个账号的 Email 一会使用这个账号的 Token。Resin 会把两个不同的标识符识别成两个不同的账号。
+* 推荐使用**账号登录前就有的标识**，来防止登录请求没有标识可用。
+* 如果确实存在账号登录前没有标识可用的情况，可以先使用一个临时标识，等到登录成功，获得稳定标识后，使用 POST <resin-url>/api/v1/<PLATFORM>/action/inherit-lease，`{"parent_account": "<TempIdentity>", "new_account": "<StableIdentity>"}` 来继承之前的租约。
+```
 ---
 
 ## ⚠️ 免责声明

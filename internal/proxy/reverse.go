@@ -166,6 +166,9 @@ func (p *ReverseProxy) parsePath(rawPath string) (*parsedPath, *ProxyError) {
 	if perr != nil {
 		return nil, perr
 	}
+	if !strings.Contains(identity, ":") {
+		return nil, ErrURLParseError
+	}
 	platName, account := parsePlatformAccount(identity)
 
 	// Third segment: protocol.

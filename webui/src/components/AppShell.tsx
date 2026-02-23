@@ -43,6 +43,7 @@ export function AppShell() {
     queryFn: getEnvConfig,
     staleTime: 30_000,
   });
+  const logoSrc = `${import.meta.env.BASE_URL}vite.svg`;
 
   const envConfig = envConfigQuery.data;
   const authWarnings: string[] = [];
@@ -70,7 +71,7 @@ export function AppShell() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-logo" aria-hidden="true">
-            <img src="/vite.svg" alt="Resin Logo" style={{ width: 20, height: 20 }} />
+            <img src={logoSrc} alt="Resin Logo" style={{ width: 20, height: 20 }} />
           </div>
           <div>
             <p className="brand-title">Resin</p>

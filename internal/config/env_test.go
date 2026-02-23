@@ -38,9 +38,7 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	assertEqual(t, "ListenAddress", cfg.ListenAddress, "0.0.0.0")
 
 	// Ports
-	assertEqual(t, "APIPort", cfg.APIPort, 2620)
-	assertEqual(t, "ForwardProxyPort", cfg.ForwardProxyPort, 2621)
-	assertEqual(t, "ReverseProxyPort", cfg.ReverseProxyPort, 2622)
+	assertEqual(t, "ResinPort", cfg.ResinPort, 2260)
 	assertEqual(t, "APIMaxBodyBytes", cfg.APIMaxBodyBytes, 1<<20)
 
 	// Core
@@ -65,10 +63,10 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	assertEqual(t, "RequestLogDBRetainCount", cfg.RequestLogDBRetainCount, 5)
 
 	// Metrics
-	assertEqual(t, "MetricThroughputIntervalSeconds", cfg.MetricThroughputIntervalSeconds, 1)
+	assertEqual(t, "MetricThroughputIntervalSeconds", cfg.MetricThroughputIntervalSeconds, 2)
 	assertEqual(t, "MetricThroughputRetentionSeconds", cfg.MetricThroughputRetentionSeconds, 3600)
 	assertEqual(t, "MetricBucketSeconds", cfg.MetricBucketSeconds, 3600)
-	assertEqual(t, "MetricConnectionsIntervalSeconds", cfg.MetricConnectionsIntervalSeconds, 5)
+	assertEqual(t, "MetricConnectionsIntervalSeconds", cfg.MetricConnectionsIntervalSeconds, 15)
 	assertEqual(t, "MetricConnectionsRetentionSeconds", cfg.MetricConnectionsRetentionSeconds, 18000)
 	assertEqual(t, "MetricLeasesIntervalSeconds", cfg.MetricLeasesIntervalSeconds, 5)
 	assertEqual(t, "MetricLeasesRetentionSeconds", cfg.MetricLeasesRetentionSeconds, 18000)
@@ -80,7 +78,7 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	envs := requiredEnvs()
 	envs["RESIN_CACHE_DIR"] = "/tmp/cache"
 	envs["RESIN_LISTEN_ADDRESS"] = "127.0.0.1"
-	envs["RESIN_API_PORT"] = "8080"
+	envs["RESIN_PORT"] = "8080"
 	envs["RESIN_API_MAX_BODY_BYTES"] = "2097152"
 	envs["RESIN_PROBE_CONCURRENCY"] = "500"
 	envs["RESIN_GEOIP_UPDATE_SCHEDULE"] = "0 0 * * *"
@@ -104,7 +102,7 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 
 	assertEqual(t, "CacheDir", cfg.CacheDir, "/tmp/cache")
 	assertEqual(t, "ListenAddress", cfg.ListenAddress, "127.0.0.1")
-	assertEqual(t, "APIPort", cfg.APIPort, 8080)
+	assertEqual(t, "ResinPort", cfg.ResinPort, 8080)
 	assertEqual(t, "APIMaxBodyBytes", cfg.APIMaxBodyBytes, 2097152)
 	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 500)
 	assertEqual(t, "GeoIPUpdateSchedule", cfg.GeoIPUpdateSchedule, "0 0 * * *")
@@ -183,6 +181,22 @@ func TestLoadEnvConfig_ProxyTokenForbiddenChars(t *testing.T) {
 	}
 }
 
+func TestLoadEnvConfig_ProxyTokenReservedKeywords(t *testing.T) {
+	tests := []string{"api", "healthz", "ui"}
+	for _, token := range tests {
+		t.Run(token, func(t *testing.T) {
+			t.Setenv("RESIN_ADMIN_TOKEN", "admin-secret")
+			t.Setenv("RESIN_PROXY_TOKEN", token)
+
+			_, err := LoadEnvConfig()
+			if err == nil {
+				t.Fatal("expected error for reserved RESIN_PROXY_TOKEN")
+			}
+			assertContains(t, err.Error(), "reserved keyword")
+		})
+	}
+}
+
 func TestLoadEnvConfig_EmptyListenAddress(t *testing.T) {
 	envs := requiredEnvs()
 	envs["RESIN_LISTEN_ADDRESS"] = "   "
@@ -197,38 +211,38 @@ func TestLoadEnvConfig_EmptyListenAddress(t *testing.T) {
 
 func TestLoadEnvConfig_InvalidPort(t *testing.T) {
 	envs := requiredEnvs()
-	envs["RESIN_API_PORT"] = "99999"
+	envs["RESIN_PORT"] = "99999"
 	setEnvs(t, envs)
 
 	_, err := LoadEnvConfig()
 	if err == nil {
 		t.Fatal("expected error for port out of range")
 	}
-	assertContains(t, err.Error(), "RESIN_API_PORT")
+	assertContains(t, err.Error(), "RESIN_PORT")
 }
 
 func TestLoadEnvConfig_InvalidPortNotNumber(t *testing.T) {
 	envs := requiredEnvs()
-	envs["RESIN_API_PORT"] = "abc"
+	envs["RESIN_PORT"] = "abc"
 	setEnvs(t, envs)
 
 	_, err := LoadEnvConfig()
 	if err == nil {
 		t.Fatal("expected error for non-numeric port")
 	}
-	assertContains(t, err.Error(), "RESIN_API_PORT")
+	assertContains(t, err.Error(), "RESIN_PORT")
 }
 
 func TestLoadEnvConfig_ZeroPort(t *testing.T) {
 	envs := requiredEnvs()
-	envs["RESIN_FORWARD_PROXY_PORT"] = "0"
+	envs["RESIN_PORT"] = "0"
 	setEnvs(t, envs)
 
 	_, err := LoadEnvConfig()
 	if err == nil {
 		t.Fatal("expected error for zero port")
 	}
-	assertContains(t, err.Error(), "RESIN_FORWARD_PROXY_PORT")
+	assertContains(t, err.Error(), "RESIN_PORT")
 }
 
 func TestLoadEnvConfig_InvalidAPIMaxBodyBytes(t *testing.T) {

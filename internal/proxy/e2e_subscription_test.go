@@ -222,7 +222,7 @@ func TestReverseProxy_E2EServer_FromHTTPSubscription(t *testing.T) {
 	defer reverseSrv.Close()
 
 	host := strings.TrimPrefix(upstream.URL, "http://")
-	reqURL := reverseSrv.URL + "/tok/plat/http/" + host + "/api/v1/items?k=v"
+	reqURL := reverseSrv.URL + "/tok/plat:acct/http/" + host + "/api/v1/items?k=v"
 
 	resp, err := http.Get(reqURL)
 	if err != nil {

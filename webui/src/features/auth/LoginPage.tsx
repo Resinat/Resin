@@ -81,7 +81,7 @@ export function LoginPage() {
         setSubmitError(`登录失败：${error.message}`);
       } else {
         setSubmitError(
-          "登录失败：无法连接 API。请确认 Resin 在 2620 端口运行，并使用 `npm run dev`（含 /api 代理）启动前端。",
+          "登录失败：无法连接 API。请确认 Resin 在 2260 端口运行，并使用 `npm run dev`（含 /api 代理）启动前端。",
         );
       }
       return;

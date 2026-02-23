@@ -21,9 +21,7 @@ func newTestServer() *Server {
 		StateDir:                              "/tmp/resin/state",
 		LogDir:                                "/tmp/resin/log",
 		ListenAddress:                         "127.0.0.1",
-		APIPort:                               2620,
-		ForwardProxyPort:                      2621,
-		ReverseProxyPort:                      2622,
+		ResinPort:                             2260,
 		APIMaxBodyBytes:                       1 << 20,
 		MaxLatencyTableEntries:                128,
 		ProbeConcurrency:                      1000,
@@ -100,9 +98,23 @@ func TestHealthz_NoAuth(t *testing.T) {
 
 // --- embedded WebUI ---
 
-func TestWebUI_IndexServed(t *testing.T) {
+func TestWebUI_RootRedirectsToUI(t *testing.T) {
 	srv := newTestServer()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusFound)
+	}
+	if location := rec.Header().Get("Location"); location != "/ui/" {
+		t.Fatalf("location: got %q, want %q", location, "/ui/")
+	}
+}
+
+func TestWebUI_IndexServed(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/ui/", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -119,7 +131,7 @@ func TestWebUI_IndexServed(t *testing.T) {
 
 func TestWebUI_SPARouteFallback(t *testing.T) {
 	srv := newTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/platforms/demo", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/platforms/demo", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -133,7 +145,18 @@ func TestWebUI_SPARouteFallback(t *testing.T) {
 
 func TestWebUI_MissingAsset404(t *testing.T) {
 	srv := newTestServer()
-	req := httptest.NewRequest(http.MethodGet, "/assets/does-not-exist.js", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui/assets/does-not-exist.js", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status: got %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestWebUI_LegacyRootPathNoLongerServed(t *testing.T) {
+	srv := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 

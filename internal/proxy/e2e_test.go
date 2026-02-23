@@ -167,7 +167,7 @@ func TestReverseProxy_E2ESuccess(t *testing.T) {
 	defer upstream.Close()
 
 	host := strings.TrimPrefix(upstream.URL, "http://")
-	path := fmt.Sprintf("/tok/plat/http/%s/api/v1/items?k=v", host)
+	path := fmt.Sprintf("/tok/plat:acct/http/%s/api/v1/items?k=v", host)
 
 	rp := NewReverseProxy(ReverseProxyConfig{
 		ProxyToken:     "tok",
@@ -210,7 +210,7 @@ func TestReverseProxy_E2ECapturesDetailPayloads(t *testing.T) {
 	defer upstream.Close()
 
 	host := strings.TrimPrefix(upstream.URL, "http://")
-	path := fmt.Sprintf("/tok/plat/http/%s/api/v1/items", host)
+	path := fmt.Sprintf("/tok/plat:acct/http/%s/api/v1/items", host)
 	reqBody := "request-body-data"
 
 	rp := NewReverseProxy(ReverseProxyConfig{
@@ -343,7 +343,7 @@ func TestReverseProxy_E2EWebSocketUpgrade_WithDetailCapture(t *testing.T) {
 
 	upstreamHost := strings.TrimPrefix(upstream.URL, "http://")
 	req := fmt.Sprintf(
-		"GET /tok/plat/http/%s/ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+		"GET /tok/plat:acct/http/%s/ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
 		upstreamHost,
 		reverseAddr,
 	)

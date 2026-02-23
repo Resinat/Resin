@@ -39,7 +39,7 @@ RUN apk add --no-cache ca-certificates tzdata \
 COPY --from=go-builder /out/resin /usr/local/bin/resin
 
 USER resin
-EXPOSE 2620 2621 2622
+EXPOSE 2260
 VOLUME ["/var/cache/resin", "/var/lib/resin", "/var/log/resin"]
 
 ENTRYPOINT ["/usr/local/bin/resin"]

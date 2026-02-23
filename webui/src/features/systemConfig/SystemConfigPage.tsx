@@ -789,16 +789,8 @@ export function SystemConfigPage() {
                       <Input readOnly disabled value={envBaseline.listen_address} />
                     </div>
                     <div className="field-group">
-                      <label className="field-label" style={{ margin: 0 }}>控制面 API 端口</label>
-                      <Input readOnly disabled value={String(envBaseline.api_port)} />
-                    </div>
-                    <div className="field-group">
-                      <label className="field-label" style={{ margin: 0 }}>正向代理端口</label>
-                      <Input readOnly disabled value={String(envBaseline.forward_proxy_port)} />
-                    </div>
-                    <div className="field-group">
-                      <label className="field-label" style={{ margin: 0 }}>反向代理端口</label>
-                      <Input readOnly disabled value={String(envBaseline.reverse_proxy_port)} />
+                      <label className="field-label" style={{ margin: 0 }}>统一服务端口</label>
+                      <Input readOnly disabled value={String(envBaseline.resin_port)} />
                     </div>
                   </div>
                 </section>

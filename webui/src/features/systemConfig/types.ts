@@ -24,9 +24,7 @@ export type EnvConfig = {
   state_dir: string;
   log_dir: string;
   listen_address: string;
-  api_port: number;
-  forward_proxy_port: number;
-  reverse_proxy_port: number;
+  resin_port: number;
   api_max_body_bytes: number;
   max_latency_table_entries: number;
   probe_concurrency: number;

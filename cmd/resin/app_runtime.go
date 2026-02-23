@@ -40,11 +40,8 @@ type resinApp struct {
 	metricsManager *metrics.Manager
 	requestlogRepo *requestlog.Repo
 	requestlogSvc  *requestlog.Service
-	apiSrv         *api.Server
-	forwardSrv     *http.Server
-	reverseSrv     *http.Server
-	forwardLn      net.Listener
-	reverseLn      net.Listener
+	inboundSrv     *http.Server
+	inboundLn      net.Listener
 	transportPool  *proxy.OutboundTransportPool
 }
 
@@ -368,9 +365,9 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		MatcherRuntime: a.accountMatcher,
 	}
 
-	a.apiSrv = api.NewServerWithAddress(
+	apiSrv := api.NewServerWithAddress(
 		a.envCfg.ListenAddress,
-		a.envCfg.APIPort,
+		a.envCfg.ResinPort,
 		a.envCfg.AdminToken,
 		systemInfo,
 		a.runtimeCfg,
@@ -402,13 +399,6 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		TransportPool:     a.transportPool,
 	})
 
-	forwardLn, err := net.Listen("tcp", formatListenAddress(a.envCfg.ListenAddress, a.envCfg.ForwardProxyPort))
-	if err != nil {
-		return fmt.Errorf("forward proxy listen: %w", err)
-	}
-	a.forwardLn = proxy.NewCountingListener(forwardLn, a.metricsManager)
-	a.forwardSrv = &http.Server{Handler: forwardProxy}
-
 	reverseProxy := proxy.NewReverseProxy(proxy.ReverseProxyConfig{
 		ProxyToken:        a.envCfg.ProxyToken,
 		Router:            a.topoRuntime.router,
@@ -422,12 +412,18 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		TransportPool:     a.transportPool,
 	})
 
-	reverseLn, err := net.Listen("tcp", formatListenAddress(a.envCfg.ListenAddress, a.envCfg.ReverseProxyPort))
+	inboundHandler := newInboundMux(
+		a.envCfg.ProxyToken,
+		forwardProxy,
+		reverseProxy,
+		apiSrv.Handler(),
+	)
+	inboundLn, err := net.Listen("tcp", formatListenAddress(a.envCfg.ListenAddress, a.envCfg.ResinPort))
 	if err != nil {
-		return fmt.Errorf("reverse proxy listen: %w", err)
+		return fmt.Errorf("resin server listen: %w", err)
 	}
-	a.reverseLn = proxy.NewCountingListener(reverseLn, a.metricsManager)
-	a.reverseSrv = &http.Server{Handler: reverseProxy}
+	a.inboundLn = proxy.NewCountingListener(inboundLn, a.metricsManager)
+	a.inboundSrv = &http.Server{Handler: inboundHandler}
 
 	return nil
 }
@@ -472,16 +468,8 @@ func (a *resinApp) startServers() <-chan error {
 	}
 
 	go func() {
-		log.Printf("Resin API server starting on %s", formatListenURL(a.envCfg.ListenAddress, a.envCfg.APIPort))
-		reportServerErr("api server", a.apiSrv.ListenAndServe())
-	}()
-	go func() {
-		log.Printf("Forward proxy starting on %s", formatListenURL(a.envCfg.ListenAddress, a.envCfg.ForwardProxyPort))
-		reportServerErr("forward proxy", a.forwardSrv.Serve(a.forwardLn))
-	}()
-	go func() {
-		log.Printf("Reverse proxy starting on %s", formatListenURL(a.envCfg.ListenAddress, a.envCfg.ReverseProxyPort))
-		reportServerErr("reverse proxy", a.reverseSrv.Serve(a.reverseLn))
+		log.Printf("Resin server starting on %s", formatListenURL(a.envCfg.ListenAddress, a.envCfg.ResinPort))
+		reportServerErr("resin server", a.inboundSrv.Serve(a.inboundLn))
 	}()
 
 	return serverErrCh
@@ -511,22 +499,13 @@ func formatListenURL(listenAddress string, port int) string {
 }
 
 func (a *resinApp) shutdown(ctx context.Context) {
-	if err := a.forwardSrv.Shutdown(ctx); err != nil {
-		log.Printf("Forward proxy shutdown error: %v", err)
+	if err := a.inboundSrv.Shutdown(ctx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
 	}
-	log.Println("Forward proxy stopped")
-
-	if err := a.reverseSrv.Shutdown(ctx); err != nil {
-		log.Printf("Reverse proxy shutdown error: %v", err)
-	}
-	log.Println("Reverse proxy stopped")
+	log.Println("Resin server stopped")
 	if a.transportPool != nil {
 		a.transportPool.CloseAll()
 		log.Println("Outbound transport pool closed")
-	}
-
-	if err := a.apiSrv.Shutdown(ctx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
 	}
 
 	// Stop in order: event sources first, then sinks, then persistence.

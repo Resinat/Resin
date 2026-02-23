@@ -461,7 +461,7 @@ func TestIsValidHost(t *testing.T) {
 
 func TestReverseParsePath_InvalidHostUserinfo(t *testing.T) {
 	rp := &ReverseProxy{token: "tok", events: NoOpEventEmitter{}}
-	_, err := rp.parsePath("/tok/plat/https/user@example.com/path")
+	_, err := rp.parsePath("/tok/plat:acct/https/user@example.com/path")
 	if err != ErrInvalidHost {
 		t.Fatalf("expected INVALID_HOST for userinfo host, got %v", err)
 	}
@@ -541,7 +541,7 @@ func TestReverseParsePath_Valid(t *testing.T) {
 
 func TestReverseParsePath_TokenMismatch(t *testing.T) {
 	rp := &ReverseProxy{token: "correct", events: NoOpEventEmitter{}}
-	_, err := rp.parsePath("/wrong/plat/https/example.com/")
+	_, err := rp.parsePath("/wrong/plat:acct/https/example.com/")
 	if err != ErrAuthFailed {
 		t.Fatalf("expected AUTH_FAILED, got %v", err)
 	}
@@ -579,7 +579,7 @@ func TestReverseParsePath_TooFewSegments(t *testing.T) {
 
 func TestReverseParsePath_InvalidProtocol(t *testing.T) {
 	rp := &ReverseProxy{token: "tok", events: NoOpEventEmitter{}}
-	_, err := rp.parsePath("/tok/plat/ftp/example.com/")
+	_, err := rp.parsePath("/tok/plat:acct/ftp/example.com/")
 	if err != ErrInvalidProtocol {
 		t.Fatalf("expected INVALID_PROTOCOL, got %v", err)
 	}
@@ -590,13 +590,13 @@ func TestReverseParsePath_InvalidHost(t *testing.T) {
 	var err *ProxyError
 
 	// Host with spaces.
-	_, err = rp.parsePath("/tok/plat/https/host with space/path")
+	_, err = rp.parsePath("/tok/plat:acct/https/host with space/path")
 	if err != ErrInvalidHost {
 		t.Fatalf("expected INVALID_HOST for host with space, got %v", err)
 	}
 
 	// Percent-encoded host spaces are decoded before host validation.
-	_, err = rp.parsePath("/tok/plat/https/host%20with%20space/path")
+	_, err = rp.parsePath("/tok/plat:acct/https/host%20with%20space/path")
 	if err != ErrInvalidHost {
 		t.Fatalf("expected INVALID_HOST for escaped host with space, got %v", err)
 	}
@@ -604,7 +604,7 @@ func TestReverseParsePath_InvalidHost(t *testing.T) {
 
 func TestReverseParsePath_EmptyPlatform(t *testing.T) {
 	rp := &ReverseProxy{token: "tok", events: NoOpEventEmitter{}}
-	parsed, err := rp.parsePath("/tok//https/example.com/path")
+	parsed, err := rp.parsePath("/tok/:acct/https/example.com/path")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestReverseParsePath_EmptyPlatform(t *testing.T) {
 
 func TestReverseParsePath_NoAccount(t *testing.T) {
 	rp := &ReverseProxy{token: "tok", events: NoOpEventEmitter{}}
-	parsed, err := rp.parsePath("/tok/myplat/https/example.com/path")
+	parsed, err := rp.parsePath("/tok/myplat:/https/example.com/path")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -724,8 +724,8 @@ func TestReverseProxy_AccountRejection_EmptyPlatform(t *testing.T) {
 		events:  NoOpEventEmitter{},
 	}
 
-	// Path: /tok//https/example.com/path — empty platform, no account.
-	req := httptest.NewRequest("GET", "/tok//https/example.com/path", nil)
+	// Path: /tok/:/https/example.com/path — empty platform, no account.
+	req := httptest.NewRequest("GET", "/tok/:/https/example.com/path", nil)
 	w := httptest.NewRecorder()
 	rp.ServeHTTP(w, req)
 
@@ -741,13 +741,13 @@ func TestReverseProxy_HostValidation(t *testing.T) {
 	rp := &ReverseProxy{token: "tok", events: NoOpEventEmitter{}}
 
 	// Test via parsePath directly — host with invalid characters.
-	_, err := rp.parsePath("/tok/plat/https/host with space/path")
+	_, err := rp.parsePath("/tok/plat:acct/https/host with space/path")
 	if err != ErrInvalidHost {
 		t.Fatalf("expected INVALID_HOST for host with space, got %v", err)
 	}
 
 	// Empty host in port-only form.
-	_, err = rp.parsePath("/tok/plat/https/:443/path")
+	_, err = rp.parsePath("/tok/plat:acct/https/:443/path")
 	if err != ErrInvalidHost {
 		t.Fatalf("expected INVALID_HOST for :443, got %v", err)
 	}
@@ -778,7 +778,7 @@ func TestRouteResult_EgressIP(t *testing.T) {
 
 func TestReverseParsePath_ProtocolCaseInsensitive(t *testing.T) {
 	rp := &ReverseProxy{token: "tok", events: NoOpEventEmitter{}}
-	parsed, err := rp.parsePath("/tok/plat/HTTPS/example.com/path")
+	parsed, err := rp.parsePath("/tok/plat:acct/HTTPS/example.com/path")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
