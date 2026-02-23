@@ -329,7 +329,7 @@ export function RequestLogsPage() {
 
   const hasMore = Boolean(logsQuery.data?.has_more && logsQuery.data?.next_cursor);
 
-  const col = createColumnHelper<RequestLogItem>();
+  const col = useMemo(() => createColumnHelper<RequestLogItem>(), []);
 
   const logColumns = useMemo(
     () => [
@@ -442,7 +442,7 @@ export function RequestLogsPage() {
         },
       }),
     ],
-    []
+    [col]
   );
 
   return (

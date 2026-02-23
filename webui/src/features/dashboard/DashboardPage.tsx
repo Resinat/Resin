@@ -810,61 +810,61 @@ export function DashboardPage() {
   const isInitialLoading =
     !globalData && (globalRealtimeQuery.isLoading || globalHistoryQuery.isLoading || globalSnapshotQuery.isLoading);
 
-  const realtimeThroughputItems = globalData?.realtime_throughput.items ?? [];
+  const realtimeThroughputItems = globalData?.realtime_throughput.items;
   const throughputItems = useMemo(
-    () => sortTimeSeriesByTimestamp(realtimeThroughputItems, (item) => item.ts),
+    () => sortTimeSeriesByTimestamp(realtimeThroughputItems ?? [], (item) => item.ts),
     [realtimeThroughputItems],
   );
   const throughputIngress = throughputItems.map((item) => item.ingress_bps);
   const throughputEgress = throughputItems.map((item) => item.egress_bps);
   const throughputLabels = throughputItems.map((item) => item.ts);
 
-  const realtimeConnectionItems = globalData?.realtime_connections.items ?? [];
+  const realtimeConnectionItems = globalData?.realtime_connections.items;
   const connectionItems = useMemo(
-    () => sortTimeSeriesByTimestamp(realtimeConnectionItems, (item) => item.ts),
+    () => sortTimeSeriesByTimestamp(realtimeConnectionItems ?? [], (item) => item.ts),
     [realtimeConnectionItems],
   );
   const connectionsInbound = connectionItems.map((item) => item.inbound_connections);
   const connectionsOutbound = connectionItems.map((item) => item.outbound_connections);
   const connectionsLabels = connectionItems.map((item) => item.ts);
 
-  const realtimeLeaseItems = globalData?.realtime_leases.items ?? [];
+  const realtimeLeaseItems = globalData?.realtime_leases.items;
   const leaseRealtimeItems = useMemo(
-    () => sortTimeSeriesByTimestamp(realtimeLeaseItems, (item) => item.ts),
+    () => sortTimeSeriesByTimestamp(realtimeLeaseItems ?? [], (item) => item.ts),
     [realtimeLeaseItems],
   );
   const leasesValues = leaseRealtimeItems.map((item) => item.active_leases);
 
-  const historyTrafficItems = globalData?.history_traffic.items ?? [];
+  const historyTrafficItems = globalData?.history_traffic.items;
   const trafficItems = useMemo(
-    () => sortTimeSeriesByTimestamp(historyTrafficItems, (item) => item.bucket_start),
+    () => sortTimeSeriesByTimestamp(historyTrafficItems ?? [], (item) => item.bucket_start),
     [historyTrafficItems],
   );
   const trafficIngress = trafficItems.map((item) => item.ingress_bytes);
   const trafficEgress = trafficItems.map((item) => item.egress_bytes);
   const trafficLabels = trafficItems.map((item) => item.bucket_start);
 
-  const historyRequestItems = globalData?.history_requests.items ?? [];
+  const historyRequestItems = globalData?.history_requests.items;
   const requestItems = useMemo(
-    () => sortTimeSeriesByTimestamp(historyRequestItems, (item) => item.bucket_start),
+    () => sortTimeSeriesByTimestamp(historyRequestItems ?? [], (item) => item.bucket_start),
     [historyRequestItems],
   );
   const requestTotals = requestItems.map((item) => item.total_requests);
   const requestSuccessRates = requestItems.map((item) => item.success_rate * 100);
   const requestLabels = requestItems.map((item) => item.bucket_start);
 
-  const historyNodePoolItems = globalData?.history_node_pool.items ?? [];
+  const historyNodePoolItems = globalData?.history_node_pool.items;
   const nodePoolItems = useMemo(
-    () => sortTimeSeriesByTimestamp(historyNodePoolItems, (item) => item.bucket_start),
+    () => sortTimeSeriesByTimestamp(historyNodePoolItems ?? [], (item) => item.bucket_start),
     [historyNodePoolItems],
   );
   const nodeTotal = nodePoolItems.map((item) => item.total_nodes);
   const nodeHealthy = nodePoolItems.map((item) => item.healthy_nodes);
   const nodeLabels = nodePoolItems.map((item) => item.bucket_start);
 
-  const historyProbeItems = globalData?.history_probes.items ?? [];
+  const historyProbeItems = globalData?.history_probes.items;
   const probeItems = useMemo(
-    () => sortTimeSeriesByTimestamp(historyProbeItems, (item) => item.bucket_start),
+    () => sortTimeSeriesByTimestamp(historyProbeItems ?? [], (item) => item.bucket_start),
     [historyProbeItems],
   );
   const probeCounts = probeItems.map((item) => item.total_count);
