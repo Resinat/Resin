@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 func newHealthTestPool(maxFailures int) (*GlobalNodePool, *SubscriptionManager) {
@@ -42,11 +42,17 @@ func TestRecordResult_CircuitBreak(t *testing.T) {
 	pool, subMgr := newHealthTestPool(3) // break after 3 failures
 	sub := subMgr.Lookup("s1")
 	h := addTestNode(pool, sub, `{"type":"ss","n":"1"}`)
+	entry, _ := pool.GetEntry(h)
+
+	// New node starts circuit-open; mark one success to bring it to healthy state.
+	pool.RecordResult(h, true)
+	if entry.IsCircuitOpen() {
+		t.Fatal("node should recover after first success")
+	}
 
 	// 2 failures — not yet broken.
 	pool.RecordResult(h, false)
 	pool.RecordResult(h, false)
-	entry, _ := pool.GetEntry(h)
 	if entry.IsCircuitOpen() {
 		t.Fatal("should not be circuit-open after 2 failures")
 	}
@@ -100,6 +106,10 @@ func TestRecordResult_MaxConsecutiveFailuresPulled(t *testing.T) {
 
 	h := addTestNode(pool, sub, `{"type":"ss","n":"pull-threshold"}`)
 	entry, _ := pool.GetEntry(h)
+	pool.RecordResult(h, true)
+	if entry.IsCircuitOpen() {
+		t.Fatal("node should recover after first success")
+	}
 
 	pool.RecordResult(h, false)
 	if entry.IsCircuitOpen() {
@@ -132,9 +142,9 @@ func TestRecordResult_DynamicCallback_OnActualChange(t *testing.T) {
 	pool.RecordResult(h, false)
 	pool.RecordResult(h, true)
 
-	// First success is a no-op (already healthy), then failure and recovery mutate state.
-	if count.Load() != 2 {
-		t.Fatalf("expected 2 callbacks, got %d", count.Load())
+	// New node starts circuit-open: first success recovers, then failure and success mutate again.
+	if count.Load() != 3 {
+		t.Fatalf("expected 3 callbacks, got %d", count.Load())
 	}
 }
 
@@ -163,6 +173,7 @@ func TestRecordResult_CircuitBreak_RemovesFromView(t *testing.T) {
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RecordResult(h, true)
 	pool.RebuildAllPlatforms()
 
 	if plat.View().Size() != 1 {
@@ -328,6 +339,7 @@ func TestUpdateNodeEgressIP_LocStateMachine(t *testing.T) {
 	})
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
+	pool.RecordResult(h, true)
 
 	ip := netip.MustParseAddr("1.2.3.4")
 	locJP := "jp"

@@ -23,6 +23,7 @@ import { getAllRegions, getRegionName } from "./regions";
 import type { NodeListFilters, NodeSortBy, SortOrder } from "./types";
 
 type NodeStatusFilter = "all" | "healthy" | "circuit_open" | "error";
+type NodeDisplayStatus = "healthy" | "circuit_open" | "pending_test" | "error";
 
 type NodeFilterDraft = {
   platform_id: string;
@@ -180,7 +181,32 @@ function firstTag(node: { tags: { tag: string }[] }): string {
 }
 
 function isNodeHealthy(node: NodeSummary): boolean {
-  return node.has_outbound && !node.circuit_open_since;
+  return getNodeDisplayStatus(node) === "healthy";
+}
+
+function hasReferenceLatency(node: NodeSummary): node is NodeSummary & { reference_latency_ms: number } {
+  return typeof node.reference_latency_ms === "number";
+}
+
+function hasEgressIP(node: NodeSummary): boolean {
+  return Boolean(node.egress_ip?.trim());
+}
+
+function isPendingTestNode(node: NodeSummary): boolean {
+  return Boolean(node.circuit_open_since) && !hasEgressIP(node) && !hasReferenceLatency(node);
+}
+
+function getNodeDisplayStatus(node: NodeSummary): NodeDisplayStatus {
+  if (!node.has_outbound) {
+    return "error";
+  }
+  if (isPendingTestNode(node)) {
+    return "pending_test";
+  }
+  if (node.circuit_open_since) {
+    return "circuit_open";
+  }
+  return "healthy";
 }
 
 function referenceLatencyColor(latencyMs: number): string {
@@ -200,11 +226,10 @@ function displayableReferenceLatencyMs(node: NodeSummary): number | null {
   if (!isNodeHealthy(node)) {
     return null;
   }
-  const latencyMs = node.reference_latency_ms;
-  if (typeof latencyMs !== "number" || !Number.isFinite(latencyMs)) {
+  if (!hasReferenceLatency(node)) {
     return null;
   }
-  return latencyMs;
+  return node.reference_latency_ms;
 }
 
 
@@ -419,8 +444,7 @@ export function NodesPage() {
 
   const col = createColumnHelper<NodeSummary>();
 
-  const nodeColumns = useMemo(
-    () => [
+  const nodeColumns = [
       col.accessor((row) => firstTag(row), {
         id: "tag",
         header: () => (
@@ -485,8 +509,10 @@ export function NodesPage() {
         header: "状态",
         cell: (info) => {
           const node = info.row.original;
-          if (!node.has_outbound) return <Badge variant="danger">错误</Badge>;
-          if (node.circuit_open_since) return <Badge variant="warning">熔断</Badge>;
+          const status = getNodeDisplayStatus(node);
+          if (status === "error") return <Badge variant="danger">错误</Badge>;
+          if (status === "pending_test") return <Badge variant="muted">待测</Badge>;
+          if (status === "circuit_open") return <Badge variant="warning">熔断</Badge>;
           return <Badge variant="success">健康</Badge>;
         },
       }),
@@ -528,9 +554,7 @@ export function NodesPage() {
           );
         },
       }),
-    ],
-    [sortBy, sortOrder, probeEgressMutation.isPending, probeLatencyMutation.isPending]
-  );
+    ];
 
   return (
     <section className="nodes-page">
@@ -654,7 +678,7 @@ export function NodesPage() {
               >
                 <option value="all">全部</option>
                 <option value="healthy">健康</option>
-                <option value="circuit_open">熔断</option>
+                <option value="circuit_open">熔断 / 待测</option>
                 <option value="error">错误</option>
               </Select>
             </div>
@@ -755,24 +779,33 @@ export function NodesPage() {
                   <div>
                     <span>状态</span>
                     <div>
-                      {!detailNode.has_outbound ? (
-                        <p style={{ color: "var(--danger)" }}>错误</p>
-                      ) : detailNode.circuit_open_since ? (
-                        <div style={{ display: "flex", alignItems: "baseline", gap: "4px" }}>
-                          <p style={{ color: "var(--warning)" }}>熔断</p>
-                          <span
-                            style={{
-                              fontSize: "11px",
-                              color: "var(--text-muted)",
-                              fontWeight: "normal",
-                            }}
-                          >
-                            ({formatRelativeTime(detailNode.circuit_open_since)})
-                          </span>
-                        </div>
-                      ) : (
-                        <p style={{ color: "var(--success)" }}>健康</p>
-                      )}
+                      {(() => {
+                        const status = getNodeDisplayStatus(detailNode);
+                        return (
+                          <div style={{ display: "flex", alignItems: "baseline", gap: "4px", flexWrap: "wrap" }}>
+                            {status === "error" ? (
+                              <Badge variant="danger">错误</Badge>
+                            ) : status === "pending_test" ? (
+                              <Badge variant="muted">待测</Badge>
+                            ) : status === "circuit_open" ? (
+                              <Badge variant="warning">熔断</Badge>
+                            ) : (
+                              <Badge variant="success">健康</Badge>
+                            )}
+                            {(status === "circuit_open" || status === "pending_test") && detailNode.circuit_open_since ? (
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  color: "var(--text-muted)",
+                                  fontWeight: "normal",
+                                }}
+                              >
+                                ({formatRelativeTime(detailNode.circuit_open_since)})
+                              </span>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                   <div>

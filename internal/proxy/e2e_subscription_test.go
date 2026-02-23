@@ -74,6 +74,7 @@ func newProxyE2EEnvFromSubscriptionURL(t *testing.T, subURL string) *proxyE2EEnv
 		pool.UpdateNodeEgressIP(hash, &ip, nil)
 		latency := 20 * time.Millisecond
 		pool.RecordLatency(hash, "example.com", &latency)
+		pool.RecordResult(hash, true)
 		return true
 	})
 	if nodeCount == 0 {

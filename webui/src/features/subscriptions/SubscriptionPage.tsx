@@ -2,7 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle, Eye, Filter, Info, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
 import { z } from "zod";
@@ -257,6 +257,8 @@ export function SubscriptionPage() {
       showToast("error", fromApiError(error));
     },
   });
+  const deleteSubscriptionMutateAsync = deleteMutation.mutateAsync;
+  const isDeletePending = deleteMutation.isPending;
 
   const refreshMutation = useMutation({
     mutationFn: async (subscription: Subscription) => {
@@ -271,6 +273,8 @@ export function SubscriptionPage() {
       showToast("error", fromApiError(error));
     },
   });
+  const refreshSubscriptionMutateAsync = refreshMutation.mutateAsync;
+  const isRefreshPending = refreshMutation.isPending;
 
   const cleanupCircuitOpenNodesMutation = useMutation({
     mutationFn: async (subscription: Subscription) => {
@@ -305,13 +309,13 @@ export function SubscriptionPage() {
     await updateMutation.mutateAsync(values);
   });
 
-  const handleDelete = async (subscription: Subscription) => {
+  const handleDelete = useCallback(async (subscription: Subscription) => {
     const confirmed = window.confirm(`确认删除订阅 ${subscription.name}？关联节点会被清理。`);
     if (!confirmed) {
       return;
     }
-    await deleteMutation.mutateAsync(subscription);
-  };
+    await deleteSubscriptionMutateAsync(subscription);
+  }, [deleteSubscriptionMutateAsync]);
 
   const handleCleanupCircuitOpenNodes = async (subscription: Subscription) => {
     const confirmed = window.confirm(`确认立即清理订阅 ${subscription.name} 中的熔断或异常节点？`);
@@ -321,17 +325,21 @@ export function SubscriptionPage() {
     await cleanupCircuitOpenNodesMutation.mutateAsync(subscription);
   };
 
-  const openDrawer = (subscription: Subscription) => {
+  const openDrawer = useCallback((subscription: Subscription) => {
     setSelectedSubscriptionId(subscription.id);
     setDrawerOpen(true);
-  };
+  }, []);
+
+  const handleRefresh = useCallback(async (subscription: Subscription) => {
+    await refreshSubscriptionMutateAsync(subscription);
+  }, [refreshSubscriptionMutateAsync]);
 
   const changePageSize = (next: number) => {
     setPageSize(next);
     setPage(0);
   };
 
-  const col = createColumnHelper<Subscription>();
+  const col = useMemo(() => createColumnHelper<Subscription>(), []);
 
   const subColumns = useMemo(
     () => [
@@ -401,8 +409,8 @@ export function SubscriptionPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => void refreshMutation.mutateAsync(s)}
-                disabled={refreshMutation.isPending}
+                onClick={() => void handleRefresh(s)}
+                disabled={isRefreshPending}
                 title="刷新"
               >
                 <RefreshCw size={14} />
@@ -411,7 +419,7 @@ export function SubscriptionPage() {
                 size="sm"
                 variant="ghost"
                 onClick={() => void handleDelete(s)}
-                disabled={deleteMutation.isPending}
+                disabled={isDeletePending}
                 title="删除"
                 style={{ color: "var(--delete-btn-color, #c27070)" }}
               >
@@ -422,7 +430,7 @@ export function SubscriptionPage() {
         },
       }),
     ],
-    [refreshMutation.isPending, deleteMutation.isPending]
+    [col, handleDelete, handleRefresh, isDeletePending, isRefreshPending, openDrawer]
   );
 
   return (

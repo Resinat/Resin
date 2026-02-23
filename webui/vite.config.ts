@@ -8,6 +8,9 @@ export default defineConfig(({ mode }) => {
   return {
     base: "/ui/",
     plugins: [react()],
+    build: {
+      chunkSizeWarningLimit: 1200,
+    },
     server: {
       host: "0.0.0.0",
       port: 5173,

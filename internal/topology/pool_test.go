@@ -60,6 +60,55 @@ func TestPool_AddNodeFromSub_Idempotent(t *testing.T) {
 	}
 }
 
+func TestPool_AddNodeFromSub_NewNodeStartsCircuitOpen(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	pool := newTestPool(subMgr)
+
+	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
+	h := node.HashFromRawOptions(raw)
+
+	pool.AddNodeFromSub(h, raw, "s1")
+
+	entry, ok := pool.GetEntry(h)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	if !entry.IsCircuitOpen() {
+		t.Fatal("newly added node should start circuit-open")
+	}
+	if entry.CircuitOpenSince.Load() <= 0 {
+		t.Fatalf("CircuitOpenSince should be set, got %d", entry.CircuitOpenSince.Load())
+	}
+}
+
+func TestPool_AddNodeFromSub_ReAddDoesNotResetCircuitOpenSince(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub1 := subscription.NewSubscription("s1", "Sub1", "url", true, false)
+	sub2 := subscription.NewSubscription("s2", "Sub2", "url", true, false)
+	subMgr.Register(sub1)
+	subMgr.Register(sub2)
+
+	pool := newTestPool(subMgr)
+	raw := json.RawMessage(`{"type":"ss","server":"same"}`)
+	h := node.HashFromRawOptions(raw)
+
+	pool.AddNodeFromSub(h, raw, "s1")
+	entry, ok := pool.GetEntry(h)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	originalCircuitSince := entry.CircuitOpenSince.Load()
+	if originalCircuitSince <= 0 {
+		t.Fatalf("CircuitOpenSince should be set on first add, got %d", originalCircuitSince)
+	}
+
+	// Re-add from another subscription should only add reference, not reinitialize state.
+	pool.AddNodeFromSub(h, raw, "s2")
+	if got := entry.CircuitOpenSince.Load(); got != originalCircuitSince {
+		t.Fatalf("CircuitOpenSince should not reset on re-add: got %d, want %d", got, originalCircuitSince)
+	}
+}
+
 func TestPool_RemoveNodeFromSub_Idempotent(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	pool := newTestPool(subMgr)
@@ -202,6 +251,7 @@ func TestPool_PlatformNotifyOnAddRemove(t *testing.T) {
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RecordResult(h, true)
 
 	// Re-add triggers NotifyDirty.
 	pool.AddNodeFromSub(h, raw, "s1")
@@ -238,11 +288,6 @@ func TestPool_NotifyNodeDirty_UpdatesPlatformsInParallel(t *testing.T) {
 		MaxConsecutiveFailures: func() int { return 3 },
 	})
 
-	plat1 := platform.NewPlatform("p1", "P1", nil, []string{"us"})
-	plat2 := platform.NewPlatform("p2", "P2", nil, []string{"us"})
-	pool.RegisterPlatform(plat1)
-	pool.RegisterPlatform(plat2)
-
 	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
 	h := node.HashFromRawOptions(raw)
 	mn := xsync.NewMap[node.Hash, []string]()
@@ -261,6 +306,12 @@ func TestPool_NotifyNodeDirty_UpdatesPlatformsInParallel(t *testing.T) {
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RecordResult(h, true)
+
+	plat1 := platform.NewPlatform("p1", "P1", nil, []string{"us"})
+	plat2 := platform.NewPlatform("p2", "P2", nil, []string{"us"})
+	pool.RegisterPlatform(plat1)
+	pool.RegisterPlatform(plat2)
 
 	done := make(chan struct{})
 	go func() {
@@ -333,6 +384,7 @@ func TestPool_RebuildAllPlatforms_UpdatesInParallel(t *testing.T) {
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RecordResult(h, true)
 
 	plat1 := platform.NewPlatform("p1", "P1", nil, []string{"us"})
 	plat2 := platform.NewPlatform("p2", "P2", nil, []string{"us"})
@@ -404,6 +456,7 @@ func TestPool_RegexFilteredPlatform(t *testing.T) {
 		ob := testutil.NewNoopOutbound()
 		entry.Outbound.Store(&ob)
 		entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+		pool.RecordResult(h, true)
 		// Re-trigger dirty to pick up latency/outbound.
 		pool.AddNodeFromSub(h, nil, "s1")
 	}
@@ -598,6 +651,7 @@ func TestPool_ReplacePlatform_RebuildsViewBeforePublish(t *testing.T) {
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RecordResult(h, true)
 	pool.NotifyNodeDirty(h)
 
 	// New platform requires "us" in tag. If ReplacePlatform skipped rebuild,

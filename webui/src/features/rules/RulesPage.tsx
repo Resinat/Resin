@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle, Bug, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Wand2, X } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -100,16 +100,16 @@ export function RulesPage() {
     return rules.find((item) => item.url_prefix === selectedPrefix) ?? null;
   }, [rules, selectedPrefix]);
 
-  const syncFormFromRule = (rule: Rule) => {
+  const syncFormFromRule = useCallback((rule: Rule) => {
     setFormPrefix(rule.url_prefix);
     setFormHeadersRaw(rule.headers.join("\n"));
     setSelectedPrefix(rule.url_prefix);
-  };
+  }, []);
 
-  const openDrawerForRule = (rule: Rule) => {
+  const openDrawerForRule = useCallback((rule: Rule) => {
     syncFormFromRule(rule);
     setDrawerOpen(true);
-  };
+  }, [syncFormFromRule]);
 
   const invalidateRules = async () => {
     await queryClient.invalidateQueries({ queryKey: ["header-rules"] });
@@ -178,6 +178,8 @@ export function RulesPage() {
       showToast("error", fromApiError(error));
     },
   });
+  const deleteRuleMutateAsync = deleteMutation.mutateAsync;
+  const isDeletePending = deleteMutation.isPending;
 
   const resolveMutation = useMutation({
     mutationFn: async () => {
@@ -195,7 +197,7 @@ export function RulesPage() {
     },
   });
 
-  const handleDelete = async (rule: Rule) => {
+  const handleDelete = useCallback(async (rule: Rule) => {
     if (isFallbackRule(rule)) {
       showToast("error", '兜底规则 "*" 不允许删除');
       return;
@@ -204,10 +206,8 @@ export function RulesPage() {
     if (!confirmed) {
       return;
     }
-    await deleteMutation.mutateAsync(rule.url_prefix);
-  };
-
-
+    await deleteRuleMutateAsync(rule.url_prefix);
+  }, [deleteRuleMutateAsync, showToast]);
 
   const handleUpdateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -243,7 +243,7 @@ export function RulesPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [createModalOpen, drawerOpen, resolveModalOpen]);
 
-  const col = createColumnHelper<Rule>();
+  const col = useMemo(() => createColumnHelper<Rule>(), []);
 
   const ruleColumns = useMemo(
     () => [
@@ -270,8 +270,8 @@ export function RulesPage() {
                 size="sm"
                 variant="ghost"
                 onClick={() => void handleDelete(rule)}
-                disabled={deleteMutation.isPending || isFallbackRule(rule)}
-                title={isFallbackRule(rule) ? '兆底规则 "*" 不可删除' : "删除"}
+                disabled={isDeletePending || isFallbackRule(rule)}
+                title={isFallbackRule(rule) ? '兜底规则 "*" 不可删除' : "删除"}
                 style={{ color: "var(--delete-btn-color, #c27070)" }}
               >
                 <Trash2 size={14} />
@@ -281,7 +281,7 @@ export function RulesPage() {
         },
       }),
     ],
-    [deleteMutation.isPending]
+    [col, handleDelete, isDeletePending, openDrawerForRule]
   );
 
   return (

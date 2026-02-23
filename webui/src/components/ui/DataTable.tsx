@@ -1,8 +1,8 @@
 import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DataTableProps<T> = {
     data: T[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     columns: ColumnDef<T, any>[];
     onRowClick?: (row: T) => void;
     selectedRowId?: string;
@@ -20,6 +20,8 @@ export function DataTable<T>({
     className,
     wrapClassName,
 }: DataTableProps<T>) {
+    // TanStack Table returns mutable table helpers; React Compiler intentionally skips memoizing here.
+    // eslint-disable-next-line react-hooks/incompatible-library
     const table = useReactTable({
         data,
         columns,

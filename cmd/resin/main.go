@@ -646,6 +646,7 @@ func loadBootstrapNodeStatics(
 	}
 
 	hashes := make([]node.Hash, 0, len(statics))
+	bootstrapNowNs := time.Now().UnixNano()
 	for _, ns := range statics {
 		hash, err := node.ParseHex(ns.Hash)
 		if err != nil {
@@ -657,6 +658,9 @@ func loadBootstrapNodeStatics(
 			RawOptions: append(json.RawMessage(nil), ns.RawOptions...),
 			CreatedAt:  time.Unix(0, ns.CreatedAtNs),
 		}
+		// Bootstrap default: treat nodes as circuit-open unless a persisted
+		// nodes_dynamic row later overrides this state.
+		entry.CircuitOpenSince.Store(bootstrapNowNs)
 		entry.LatencyTable = node.NewLatencyTable(envCfg.MaxLatencyTableEntries)
 		pool.LoadNodeFromBootstrap(entry)
 		hashes = append(hashes, hash)

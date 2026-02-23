@@ -963,6 +963,7 @@ func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews(t *testing.T) {
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RecordResult(h, true)
 
 	// Trigger rebuild so node appears in view.
 	pool.RebuildAllPlatforms()
@@ -1019,6 +1020,7 @@ func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews_EmptyRegex(t *te
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RecordResult(h, true)
 
 	pool.RebuildAllPlatforms()
 	if plat.View().Size() != 1 {
