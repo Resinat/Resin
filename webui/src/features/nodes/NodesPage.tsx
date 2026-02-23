@@ -437,116 +437,143 @@ export function NodesPage() {
   const col = createColumnHelper<NodeSummary>();
 
   const nodeColumns = [
-      col.accessor((row) => firstTag(row), {
-        id: "tag",
-        header: () => (
-          <button type="button" className="table-sort-btn" onClick={() => changeSort("tag")}>
-            Tag
-            <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
-          </button>
-        ),
-        cell: (info) => (
-          <div className="nodes-tag-cell">
-            <span title={info.getValue() as string}>{info.getValue() as string}</span>
+    col.accessor((row) => firstTag(row), {
+      id: "tag",
+      header: () => (
+        <button type="button" className="table-sort-btn" onClick={() => changeSort("tag")}>
+          节点名
+          <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
+        </button>
+      ),
+      cell: (info) => (
+        <div className="nodes-tag-cell">
+          <span title={info.getValue() as string}>{info.getValue() as string}</span>
+        </div>
+      ),
+    }),
+    col.accessor("region", {
+      header: () => (
+        <button type="button" className="table-sort-btn" onClick={() => changeSort("region")}>
+          区域
+          <span>{sortIndicator(sortBy === "region", sortOrder)}</span>
+        </button>
+      ),
+      cell: (info) => {
+        const val = regionToFlag(info.getValue());
+        return (
+          <div style={{ maxWidth: "100px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={val}>
+            {val}
           </div>
-        ),
-      }),
-      col.accessor("region", {
-        header: () => (
-          <button type="button" className="table-sort-btn" onClick={() => changeSort("region")}>
-            区域
-            <span>{sortIndicator(sortBy === "region", sortOrder)}</span>
-          </button>
-        ),
-        cell: (info) => regionToFlag(info.getValue()),
-      }),
-      col.accessor("egress_ip", {
-        header: "出口 IP",
-        cell: (info) => info.getValue() || "-",
-      }),
-      col.display({
-        id: "reference_latency_ms",
-        header: "参考延迟",
-        cell: (info) => {
-          const node = info.row.original;
-          const latencyMs = displayableReferenceLatencyMs(node);
-          if (latencyMs === null) {
-            return "-";
-          }
+        );
+      },
+    }),
+    col.accessor("egress_ip", {
+      header: "出口 IP",
+      cell: (info) => {
+        const val = info.getValue() || "-";
+        return (
+          <div style={{ maxWidth: "100px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={val}>
+            {val}
+          </div>
+        );
+      },
+    }),
+    col.display({
+      id: "reference_latency_ms",
+      header: "参考延迟",
+      cell: (info) => {
+        const node = info.row.original;
+        const latencyMs = displayableReferenceLatencyMs(node);
+        if (latencyMs === null) {
+          return "-";
+        }
+        return (
+          <span style={{ color: referenceLatencyColor(latencyMs), fontWeight: 600 }}>
+            {formatLatency(latencyMs)}
+          </span>
+        );
+      },
+    }),
+    col.accessor("last_latency_probe_attempt", {
+      header: "上次探测",
+      cell: (info) => formatRelativeTime(info.getValue()),
+    }),
+    col.accessor("failure_count", {
+      header: () => (
+        <button type="button" className="table-sort-btn" onClick={() => changeSort("failure_count")}>
+          连续失败
+          <span>{sortIndicator(sortBy === "failure_count", sortOrder)}</span>
+        </button>
+      ),
+      cell: (info) => {
+        const node = info.row.original;
+        return !node.has_outbound ? "-" : node.failure_count;
+      },
+    }),
+    col.display({
+      id: "status",
+      header: "状态",
+      cell: (info) => {
+        const node = info.row.original;
+        const status = getNodeDisplayStatus(node);
+        if (status === "error") return <Badge variant="danger">错误</Badge>;
+        if (status === "pending_test") return <Badge variant="muted">待测</Badge>;
+        if (status === "circuit_open") return <Badge variant="warning">熔断</Badge>;
+        return <Badge variant="success">健康</Badge>;
+      },
+    }),
+    col.accessor("created_at", {
+      header: () => (
+        <button type="button" className="table-sort-btn" onClick={() => changeSort("created_at")}>
+          创建时间
+          <span>{sortIndicator(sortBy === "created_at", sortOrder)}</span>
+        </button>
+      ),
+      cell: (info) => {
+        const val = formatDateTime(info.getValue());
+        if (val === "-") return val;
+        const parts = val.split(" ");
+        if (parts.length >= 2) {
           return (
-            <span style={{ color: referenceLatencyColor(latencyMs), fontWeight: 600 }}>
-              {formatLatency(latencyMs)}
-            </span>
-          );
-        },
-      }),
-      col.accessor("last_latency_probe_attempt", {
-        header: "上次探测",
-        cell: (info) => formatRelativeTime(info.getValue()),
-      }),
-      col.accessor("failure_count", {
-        header: () => (
-          <button type="button" className="table-sort-btn" onClick={() => changeSort("failure_count")}>
-            连续失败次数
-            <span>{sortIndicator(sortBy === "failure_count", sortOrder)}</span>
-          </button>
-        ),
-        cell: (info) => {
-          const node = info.row.original;
-          return !node.has_outbound ? "-" : node.failure_count;
-        },
-      }),
-      col.display({
-        id: "status",
-        header: "状态",
-        cell: (info) => {
-          const node = info.row.original;
-          const status = getNodeDisplayStatus(node);
-          if (status === "error") return <Badge variant="danger">错误</Badge>;
-          if (status === "pending_test") return <Badge variant="muted">待测</Badge>;
-          if (status === "circuit_open") return <Badge variant="warning">熔断</Badge>;
-          return <Badge variant="success">健康</Badge>;
-        },
-      }),
-      col.accessor("created_at", {
-        header: () => (
-          <button type="button" className="table-sort-btn" onClick={() => changeSort("created_at")}>
-            创建时间
-            <span>{sortIndicator(sortBy === "created_at", sortOrder)}</span>
-          </button>
-        ),
-        cell: (info) => formatDateTime(info.getValue()),
-      }),
-      col.display({
-        id: "actions",
-        header: "操作",
-        cell: (info) => {
-          const node = info.row.original;
-          return (
-            <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
-              <Button
-                size="sm"
-                variant="ghost"
-                title="触发出口探测"
-                onClick={() => void runProbeEgress(node.node_hash)}
-                disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
-              >
-                <Globe size={14} />
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                title="触发延迟探测"
-                onClick={() => void runProbeLatency(node.node_hash)}
-                disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
-              >
-                <Zap size={14} />
-              </Button>
+            <div className="logs-cell-stack">
+              <span>{parts[0]}</span>
+              <small>{parts.slice(1).join(" ")}</small>
             </div>
           );
-        },
-      }),
-    ];
+        }
+        return val;
+      },
+    }),
+    col.display({
+      id: "actions",
+      header: "操作",
+      cell: (info) => {
+        const node = info.row.original;
+        return (
+          <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
+            <Button
+              size="sm"
+              variant="ghost"
+              title="触发出口探测"
+              onClick={() => void runProbeEgress(node.node_hash)}
+              disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
+            >
+              <Globe size={14} />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              title="触发延迟探测"
+              onClick={() => void runProbeLatency(node.node_hash)}
+              disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
+            >
+              <Zap size={14} />
+            </Button>
+          </div>
+        );
+      },
+    }),
+  ];
 
   return (
     <section className="nodes-page">

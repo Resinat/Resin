@@ -1923,7 +1923,7 @@ a {
 
 .nodes-tag-cell span {
   font-weight: 700;
-  max-width: 260px;
+  max-width: 240px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
