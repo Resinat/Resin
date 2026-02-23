@@ -50,6 +50,7 @@ func makeRoutableNode(t testing.TB, pool *topology.GlobalNodePool, subMgr *topol
 
 	// Record latency
 	entry.LatencyTable.Update(latDomain, latency, 10*time.Minute)
+	pool.RecordResult(h, true)
 
 	// Trigger platform re-evaluation
 	pool.NotifyNodeDirty(h)

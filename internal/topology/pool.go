@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/subscription"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // GlobalNodePool is the system's single source of truth for nodes.
@@ -107,7 +107,10 @@ func (p *GlobalNodePool) AddNodeFromSub(hash node.Hash, rawOpts json.RawMessage,
 	isNew := false
 	p.nodes.Compute(hash, func(entry *node.NodeEntry, loaded bool) (*node.NodeEntry, xsync.ComputeOp) {
 		if !loaded {
-			entry = node.NewNodeEntry(hash, rawOpts, time.Now(), p.maxLatencyTableEntries)
+			createdAt := time.Now()
+			entry = node.NewNodeEntry(hash, rawOpts, createdAt, p.maxLatencyTableEntries)
+			// New subscription nodes start as circuit-open and must be proven healthy by probes.
+			entry.CircuitOpenSince.Store(createdAt.UnixNano())
 			isNew = true
 		}
 		entry.AddSubscriptionID(subID)

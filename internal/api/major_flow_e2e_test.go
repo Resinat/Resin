@@ -83,6 +83,7 @@ func newMajorFlowHarness(t *testing.T, subscriptionUserAgent string) *majorFlowH
 		pool.UpdateNodeEgressIP(hash, &ip, nil)
 		latency := 25 * time.Millisecond
 		pool.RecordLatency(hash, "example.com", &latency)
+		pool.RecordResult(hash, true)
 	})
 	pool.SetOnNodeRemoved(func(_ node.Hash, entry *node.NodeEntry) {
 		outboundMgr.RemoveNodeOutbound(entry)

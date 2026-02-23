@@ -59,6 +59,7 @@ func addRoutableNodeForSubscriptionWithTag(
 	entry.LatencyTable.Update("example.com", 25*time.Millisecond, 10*time.Minute)
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
+	pool.RecordResult(hash, true)
 	pool.NotifyNodeDirty(hash)
 	return hash
 }

@@ -502,6 +502,7 @@ func TestAPIContract_PlatformListIncludesRoutableNodeCount(t *testing.T) {
 	entry.LatencyTable.Update("example.com", 25*time.Millisecond, 10*time.Minute)
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
+	cp.Pool.RecordResult(hash, true)
 	cp.Pool.NotifyNodeDirty(hash)
 
 	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/platforms?keyword=routable-count-target", nil, true)

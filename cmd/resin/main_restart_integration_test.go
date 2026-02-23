@@ -100,6 +100,7 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 	if !entry1.HasOutbound() {
 		t.Fatal("node outbound should be initialized on first boot")
 	}
+	pool1.RecordResult(hash, true)
 
 	entry1.SetEgressIP(egressIP)
 	entry1.SetEgressRegion("hk")

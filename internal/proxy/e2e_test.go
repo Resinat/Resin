@@ -68,6 +68,7 @@ func newProxyE2EEnv(t *testing.T) *proxyE2EEnv {
 		t.Fatal("latency table should be initialized")
 	}
 	entry.LatencyTable.Update("example.com", 20*time.Millisecond, 10*time.Minute)
+	pool.RecordResult(hash, true)
 
 	pool.NotifyNodeDirty(hash)
 	if !plat.View().Contains(hash) {

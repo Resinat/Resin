@@ -156,7 +156,7 @@ No available proxy nodes
 * 结构：`xsync.Map<NodeHash, NodeEntry>`。NodeEntry 包含了节点的详细信息。
 * 职责：维护每个节点的详细信息。作为系统状态的收敛点，保证节点管理的幂等性。
 * 节点增删接口：
-    * `AddNodeFromSub(node, subID)`: 如果节点存在，将 subID 加入引用集合；如果不存在，创建节点并将 subID 加入引用集合。此操作注意给目标节点的 SubscriptionIDs 加锁。重复添加相同的 (node, subID) 对是幂等的。另外，每次调用 `AddNodeFromSub`，都要重新检查每个平台对这个节点的过滤。因为 `AddNodeFromSub` 可能引入新 Tag。
+    * `AddNodeFromSub(node, subID)`: 如果节点存在，将 subID 加入引用集合；如果不存在，创建节点并将 subID 加入引用集合。新创建的节点默认进入熔断状态（`CircuitOpenSince = now`），需要后续 `RecordResult(true)`（通常由主动/被动探测触发）恢复为可路由。此操作注意给目标节点的 SubscriptionIDs 加锁。重复添加相同的 (node, subID) 对是幂等的。另外，每次调用 `AddNodeFromSub`，都要重新检查每个平台对这个节点的过滤。因为 `AddNodeFromSub` 可能引入新 Tag。
     * `RemoveNodeFromSub(nodeHash, subID)`: 将 subID 从引用集合移除。如果引用集合为空，则从全局池物理删除节点。此操作注意给目标节点的 SubscriptionIDs 加锁。重复删除是幂等的。调用不存在的 `nodeHash` 也不报错。另外，每次调用 `RemoveNodeFromSub`，都要重新检查每个平台对这个节点的过滤。因为 `RemoveNodeFromSub` 可能删除 Tag。
 
 * NodeEntry 结构：
@@ -280,6 +280,7 @@ Platform 过滤时，通过 `NodeEntry.MatchRegexs` 方法，反向查询 Refere
 
 ### 熔断与恢复机制
 Resin 使用计数器熔断机制保护系统稳定性。
+* 默认状态：新节点加入系统时默认是熔断状态。包括订阅同步创建的新节点，以及启动恢复时从 `nodes_static` 注入但尚未被 `nodes_dynamic` 覆盖的节点。（节点默认不熔断其实也能工作，因为进入平台路由池的条件还有“有出口”与“有延迟”，已经有这层兜底在了。把默认状态改成熔断其实是为了逻辑上更清晰。另外，把没准备好的节点与熔断分为一类。前端进行过滤的时候，不会在健康过滤器下看到“待测”状态）
 * 熔断触发：仅由 `RecordResult(id, false)` 触发。当连续失败次数 >= 阈值时，节点进入熔断状态。熔断的节点会立即从所有 Platform 的可路由视图中移除，不再承载用户流量。
 * 熔断恢复：熔断后的节点依然保留在全局池中，接受 ProbeManager 的主动探测。一旦 `RecordResult(id, true)` 被调用（通常由主动探测触发），节点立即恢复，重新加入可路由视图。
 * 熔断逻辑由全局代理池管理。禁止其他模块直接修改节点的熔断状态。
@@ -531,6 +532,7 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 
 3. 加载节点基础数据
     * 从 `cache.db` 加载 `nodes_static`。
+    * 节点注入全局节点池时默认标记为熔断（`CircuitOpenSince=now`）。
     * 并行初始化：对于每个节点，进行 `json.Unmarshal` 解析 `RawOptions`，并尝试通过 `sing-box` 创建 `Outbound` 实例。
     * 将节点注入全局节点池（此时订阅集合为空）。
 
@@ -543,7 +545,7 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
         * 将 Subscription ID 加入 Node 的 `SubscriptionIDs` 集合。
 
 5. 加载节点动态状态
-    * 从 `cache.db` 加载 `nodes_dynamic`，更新节点的熔断状态、失败计数、出口 IP、探测尝试时间戳。
+    * 从 `cache.db` 加载 `nodes_dynamic`，更新节点的熔断状态、失败计数、出口 IP、探测尝试时间戳。若某节点缺少 `nodes_dynamic` 记录，则保留步骤 3 的默认熔断状态。
     * 加载 `node_latency`，恢复节点的延迟统计表。
 
 6. 重建 Platform 可路由视图

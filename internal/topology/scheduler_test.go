@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // makeMockFetcher returns a Fetcher that serves the given response.
@@ -962,6 +962,7 @@ func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews(t *testing.T) {
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RecordResult(h, true)
 
 	// Trigger rebuild so node appears in view.
 	pool.RebuildAllPlatforms()
@@ -1018,6 +1019,7 @@ func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews_EmptyRegex(t *te
 	ob := testutil.NewNoopOutbound()
 	entry.Outbound.Store(&ob)
 	entry.SetEgressIP(netip.MustParseAddr("1.2.3.4"))
+	pool.RecordResult(h, true)
 
 	pool.RebuildAllPlatforms()
 	if plat.View().Size() != 1 {
