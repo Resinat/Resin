@@ -144,6 +144,8 @@ export function SubscriptionPage() {
     },
   });
 
+  const createEphemeral = createForm.watch("ephemeral");
+
   const editForm = useForm<SubscriptionEditForm>({
     resolver: zodResolver(subscriptionEditSchema),
     defaultValues: {
@@ -155,6 +157,8 @@ export function SubscriptionPage() {
       ephemeral: false,
     },
   });
+
+  const editEphemeral = editForm.watch("ephemeral");
 
   useEffect(() => {
     if (!selectedSubscription) {
@@ -578,21 +582,6 @@ export function SubscriptionPage() {
                     ) : null}
                   </div>
 
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-sub-ephemeral-evict-delay">
-                      临时节点驱逐延迟（仅临时订阅生效）
-                    </label>
-                    <Input
-                      id="edit-sub-ephemeral-evict-delay"
-                      placeholder="例如 72h"
-                      invalid={Boolean(editForm.formState.errors.ephemeral_node_evict_delay)}
-                      {...editForm.register("ephemeral_node_evict_delay")}
-                    />
-                    {editForm.formState.errors.ephemeral_node_evict_delay?.message ? (
-                      <p className="field-error">{editForm.formState.errors.ephemeral_node_evict_delay.message}</p>
-                    ) : null}
-                  </div>
-
                   <div className="field-group field-span-2">
                     <label className="field-label" htmlFor="edit-sub-url">
                       订阅链接
@@ -603,27 +592,47 @@ export function SubscriptionPage() {
                     ) : null}
                   </div>
 
-                  <div className="subscription-switch-group field-span-2">
-                    <div className="subscription-switch-item">
-                      <label className="subscription-switch-label" htmlFor="edit-sub-enabled">
-                        <span>启用</span>
-                        <span
-                          className="subscription-info-icon"
-                          title={SUBSCRIPTION_DISABLE_HINT}
-                          aria-label={SUBSCRIPTION_DISABLE_HINT}
-                          tabIndex={0}
-                        >
-                          <Info size={13} />
-                        </span>
-                      </label>
-                      <Switch id="edit-sub-enabled" {...editForm.register("enabled")} />
-                    </div>
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-sub-ephemeral" style={{ visibility: "hidden" }}>
+                      临时订阅
+                    </label>
                     <div className="subscription-switch-item">
                       <label className="subscription-switch-label" htmlFor="edit-sub-ephemeral">
                         临时订阅
                       </label>
                       <Switch id="edit-sub-ephemeral" {...editForm.register("ephemeral")} />
                     </div>
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-sub-ephemeral-evict-delay">
+                      临时节点驱逐延迟
+                    </label>
+                    <Input
+                      id="edit-sub-ephemeral-evict-delay"
+                      placeholder="例如 72h"
+                      invalid={Boolean(editForm.formState.errors.ephemeral_node_evict_delay)}
+                      disabled={!editEphemeral}
+                      {...editForm.register("ephemeral_node_evict_delay")}
+                    />
+                    {editForm.formState.errors.ephemeral_node_evict_delay?.message ? (
+                      <p className="field-error">{editForm.formState.errors.ephemeral_node_evict_delay.message}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="subscription-switch-item">
+                    <label className="subscription-switch-label" htmlFor="edit-sub-enabled">
+                      <span>启用</span>
+                      <span
+                        className="subscription-info-icon"
+                        title={SUBSCRIPTION_DISABLE_HINT}
+                        aria-label={SUBSCRIPTION_DISABLE_HINT}
+                        tabIndex={0}
+                      >
+                        <Info size={13} />
+                      </span>
+                    </label>
+                    <Switch id="edit-sub-enabled" {...editForm.register("enabled")} />
                   </div>
 
                   <div className="platform-config-actions">
@@ -714,21 +723,6 @@ export function SubscriptionPage() {
                 ) : null}
               </div>
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="create-sub-ephemeral-evict-delay">
-                  临时节点驱逐延迟（仅临时订阅生效）
-                </label>
-                <Input
-                  id="create-sub-ephemeral-evict-delay"
-                  placeholder="例如 72h"
-                  invalid={Boolean(createForm.formState.errors.ephemeral_node_evict_delay)}
-                  {...createForm.register("ephemeral_node_evict_delay")}
-                />
-                {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
-                  <p className="field-error">{createForm.formState.errors.ephemeral_node_evict_delay.message}</p>
-                ) : null}
-              </div>
-
               <div className="field-group field-span-2">
                 <label className="field-label" htmlFor="create-sub-url">
                   订阅链接
@@ -743,27 +737,47 @@ export function SubscriptionPage() {
                 ) : null}
               </div>
 
-              <div className="subscription-switch-group field-span-2">
-                <div className="subscription-switch-item">
-                  <label className="subscription-switch-label" htmlFor="create-sub-enabled">
-                    <span>启用</span>
-                    <span
-                      className="subscription-info-icon"
-                      title={SUBSCRIPTION_DISABLE_HINT}
-                      aria-label={SUBSCRIPTION_DISABLE_HINT}
-                      tabIndex={0}
-                    >
-                      <Info size={13} />
-                    </span>
-                  </label>
-                  <Switch id="create-sub-enabled" {...createForm.register("enabled")} />
-                </div>
+              <div className="field-group">
+                <label className="field-label" htmlFor="create-sub-ephemeral" style={{ visibility: "hidden" }}>
+                  临时订阅
+                </label>
                 <div className="subscription-switch-item">
                   <label className="subscription-switch-label" htmlFor="create-sub-ephemeral">
                     临时订阅
                   </label>
                   <Switch id="create-sub-ephemeral" {...createForm.register("ephemeral")} />
                 </div>
+              </div>
+
+              <div className="field-group">
+                <label className="field-label" htmlFor="create-sub-ephemeral-evict-delay">
+                  临时节点驱逐延迟
+                </label>
+                <Input
+                  id="create-sub-ephemeral-evict-delay"
+                  placeholder="例如 72h"
+                  invalid={Boolean(createForm.formState.errors.ephemeral_node_evict_delay)}
+                  disabled={!createEphemeral}
+                  {...createForm.register("ephemeral_node_evict_delay")}
+                />
+                {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
+                  <p className="field-error">{createForm.formState.errors.ephemeral_node_evict_delay.message}</p>
+                ) : null}
+              </div>
+
+              <div className="subscription-switch-item">
+                <label className="subscription-switch-label" htmlFor="create-sub-enabled">
+                  <span>启用</span>
+                  <span
+                    className="subscription-info-icon"
+                    title={SUBSCRIPTION_DISABLE_HINT}
+                    aria-label={SUBSCRIPTION_DISABLE_HINT}
+                    tabIndex={0}
+                  >
+                    <Info size={13} />
+                  </span>
+                </label>
+                <Switch id="create-sub-enabled" {...createForm.register("enabled")} />
               </div>
 
               <div className="detail-actions" style={{ justifyContent: "flex-end" }}>
