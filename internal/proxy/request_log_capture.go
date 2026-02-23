@@ -114,3 +114,43 @@ func (c *countingReadCloser) Close() error {
 func (c *countingReadCloser) Total() int64 {
 	return c.total
 }
+
+// countingReadWriteCloser wraps a bidirectional stream and records
+// bytes read/written independently.
+type countingReadWriteCloser struct {
+	rwc        io.ReadWriteCloser
+	totalRead  int64
+	totalWrite int64
+}
+
+func newCountingReadWriteCloser(rwc io.ReadWriteCloser) *countingReadWriteCloser {
+	return &countingReadWriteCloser{rwc: rwc}
+}
+
+func (c *countingReadWriteCloser) Read(p []byte) (int, error) {
+	n, err := c.rwc.Read(p)
+	if n > 0 {
+		c.totalRead += int64(n)
+	}
+	return n, err
+}
+
+func (c *countingReadWriteCloser) Write(p []byte) (int, error) {
+	n, err := c.rwc.Write(p)
+	if n > 0 {
+		c.totalWrite += int64(n)
+	}
+	return n, err
+}
+
+func (c *countingReadWriteCloser) Close() error {
+	return c.rwc.Close()
+}
+
+func (c *countingReadWriteCloser) TotalRead() int64 {
+	return c.totalRead
+}
+
+func (c *countingReadWriteCloser) TotalWrite() int64 {
+	return c.totalWrite
+}

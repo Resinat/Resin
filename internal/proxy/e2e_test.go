@@ -274,6 +274,150 @@ func TestReverseProxy_E2ECapturesDetailPayloads(t *testing.T) {
 	}
 }
 
+func TestReverseProxy_E2EWebSocketUpgrade_WithDetailCapture(t *testing.T) {
+	env := newProxyE2EEnv(t)
+	emitter := newMockEventEmitter()
+
+	tunnelPayload := strings.Repeat("c", 200*1024)
+	tunnelAck := strings.Repeat("s", 180*1024)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := strings.ToLower(r.Header.Get("Upgrade")); got != "websocket" {
+			t.Fatalf("Upgrade header: got %q, want %q", got, "websocket")
+		}
+		if got := strings.ToLower(r.Header.Get("Connection")); !strings.Contains(got, "upgrade") {
+			t.Fatalf("Connection header should include upgrade, got %q", got)
+		}
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("upstream does not support hijack")
+		}
+		conn, brw, err := hijacker.Hijack()
+		if err != nil {
+			t.Fatalf("upstream hijack: %v", err)
+		}
+		defer conn.Close()
+
+		_, _ = brw.WriteString("HTTP/1.1 101 Switching Protocols\r\n")
+		_, _ = brw.WriteString("Connection: Upgrade\r\n")
+		_, _ = brw.WriteString("Upgrade: websocket\r\n")
+		_, _ = brw.WriteString("\r\n")
+		if err := brw.Flush(); err != nil {
+			t.Fatalf("upstream flush upgrade response: %v", err)
+		}
+
+		buf := make([]byte, len(tunnelPayload))
+		if _, err := io.ReadFull(conn, buf); err != nil {
+			t.Fatalf("upstream read tunneled payload: %v", err)
+		}
+		if got := string(buf); got != tunnelPayload {
+			t.Fatalf("upstream payload: got %q, want %q", got, tunnelPayload)
+		}
+		if _, err := conn.Write([]byte(tunnelAck)); err != nil {
+			t.Fatalf("upstream write tunneled ack: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	rp := NewReverseProxy(ReverseProxyConfig{
+		ProxyToken:     "tok",
+		Router:         env.router,
+		Pool:           env.pool,
+		PlatformLookup: env.pool,
+		Health:         &mockHealthRecorder{},
+		Events: ConfigAwareEventEmitter{
+			Base:                         emitter,
+			RequestLogEnabled:            func() bool { return true },
+			ReverseProxyLogDetailEnabled: func() bool { return true },
+		},
+	})
+	reverseSrv := httptest.NewServer(rp)
+	defer reverseSrv.Close()
+
+	reverseAddr := strings.TrimPrefix(reverseSrv.URL, "http://")
+	clientConn, err := net.Dial("tcp", reverseAddr)
+	if err != nil {
+		t.Fatalf("dial reverse proxy: %v", err)
+	}
+	defer clientConn.Close()
+
+	upstreamHost := strings.TrimPrefix(upstream.URL, "http://")
+	req := fmt.Sprintf(
+		"GET /tok/plat/http/%s/ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+		upstreamHost,
+		reverseAddr,
+	)
+	if _, err := clientConn.Write([]byte(req)); err != nil {
+		t.Fatalf("write upgrade request: %v", err)
+	}
+
+	reader := bufio.NewReader(clientConn)
+	statusLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read upgrade status line: %v", err)
+	}
+	if !strings.Contains(statusLine, "101 Switching Protocols") {
+		t.Fatalf("unexpected status line: %q", statusLine)
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read upgrade headers: %v", err)
+		}
+		if strings.HasPrefix(strings.ToLower(line), "x-resin-error:") {
+			t.Fatalf("unexpected resin error header on upgrade success: %q", line)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+
+	if _, err := clientConn.Write([]byte(tunnelPayload)); err != nil {
+		t.Fatalf("write tunneled payload: %v", err)
+	}
+	ack := make([]byte, len(tunnelAck))
+	if _, err := io.ReadFull(reader, ack); err != nil {
+		t.Fatalf("read tunneled ack: %v", err)
+	}
+	if got := string(ack); got != tunnelAck {
+		t.Fatalf("tunneled ack: got %q, want %q", got, tunnelAck)
+	}
+
+	_ = clientConn.Close()
+
+	select {
+	case logEv := <-emitter.logCh:
+		if logEv.HTTPStatus != http.StatusSwitchingProtocols {
+			t.Fatalf("HTTPStatus: got %d, want %d", logEv.HTTPStatus, http.StatusSwitchingProtocols)
+		}
+		if !logEv.NetOK {
+			t.Fatal("NetOK: got false, want true")
+		}
+		if len(logEv.RespHeaders) == 0 || logEv.RespHeadersLen == 0 {
+			t.Fatalf("expected resp headers capture, got len=%d payload=%d", logEv.RespHeadersLen, len(logEv.RespHeaders))
+		}
+		if !strings.Contains(strings.ToLower(string(logEv.RespHeaders)), "upgrade: websocket") {
+			t.Fatalf("RespHeaders missing upgrade header, payload=%q", string(logEv.RespHeaders))
+		}
+		if len(logEv.RespBody) != 0 || logEv.RespBodyLen != 0 || logEv.RespBodyTruncated {
+			t.Fatalf(
+				"expected empty resp body capture for upgrade, got len=%d payload=%d truncated=%v",
+				logEv.RespBodyLen,
+				len(logEv.RespBody),
+				logEv.RespBodyTruncated,
+			)
+		}
+		if logEv.EgressBytes < int64(len(tunnelPayload)) {
+			t.Fatalf("EgressBytes: got %d, want >= %d", logEv.EgressBytes, len(tunnelPayload))
+		}
+		if logEv.IngressBytes < int64(len(tunnelAck)) {
+			t.Fatalf("IngressBytes: got %d, want >= %d", logEv.IngressBytes, len(tunnelAck))
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("expected reverse log event for websocket upgrade")
+	}
+}
+
 func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 	env := newProxyE2EEnv(t)
 	emitter := newMockEventEmitter()

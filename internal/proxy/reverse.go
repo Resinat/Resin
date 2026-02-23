@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptrace"
 	"net/http/httputil"
@@ -224,6 +225,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeReverse, false)
 	var egressBodyCounter *countingReadCloser
 	var ingressBodyCounter *countingReadCloser
+	var upgradedStreamCounter *countingReadWriteCloser
 	detailCfg := reverseDetailCaptureConfig{
 		Enabled:             false,
 		ReqHeadersMaxBytes:  -1,
@@ -344,6 +346,26 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ModifyResponse: func(resp *http.Response) error {
 			lifecycle.setHTTPStatus(resp.StatusCode)
 			lifecycle.addIngressBytes(headerWireLen(resp.Header))
+			if resp.StatusCode == http.StatusSwitchingProtocols {
+				// 101 upgrade responses require a writable backend body
+				// (io.ReadWriteCloser). Do not wrap resp.Body here; wrapping with a
+				// read-only wrapper breaks websocket/h2c upgrade tunneling in
+				// net/http/httputil.ReverseProxy.
+				//
+				// We can still account upgrade-session traffic by wrapping with a
+				// read-write counter that preserves io.ReadWriteCloser semantics.
+				if rwc, ok := resp.Body.(io.ReadWriteCloser); ok {
+					upgradedStreamCounter = newCountingReadWriteCloser(rwc)
+					resp.Body = upgradedStreamCounter
+				}
+				if detailCfg.Enabled {
+					respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
+					lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
+				}
+				lifecycle.setNetOK(true)
+				go p.health.RecordResult(nodeHashRaw, true)
+				return nil
+			}
 			if resp.Body != nil && resp.Body != http.NoBody {
 				body := resp.Body
 				if detailCfg.Enabled {
@@ -376,6 +398,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if ingressBodyCounter != nil {
 		lifecycle.addIngressBytes(ingressBodyCounter.Total())
+	}
+	if upgradedStreamCounter != nil {
+		lifecycle.addIngressBytes(upgradedStreamCounter.TotalRead())
+		lifecycle.addEgressBytes(upgradedStreamCounter.TotalWrite())
 	}
 }
 
