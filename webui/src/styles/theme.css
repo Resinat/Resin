@@ -1927,6 +1927,10 @@ a {
 
 .nodes-tag-cell span {
   font-weight: 700;
+  max-width: 260px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .nodes-tag-cell small {
