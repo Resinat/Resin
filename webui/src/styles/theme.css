@@ -2064,12 +2064,16 @@ a {
 
 .logs-cell-stack>span {
   font-size: 13px;
+  max-width: 140px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .logs-cell-stack>small {
   color: var(--text-muted);
   font-size: 12px;
-  max-width: 260px;
+  max-width: 140px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
