@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle, Eraser, Globe, RefreshCw, Sparkles, X, Zap } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useLocation } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
+import { DataTable } from "../../components/ui/DataTable";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { OffsetPagination } from "../../components/ui/OffsetPagination";
@@ -16,6 +18,7 @@ import { listPlatforms } from "../platforms/api";
 import type { Platform } from "../platforms/types";
 import { listSubscriptions } from "../subscriptions/api";
 import { getNode, listNodes, probeEgress, probeLatency } from "./api";
+import type { NodeSummary } from "./types";
 import { getAllRegions, getRegionName } from "./regions";
 import type { NodeListFilters, NodeSortBy, SortOrder } from "./types";
 
@@ -387,6 +390,105 @@ export function NodesPage() {
     setPage(0);
   };
 
+  const col = createColumnHelper<NodeSummary>();
+
+  const nodeColumns = useMemo(
+    () => [
+      col.accessor((row) => firstTag(row), {
+        id: "tag",
+        header: () => (
+          <button type="button" className="table-sort-btn" onClick={() => changeSort("tag")}>
+            Tag
+            <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
+          </button>
+        ),
+        cell: (info) => (
+          <div className="nodes-tag-cell">
+            <span>{info.getValue() as string}</span>
+          </div>
+        ),
+      }),
+      col.accessor("region", {
+        header: () => (
+          <button type="button" className="table-sort-btn" onClick={() => changeSort("region")}>
+            区域
+            <span>{sortIndicator(sortBy === "region", sortOrder)}</span>
+          </button>
+        ),
+        cell: (info) => regionToFlag(info.getValue()),
+      }),
+      col.accessor("egress_ip", {
+        header: "出口 IP",
+        cell: (info) => info.getValue() || "-",
+      }),
+      col.accessor("last_latency_probe_attempt", {
+        header: "上次探测",
+        cell: (info) => formatRelativeTime(info.getValue()),
+      }),
+      col.accessor("failure_count", {
+        header: () => (
+          <button type="button" className="table-sort-btn" onClick={() => changeSort("failure_count")}>
+            连续失败次数
+            <span>{sortIndicator(sortBy === "failure_count", sortOrder)}</span>
+          </button>
+        ),
+        cell: (info) => {
+          const node = info.row.original;
+          return !node.has_outbound ? "-" : node.failure_count;
+        },
+      }),
+      col.display({
+        id: "status",
+        header: "状态",
+        cell: (info) => {
+          const node = info.row.original;
+          if (!node.has_outbound) return <Badge variant="danger">错误</Badge>;
+          if (node.circuit_open_since) return <Badge variant="warning">熔断</Badge>;
+          return <Badge variant="success">健康</Badge>;
+        },
+      }),
+      col.accessor("created_at", {
+        header: () => (
+          <button type="button" className="table-sort-btn" onClick={() => changeSort("created_at")}>
+            创建时间
+            <span>{sortIndicator(sortBy === "created_at", sortOrder)}</span>
+          </button>
+        ),
+        cell: (info) => formatDateTime(info.getValue()),
+      }),
+      col.display({
+        id: "actions",
+        header: "操作",
+        cell: (info) => {
+          const node = info.row.original;
+          return (
+            <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
+              <Button
+                size="sm"
+                variant="ghost"
+                title="触发出口探测"
+                onClick={() => void runProbeEgress(node.node_hash)}
+                disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
+              >
+                <Globe size={14} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                title="触发延迟探测"
+                onClick={() => void runProbeLatency(node.node_hash)}
+                disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
+              >
+                <Zap size={14} />
+              </Button>
+            </div>
+          );
+        },
+      }),
+    ],
+    [sortBy, sortOrder, probeEgressMutation.isPending, probeLatencyMutation.isPending]
+  );
+
   return (
     <section className="nodes-page">
       <header className="module-header">
@@ -546,106 +648,12 @@ export function NodesPage() {
         ) : null}
 
         {nodes.length ? (
-          <div className="nodes-table-wrap">
-            <table className="nodes-table subscriptions-table node-pool-table">
-              <colgroup>
-                <col className="node-pool-col-name" />
-                <col className="node-pool-col-fit" />
-                <col className="node-pool-col-fit" />
-                <col className="node-pool-col-fit" />
-                <col className="node-pool-col-fit" />
-                <col className="node-pool-col-fit" />
-                <col className="node-pool-col-fit" />
-                <col className="node-pool-col-fit" />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th>
-                    <button type="button" className="table-sort-btn" onClick={() => changeSort("tag")}>
-                      节点名
-                      <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
-                    </button>
-                  </th>
-                  <th>
-                    <button type="button" className="table-sort-btn" onClick={() => changeSort("region")}>
-                      区域
-                      <span>{sortIndicator(sortBy === "region", sortOrder)}</span>
-                    </button>
-                  </th>
-                  <th>出口 IP</th>
-                  <th>上次探测</th>
-                  <th>
-                    <button type="button" className="table-sort-btn" onClick={() => changeSort("failure_count")}>
-                      连续失败次数
-                      <span>{sortIndicator(sortBy === "failure_count", sortOrder)}</span>
-                    </button>
-                  </th>
-                  <th>状态</th>
-                  <th>
-                    <button type="button" className="table-sort-btn" onClick={() => changeSort("created_at")}>
-                      创建时间
-                      <span>{sortIndicator(sortBy === "created_at", sortOrder)}</span>
-                    </button>
-                  </th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {nodes.map((node) => {
-                  const tagText = firstTag(node);
-                  return (
-                    <tr
-                      key={node.node_hash}
-                      className="clickable-row"
-                      onClick={() => openDrawer(node.node_hash)}
-                    >
-                      <td>
-                        <div className="nodes-tag-cell">
-                          <span>{tagText}</span>
-                        </div>
-                      </td>
-                      <td>{regionToFlag(node.region)}</td>
-                      <td>{node.egress_ip || "-"}</td>
-                      <td>{formatRelativeTime(node.last_latency_probe_attempt)}</td>
-                      <td>{!node.has_outbound ? "-" : node.failure_count}</td>
-                      <td>
-                        {!node.has_outbound ? (
-                          <Badge variant="danger">错误</Badge>
-                        ) : node.circuit_open_since ? (
-                          <Badge variant="warning">熔断</Badge>
-                        ) : (
-                          <Badge variant="success">健康</Badge>
-                        )}
-                      </td>
-                      <td>{formatDateTime(node.created_at)}</td>
-                      <td>
-                        <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            title="触发出口探测"
-                            onClick={() => void runProbeEgress(node.node_hash)}
-                            disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
-                          >
-                            <Globe size={14} />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            title="触发延迟探测"
-                            onClick={() => void runProbeLatency(node.node_hash)}
-                            disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
-                          >
-                            <Zap size={14} />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            data={nodes}
+            columns={nodeColumns}
+            onRowClick={(node) => openDrawer(node.node_hash)}
+            getRowId={(node) => node.node_hash}
+          />
         ) : null}
 
         <OffsetPagination
