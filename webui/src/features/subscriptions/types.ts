@@ -5,6 +5,7 @@ export type Subscription = {
   update_interval: string;
   node_count: number;
   ephemeral: boolean;
+  ephemeral_node_evict_delay: string;
   enabled: boolean;
   created_at: string;
   last_checked?: string;
@@ -25,6 +26,7 @@ export type SubscriptionCreateInput = {
   update_interval?: string;
   enabled?: boolean;
   ephemeral?: boolean;
+  ephemeral_node_evict_delay?: string;
 };
 
 export type SubscriptionUpdateInput = {
@@ -33,4 +35,5 @@ export type SubscriptionUpdateInput = {
   update_interval?: string;
   enabled?: boolean;
   ephemeral?: boolean;
+  ephemeral_node_evict_delay?: string;
 };

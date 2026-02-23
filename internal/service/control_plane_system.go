@@ -88,7 +88,6 @@ var runtimeConfigAllowedFields = map[string]bool{
 	"latency_decay_window":                     true,
 	"cache_flush_interval":                     true,
 	"cache_flush_dirty_threshold":              true,
-	"ephemeral_node_evict_delay":               true,
 }
 
 var platformPatchAllowedFields = map[string]bool{
@@ -101,11 +100,12 @@ var platformPatchAllowedFields = map[string]bool{
 }
 
 var subscriptionPatchAllowedFields = map[string]bool{
-	"name":            true,
-	"url":             true,
-	"update_interval": true,
-	"enabled":         true,
-	"ephemeral":       true,
+	"name":                       true,
+	"url":                        true,
+	"update_interval":            true,
+	"enabled":                    true,
+	"ephemeral":                  true,
+	"ephemeral_node_evict_delay": true,
 }
 
 func parseRuntimeConfigPatch(patchJSON json.RawMessage, out *config.RuntimeConfig) *ServiceError {
@@ -232,9 +232,6 @@ func validateRuntimeConfig(cfg *config.RuntimeConfig) *ServiceError {
 	minCacheFlushInterval := 5 * time.Second
 	if time.Duration(cfg.CacheFlushInterval) < minCacheFlushInterval {
 		return invalidArg("cache_flush_interval: must be >= 5s")
-	}
-	if cfg.EphemeralNodeEvictDelay < 0 {
-		return invalidArg("ephemeral_node_evict_delay: must be non-negative")
 	}
 
 	// LatencyTestURL domain must be in LatencyAuthorities.

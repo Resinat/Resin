@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // makeMockFetcher returns a Fetcher that serves the given response.
@@ -881,6 +881,7 @@ func TestScheduler_OnSubUpdated_Called(t *testing.T) {
 func TestEphemeralCleaner_DisabledEphemeralStillEvicted(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	sub := subscription.NewSubscription("s1", "EphSub", "url", false, true) // disabled + ephemeral
+	sub.SetEphemeralNodeEvictDelayNs(int64(1 * time.Minute))
 	subMgr.Register(sub)
 
 	pool := newTestPool(subMgr)
@@ -895,7 +896,7 @@ func TestEphemeralCleaner_DisabledEphemeralStillEvicted(t *testing.T) {
 	entry, _ := pool.GetEntry(h)
 	entry.CircuitOpenSince.Store(time.Now().Add(-2 * time.Minute).UnixNano())
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 1 * time.Minute })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
 	// Disabled ephemeral sub should still be cleaned.

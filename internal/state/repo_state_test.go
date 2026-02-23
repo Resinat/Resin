@@ -216,7 +216,7 @@ func TestStateRepo_Subscriptions_CRUD(t *testing.T) {
 	s := model.Subscription{
 		ID: "sub-1", Name: "MySub", URL: "https://example.com/sub",
 		UpdateIntervalNs: int64(30 * time.Second), Enabled: true,
-		Ephemeral: false, CreatedAtNs: now, UpdatedAtNs: now,
+		Ephemeral: false, EphemeralNodeEvictDelayNs: int64(72 * time.Hour), CreatedAtNs: now, UpdatedAtNs: now,
 	}
 	if err := repo.UpsertSubscription(s); err != nil {
 		t.Fatal(err)
@@ -257,6 +257,7 @@ func TestStateRepo_Subscription_CreatedAtNsPreserved(t *testing.T) {
 	s := model.Subscription{
 		ID: "sub-1", Name: "MySub", URL: "https://example.com",
 		UpdateIntervalNs: int64(30 * time.Second), Enabled: true,
+		Ephemeral: false, EphemeralNodeEvictDelayNs: int64(72 * time.Hour),
 		CreatedAtNs: originalCreatedAt, UpdatedAtNs: originalCreatedAt,
 	}
 	if err := repo.UpsertSubscription(s); err != nil {

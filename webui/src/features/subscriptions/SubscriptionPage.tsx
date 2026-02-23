@@ -39,6 +39,7 @@ const subscriptionCreateSchema = z.object({
       message: "URL 必须是 http/https 地址",
     }),
   update_interval: z.string().trim().min(1, "更新间隔不能为空"),
+  ephemeral_node_evict_delay: z.string().trim().min(1, "临时节点驱逐延迟不能为空"),
   enabled: z.boolean(),
   ephemeral: z.boolean(),
 });
@@ -74,6 +75,7 @@ function subscriptionToEditForm(subscription: Subscription): SubscriptionEditFor
     name: subscription.name,
     url: subscription.url,
     update_interval: subscription.update_interval,
+    ephemeral_node_evict_delay: subscription.ephemeral_node_evict_delay,
     enabled: subscription.enabled,
     ephemeral: subscription.ephemeral,
   };
@@ -136,6 +138,7 @@ export function SubscriptionPage() {
       name: "",
       url: "",
       update_interval: "12h",
+      ephemeral_node_evict_delay: "72h",
       enabled: true,
       ephemeral: false,
     },
@@ -147,6 +150,7 @@ export function SubscriptionPage() {
       name: "",
       url: "",
       update_interval: "12h",
+      ephemeral_node_evict_delay: "72h",
       enabled: true,
       ephemeral: false,
     },
@@ -188,6 +192,7 @@ export function SubscriptionPage() {
         name: "",
         url: "",
         update_interval: "12h",
+        ephemeral_node_evict_delay: "72h",
         enabled: true,
         ephemeral: false,
       });
@@ -208,6 +213,7 @@ export function SubscriptionPage() {
         name: formData.name.trim(),
         url: formData.url.trim(),
         update_interval: formData.update_interval.trim(),
+        ephemeral_node_evict_delay: formData.ephemeral_node_evict_delay.trim(),
         enabled: formData.enabled,
         ephemeral: formData.ephemeral,
       });
@@ -259,6 +265,7 @@ export function SubscriptionPage() {
       name: values.name.trim(),
       url: values.url.trim(),
       update_interval: values.update_interval.trim(),
+      ephemeral_node_evict_delay: values.ephemeral_node_evict_delay.trim(),
       enabled: values.enabled,
       ephemeral: values.ephemeral,
     });
@@ -571,6 +578,21 @@ export function SubscriptionPage() {
                     ) : null}
                   </div>
 
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-sub-ephemeral-evict-delay">
+                      临时节点驱逐延迟（仅临时订阅生效）
+                    </label>
+                    <Input
+                      id="edit-sub-ephemeral-evict-delay"
+                      placeholder="例如 72h"
+                      invalid={Boolean(editForm.formState.errors.ephemeral_node_evict_delay)}
+                      {...editForm.register("ephemeral_node_evict_delay")}
+                    />
+                    {editForm.formState.errors.ephemeral_node_evict_delay?.message ? (
+                      <p className="field-error">{editForm.formState.errors.ephemeral_node_evict_delay.message}</p>
+                    ) : null}
+                  </div>
+
                   <div className="field-group field-span-2">
                     <label className="field-label" htmlFor="edit-sub-url">
                       订阅链接
@@ -689,6 +711,21 @@ export function SubscriptionPage() {
                 />
                 {createForm.formState.errors.update_interval?.message ? (
                   <p className="field-error">{createForm.formState.errors.update_interval.message}</p>
+                ) : null}
+              </div>
+
+              <div className="field-group">
+                <label className="field-label" htmlFor="create-sub-ephemeral-evict-delay">
+                  临时节点驱逐延迟（仅临时订阅生效）
+                </label>
+                <Input
+                  id="create-sub-ephemeral-evict-delay"
+                  placeholder="例如 72h"
+                  invalid={Boolean(createForm.formState.errors.ephemeral_node_evict_delay)}
+                  {...createForm.register("ephemeral_node_evict_delay")}
+                />
+                {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
+                  <p className="field-error">{createForm.formState.errors.ephemeral_node_evict_delay.message}</p>
                 ) : null}
               </div>
 

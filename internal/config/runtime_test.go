@@ -21,9 +21,6 @@ func TestNewDefaultRuntimeConfig(t *testing.T) {
 	if cfg.CacheFlushDirtyThreshold != 1000 {
 		t.Errorf("CacheFlushDirtyThreshold: got %d, want 1000", cfg.CacheFlushDirtyThreshold)
 	}
-	if time.Duration(cfg.EphemeralNodeEvictDelay) != 72*time.Hour {
-		t.Errorf("EphemeralNodeEvictDelay: got %v, want 72h", time.Duration(cfg.EphemeralNodeEvictDelay))
-	}
 	if len(cfg.LatencyAuthorities) != 4 {
 		t.Errorf("LatencyAuthorities: got %d items, want 4", len(cfg.LatencyAuthorities))
 	}
@@ -115,7 +112,6 @@ func TestRuntimeConfig_JSONFieldNames(t *testing.T) {
 		"latency_decay_window",
 		"cache_flush_interval",
 		"cache_flush_dirty_threshold",
-		"ephemeral_node_evict_delay",
 	}
 
 	for _, key := range expectedKeys {

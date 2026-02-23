@@ -21,17 +21,18 @@ import (
 
 // SubscriptionResponse is the API response for a subscription.
 type SubscriptionResponse struct {
-	ID             string `json:"id"`
-	Name           string `json:"name"`
-	URL            string `json:"url"`
-	UpdateInterval string `json:"update_interval"`
-	NodeCount      int    `json:"node_count"`
-	Ephemeral      bool   `json:"ephemeral"`
-	Enabled        bool   `json:"enabled"`
-	CreatedAt      string `json:"created_at"`
-	LastChecked    string `json:"last_checked,omitempty"`
-	LastUpdated    string `json:"last_updated,omitempty"`
-	LastError      string `json:"last_error,omitempty"`
+	ID                      string `json:"id"`
+	Name                    string `json:"name"`
+	URL                     string `json:"url"`
+	UpdateInterval          string `json:"update_interval"`
+	NodeCount               int    `json:"node_count"`
+	Ephemeral               bool   `json:"ephemeral"`
+	EphemeralNodeEvictDelay string `json:"ephemeral_node_evict_delay"`
+	Enabled                 bool   `json:"enabled"`
+	CreatedAt               string `json:"created_at"`
+	LastChecked             string `json:"last_checked,omitempty"`
+	LastUpdated             string `json:"last_updated,omitempty"`
+	LastError               string `json:"last_error,omitempty"`
 }
 
 func subToResponse(sub *subscription.Subscription) SubscriptionResponse {
@@ -41,14 +42,15 @@ func subToResponse(sub *subscription.Subscription) SubscriptionResponse {
 	}
 
 	resp := SubscriptionResponse{
-		ID:             sub.ID,
-		Name:           sub.Name(),
-		URL:            sub.URL(),
-		UpdateInterval: time.Duration(sub.UpdateIntervalNs()).String(),
-		NodeCount:      nodeCount,
-		Ephemeral:      sub.Ephemeral(),
-		Enabled:        sub.Enabled(),
-		CreatedAt:      time.Unix(0, sub.CreatedAtNs).UTC().Format(time.RFC3339Nano),
+		ID:                      sub.ID,
+		Name:                    sub.Name(),
+		URL:                     sub.URL(),
+		UpdateInterval:          time.Duration(sub.UpdateIntervalNs()).String(),
+		NodeCount:               nodeCount,
+		Ephemeral:               sub.Ephemeral(),
+		EphemeralNodeEvictDelay: time.Duration(sub.EphemeralNodeEvictDelayNs()).String(),
+		Enabled:                 sub.Enabled(),
+		CreatedAt:               time.Unix(0, sub.CreatedAtNs).UTC().Format(time.RFC3339Nano),
 	}
 	if lc := sub.LastCheckedNs.Load(); lc > 0 {
 		resp.LastChecked = time.Unix(0, lc).UTC().Format(time.RFC3339Nano)
@@ -88,14 +90,16 @@ func (s *ControlPlaneService) GetSubscription(id string) (*SubscriptionResponse,
 
 // CreateSubscriptionRequest holds create subscription parameters.
 type CreateSubscriptionRequest struct {
-	Name           *string `json:"name"`
-	URL            *string `json:"url"`
-	UpdateInterval *string `json:"update_interval"`
-	Enabled        *bool   `json:"enabled"`
-	Ephemeral      *bool   `json:"ephemeral"`
+	Name                    *string `json:"name"`
+	URL                     *string `json:"url"`
+	UpdateInterval          *string `json:"update_interval"`
+	Enabled                 *bool   `json:"enabled"`
+	Ephemeral               *bool   `json:"ephemeral"`
+	EphemeralNodeEvictDelay *string `json:"ephemeral_node_evict_delay"`
 }
 
 const minSubscriptionUpdateInterval = 30 * time.Second
+const defaultSubscriptionEphemeralNodeEvictDelay = 72 * time.Hour
 
 // CreateSubscription creates a new subscription.
 func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) (*SubscriptionResponse, error) {
@@ -132,19 +136,31 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 	if req.Ephemeral != nil {
 		ephemeral = *req.Ephemeral
 	}
+	ephemeralNodeEvictDelay := defaultSubscriptionEphemeralNodeEvictDelay
+	if req.EphemeralNodeEvictDelay != nil {
+		d, err := time.ParseDuration(*req.EphemeralNodeEvictDelay)
+		if err != nil {
+			return nil, invalidArg("ephemeral_node_evict_delay: " + err.Error())
+		}
+		if d < 0 {
+			return nil, invalidArg("ephemeral_node_evict_delay: must be non-negative")
+		}
+		ephemeralNodeEvictDelay = d
+	}
 
 	id := uuid.New().String()
 	now := time.Now().UnixNano()
 
 	ms := model.Subscription{
-		ID:               id,
-		Name:             name,
-		URL:              subURL,
-		UpdateIntervalNs: int64(updateInterval),
-		Enabled:          enabled,
-		Ephemeral:        ephemeral,
-		CreatedAtNs:      now,
-		UpdatedAtNs:      now,
+		ID:                        id,
+		Name:                      name,
+		URL:                       subURL,
+		UpdateIntervalNs:          int64(updateInterval),
+		Enabled:                   enabled,
+		Ephemeral:                 ephemeral,
+		EphemeralNodeEvictDelayNs: int64(ephemeralNodeEvictDelay),
+		CreatedAtNs:               now,
+		UpdatedAtNs:               now,
 	}
 	if err := s.Engine.UpsertSubscription(ms); err != nil {
 		return nil, internal("persist subscription", err)
@@ -152,6 +168,7 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 
 	sub := subscription.NewSubscription(id, name, subURL, enabled, ephemeral)
 	sub.SetFetchConfig(subURL, int64(updateInterval))
+	sub.SetEphemeralNodeEvictDelayNs(int64(ephemeralNodeEvictDelay))
 	sub.CreatedAtNs = now
 	sub.UpdatedAtNs = now
 	s.SubMgr.Register(sub)
@@ -234,16 +251,27 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 		newEphemeral = b
 	}
 
+	newEphemeralNodeEvictDelay := sub.EphemeralNodeEvictDelayNs()
+	if d, ok, err := patch.optionalDurationString("ephemeral_node_evict_delay"); err != nil {
+		return nil, err
+	} else if ok {
+		if d < 0 {
+			return nil, invalidArg("ephemeral_node_evict_delay: must be non-negative")
+		}
+		newEphemeralNodeEvictDelay = int64(d)
+	}
+
 	now := time.Now().UnixNano()
 	ms := model.Subscription{
-		ID:               id,
-		Name:             newName,
-		URL:              newURL,
-		UpdateIntervalNs: newInterval,
-		Enabled:          newEnabled,
-		Ephemeral:        newEphemeral,
-		CreatedAtNs:      sub.CreatedAtNs,
-		UpdatedAtNs:      now,
+		ID:                        id,
+		Name:                      newName,
+		URL:                       newURL,
+		UpdateIntervalNs:          newInterval,
+		Enabled:                   newEnabled,
+		Ephemeral:                 newEphemeral,
+		EphemeralNodeEvictDelayNs: newEphemeralNodeEvictDelay,
+		CreatedAtNs:               sub.CreatedAtNs,
+		UpdatedAtNs:               now,
 	}
 	if err := s.Engine.UpsertSubscription(ms); err != nil {
 		return nil, internal("persist subscription", err)
@@ -252,6 +280,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	// Apply side-effects via scheduler.
 	sub.SetFetchConfig(newURL, newInterval)
 	sub.SetEphemeral(newEphemeral)
+	sub.SetEphemeralNodeEvictDelayNs(newEphemeralNodeEvictDelay)
 	sub.UpdatedAtNs = now
 
 	if nameChanged {

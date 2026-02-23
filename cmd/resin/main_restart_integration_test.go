@@ -53,14 +53,15 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 
 	now := time.Now().UnixNano()
 	if err := engine1.UpsertSubscription(model.Subscription{
-		ID:               subID,
-		Name:             subName,
-		URL:              "https://example.com/sub",
-		UpdateIntervalNs: int64(30 * time.Minute),
-		Enabled:          true,
-		Ephemeral:        false,
-		CreatedAtNs:      now,
-		UpdatedAtNs:      now,
+		ID:                        subID,
+		Name:                      subName,
+		URL:                       "https://example.com/sub",
+		UpdateIntervalNs:          int64(30 * time.Minute),
+		Enabled:                   true,
+		Ephemeral:                 false,
+		EphemeralNodeEvictDelayNs: int64(72 * time.Hour),
+		CreatedAtNs:               now,
+		UpdatedAtNs:               now,
 	}); err != nil {
 		t.Fatalf("UpsertSubscription: %v", err)
 	}

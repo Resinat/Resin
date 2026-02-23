@@ -21,7 +21,6 @@ const DEFAULT_CONFIG: RuntimeConfig = {
   latency_decay_window: "",
   cache_flush_interval: "",
   cache_flush_dirty_threshold: 0,
-  ephemeral_node_evict_delay: "",
 };
 
 function asNumber(raw: unknown, fallback: number): number {
@@ -82,7 +81,6 @@ function normalizeRuntimeConfig(raw: Partial<RuntimeConfig> | null | undefined):
       raw.cache_flush_dirty_threshold,
       DEFAULT_CONFIG.cache_flush_dirty_threshold,
     ),
-    ephemeral_node_evict_delay: asString(raw.ephemeral_node_evict_delay, DEFAULT_CONFIG.ephemeral_node_evict_delay),
   };
 }
 

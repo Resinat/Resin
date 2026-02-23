@@ -2,9 +2,10 @@ package subscription
 
 import (
 	"testing"
+	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/node"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 func TestNewSubscription(t *testing.T) {
@@ -21,6 +22,9 @@ func TestNewSubscription(t *testing.T) {
 	if s.Ephemeral() {
 		t.Fatal("expected not ephemeral")
 	}
+	if got, want := s.EphemeralNodeEvictDelayNs(), int64(72*time.Hour); got != want {
+		t.Fatalf("expected default ephemeral evict delay ns %d, got %d", want, got)
+	}
 	if s.ManagedNodes() == nil {
 		t.Fatal("ManagedNodes should not be nil")
 	}
@@ -31,6 +35,14 @@ func TestSubscription_NameThreadSafe(t *testing.T) {
 	s.SetName("updated")
 	if s.Name() != "updated" {
 		t.Fatalf("expected updated, got %s", s.Name())
+	}
+}
+
+func TestSubscription_EphemeralNodeEvictDelayThreadSafe(t *testing.T) {
+	s := NewSubscription("id1", "sub", "url", true, true)
+	s.SetEphemeralNodeEvictDelayNs(int64(10 * time.Minute))
+	if got, want := s.EphemeralNodeEvictDelayNs(), int64(10*time.Minute); got != want {
+		t.Fatalf("expected %d, got %d", want, got)
 	}
 }
 

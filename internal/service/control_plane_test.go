@@ -511,14 +511,15 @@ func TestDeleteSubscription_PersistFailureDoesNotMutateRuntimeState(t *testing.T
 	subMgr.Register(sub)
 
 	subModel := model.Subscription{
-		ID:               sub.ID,
-		Name:             sub.Name(),
-		URL:              sub.URL(),
-		UpdateIntervalNs: int64(30 * time.Second),
-		Enabled:          sub.Enabled(),
-		Ephemeral:        sub.Ephemeral(),
-		CreatedAtNs:      time.Now().Add(-time.Minute).UnixNano(),
-		UpdatedAtNs:      time.Now().UnixNano(),
+		ID:                        sub.ID,
+		Name:                      sub.Name(),
+		URL:                       sub.URL(),
+		UpdateIntervalNs:          int64(30 * time.Second),
+		Enabled:                   sub.Enabled(),
+		Ephemeral:                 sub.Ephemeral(),
+		EphemeralNodeEvictDelayNs: sub.EphemeralNodeEvictDelayNs(),
+		CreatedAtNs:               time.Now().Add(-time.Minute).UnixNano(),
+		UpdatedAtNs:               time.Now().UnixNano(),
 	}
 	if err := engine.UpsertSubscription(subModel); err != nil {
 		t.Fatalf("UpsertSubscription: %v", err)

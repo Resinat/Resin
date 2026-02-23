@@ -292,9 +292,6 @@ func newTopologyRuntime(
 	ephemeralCleaner := topology.NewEphemeralCleaner(
 		subManager,
 		pool,
-		func() time.Duration {
-			return time.Duration(runtimeConfigSnapshot(runtimeCfg).EphemeralNodeEvictDelay)
-		},
 	)
 
 	return &topologyRuntime{
@@ -335,6 +332,7 @@ func bootstrapTopology(
 	for _, ms := range dbSubs {
 		sub := subscription.NewSubscription(ms.ID, ms.Name, ms.URL, ms.Enabled, ms.Ephemeral)
 		sub.SetFetchConfig(ms.URL, ms.UpdateIntervalNs)
+		sub.SetEphemeralNodeEvictDelayNs(ms.EphemeralNodeEvictDelayNs)
 		sub.CreatedAtNs = ms.CreatedAtNs
 		sub.UpdatedAtNs = ms.UpdatedAtNs
 		subManager.Register(sub)

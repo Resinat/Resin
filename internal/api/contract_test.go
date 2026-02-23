@@ -801,6 +801,7 @@ func TestAPIContract_SystemConfigPatchSemantics(t *testing.T) {
 	}{
 		{name: "empty patch", body: map[string]any{}},
 		{name: "unknown field", body: map[string]any{"unknown_field": 1}},
+		{name: "removed field", body: map[string]any{"ephemeral_node_evict_delay": "1h"}},
 		{name: "null value", body: map[string]any{"request_log_enabled": nil}},
 		{name: "empty latency_test_url", body: map[string]any{"latency_test_url": ""}},
 	}
@@ -1104,6 +1105,91 @@ func TestAPIContract_SubscriptionUpdateIntervalMinimum(t *testing.T) {
 		t.Fatalf("patch subscription invalid interval status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 	assertErrorCode(t, rec, "INVALID_ARGUMENT")
+}
+
+func TestAPIContract_SubscriptionEphemeralEvictDelay_DefaultAndCustom(t *testing.T) {
+	srv, _, _ := newControlPlaneTestServer(t)
+
+	defaultRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
+		"name": "default-evict-delay-sub",
+		"url":  "https://example.com/sub-default-evict-delay",
+	}, true)
+	if defaultRec.Code != http.StatusCreated {
+		t.Fatalf("create default delay subscription status: got %d, want %d, body=%s", defaultRec.Code, http.StatusCreated, defaultRec.Body.String())
+	}
+	defaultBody := decodeJSONMap(t, defaultRec)
+	if defaultBody["ephemeral_node_evict_delay"] != "72h0m0s" {
+		t.Fatalf(
+			"default ephemeral_node_evict_delay: got %v, want %q",
+			defaultBody["ephemeral_node_evict_delay"],
+			"72h0m0s",
+		)
+	}
+
+	customRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
+		"name":                       "custom-evict-delay-sub",
+		"url":                        "https://example.com/sub-custom-evict-delay",
+		"ephemeral_node_evict_delay": "30m",
+	}, true)
+	if customRec.Code != http.StatusCreated {
+		t.Fatalf("create custom delay subscription status: got %d, want %d, body=%s", customRec.Code, http.StatusCreated, customRec.Body.String())
+	}
+	customBody := decodeJSONMap(t, customRec)
+	if customBody["ephemeral_node_evict_delay"] != "30m0s" {
+		t.Fatalf(
+			"custom ephemeral_node_evict_delay: got %v, want %q",
+			customBody["ephemeral_node_evict_delay"],
+			"30m0s",
+		)
+	}
+}
+
+func TestAPIContract_SubscriptionEphemeralEvictDelayPatchValidation(t *testing.T) {
+	srv, _, _ := newControlPlaneTestServer(t)
+
+	createRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
+		"name": "patch-evict-delay-sub",
+		"url":  "https://example.com/sub-patch-evict-delay",
+	}, true)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create subscription status: got %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
+	}
+	createBody := decodeJSONMap(t, createRec)
+	subID, _ := createBody["id"].(string)
+	if subID == "" {
+		t.Fatalf("create subscription missing id: body=%s", createRec.Body.String())
+	}
+
+	invalidDurationRec := doJSONRequest(t, srv, http.MethodPatch, "/api/v1/subscriptions/"+subID, map[string]any{
+		"ephemeral_node_evict_delay": "not-a-duration",
+	}, true)
+	if invalidDurationRec.Code != http.StatusBadRequest {
+		t.Fatalf("patch invalid duration status: got %d, want %d, body=%s", invalidDurationRec.Code, http.StatusBadRequest, invalidDurationRec.Body.String())
+	}
+	assertErrorCode(t, invalidDurationRec, "INVALID_ARGUMENT")
+
+	negativeRec := doJSONRequest(t, srv, http.MethodPatch, "/api/v1/subscriptions/"+subID, map[string]any{
+		"ephemeral_node_evict_delay": "-1s",
+	}, true)
+	if negativeRec.Code != http.StatusBadRequest {
+		t.Fatalf("patch negative duration status: got %d, want %d, body=%s", negativeRec.Code, http.StatusBadRequest, negativeRec.Body.String())
+	}
+	assertErrorCode(t, negativeRec, "INVALID_ARGUMENT")
+
+	validRec := doJSONRequest(t, srv, http.MethodPatch, "/api/v1/subscriptions/"+subID, map[string]any{
+		"ephemeral_node_evict_delay": "0s",
+	}, true)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("patch valid duration status: got %d, want %d, body=%s", validRec.Code, http.StatusOK, validRec.Body.String())
+	}
+	validBody := decodeJSONMap(t, validRec)
+	if validBody["ephemeral_node_evict_delay"] != "0s" {
+		t.Fatalf(
+			"patched ephemeral_node_evict_delay: got %v, want %q",
+			validBody["ephemeral_node_evict_delay"],
+			"0s",
+		)
+	}
 }
 
 func TestAPIContract_PreviewFilterUsesPaginationEnvelope(t *testing.T) {

@@ -27,6 +27,7 @@ func TestEphemeralCleaner_TOCTOU_RecoveryBetweenScans(t *testing.T) {
 	})
 
 	sub := subscription.NewSubscription("sub-toctou", "ephemeral-sub", "http://example.com", true, true)
+	sub.SetEphemeralNodeEvictDelayNs(int64(30 * time.Second))
 	subMgr.Register(sub)
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"toctou-node"}`))
@@ -44,7 +45,7 @@ func TestEphemeralCleaner_TOCTOU_RecoveryBetweenScans(t *testing.T) {
 	pastTime := time.Now().Add(-1 * time.Hour).UnixNano()
 	entry.CircuitOpenSince.Store(pastTime)
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 
 	// The hook fires between first scan and second check, simulating
 	// a recovery that happens in the TOCTOU window.
@@ -83,6 +84,7 @@ func TestEphemeralCleaner_ConfirmedEviction(t *testing.T) {
 	})
 
 	sub := subscription.NewSubscription("sub-evict", "ephemeral-sub", "http://example.com", true, true)
+	sub.SetEphemeralNodeEvictDelayNs(int64(30 * time.Second))
 	subMgr.Register(sub)
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"evict-node"}`))
@@ -97,7 +99,7 @@ func TestEphemeralCleaner_ConfirmedEviction(t *testing.T) {
 	pastTime := time.Now().Add(-1 * time.Hour).UnixNano()
 	entry.CircuitOpenSince.Store(pastTime)
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
 	_, still := sub.ManagedNodes().Load(hash)
@@ -126,7 +128,7 @@ func TestEphemeralCleaner_NoOutboundErrorEvicted(t *testing.T) {
 	}
 	entry.SetLastError("outbound build: boom")
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
 	if _, still := sub.ManagedNodes().Load(hash); still {
@@ -148,7 +150,7 @@ func TestEphemeralCleaner_NoOutboundWithoutErrorSkipped(t *testing.T) {
 	pool.AddNodeFromSub(hash, []byte(`{"type":"no-outbound-without-error-node"}`), sub.ID)
 	sub.ManagedNodes().Store(hash, []string{"tag1"})
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
 	if _, still := sub.ManagedNodes().Load(hash); !still {
@@ -176,7 +178,7 @@ func TestEphemeralCleaner_TOCTOU_NoOutboundErrorRecoveredBetweenScans(t *testing
 	}
 	entry.SetLastError("outbound build: boom")
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 
 	hookCalled := false
 	cleaner.sweepWithHook(func() {
@@ -215,7 +217,7 @@ func TestEphemeralCleaner_NonEphemeralSkipped(t *testing.T) {
 	pastTime := time.Now().Add(-1 * time.Hour).UnixNano()
 	entry.CircuitOpenSince.Store(pastTime)
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
 	_, still := sub.ManagedNodes().Load(hash)
@@ -244,14 +246,8 @@ func TestEphemeralCleaner_DynamicEvictDelayPulled(t *testing.T) {
 	}
 	entry.CircuitOpenSince.Store(time.Now().Add(-2 * time.Minute).UnixNano())
 
-	var evictDelayNs atomic.Int64
-	evictDelayNs.Store(int64(10 * time.Minute))
-
-	cleaner := NewEphemeralCleaner(
-		subMgr,
-		pool,
-		func() time.Duration { return time.Duration(evictDelayNs.Load()) },
-	)
+	sub.SetEphemeralNodeEvictDelayNs(int64(10 * time.Minute))
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 
 	// Delay too long: should not evict.
 	cleaner.sweep()
@@ -260,7 +256,7 @@ func TestEphemeralCleaner_DynamicEvictDelayPulled(t *testing.T) {
 	}
 
 	// Shrink delay dynamically: next sweep should evict.
-	evictDelayNs.Store(int64(30 * time.Second))
+	sub.SetEphemeralNodeEvictDelayNs(int64(30 * time.Second))
 	cleaner.sweep()
 	if _, still := sub.ManagedNodes().Load(hash); still {
 		t.Fatal("node should be evicted after evict delay shrinks")
@@ -279,6 +275,8 @@ func TestEphemeralCleaner_SweepSubscriptionsInParallel(t *testing.T) {
 
 	sub1 := subscription.NewSubscription("sub-1", "ephemeral-1", "http://example.com/1", true, true)
 	sub2 := subscription.NewSubscription("sub-2", "ephemeral-2", "http://example.com/2", true, true)
+	sub1.SetEphemeralNodeEvictDelayNs(int64(30 * time.Second))
+	sub2.SetEphemeralNodeEvictDelayNs(int64(30 * time.Second))
 	subMgr.Register(sub1)
 	subMgr.Register(sub2)
 
@@ -307,7 +305,7 @@ func TestEphemeralCleaner_SweepSubscriptionsInParallel(t *testing.T) {
 	allStarted := make(chan struct{})
 	var started atomic.Int32
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 30 * time.Second })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 	done := make(chan struct{})
 	go func() {
 		cleaner.sweepWithHook(func() {
