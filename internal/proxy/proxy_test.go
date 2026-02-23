@@ -122,7 +122,7 @@ func TestForwardProxy_AuthRequired(t *testing.T) {
 	}
 }
 
-func TestForwardProxy_AuthRequired_EmitsEvents(t *testing.T) {
+func TestForwardProxy_AuthRequired_EmitsNoEvents(t *testing.T) {
 	emitter := newMockEventEmitter()
 	fp := &ForwardProxy{token: "tok", events: emitter}
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
@@ -136,20 +136,14 @@ func TestForwardProxy_AuthRequired_EmitsEvents(t *testing.T) {
 
 	select {
 	case ev := <-emitter.finishedCh:
-		if ev.ProxyType != ProxyTypeForward || ev.IsConnect || ev.NetOK {
-			t.Fatalf("unexpected finished event: %+v", ev)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected forward finished event")
+		t.Fatalf("unexpected forward finished event for auth error: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	select {
 	case logEv := <-emitter.logCh:
-		if logEv.ProxyType != ProxyTypeForward || logEv.HTTPStatus != http.StatusProxyAuthRequired || logEv.NetOK {
-			t.Fatalf("unexpected log event: %+v", logEv)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected forward log event")
+		t.Fatalf("unexpected forward log event for auth error: %+v", logEv)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
@@ -165,6 +159,58 @@ func TestForwardProxy_AuthFailed(t *testing.T) {
 	}
 	if w.Header().Get("X-Resin-Error") != "AUTH_FAILED" {
 		t.Fatalf("expected AUTH_FAILED, got %q", w.Header().Get("X-Resin-Error"))
+	}
+}
+
+func TestForwardProxy_AuthFailed_EmitsNoEvents(t *testing.T) {
+	emitter := newMockEventEmitter()
+	fp := &ForwardProxy{token: "tok", events: emitter}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("Proxy-Authorization", basicAuth("wrong-token", "plat:acct"))
+	w := httptest.NewRecorder()
+
+	fp.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+
+	select {
+	case ev := <-emitter.finishedCh:
+		t.Fatalf("unexpected forward finished event for auth error: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	select {
+	case logEv := <-emitter.logCh:
+		t.Fatalf("unexpected forward log event for auth error: %+v", logEv)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestForwardProxy_CONNECT_AuthRequired_EmitsNoEvents(t *testing.T) {
+	emitter := newMockEventEmitter()
+	fp := &ForwardProxy{token: "tok", events: emitter}
+	req := httptest.NewRequest(http.MethodConnect, "http://example.com:443", nil)
+	req.Host = "example.com:443"
+	w := httptest.NewRecorder()
+
+	fp.ServeHTTP(w, req)
+
+	if w.Code != http.StatusProxyAuthRequired {
+		t.Fatalf("expected 407, got %d", w.Code)
+	}
+
+	select {
+	case ev := <-emitter.finishedCh:
+		t.Fatalf("unexpected forward finished event for auth error: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	select {
+	case logEv := <-emitter.logCh:
+		t.Fatalf("unexpected forward log event for auth error: %+v", logEv)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
@@ -962,7 +1008,7 @@ func TestReverseParsePath_OnlyToken(t *testing.T) {
 	}
 }
 
-func TestReverseProxy_ParseError_EmitsEvents(t *testing.T) {
+func TestReverseProxy_ParseError_EmitsNoEvents(t *testing.T) {
 	emitter := newMockEventEmitter()
 	rp := &ReverseProxy{
 		token: "tok",
@@ -984,27 +1030,18 @@ func TestReverseProxy_ParseError_EmitsEvents(t *testing.T) {
 
 	select {
 	case ev := <-emitter.finishedCh:
-		if ev.ProxyType != ProxyTypeReverse || ev.IsConnect || ev.NetOK {
-			t.Fatalf("unexpected finished event: %+v", ev)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected reverse finished event")
+		t.Fatalf("unexpected reverse finished event for parse error: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	select {
 	case logEv := <-emitter.logCh:
-		if logEv.ProxyType != ProxyTypeReverse || logEv.HTTPStatus != http.StatusBadRequest || logEv.NetOK {
-			t.Fatalf("unexpected log event: %+v", logEv)
-		}
-		if len(logEv.ReqHeaders) == 0 {
-			t.Fatal("expected reverse request headers to be captured in log event")
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected reverse log event")
+		t.Fatalf("unexpected reverse log event for parse error: %+v", logEv)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
-func TestReverseProxy_ParseError_DefaultNoDetailCapture(t *testing.T) {
+func TestReverseProxy_ParseError_DefaultNoEvents(t *testing.T) {
 	emitter := newMockEventEmitter()
 	rp := &ReverseProxy{token: "tok", events: emitter}
 	req := httptest.NewRequest("GET", "/tok", nil)
@@ -1019,40 +1056,14 @@ func TestReverseProxy_ParseError_DefaultNoDetailCapture(t *testing.T) {
 
 	select {
 	case logEv := <-emitter.logCh:
-		if len(logEv.ReqHeaders) != 0 || logEv.ReqHeadersLen != 0 || logEv.ReqHeadersTruncated {
-			t.Fatalf(
-				"expected no req detail capture by default, got len=%d payload=%d truncated=%v",
-				logEv.ReqHeadersLen,
-				len(logEv.ReqHeaders),
-				logEv.ReqHeadersTruncated,
-			)
-		}
-		if len(logEv.ReqBody) != 0 || logEv.ReqBodyLen != 0 || logEv.ReqBodyTruncated {
-			t.Fatalf(
-				"expected no req body capture by default, got len=%d payload=%d truncated=%v",
-				logEv.ReqBodyLen,
-				len(logEv.ReqBody),
-				logEv.ReqBodyTruncated,
-			)
-		}
-		if len(logEv.RespHeaders) != 0 || logEv.RespHeadersLen != 0 || logEv.RespHeadersTruncated {
-			t.Fatalf(
-				"expected no resp headers capture by default, got len=%d payload=%d truncated=%v",
-				logEv.RespHeadersLen,
-				len(logEv.RespHeaders),
-				logEv.RespHeadersTruncated,
-			)
-		}
-		if len(logEv.RespBody) != 0 || logEv.RespBodyLen != 0 || logEv.RespBodyTruncated {
-			t.Fatalf(
-				"expected no resp body capture by default, got len=%d payload=%d truncated=%v",
-				logEv.RespBodyLen,
-				len(logEv.RespBody),
-				logEv.RespBodyTruncated,
-			)
-		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected reverse log event")
+		t.Fatalf("unexpected reverse log event for parse error: %+v", logEv)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	select {
+	case ev := <-emitter.finishedCh:
+		t.Fatalf("unexpected reverse finished event for parse error: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 

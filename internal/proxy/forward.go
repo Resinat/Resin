@@ -232,16 +232,15 @@ func prepareForwardOutboundRequest(in *http.Request) *http.Request {
 }
 
 func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeForward, false)
-	lifecycle.setTarget(r.Host, r.URL.String())
-	defer lifecycle.finish()
-
 	platName, account, authErr := p.authenticate(r)
 	if authErr != nil {
-		lifecycle.setHTTPStatus(authErr.HTTPCode)
 		writeProxyError(w, authErr)
 		return
 	}
+
+	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeForward, false)
+	lifecycle.setTarget(r.Host, r.URL.String())
+	defer lifecycle.finish()
 	lifecycle.setAccount(account)
 
 	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, platName, account, r.Host)
@@ -302,16 +301,15 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	target := r.Host
-	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeForward, true)
-	lifecycle.setTarget(target, "")
-	defer lifecycle.finish()
-
 	platName, account, authErr := p.authenticate(r)
 	if authErr != nil {
-		lifecycle.setHTTPStatus(authErr.HTTPCode)
 		writeProxyError(w, authErr)
 		return
 	}
+
+	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeForward, true)
+	lifecycle.setTarget(target, "")
+	defer lifecycle.finish()
 	lifecycle.setAccount(account)
 
 	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, platName, account, target)

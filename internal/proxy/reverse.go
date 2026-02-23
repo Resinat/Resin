@@ -225,10 +225,6 @@ func buildReverseTargetURL(parsed *parsedPath, rawQuery string) (*url.URL, *Prox
 }
 
 func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeReverse, false)
-	var egressBodyCounter *countingReadCloser
-	var ingressBodyCounter *countingReadCloser
-	var upgradedStreamCounter *countingReadWriteCloser
 	detailCfg := reverseDetailCaptureConfig{
 		Enabled:             false,
 		ReqHeadersMaxBytes:  -1,
@@ -241,6 +237,18 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}); ok {
 		detailCfg = provider.reverseDetailCaptureConfig()
 	}
+
+	parsed, perr := p.parsePath(r.URL.EscapedPath())
+	if perr != nil {
+		writeProxyError(w, perr)
+		return
+	}
+
+	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeReverse, false)
+	lifecycle.setTarget(parsed.Host, "")
+	var egressBodyCounter *countingReadCloser
+	var ingressBodyCounter *countingReadCloser
+	var upgradedStreamCounter *countingReadWriteCloser
 	if detailCfg.Enabled {
 		reqHeaders, reqHeadersLen, reqHeadersTruncated := captureHeadersWithLimit(r.Header, detailCfg.ReqHeadersMaxBytes)
 		lifecycle.setReqHeadersCaptured(reqHeaders, reqHeadersLen, reqHeadersTruncated)
@@ -256,14 +264,6 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		r.Body = egressBodyCounter
 	}
 	defer lifecycle.finish()
-
-	parsed, perr := p.parsePath(r.URL.EscapedPath())
-	if perr != nil {
-		lifecycle.setHTTPStatus(perr.HTTPCode)
-		writeProxyError(w, perr)
-		return
-	}
-	lifecycle.setTarget(parsed.Host, "")
 
 	// Resolve account from headers if not in path.
 	account := parsed.Account
