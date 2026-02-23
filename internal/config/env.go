@@ -121,10 +121,10 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.ProxyToken = proxyToken
 
 	// --- Metrics ---
-	cfg.MetricThroughputIntervalSeconds = envInt("RESIN_METRIC_THROUGHPUT_INTERVAL_SECONDS", 1, &errs)
+	cfg.MetricThroughputIntervalSeconds = envInt("RESIN_METRIC_THROUGHPUT_INTERVAL_SECONDS", 2, &errs)
 	cfg.MetricThroughputRetentionSeconds = envInt("RESIN_METRIC_THROUGHPUT_RETENTION_SECONDS", 3600, &errs)
 	cfg.MetricBucketSeconds = envInt("RESIN_METRIC_BUCKET_SECONDS", 3600, &errs)
-	cfg.MetricConnectionsIntervalSeconds = envInt("RESIN_METRIC_CONNECTIONS_INTERVAL_SECONDS", 5, &errs)
+	cfg.MetricConnectionsIntervalSeconds = envInt("RESIN_METRIC_CONNECTIONS_INTERVAL_SECONDS", 15, &errs)
 	cfg.MetricConnectionsRetentionSeconds = envInt("RESIN_METRIC_CONNECTIONS_RETENTION_SECONDS", 18000, &errs)
 	cfg.MetricLeasesIntervalSeconds = envInt("RESIN_METRIC_LEASES_INTERVAL_SECONDS", 5, &errs)
 	cfg.MetricLeasesRetentionSeconds = envInt("RESIN_METRIC_LEASES_RETENTION_SECONDS", 18000, &errs)
