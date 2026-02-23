@@ -423,6 +423,11 @@ a {
   background: rgba(145, 65, 200, 0.12);
 }
 
+.badge-muted {
+  color: #4b5565;
+  background: #e6e9ef;
+}
+
 .callout {
   display: inline-flex;
   width: 100%;
