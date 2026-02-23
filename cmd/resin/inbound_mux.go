@@ -29,12 +29,12 @@ func newInboundMux(proxyToken string, forward, reverse, apiHandler, tokenActionH
 			apiHandler.ServeHTTP(w, r)
 			return
 		}
-		if shouldRouteTokenInheritLeaseAction(r, proxyToken) {
-			tokenActionHandler.ServeHTTP(w, r)
+		if shouldRejectReverseProxyByToken(r, proxyToken) {
+			writeInboundAuthFailed(w)
 			return
 		}
-		if shouldRouteReservedTokenAPI(r, proxyToken) {
-			http.NotFound(w, r)
+		if shouldRouteTokenAPI(r, proxyToken) {
+			tokenActionHandler.ServeHTTP(w, r)
 			return
 		}
 		reverse.ServeHTTP(w, r)
@@ -55,7 +55,7 @@ func shouldRouteForwardProxy(r *http.Request) bool {
 	return strings.HasPrefix(uri, "http://") || strings.HasPrefix(uri, "https://")
 }
 
-func shouldRouteReservedTokenAPI(r *http.Request, proxyToken string) bool {
+func shouldRouteTokenAPI(r *http.Request, proxyToken string) bool {
 	if proxyToken == "" || r == nil {
 		return false
 	}
@@ -67,46 +67,31 @@ func shouldRouteReservedTokenAPI(r *http.Request, proxyToken string) bool {
 	if !ok || token != proxyToken {
 		return false
 	}
-	second, ok := decodePathSegment(segments[1])
-	if !ok {
-		return false
-	}
-	return second == "api"
+	apiSeg, ok := decodePathSegment(segments[1])
+	return ok && apiSeg == "api"
 }
 
-func shouldRouteTokenInheritLeaseAction(r *http.Request, proxyToken string) bool {
+func shouldRejectReverseProxyByToken(r *http.Request, proxyToken string) bool {
 	if proxyToken == "" || r == nil {
 		return false
 	}
 	segments := escapedPathSegments(r)
-	if len(segments) != 6 {
+	if len(segments) == 0 {
 		return false
 	}
 	token, ok := decodePathSegment(segments[0])
-	if !ok || token != proxyToken {
+	if !ok {
+		// Keep malformed percent-encoding behavior in reverse parser.
 		return false
 	}
-	apiSeg, ok := decodePathSegment(segments[1])
-	if !ok || apiSeg != "api" {
-		return false
-	}
-	versionSeg, ok := decodePathSegment(segments[2])
-	if !ok || versionSeg != "v1" {
-		return false
-	}
-	platformSeg, ok := decodePathSegment(segments[3])
-	if !ok || strings.TrimSpace(platformSeg) == "" {
-		return false
-	}
-	actionsSeg, ok := decodePathSegment(segments[4])
-	if !ok || actionsSeg != "actions" {
-		return false
-	}
-	actionName, ok := decodePathSegment(segments[5])
-	if !ok || actionName != "inherit-lease" {
-		return false
-	}
-	return true
+	return token != proxyToken
+}
+
+func writeInboundAuthFailed(w http.ResponseWriter) {
+	w.Header().Set("X-Resin-Error", "AUTH_FAILED")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte("Proxy authentication failed"))
 }
 
 func shouldRouteControlPlane(r *http.Request) bool {

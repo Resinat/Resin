@@ -49,7 +49,7 @@ func TestInboundMux_PriorityForwardAbsoluteURI(t *testing.T) {
 	}
 }
 
-func TestInboundMux_PriorityReservedTokenAPI(t *testing.T) {
+func TestInboundMux_RoutesTokenAPINamespaceToTokenActionHandler(t *testing.T) {
 	mux := newInboundMux(
 		"tok",
 		tagHandler("forward", http.StatusOK),
@@ -64,11 +64,8 @@ func TestInboundMux_PriorityReservedTokenAPI(t *testing.T) {
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusNotFound {
-				t.Fatalf("status: got %d, want %d", rec.Code, http.StatusNotFound)
-			}
-			if got := rec.Header().Get("X-Route"); got != "" {
-				t.Fatalf("reserved path should not hit handlers, got route %q", got)
+			if rec.Header().Get("X-Route") != "token-action" {
+				t.Fatalf("expected token-action route, got %q", rec.Header().Get("X-Route"))
 			}
 		})
 	}
@@ -114,7 +111,6 @@ func TestInboundMux_RoutesReverseForNonControlPlanePaths(t *testing.T) {
 	)
 
 	cases := []string{
-		"/dashboard",
 		"/tok/plat:acct/https/example.com/path",
 		"/tok/plat/https/example.com/path",
 	}
@@ -131,7 +127,7 @@ func TestInboundMux_RoutesReverseForNonControlPlanePaths(t *testing.T) {
 	}
 }
 
-func TestInboundMux_WrongTokenStillRoutedToReverse(t *testing.T) {
+func TestInboundMux_RejectsReverseWhenTokenMissingOrWrong(t *testing.T) {
 	mux := newInboundMux(
 		"tok",
 		tagHandler("forward", http.StatusOK),
@@ -140,12 +136,26 @@ func TestInboundMux_WrongTokenStillRoutedToReverse(t *testing.T) {
 		tagHandler("token-action", http.StatusOK),
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/wrong/plat:acct/https/example.com/path", nil)
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, req)
+	cases := []string{
+		"/dashboard",
+		"/wrong/plat:acct/https/example.com/path",
+	}
+	for _, path := range cases {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
 
-	if rec.Header().Get("X-Route") != "reverse" {
-		t.Fatalf("expected reverse route, got %q", rec.Header().Get("X-Route"))
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("status: got %d, want %d", rec.Code, http.StatusForbidden)
+			}
+			if got := rec.Header().Get("X-Resin-Error"); got != "AUTH_FAILED" {
+				t.Fatalf("X-Resin-Error: got %q, want %q", got, "AUTH_FAILED")
+			}
+			if got := rec.Header().Get("X-Route"); got != "" {
+				t.Fatalf("expected no downstream handler route, got %q", got)
+			}
+		})
 	}
 }
 
