@@ -347,7 +347,12 @@ export function RequestLogsPage() {
       }),
       col.accessor("proxy_type", {
         header: "代理",
-        cell: (info) => proxyTypeLabel(info.getValue()),
+        cell: (info) => {
+          const val = info.getValue();
+          if (val === 1) return <Badge variant="info">正向</Badge>;
+          if (val === 2) return <Badge variant="accent">反向</Badge>;
+          return <Badge variant="neutral">{val}</Badge>;
+        },
       }),
       col.display({
         id: "platform_account",
@@ -701,7 +706,15 @@ export function RequestLogsPage() {
                   </div>
                   <div>
                     <span>代理类型</span>
-                    <p>{proxyTypeLabel(detailLog.proxy_type)}</p>
+                    <p>
+                      {detailLog.proxy_type === 1 ? (
+                        <Badge variant="info">正向</Badge>
+                      ) : detailLog.proxy_type === 2 ? (
+                        <Badge variant="accent">反向</Badge>
+                      ) : (
+                        proxyTypeLabel(detailLog.proxy_type)
+                      )}
+                    </p>
                   </div>
                   <div>
                     <span>HTTP</span>

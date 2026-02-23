@@ -1,13 +1,15 @@
 import type { HTMLAttributes } from "react";
 import { cn } from "../../lib/cn";
 
-type BadgeVariant = "neutral" | "success" | "warning" | "danger";
+type BadgeVariant = "neutral" | "success" | "warning" | "danger" | "info" | "accent";
 
 const variantClass: Record<BadgeVariant, string> = {
   neutral: "badge-neutral",
   success: "badge-success",
   warning: "badge-warning",
   danger: "badge-danger",
+  info: "badge-info",
+  accent: "badge-accent",
 };
 
 type BadgeProps = HTMLAttributes<HTMLSpanElement> & {

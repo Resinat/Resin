@@ -413,6 +413,16 @@ a {
   background: rgba(195, 58, 47, 0.14);
 }
 
+.badge-info {
+  color: #1a5fb4;
+  background: rgba(20, 112, 255, 0.12);
+}
+
+.badge-accent {
+  color: #7b3fa0;
+  background: rgba(145, 65, 200, 0.12);
+}
+
 .callout {
   display: inline-flex;
   width: 100%;
