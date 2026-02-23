@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle, Filter, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -7,6 +8,7 @@ import { z } from "zod";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
+import { DataTable } from "../../components/ui/DataTable";
 import { Input } from "../../components/ui/Input";
 import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
@@ -281,6 +283,89 @@ export function SubscriptionPage() {
     setPage(0);
   };
 
+  const col = createColumnHelper<Subscription>();
+
+  const subColumns = useMemo(
+    () => [
+      col.accessor("name", {
+        header: "名称",
+        cell: (info) => <p className="subscriptions-name-cell">{info.getValue()}</p>,
+      }),
+      col.accessor("url", {
+        header: "订阅站点",
+        cell: (info) => (
+          <p className="subscriptions-url-cell" title={info.getValue()}>
+            {extractHostname(info.getValue())}
+          </p>
+        ),
+      }),
+      col.accessor("update_interval", {
+        header: "更新间隔",
+        cell: (info) => formatGoDuration(info.getValue()),
+      }),
+      col.display({
+        id: "status",
+        header: "状态",
+        cell: (info) => {
+          const s = info.row.original;
+          return (
+            <div className="subscriptions-status-cell">
+              {!s.enabled ? (
+                <Badge variant="warning">已禁用</Badge>
+              ) : s.last_error ? (
+                <Badge variant="danger">错误</Badge>
+              ) : (
+                <Badge variant="success">正常</Badge>
+              )}
+            </div>
+          );
+        },
+      }),
+      col.accessor("last_checked", {
+        header: "上次检查",
+        cell: (info) => formatRelativeTime(info.getValue() || ""),
+      }),
+      col.accessor("last_updated", {
+        header: "上次更新",
+        cell: (info) => formatRelativeTime(info.getValue() || ""),
+      }),
+      col.display({
+        id: "actions",
+        header: "操作",
+        cell: (info) => {
+          const s = info.row.original;
+          return (
+            <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
+              <Button size="sm" variant="ghost" onClick={() => openDrawer(s)} title="编辑">
+                <Pencil size={14} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void refreshMutation.mutateAsync(s)}
+                disabled={refreshMutation.isPending}
+                title="刷新"
+              >
+                <RefreshCw size={14} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void handleDelete(s)}
+                disabled={deleteMutation.isPending}
+                title="删除"
+                style={{ color: "var(--delete-btn-color, #c27070)" }}
+              >
+                <Trash2 size={14} />
+              </Button>
+            </div>
+          );
+        },
+      }),
+    ],
+    [refreshMutation.isPending, deleteMutation.isPending]
+  );
+
   return (
     <section className="platform-page">
       <header className="module-header">
@@ -366,79 +451,13 @@ export function SubscriptionPage() {
         ) : null}
 
         {subscriptions.length ? (
-          <div className="nodes-table-wrap">
-            <table className="nodes-table subscriptions-table">
-              <thead>
-                <tr>
-                  <th>名称</th>
-                  <th>订阅站点</th>
-                  <th>更新间隔</th>
-                  <th>状态</th>
-                  <th>上次检查</th>
-                  <th>上次更新</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {subscriptions.map((subscription) => (
-                  <tr
-                    key={subscription.id}
-                    className="clickable-row"
-                    onClick={() => openDrawer(subscription)}
-                  >
-                    <td>
-                      <p className="subscriptions-name-cell">{subscription.name}</p>
-                    </td>
-                    <td>
-                      <p className="subscriptions-url-cell" title={subscription.url}>
-                        {extractHostname(subscription.url)}
-                      </p>
-                    </td>
-                    <td>{formatGoDuration(subscription.update_interval)}</td>
-                    <td>
-                      <div className="subscriptions-status-cell">
-                        {!subscription.enabled ? (
-                          <Badge variant="warning">已禁用</Badge>
-                        ) : subscription.last_error ? (
-                          <Badge variant="danger">错误</Badge>
-                        ) : (
-                          <Badge variant="success">正常</Badge>
-                        )}
-                      </div>
-                    </td>
-                    <td>{formatRelativeTime(subscription.last_checked || "")}</td>
-                    <td>{formatRelativeTime(subscription.last_updated || "")}</td>
-                    <td>
-                      <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
-                        <Button size="sm" variant="ghost" onClick={() => openDrawer(subscription)} title="编辑">
-                          <Pencil size={14} />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void refreshMutation.mutateAsync(subscription)}
-                          disabled={refreshMutation.isPending}
-                          title="刷新"
-                        >
-                          <RefreshCw size={14} />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void handleDelete(subscription)}
-                          disabled={deleteMutation.isPending}
-                          title="删除"
-                          style={{ color: "var(--delete-btn-color, #c27070)" }}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            data={subscriptions}
+            columns={subColumns}
+            onRowClick={openDrawer}
+            getRowId={(s) => s.id}
+            className="data-table-subs"
+          />
         ) : null}
 
         <OffsetPagination

@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle, Eraser, Eye, RefreshCw, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
+import { DataTable } from "../../components/ui/DataTable";
 import { CursorPagination } from "../../components/ui/CursorPagination";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
@@ -300,6 +302,94 @@ export function RequestLogsPage() {
 
   const hasMore = Boolean(logsQuery.data?.has_more && logsQuery.data?.next_cursor);
 
+  const col = createColumnHelper<RequestLogItem>();
+
+  const logColumns = useMemo(
+    () => [
+      col.accessor("ts", {
+        header: "时间",
+        cell: (info) => formatDateTime(info.getValue()),
+      }),
+      col.accessor("proxy_type", {
+        header: "代理",
+        cell: (info) => proxyTypeLabel(info.getValue()),
+      }),
+      col.display({
+        id: "platform_account",
+        header: "平台 / 账号",
+        cell: (info) => {
+          const log = info.row.original;
+          return (
+            <div className="logs-cell-stack">
+              <span>{log.platform_name || "-"}</span>
+              <small>{log.account || "-"}</small>
+            </div>
+          );
+        },
+      }),
+      col.display({
+        id: "target",
+        header: "目标",
+        cell: (info) => {
+          const log = info.row.original;
+          return (
+            <div className="logs-cell-stack">
+              <span title={log.target_host}>{log.target_host || "-"}</span>
+              <small title={log.target_url}>{log.target_url || "-"}</small>
+            </div>
+          );
+        },
+      }),
+      col.display({
+        id: "http",
+        header: "HTTP",
+        cell: (info) => {
+          const log = info.row.original;
+          return (
+            <div className="logs-cell-stack">
+              <span>{log.http_method || "-"}</span>
+              <small>{log.http_status || "-"}</small>
+            </div>
+          );
+        },
+      }),
+      col.accessor("net_ok", {
+        header: "网络",
+        cell: (info) => (
+          <Badge variant={info.getValue() ? "success" : "warning"}>
+            {info.getValue() ? "ok" : "failed"}
+          </Badge>
+        ),
+      }),
+      col.accessor("duration_ms", {
+        header: "耗时",
+        cell: (info) => `${info.getValue()} ms`,
+      }),
+      col.display({
+        id: "traffic",
+        header: "流量",
+        cell: (info) => {
+          const log = info.row.original;
+          return formatBytes((log.ingress_bytes || 0) + (log.egress_bytes || 0));
+        },
+      }),
+      col.display({
+        id: "node",
+        header: "节点",
+        cell: (info) => {
+          const log = info.row.original;
+          return (
+            <div className="logs-cell-stack">
+              <span title={log.node_tag}>{log.node_tag || "-"}</span>
+              <small title={log.egress_ip}>{log.egress_ip || "-"}</small>
+            </div>
+          );
+        },
+      }),
+    ],
+    []
+  );
+
   return (
     <section className="nodes-page">
       <header className="module-header">
@@ -498,67 +588,14 @@ export function RequestLogsPage() {
         ) : null}
 
         {visibleLogs.length ? (
-          <div className="nodes-table-wrap">
-            <table className="nodes-table subscriptions-table">
-              <thead>
-                <tr>
-                  <th>时间</th>
-                  <th>代理</th>
-                  <th>平台 / 账号</th>
-                  <th>目标</th>
-                  <th>HTTP</th>
-                  <th>网络</th>
-                  <th>耗时</th>
-                  <th>流量</th>
-                  <th>节点</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleLogs.map((log) => {
-                  const isSelected = drawerVisible && log.id === detailLogId;
-                  return (
-                    <tr
-                      key={log.id}
-                      className={isSelected ? "nodes-row-selected" : "clickable-row"}
-                      onClick={() => openDrawer(log.id)}
-                    >
-                      <td>{formatDateTime(log.ts)}</td>
-                      <td>{proxyTypeLabel(log.proxy_type)}</td>
-                      <td>
-                        <div className="logs-cell-stack">
-                          <span>{log.platform_name || "-"}</span>
-                          <small>{log.account || "-"}</small>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="logs-cell-stack">
-                          <span title={log.target_host}>{log.target_host || "-"}</span>
-                          <small title={log.target_url}>{log.target_url || "-"}</small>
-                        </div>
-                      </td>
-                      <td>
-                        <div className="logs-cell-stack">
-                          <span>{log.http_method || "-"}</span>
-                          <small>{log.http_status || "-"}</small>
-                        </div>
-                      </td>
-                      <td>
-                        <Badge variant={log.net_ok ? "success" : "warning"}>{log.net_ok ? "ok" : "failed"}</Badge>
-                      </td>
-                      <td>{log.duration_ms} ms</td>
-                      <td>{formatBytes((log.ingress_bytes || 0) + (log.egress_bytes || 0))}</td>
-                      <td>
-                        <div className="logs-cell-stack">
-                          <span title={log.node_tag}>{log.node_tag || "-"}</span>
-                          <small title={log.egress_ip}>{log.egress_ip || "-"}</small>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            data={visibleLogs}
+            columns={logColumns}
+            onRowClick={(log) => openDrawer(log.id)}
+            selectedRowId={drawerVisible ? detailLogId : undefined}
+            getRowId={(log) => log.id}
+            wrapClassName="data-table-wrap-logs"
+          />
         ) : null}
 
         <CursorPagination

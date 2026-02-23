@@ -1732,6 +1732,72 @@ a {
   background: rgba(20, 112, 255, 0.06);
 }
 
+/* ── unified data-table ── */
+
+.data-table-wrap {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: auto;
+  max-height: 560px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.data-table-wrap-logs {
+  max-height: 620px;
+}
+
+.subscriptions-table-card .data-table-wrap,
+.rules-table-card .data-table-wrap {
+  margin-top: 0;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1100px;
+}
+
+.data-table-rules {
+  min-width: 780px;
+}
+
+.data-table-subs {
+  min-width: 900px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(37, 72, 120, 0.1);
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgba(240, 247, 255, 0.95);
+  backdrop-filter: blur(6px);
+  color: #40516d;
+  font-weight: 700;
+}
+
+.data-table tbody tr {
+  transition: background-color 0.16s ease;
+  cursor: pointer;
+}
+
+.data-table tbody tr:hover {
+  background: rgba(20, 112, 255, 0.06);
+}
+
+.data-table-row-selected {
+  background: rgba(20, 112, 255, 0.11);
+}
+
 .nodes-row-selected {
   background: rgba(20, 112, 255, 0.11);
 }

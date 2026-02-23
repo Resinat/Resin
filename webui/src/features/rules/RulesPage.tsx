@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle, Bug, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, Wand2, X } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
+import { DataTable } from "../../components/ui/DataTable";
 import { Input } from "../../components/ui/Input";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
@@ -241,6 +243,47 @@ export function RulesPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [createModalOpen, drawerOpen, resolveModalOpen]);
 
+  const col = createColumnHelper<Rule>();
+
+  const ruleColumns = useMemo(
+    () => [
+      col.accessor("url_prefix", {
+        header: "URL 前缀",
+        cell: (info) => <span title={info.getValue()}>{info.getValue()}</span>,
+      }),
+      col.display({
+        id: "headers",
+        header: "请求头",
+        cell: (info) => <RuleHeadersPreview rule={info.row.original} />,
+      }),
+      col.display({
+        id: "actions",
+        header: "操作",
+        cell: (info) => {
+          const rule = info.row.original;
+          return (
+            <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
+              <Button size="sm" variant="ghost" onClick={() => openDrawerForRule(rule)} title="编辑">
+                <Pencil size={14} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void handleDelete(rule)}
+                disabled={deleteMutation.isPending || isFallbackRule(rule)}
+                title={isFallbackRule(rule) ? '兆底规则 "*" 不可删除' : "删除"}
+                style={{ color: "var(--delete-btn-color, #c27070)" }}
+              >
+                <Trash2 size={14} />
+              </Button>
+            </div>
+          );
+        },
+      }),
+    ],
+    [deleteMutation.isPending]
+  );
+
   return (
     <section className="rules-page">
       <header className="module-header">
@@ -308,48 +351,13 @@ export function RulesPage() {
         ) : null}
 
         {rules.length ? (
-          <div className="rules-table-wrap">
-            <table className="rules-table">
-              <thead>
-                <tr>
-                  <th>URL 前缀</th>
-                  <th>请求头</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((rule) => (
-                  <tr
-                    key={rule.url_prefix}
-                    className="clickable-row"
-                    onClick={() => openDrawerForRule(rule)}
-                  >
-                    <td title={rule.url_prefix}>{rule.url_prefix}</td>
-                    <td>
-                      <RuleHeadersPreview rule={rule} />
-                    </td>
-                    <td>
-                      <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
-                        <Button size="sm" variant="ghost" onClick={() => openDrawerForRule(rule)} title="编辑">
-                          <Pencil size={14} />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void handleDelete(rule)}
-                          disabled={deleteMutation.isPending || isFallbackRule(rule)}
-                          title={isFallbackRule(rule) ? '兜底规则 "*" 不可删除' : "删除"}
-                          style={{ color: "var(--delete-btn-color, #c27070)" }}
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            data={rules}
+            columns={ruleColumns}
+            onRowClick={openDrawerForRule}
+            getRowId={(r) => r.url_prefix}
+            className="data-table-rules"
+          />
         ) : null}
       </Card>
 
