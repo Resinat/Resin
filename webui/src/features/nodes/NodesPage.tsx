@@ -444,8 +444,7 @@ export function NodesPage() {
 
   const col = createColumnHelper<NodeSummary>();
 
-  const nodeColumns = useMemo(
-    () => [
+  const nodeColumns = [
       col.accessor((row) => firstTag(row), {
         id: "tag",
         header: () => (
@@ -555,9 +554,7 @@ export function NodesPage() {
           );
         },
       }),
-    ],
-    [sortBy, sortOrder, probeEgressMutation.isPending, probeLatencyMutation.isPending]
-  );
+    ];
 
   return (
     <section className="nodes-page">
