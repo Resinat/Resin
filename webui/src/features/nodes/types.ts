@@ -12,6 +12,7 @@ export type NodeSummary = {
   circuit_open_since?: string;
   failure_count: number;
   egress_ip?: string;
+  reference_latency_ms?: number;
   region?: string;
   last_egress_update?: string;
   last_latency_probe_attempt?: string;

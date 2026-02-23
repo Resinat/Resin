@@ -179,13 +179,40 @@ function firstTag(node: { tags: { tag: string }[] }): string {
   return node.tags[0].tag;
 }
 
+function isNodeHealthy(node: NodeSummary): boolean {
+  return node.has_outbound && !node.circuit_open_since;
+}
+
+function referenceLatencyColor(latencyMs: number): string {
+  if (!Number.isFinite(latencyMs)) {
+    return "var(--text-secondary)";
+  }
+  if (latencyMs <= 400) {
+    return "var(--success)";
+  }
+  if (latencyMs <= 1000) {
+    return "var(--warning)";
+  }
+  return "var(--danger)";
+}
+
+function displayableReferenceLatencyMs(node: NodeSummary): number | null {
+  if (!isNodeHealthy(node)) {
+    return null;
+  }
+  const latencyMs = node.reference_latency_ms;
+  if (typeof latencyMs !== "number" || !Number.isFinite(latencyMs)) {
+    return null;
+  }
+  return latencyMs;
+}
 
 
 function formatLatency(value: number): string {
   if (!Number.isFinite(value)) {
     return "-";
   }
-  return `${value.toFixed(1)} ms`;
+  return `${value.toFixed(0)} ms`;
 }
 
 function sortIndicator(active: boolean, order: SortOrder): string {
@@ -420,6 +447,22 @@ export function NodesPage() {
       col.accessor("egress_ip", {
         header: "出口 IP",
         cell: (info) => info.getValue() || "-",
+      }),
+      col.display({
+        id: "reference_latency_ms",
+        header: "参考延迟",
+        cell: (info) => {
+          const node = info.row.original;
+          const latencyMs = displayableReferenceLatencyMs(node);
+          if (latencyMs === null) {
+            return "-";
+          }
+          return (
+            <span style={{ color: referenceLatencyColor(latencyMs), fontWeight: 600 }}>
+              {formatLatency(latencyMs)}
+            </span>
+          );
+        },
       }),
       col.accessor("last_latency_probe_attempt", {
         header: "上次探测",
@@ -733,12 +776,20 @@ export function NodesPage() {
                     </div>
                   </div>
                   <div>
-                    <span>出口 IP</span>
-                    <p>{detailNode.egress_ip || "-"}</p>
+                    <span>出口 / 区域</span>
+                    <p>
+                      {detailNode.egress_ip || "-"} / {regionToFlag(detailNode.region)}
+                    </p>
                   </div>
                   <div>
-                    <span>区域</span>
-                    <p>{regionToFlag(detailNode.region)}</p>
+                    <span>参考延迟</span>
+                    {(() => {
+                      const latencyMs = displayableReferenceLatencyMs(detailNode);
+                      if (latencyMs === null) {
+                        return <p>-</p>;
+                      }
+                      return <p style={{ color: referenceLatencyColor(latencyMs) }}>{formatLatency(latencyMs)}</p>;
+                    })()}
                   </div>
                   <div>
                     <span>上次探测</span>

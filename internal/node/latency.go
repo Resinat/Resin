@@ -2,6 +2,7 @@ package node
 
 import (
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -100,4 +101,31 @@ func (t *LatencyTable) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.cache.Close()
+}
+
+// AverageEWMAForDomainsMs returns the average EWMA latency in milliseconds
+// across domains that exist in the node's latency table.
+func AverageEWMAForDomainsMs(entry *NodeEntry, domains []string) (float64, bool) {
+	if entry == nil || entry.LatencyTable == nil || entry.LatencyTable.Size() == 0 || len(domains) == 0 {
+		return 0, false
+	}
+
+	var sumMs float64
+	var count int
+	for _, domain := range domains {
+		domain = strings.TrimSpace(domain)
+		if domain == "" {
+			continue
+		}
+		stats, ok := entry.LatencyTable.GetDomainStats(domain)
+		if !ok {
+			continue
+		}
+		sumMs += float64(stats.Ewma.Milliseconds())
+		count++
+	}
+	if count == 0 {
+		return 0, false
+	}
+	return sumMs / float64(count), true
 }

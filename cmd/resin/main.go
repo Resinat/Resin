@@ -599,7 +599,7 @@ func (a *runtimeStatsAdapter) CollectNodeEWMAs(platformID string) []float64 {
 	if platformID == "" {
 		// Global: iterate all nodes.
 		a.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
-			if avg, ok := nodeAvgEWMA(entry, authorities); ok {
+			if avg, ok := node.AverageEWMAForDomainsMs(entry, authorities); ok {
 				ewmas = append(ewmas, avg)
 			}
 			return true
@@ -613,7 +613,7 @@ func (a *runtimeStatsAdapter) CollectNodeEWMAs(platformID string) []float64 {
 		plat.View().Range(func(h node.Hash) bool {
 			entry, ok := a.pool.GetEntry(h)
 			if ok {
-				if avg, ok := nodeAvgEWMA(entry, authorities); ok {
+				if avg, ok := node.AverageEWMAForDomainsMs(entry, authorities); ok {
 					ewmas = append(ewmas, avg)
 				}
 			}
@@ -621,25 +621,6 @@ func (a *runtimeStatsAdapter) CollectNodeEWMAs(platformID string) []float64 {
 		})
 	}
 	return ewmas
-}
-
-// nodeAvgEWMA computes the average EWMA across authority domains for a node.
-func nodeAvgEWMA(entry *node.NodeEntry, authorities []string) (float64, bool) {
-	if entry.LatencyTable == nil || entry.LatencyTable.Size() == 0 {
-		return 0, false
-	}
-	var sumMs float64
-	var count int
-	for _, domain := range authorities {
-		if stats, ok := entry.LatencyTable.GetDomainStats(domain); ok {
-			sumMs += float64(stats.Ewma.Milliseconds())
-			count++
-		}
-	}
-	if count == 0 {
-		return 0, false
-	}
-	return sumMs / float64(count), true
 }
 
 // compositeEmitter dispatches proxy events to both requestlog and metrics.

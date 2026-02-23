@@ -14,6 +14,7 @@ type ApiNodeSummary = Omit<NodeSummary, "tags"> & {
   last_error?: string | null;
   circuit_open_since?: string | null;
   egress_ip?: string | null;
+  reference_latency_ms?: number | null;
   region?: string | null;
   last_egress_update?: string | null;
   last_latency_probe_attempt?: string | null;
@@ -28,6 +29,10 @@ function normalizeNode(raw: ApiNodeSummary): NodeSummary {
     last_error: raw.last_error || "",
     circuit_open_since: raw.circuit_open_since || "",
     egress_ip: raw.egress_ip || "",
+    reference_latency_ms:
+      typeof raw.reference_latency_ms === "number" && Number.isFinite(raw.reference_latency_ms)
+        ? raw.reference_latency_ms
+        : undefined,
     region: raw.region || "",
     last_egress_update: raw.last_egress_update || "",
     last_latency_probe_attempt: raw.last_latency_probe_attempt || "",
