@@ -180,20 +180,12 @@ function firstTag(node: { tags: { tag: string }[] }): string {
   return node.tags[0].tag;
 }
 
-function isNodeHealthy(node: NodeSummary): boolean {
-  return getNodeDisplayStatus(node) === "healthy";
-}
-
 function hasReferenceLatency(node: NodeSummary): node is NodeSummary & { reference_latency_ms: number } {
   return typeof node.reference_latency_ms === "number";
 }
 
-function hasEgressIP(node: NodeSummary): boolean {
-  return Boolean(node.egress_ip?.trim());
-}
-
 function isPendingTestNode(node: NodeSummary): boolean {
-  return Boolean(node.circuit_open_since) && !hasEgressIP(node) && !hasReferenceLatency(node);
+  return Boolean(node.circuit_open_since) && node.failure_count === 0;
 }
 
 function getNodeDisplayStatus(node: NodeSummary): NodeDisplayStatus {
@@ -223,7 +215,7 @@ function referenceLatencyColor(latencyMs: number): string {
 }
 
 function displayableReferenceLatencyMs(node: NodeSummary): number | null {
-  if (!isNodeHealthy(node)) {
+  if (getNodeDisplayStatus(node) !== "healthy") {
     return null;
   }
   if (!hasReferenceLatency(node)) {
