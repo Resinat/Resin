@@ -16,7 +16,6 @@ export type RuntimeConfig = {
   latency_decay_window: string;
   cache_flush_interval: string;
   cache_flush_dirty_threshold: number;
-  ephemeral_node_evict_delay: string;
 };
 
 export type EnvConfig = {

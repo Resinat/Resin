@@ -4,14 +4,18 @@ package subscription
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/node"
+	"github.com/puzpuzpuz/xsync/v4"
 )
+
+const defaultEphemeralNodeEvictDelayNs = int64(72 * time.Hour)
 
 // Subscription represents a subscription's runtime state.
 // It has two synchronization layers:
-//   - mu protects mutable config fields (url/name/enabled/ephemeral).
+//   - mu protects mutable config fields
+//     (url/updateInterval/name/enabled/ephemeral/ephemeralNodeEvictDelayNs).
 //   - opMu serializes high-level operations (update/rename/eviction/delete)
 //     on the same subscription instance.
 //
@@ -33,6 +37,9 @@ type Subscription struct {
 	name             string
 	enabled          bool
 	ephemeral        bool
+	// ephemeralNodeEvictDelayNs is the per-subscription eviction delay for
+	// circuit-broken nodes when Ephemeral is enabled.
+	ephemeralNodeEvictDelayNs int64
 
 	// Persistence timestamps (written under mu or single-writer context).
 	CreatedAtNs int64
@@ -52,11 +59,12 @@ type Subscription struct {
 // NewSubscription creates a Subscription with an empty ManagedNodes map.
 func NewSubscription(id, name, url string, enabled, ephemeral bool) *Subscription {
 	s := &Subscription{
-		ID:        id,
-		url:       url,
-		name:      name,
-		enabled:   enabled,
-		ephemeral: ephemeral,
+		ID:                        id,
+		url:                       url,
+		name:                      name,
+		enabled:                   enabled,
+		ephemeral:                 ephemeral,
+		ephemeralNodeEvictDelayNs: defaultEphemeralNodeEvictDelayNs,
 	}
 	empty := xsync.NewMap[node.Hash, []string]()
 	s.managedNodes.Store(empty)
@@ -139,6 +147,20 @@ func (s *Subscription) Ephemeral() bool {
 func (s *Subscription) SetEphemeral(v bool) {
 	s.mu.Lock()
 	s.ephemeral = v
+	s.mu.Unlock()
+}
+
+// EphemeralNodeEvictDelayNs returns the per-subscription eviction delay in nanoseconds.
+func (s *Subscription) EphemeralNodeEvictDelayNs() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ephemeralNodeEvictDelayNs
+}
+
+// SetEphemeralNodeEvictDelayNs updates the per-subscription eviction delay.
+func (s *Subscription) SetEphemeralNodeEvictDelayNs(v int64) {
+	s.mu.Lock()
+	s.ephemeralNodeEvictDelayNs = v
 	s.mu.Unlock()
 }
 

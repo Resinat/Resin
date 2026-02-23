@@ -218,7 +218,8 @@ Resin 从订阅中获取节点配置。
 * Name：订阅的名称，允许重名，许修改。
 * URL：订阅的 URL
 * UpdateInterval：订阅的更新间隔，最短 30 秒。
-* Ephemeral：是否为临时订阅。临时订阅指的是，当节点被连续熔断超过 EphemeralNodeEvictDelay 时间后，会从订阅中物理移除该节点（从而全局池的引用减 1）。
+* Ephemeral：是否为临时订阅。临时订阅指的是，当节点被连续熔断超过该订阅的 EphemeralNodeEvictDelay 时间后，会从订阅中物理移除该节点（从而全局池的引用减 1）。
+* EphemeralNodeEvictDelay：临时节点驱逐延迟（每个订阅独立配置）。仅对 Ephemeral=True 的订阅生效。默认 72 小时。
 * Enabled：订阅是否启用。当订阅被禁用，会重建各 Platform 的可路由池，而不会把节点从全局池删除。
 * CreatedAt：订阅创建时间
 * LastChecked：订阅的最后检查时间
@@ -247,7 +248,7 @@ Resin 从订阅中获取节点配置。
 订阅允许改名。订阅改名后，要重新 `AddNodeFromSub` 一遍节点，来保证 Tag 过滤器重新过滤。
 
 #### EphemeralNode 后台清理服务
-每隔 13～17 秒扫描所有 Ephemeral = True 的订阅。扫描其节点。如果一个节点已经连续熔断超过 `EphemeralNodeEvictDelay`，就将其从订阅的 ManagedNodes 中移除，并调用 `RemoveNodeFromSub` 减引用。
+每隔 13～17 秒扫描所有 Ephemeral = True 的订阅。扫描其节点。如果一个节点已经连续熔断超过该订阅的 `EphemeralNodeEvictDelay`，就将其从订阅的 ManagedNodes 中移除，并调用 `RemoveNodeFromSub` 减引用。
 
 
 ### 节点唯一标识
@@ -953,8 +954,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
   "p2c_latency_window": "10m",
   "latency_decay_window": "10m",
   "cache_flush_interval": "5m",
-  "cache_flush_dirty_threshold": 1000,
-  "ephemeral_node_evict_delay": "72h"
+  "cache_flush_dirty_threshold": 1000
 }
 ```
 
@@ -982,8 +982,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
   "p2c_latency_window": "10m",
   "latency_decay_window": "10m",
   "cache_flush_interval": "5m",
-  "cache_flush_dirty_threshold": 1000,
-  "ephemeral_node_evict_delay": "72h"
+  "cache_flush_dirty_threshold": 1000
 }
 ```
 
@@ -1201,6 +1200,7 @@ API 阻塞到重建完成为止。
   "url": "https://example.com/sub",
   "update_interval": "5m",
   "ephemeral": false,
+  "ephemeral_node_evict_delay": "72h",
   "enabled": true,
   "created_at": "2026-02-10T12:00:00Z",
   "last_checked": "2026-02-10T12:10:00Z",
@@ -1227,22 +1227,24 @@ Body：
   "url": "https://example.com/sub",
   "update_interval": "5m",
   "enabled": true,
-  "ephemeral": false
+  "ephemeral": false,
+  "ephemeral_node_evict_delay": "72h"
 }
 ```
 
 字段要求：
 
 * 必填字段：`name`、`url`
-* 可选字段：`update_interval`、`enabled`、`ephemeral`
+* 可选字段：`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`
 * 不可传字段：`id`、`created_at`、`last_checked`、`last_updated`、`last_error`
-* 默认值：`update_interval="5m"`、`enabled=true`、`ephemeral=false`
+* 默认值：`update_interval="5m"`、`enabled=true`、`ephemeral=false`、`ephemeral_node_evict_delay="72h"`
 
 关键校验（最小集）：
 
 * `name`：trim 后非空。
 * `url`：`http/https` 绝对 URL。
-* `update_interval`：合法 Go duration。
+* `update_interval`：合法 Go duration，且 `>=30s`。
+* `ephemeral_node_evict_delay`：合法 Go duration，且 `>=0s`。
 
 错误码映射（最小集）：
 
@@ -1270,7 +1272,7 @@ Body（partial patch 示例）：
 字段要求：
 
 * 必填字段：无
-* 可改字段：`name`、`url`、`update_interval`、`enabled`、`ephemeral`
+* 可改字段：`name`、`url`、`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`
 * 不可改字段：`id`、`created_at`、`last_checked`、`last_updated`、`last_error`
 
 关键校验：与“创建订阅”一致。
@@ -2055,7 +2057,8 @@ Resin 支持通过 API (`PATCH /system/config`) 动态调整大部分全局运�
 #### 持久化设置
 * `CacheFlushInterval`: 运行时脏数据（Cache）刷盘到磁盘的时间间隔。默认 5 分钟。
 * `CacheFlushDirtyThreshold`: 触发刷盘的脏数据条目数阈值。默认 1000。
-* `EphemeralNodeEvictDelay`: 临时订阅节点（Ephemeral）在熔断后的驱逐延迟。默认 3 天。
+
+> `EphemeralNodeEvictDelay` 不属于全局配置，已改为订阅级字段 `ephemeral_node_evict_delay`（默认 72h）。
 
 # 附录
 

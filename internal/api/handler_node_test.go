@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/probe"
 	"github.com/Resinat/Resin/internal/service"
@@ -129,6 +130,56 @@ func TestHandleListNodes_UniqueEgressIPsUsesFilteredResult(t *testing.T) {
 	}
 	if body["unique_egress_ips"] != float64(1) {
 		t.Fatalf("filtered unique_egress_ips: got %v, want 1", body["unique_egress_ips"])
+	}
+}
+
+func TestHandleListNodes_IncludesReferenceLatencyMs(t *testing.T) {
+	srv, cp, runtimeCfg := newControlPlaneTestServer(t)
+
+	cfg := config.NewDefaultRuntimeConfig()
+	cfg.LatencyAuthorities = []string{"cloudflare.com", "github.com", "google.com"}
+	runtimeCfg.Store(cfg)
+
+	subA := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	cp.SubMgr.Register(subA)
+
+	raw := `{"type":"ss","server":"1.1.1.1","port":443}`
+	hash := node.HashFromRawOptions([]byte(raw))
+	addNodeForNodeListTest(t, cp, subA, raw, "203.0.113.10")
+
+	entry, ok := cp.Pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing after add", hash.Hex())
+	}
+	entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+		Ewma:        40 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	entry.LatencyTable.LoadEntry("github.com", node.DomainLatencyStats{
+		Ewma:        80 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        10 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/nodes?subscription_id="+subA.ID, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list nodes status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	body := decodeJSONMap(t, rec)
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items mismatch: got %T len=%d", body["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["reference_latency_ms"] != float64(60) {
+		t.Fatalf("reference_latency_ms: got %v, want 60", item["reference_latency_ms"])
 	}
 }
 

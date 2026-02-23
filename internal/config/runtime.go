@@ -33,7 +33,6 @@ type RuntimeConfig struct {
 	// Persistence
 	CacheFlushInterval       Duration `json:"cache_flush_interval"`
 	CacheFlushDirtyThreshold int      `json:"cache_flush_dirty_threshold"`
-	EphemeralNodeEvictDelay  Duration `json:"ephemeral_node_evict_delay"`
 }
 
 // NewDefaultRuntimeConfig returns a RuntimeConfig populated with the default
@@ -62,6 +61,5 @@ func NewDefaultRuntimeConfig() *RuntimeConfig {
 
 		CacheFlushInterval:       Duration(5 * time.Minute),
 		CacheFlushDirtyThreshold: 1000,
-		EphemeralNodeEvictDelay:  Duration(72 * time.Hour),
 	}
 }

@@ -17,14 +17,15 @@ type Platform struct {
 
 // Subscription represents a node subscription source.
 type Subscription struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	URL              string `json:"url"`
-	UpdateIntervalNs int64  `json:"update_interval_ns"`
-	Enabled          bool   `json:"enabled"`
-	Ephemeral        bool   `json:"ephemeral"`
-	CreatedAtNs      int64  `json:"created_at_ns"`
-	UpdatedAtNs      int64  `json:"updated_at_ns"`
+	ID                        string `json:"id"`
+	Name                      string `json:"name"`
+	URL                       string `json:"url"`
+	UpdateIntervalNs          int64  `json:"update_interval_ns"`
+	Enabled                   bool   `json:"enabled"`
+	Ephemeral                 bool   `json:"ephemeral"`
+	EphemeralNodeEvictDelayNs int64  `json:"ephemeral_node_evict_delay_ns"`
+	CreatedAtNs               int64  `json:"created_at_ns"`
+	UpdatedAtNs               int64  `json:"updated_at_ns"`
 }
 
 // AccountHeaderRule defines header extraction rules for reverse proxy account matching.

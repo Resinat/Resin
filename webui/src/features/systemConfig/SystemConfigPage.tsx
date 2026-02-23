@@ -31,7 +31,6 @@ type RuntimeConfigForm = {
   latency_decay_window: string;
   cache_flush_interval: string;
   cache_flush_dirty_threshold: string;
-  ephemeral_node_evict_delay: string;
 };
 
 const EDITABLE_FIELDS: Array<keyof RuntimeConfig> = [
@@ -52,7 +51,6 @@ const EDITABLE_FIELDS: Array<keyof RuntimeConfig> = [
   "latency_decay_window",
   "cache_flush_interval",
   "cache_flush_dirty_threshold",
-  "ephemeral_node_evict_delay",
 ];
 
 const FIELD_LABELS: Record<keyof RuntimeConfig, string> = {
@@ -73,7 +71,6 @@ const FIELD_LABELS: Record<keyof RuntimeConfig, string> = {
   latency_decay_window: "历史延迟衰减窗口",
   cache_flush_interval: "缓存异步刷盘间隔",
   cache_flush_dirty_threshold: "缓存刷盘脏阈值",
-  ephemeral_node_evict_delay: "临时节点驱逐延迟",
 };
 
 const ALLOCATION_POLICY_LABELS: Record<string, string> = {
@@ -116,7 +113,6 @@ function configToForm(config: RuntimeConfig): RuntimeConfigForm {
     latency_decay_window: config.latency_decay_window,
     cache_flush_interval: config.cache_flush_interval,
     cache_flush_dirty_threshold: String(config.cache_flush_dirty_threshold),
-    ephemeral_node_evict_delay: config.ephemeral_node_evict_delay,
   };
 }
 
@@ -193,7 +189,6 @@ function parseForm(form: RuntimeConfigForm): RuntimeConfig {
     latency_decay_window: parseDurationField("历史延迟衰减窗口", form.latency_decay_window),
     cache_flush_interval: parseDurationField("缓存异步刷盘间隔", form.cache_flush_interval),
     cache_flush_dirty_threshold: parseNonNegativeInt("缓存刷盘脏阈值", form.cache_flush_dirty_threshold),
-    ephemeral_node_evict_delay: parseDurationField("临时节点驱逐延迟", form.ephemeral_node_evict_delay),
   };
 }
 
@@ -731,19 +726,6 @@ export function SystemConfigPage() {
                     />
                   </div>
 
-                  <div className="field-group">
-                    <div style={{ display: "flex", alignItems: "center" }}>
-                      <label className="field-label" htmlFor="sys-evict-delay" style={{ margin: 0 }}>
-                        临时节点驱逐延迟
-                      </label>
-                      {renderRestoreButton("ephemeral_node_evict_delay")}
-                    </div>
-                    <Input
-                      id="sys-evict-delay"
-                      value={form.ephemeral_node_evict_delay}
-                      onChange={(event) => setFormField("ephemeral_node_evict_delay", event.target.value)}
-                    />
-                  </div>
                 </div>
               </section>
             </Card>

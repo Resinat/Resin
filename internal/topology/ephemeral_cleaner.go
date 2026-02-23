@@ -16,26 +16,20 @@ import (
 type EphemeralCleaner struct {
 	subManager *SubscriptionManager
 	pool       *GlobalNodePool
-	evictDelay func() time.Duration // EphemeralNodeEvictDelay
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 }
 
-// NewEphemeralCleaner creates an EphemeralCleaner that pulls
-// evictDelay from callback on each sweep.
+// NewEphemeralCleaner creates an EphemeralCleaner that reads per-subscription
+// eviction delay values during each sweep.
 func NewEphemeralCleaner(
 	subManager *SubscriptionManager,
 	pool *GlobalNodePool,
-	evictDelayFn func() time.Duration,
 ) *EphemeralCleaner {
-	if evictDelayFn == nil {
-		panic("topology: NewEphemeralCleaner requires non-nil evictDelayFn")
-	}
 	return &EphemeralCleaner{
 		subManager: subManager,
 		pool:       pool,
-		evictDelay: evictDelayFn,
 		stopCh:     make(chan struct{}),
 	}
 }
@@ -65,7 +59,6 @@ func (c *EphemeralCleaner) sweep() {
 // exact TOCTOU window.
 func (c *EphemeralCleaner) sweepWithHook(betweenScans func()) {
 	now := time.Now().UnixNano()
-	evictDelayNs := c.evictDelay().Nanoseconds()
 
 	type ephemeralSub struct {
 		id  string
@@ -100,7 +93,7 @@ func (c *EphemeralCleaner) sweepWithHook(betweenScans func()) {
 		go func(id string, sub *subscription.Subscription) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			c.sweepOneSubscription(id, sub, now, evictDelayNs, betweenScans)
+			c.sweepOneSubscription(id, sub, now, betweenScans)
 		}(item.id, item.sub)
 	}
 	wg.Wait()
@@ -110,7 +103,6 @@ func (c *EphemeralCleaner) sweepOneSubscription(
 	id string,
 	sub *subscription.Subscription,
 	now int64,
-	evictDelayNs int64,
 	betweenScans func(),
 ) {
 	// All candidate checks and evictions happen under the lock to
@@ -118,6 +110,7 @@ func (c *EphemeralCleaner) sweepOneSubscription(
 	// would otherwise be erroneously removed.
 	var evictCount int
 	sub.WithOpLock(func() {
+		evictDelayNs := sub.EphemeralNodeEvictDelayNs()
 		evictSet := make(map[node.Hash]struct{})
 		sub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {
 			entry, ok := c.pool.GetEntry(h)

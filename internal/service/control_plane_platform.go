@@ -441,6 +441,7 @@ type NodeSummary struct {
 	LastEgressUpdate                 string    `json:"last_egress_update,omitempty"`
 	LastLatencyProbeAttempt          string    `json:"last_latency_probe_attempt,omitempty"`
 	LastAuthorityLatencyProbeAttempt string    `json:"last_authority_latency_probe_attempt,omitempty"`
+	ReferenceLatencyMs               *float64  `json:"reference_latency_ms,omitempty"`
 	LastEgressUpdateAttempt          string    `json:"last_egress_update_attempt,omitempty"`
 	Tags                             []NodeTag `json:"tags"`
 }
@@ -483,6 +484,13 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 	}
 	if lastAuthority := entry.LastAuthorityLatencyProbeAttempt.Load(); lastAuthority > 0 {
 		ns.LastAuthorityLatencyProbeAttempt = time.Unix(0, lastAuthority).UTC().Format(time.RFC3339Nano)
+	}
+	if s != nil && s.RuntimeCfg != nil {
+		if cfg := s.RuntimeCfg.Load(); cfg != nil {
+			if avgMs, ok := node.AverageEWMAForDomainsMs(entry, cfg.LatencyAuthorities); ok {
+				ns.ReferenceLatencyMs = &avgMs
+			}
+		}
 	}
 	if lastEgressAttempt := entry.LastEgressUpdateAttempt.Load(); lastEgressAttempt > 0 {
 		ns.LastEgressUpdateAttempt = time.Unix(0, lastEgressAttempt).UTC().Format(time.RFC3339Nano)

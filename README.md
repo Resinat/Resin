@@ -134,7 +134,7 @@ Resin 是一个外部代理池，支持正向代理与反向代理两种接入�
 * `Platform` 字段的值必须使用配置的 `resin_platform_name`。
 * `Account` 字段是可以区分账号的标识，包括但不限于账号 ID、账号邮箱、唯一用户名、账号稳定 Token 等。**同一个账号的标识一定要稳定**。不能一会使用该账号的 Email 一会使用该账号的 Token，Resin 会把两个不同的标识符识别成两个不同的网络身份。
 * 推荐使用**账号登录前就有的标识**，来防止登录阶段的请求没有标识可用而导致路由错误。
-* 如果确实存在账号登录前没有标识可用的情况，可先使用一个临时标识（TempIdentity）发请求；等到登录成功并获得稳定标识后，调用 `POST <resin_url>/api/v1/<PLATFORM>/actions/inherit-lease`，Body 传入 `{"parent_account": "<TempIdentity>", "new_account": "<StableIdentity>"}`，来将历史临时身份的 IP 租约平滑继承给新的稳定身份。
+* 如果确实存在账号登录前没有标识可用的情况，可先使用一个临时标识（TempIdentity）发请求；等到登录成功并获得稳定标识后，调用 `POST <resin_url>/api/v1/<PLATFORM>/actions/inherit-lease`，Body 传入 `{"parent_account": "<TempIdentity>", "new_account": "<StableIdentity>"}`，来将历史临时身份的 IP 租约平滑继承给新的稳定身份。注意不要把 TempIdentity 固定，否则所有的账号都会继承自同一个租约！
 
 **反向代理调用规范：**
 * Resin 通过路径拼接的方式解析反向代理请求，格式为：`<resin_url>/Platform:Account/protocol/host/path?query`。

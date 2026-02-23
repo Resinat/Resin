@@ -2,9 +2,11 @@ package service
 
 import (
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/geoip"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
@@ -190,6 +192,62 @@ func TestGetNode_TagIncludesSubscriptionNamePrefix(t *testing.T) {
 	}
 	if got.Tags[0].Tag != "sub-a/tag" {
 		t.Fatalf("tag = %q, want %q", got.Tags[0].Tag, "sub-a/tag")
+	}
+}
+
+func TestGetNode_ReferenceLatencyMsUsesAuthorityAverage(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := newNodeListTestPool(subMgr)
+
+	sub := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subMgr.Register(sub)
+
+	hash := addRoutableNodeForSubscription(
+		t,
+		pool,
+		sub,
+		[]byte(`{"type":"ss","server":"1.1.1.1","port":443}`),
+		"203.0.113.30",
+	)
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing", hash.Hex())
+	}
+	entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+		Ewma:        40 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	entry.LatencyTable.LoadEntry("github.com", node.DomainLatencyStats{
+		Ewma:        60 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	entry.LatencyTable.LoadEntry("example.com", node.DomainLatencyStats{
+		Ewma:        5 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+
+	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
+	cfg := config.NewDefaultRuntimeConfig()
+	cfg.LatencyAuthorities = []string{"cloudflare.com", "github.com", "google.com"}
+	runtimeCfg.Store(cfg)
+
+	cp := &ControlPlaneService{
+		Pool:       pool,
+		SubMgr:     subMgr,
+		GeoIP:      &geoip.Service{},
+		RuntimeCfg: runtimeCfg,
+	}
+
+	got, err := cp.GetNode(hash.Hex())
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if got.ReferenceLatencyMs == nil {
+		t.Fatal("reference_latency_ms should be present")
+	}
+	if *got.ReferenceLatencyMs != 50 {
+		t.Fatalf("reference_latency_ms = %v, want 50", *got.ReferenceLatencyMs)
 	}
 }
 

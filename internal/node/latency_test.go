@@ -110,3 +110,39 @@ func TestLatencyTable_LoadEntry(t *testing.T) {
 		t.Fatalf("LoadEntry should preserve exact Ewma, got %v", stats.Ewma)
 	}
 }
+
+func TestAverageEWMAForDomainsMs(t *testing.T) {
+	entry := NewNodeEntry(HashFromRawOptions([]byte(`{"type":"ss","server":"1.1.1.1","port":443}`)), nil, time.Now(), 16)
+	entry.LatencyTable.LoadEntry("cloudflare.com", DomainLatencyStats{
+		Ewma:        40 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	entry.LatencyTable.LoadEntry("github.com", DomainLatencyStats{
+		Ewma:        60 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+	entry.LatencyTable.LoadEntry("example.com", DomainLatencyStats{
+		Ewma:        10 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+
+	avg, ok := AverageEWMAForDomainsMs(entry, []string{"cloudflare.com", "github.com", "gstatic.com"})
+	if !ok {
+		t.Fatal("expected average to be available")
+	}
+	if avg != 50 {
+		t.Fatalf("average ms: got %v, want 50", avg)
+	}
+}
+
+func TestAverageEWMAForDomainsMs_NoMatches(t *testing.T) {
+	entry := NewNodeEntry(HashFromRawOptions([]byte(`{"type":"ss","server":"1.1.1.1","port":443}`)), nil, time.Now(), 16)
+	entry.LatencyTable.LoadEntry("cloudflare.com", DomainLatencyStats{
+		Ewma:        40 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
+
+	if _, ok := AverageEWMAForDomainsMs(entry, []string{"github.com"}); ok {
+		t.Fatal("expected no average when no domains match")
+	}
+}

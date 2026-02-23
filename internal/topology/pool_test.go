@@ -753,6 +753,7 @@ func TestSubscription_WithOpLockAfterUnregister(t *testing.T) {
 func TestEphemeralCleaner_EvictsCircuitBroken(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	sub := subscription.NewSubscription("s1", "EphSub", "url", true, true) // ephemeral
+	sub.SetEphemeralNodeEvictDelayNs(int64(1 * time.Minute))
 	subMgr.Register(sub)
 
 	pool := newTestPool(subMgr)
@@ -770,7 +771,7 @@ func TestEphemeralCleaner_EvictsCircuitBroken(t *testing.T) {
 	entry, _ := pool.GetEntry(h)
 	entry.CircuitOpenSince.Store(time.Now().Add(-2 * time.Minute).UnixNano())
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 1 * time.Minute })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
 	// Node should be evicted.
@@ -807,7 +808,7 @@ func TestEphemeralCleaner_SkipsNonEphemeral(t *testing.T) {
 	entry, _ := pool.GetEntry(h)
 	entry.CircuitOpenSince.Store(time.Now().Add(-2 * time.Minute).UnixNano())
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 1 * time.Minute })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
 	// Node should NOT be evicted since sub is not ephemeral.
@@ -819,6 +820,7 @@ func TestEphemeralCleaner_SkipsNonEphemeral(t *testing.T) {
 func TestEphemeralCleaner_SkipsRecentCircuitBreak(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	sub := subscription.NewSubscription("s1", "EphSub", "url", true, true)
+	sub.SetEphemeralNodeEvictDelayNs(int64(1 * time.Minute))
 	subMgr.Register(sub)
 
 	pool := newTestPool(subMgr)
@@ -835,7 +837,7 @@ func TestEphemeralCleaner_SkipsRecentCircuitBreak(t *testing.T) {
 	entry, _ := pool.GetEntry(h)
 	entry.CircuitOpenSince.Store(time.Now().Add(-10 * time.Second).UnixNano())
 
-	cleaner := NewEphemeralCleaner(subMgr, pool, func() time.Duration { return 1 * time.Minute })
+	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
 	// Should NOT be evicted yet.
