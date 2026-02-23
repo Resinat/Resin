@@ -404,7 +404,7 @@ export function NodesPage() {
         ),
         cell: (info) => (
           <div className="nodes-tag-cell">
-            <span>{info.getValue() as string}</span>
+            <span title={info.getValue() as string}>{info.getValue() as string}</span>
           </div>
         ),
       }),
