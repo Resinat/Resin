@@ -961,9 +961,21 @@ func TestAPIContract_ModuleAndActionEndpoints(t *testing.T) {
 	}
 	assertErrorCode(t, rec, "NOT_FOUND")
 
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions/11111111-1111-1111-1111-111111111111/actions/cleanup-circuit-open-nodes", nil, true)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("cleanup action missing subscription status: got %d, want %d, body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "NOT_FOUND")
+
 	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions/not-a-uuid", nil, true)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("subscription invalid id status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "INVALID_ARGUMENT")
+
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions/not-a-uuid/actions/cleanup-circuit-open-nodes", nil, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("cleanup action invalid id status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 	assertErrorCode(t, rec, "INVALID_ARGUMENT")
 

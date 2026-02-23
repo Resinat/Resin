@@ -13,6 +13,7 @@ import (
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/state"
 	"github.com/Resinat/Resin/internal/subscription"
+	"github.com/Resinat/Resin/internal/topology"
 )
 
 // ------------------------------------------------------------------
@@ -352,4 +353,55 @@ func (s *ControlPlaneService) RefreshSubscription(id string) error {
 	}
 	s.Scheduler.UpdateSubscription(sub)
 	return nil
+}
+
+// CleanupSubscriptionCircuitOpenNodes removes problematic nodes from a subscription.
+// It removes nodes that are currently circuit-open, and nodes with no outbound while
+// carrying a non-empty last error.
+func (s *ControlPlaneService) CleanupSubscriptionCircuitOpenNodes(id string) (int, error) {
+	return s.cleanupSubscriptionCircuitOpenNodesWithHook(id, nil)
+}
+
+// cleanupSubscriptionCircuitOpenNodesWithHook performs cleanup with an optional
+// hook between first scan and second confirmation scan. The hook is only used
+// by tests to simulate TOCTOU recovery.
+func (s *ControlPlaneService) cleanupSubscriptionCircuitOpenNodesWithHook(
+	id string,
+	betweenScans func(),
+) (int, error) {
+	sub := s.SubMgr.Lookup(id)
+	if sub == nil {
+		return 0, notFound("subscription not found")
+	}
+
+	var (
+		cleanedCount int
+		cleanupErr   error
+	)
+
+	sub.WithOpLock(func() {
+		// Re-check under lock in case another goroutine deleted the subscription
+		// between lookup and lock acquisition.
+		lockedSub := s.SubMgr.Lookup(id)
+		if lockedSub == nil {
+			cleanupErr = notFound("subscription not found")
+			return
+		}
+
+		cleanedCount = topology.CleanupSubscriptionNodesWithConfirmNoLock(
+			lockedSub,
+			s.Pool,
+			shouldCleanupSubscriptionNode,
+			betweenScans,
+		)
+	})
+
+	return cleanedCount, cleanupErr
+}
+
+func shouldCleanupSubscriptionNode(entry *node.NodeEntry) bool {
+	if entry == nil {
+		return false
+	}
+	return entry.IsCircuitOpen() || (!entry.HasOutbound() && entry.GetLastError() != "")
 }

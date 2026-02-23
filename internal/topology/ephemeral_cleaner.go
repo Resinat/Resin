@@ -9,7 +9,6 @@ import (
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/scanloop"
 	"github.com/Resinat/Resin/internal/subscription"
-	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // EphemeralCleaner periodically removes unhealthy nodes from ephemeral subscriptions.
@@ -105,65 +104,17 @@ func (c *EphemeralCleaner) sweepOneSubscription(
 	now int64,
 	betweenScans func(),
 ) {
-	// All candidate checks and evictions happen under the lock to
-	// prevent TOCTOU: a node that recovers between check and eviction
-	// would otherwise be erroneously removed.
 	var evictCount int
 	sub.WithOpLock(func() {
 		evictDelayNs := sub.EphemeralNodeEvictDelayNs()
-		evictSet := make(map[node.Hash]struct{})
-		sub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {
-			entry, ok := c.pool.GetEntry(h)
-			if !ok {
-				return true
-			}
-			if c.shouldEvictEntry(entry, now, evictDelayNs) {
-				evictSet[h] = struct{}{}
-			}
-			return true
-		})
-
-		if len(evictSet) == 0 {
-			return
-		}
-
-		// --- TOCTOU window: test hook ---
-		if betweenScans != nil {
-			betweenScans()
-		}
-
-		// Second check: re-verify each candidate. A node may have
-		// recovered between the initial scan and now.
-		confirmedEvict := make(map[node.Hash]struct{})
-		for h := range evictSet {
-			entry, ok := c.pool.GetEntry(h)
-			if !ok {
-				continue
-			}
-			if c.shouldEvictEntry(entry, now, evictDelayNs) {
-				confirmedEvict[h] = struct{}{}
-			}
-		}
-
-		if len(confirmedEvict) == 0 {
-			return
-		}
-
-		// Build new map without confirmed-evict hashes.
-		current := sub.ManagedNodes()
-		newMap := xsync.NewMap[node.Hash, []string]()
-		current.Range(func(h node.Hash, tags []string) bool {
-			if _, evict := confirmedEvict[h]; !evict {
-				newMap.Store(h, tags)
-			}
-			return true
-		})
-		sub.SwapManagedNodes(newMap)
-
-		for h := range confirmedEvict {
-			c.pool.RemoveNodeFromSub(h, sub.ID)
-		}
-		evictCount = len(confirmedEvict)
+		evictCount = CleanupSubscriptionNodesWithConfirmNoLock(
+			sub,
+			c.pool,
+			func(entry *node.NodeEntry) bool {
+				return c.shouldEvictEntry(entry, now, evictDelayNs)
+			},
+			betweenScans,
+		)
 	})
 
 	if evictCount > 0 {

@@ -19,6 +19,7 @@ import { useToast } from "../../hooks/useToast";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime, formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
+  cleanupSubscriptionCircuitOpenNodes,
   createSubscription,
   deleteSubscription,
   listSubscriptions,
@@ -187,6 +188,13 @@ export function SubscriptionPage() {
     await queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
   };
 
+  const invalidateSubscriptionsAndNodes = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["subscriptions"] }),
+      queryClient.invalidateQueries({ queryKey: ["nodes"] }),
+    ]);
+  };
+
   const createMutation = useMutation({
     mutationFn: createSubscription,
     onSuccess: async (created) => {
@@ -264,6 +272,24 @@ export function SubscriptionPage() {
     },
   });
 
+  const cleanupCircuitOpenNodesMutation = useMutation({
+    mutationFn: async (subscription: Subscription) => {
+      const cleanedCount = await cleanupSubscriptionCircuitOpenNodes(subscription.id);
+      return { subscription, cleanedCount };
+    },
+    onSuccess: async ({ subscription, cleanedCount }) => {
+      await invalidateSubscriptionsAndNodes();
+      if (cleanedCount > 0) {
+        showToast("success", `订阅 ${subscription.name} 已清理 ${cleanedCount} 个节点`);
+        return;
+      }
+      showToast("success", `订阅 ${subscription.name} 没有可清理的熔断或异常节点`);
+    },
+    onError: (error) => {
+      showToast("error", fromApiError(error));
+    },
+  });
+
   const onCreateSubmit = createForm.handleSubmit(async (values) => {
     await createMutation.mutateAsync({
       name: values.name.trim(),
@@ -285,6 +311,14 @@ export function SubscriptionPage() {
       return;
     }
     await deleteMutation.mutateAsync(subscription);
+  };
+
+  const handleCleanupCircuitOpenNodes = async (subscription: Subscription) => {
+    const confirmed = window.confirm(`确认立即清理订阅 ${subscription.name} 中的熔断或异常节点？`);
+    if (!confirmed) {
+      return;
+    }
+    await cleanupCircuitOpenNodesMutation.mutateAsync(subscription);
   };
 
   const openDrawer = (subscription: Subscription) => {
@@ -660,6 +694,20 @@ export function SubscriptionPage() {
                       disabled={refreshMutation.isPending}
                     >
                       {refreshMutation.isPending ? "刷新中..." : "立即刷新"}
+                    </Button>
+                  </div>
+
+                  <div className="platform-op-item">
+                    <div className="platform-op-copy">
+                      <h5>清理熔断节点</h5>
+                      <p className="platform-op-hint">立即清理当前熔断，或无 outbound 且存在错误的节点。</p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void handleCleanupCircuitOpenNodes(selectedSubscription)}
+                      disabled={cleanupCircuitOpenNodesMutation.isPending}
+                    >
+                      {cleanupCircuitOpenNodesMutation.isPending ? "清理中..." : "立即清理"}
                     </Button>
                   </div>
 

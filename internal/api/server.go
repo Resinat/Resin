@@ -99,6 +99,7 @@ func NewServerWithAddress(
 		authed.Handle("PATCH /api/v1/subscriptions/{id}", HandleUpdateSubscription(cp))
 		authed.Handle("DELETE /api/v1/subscriptions/{id}", HandleDeleteSubscription(cp))
 		authed.Handle("POST /api/v1/subscriptions/{id}/actions/refresh", HandleRefreshSubscription(cp))
+		authed.Handle("POST /api/v1/subscriptions/{id}/actions/cleanup-circuit-open-nodes", HandleCleanupSubscriptionCircuitOpenNodes(cp))
 
 		// Account header rules.
 		authed.Handle("GET /api/v1/account-header-rules", HandleListRules(cp))

@@ -84,3 +84,10 @@ export async function refreshSubscription(id: string): Promise<void> {
     method: "POST",
   });
 }
+
+export async function cleanupSubscriptionCircuitOpenNodes(id: string): Promise<number> {
+  const data = await apiRequest<{ cleaned_count: number }>(`${basePath}/${id}/actions/cleanup-circuit-open-nodes`, {
+    method: "POST",
+  });
+  return data.cleaned_count;
+}
