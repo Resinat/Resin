@@ -19,6 +19,7 @@ func TestInboundMux_PriorityForwardConnect(t *testing.T) {
 		tagHandler("forward", http.StatusOK),
 		tagHandler("reverse", http.StatusOK),
 		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
 	)
 
 	req := httptest.NewRequest(http.MethodConnect, "http://example.com:443", nil)
@@ -36,6 +37,7 @@ func TestInboundMux_PriorityForwardAbsoluteURI(t *testing.T) {
 		tagHandler("forward", http.StatusOK),
 		tagHandler("reverse", http.StatusOK),
 		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/v1/ping", nil)
@@ -53,6 +55,7 @@ func TestInboundMux_PriorityReservedTokenAPI(t *testing.T) {
 		tagHandler("forward", http.StatusOK),
 		tagHandler("reverse", http.StatusOK),
 		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
 	)
 
 	for _, path := range []string{"/tok/api", "/tok/api/v1/platforms"} {
@@ -77,6 +80,7 @@ func TestInboundMux_RoutesAPIForControlPlanePaths(t *testing.T) {
 		tagHandler("forward", http.StatusOK),
 		tagHandler("reverse", http.StatusOK),
 		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
 	)
 
 	cases := []string{
@@ -106,6 +110,7 @@ func TestInboundMux_RoutesReverseForNonControlPlanePaths(t *testing.T) {
 		tagHandler("forward", http.StatusOK),
 		tagHandler("reverse", http.StatusOK),
 		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
 	)
 
 	cases := []string{
@@ -132,6 +137,7 @@ func TestInboundMux_WrongTokenStillRoutedToReverse(t *testing.T) {
 		tagHandler("forward", http.StatusOK),
 		tagHandler("reverse", http.StatusOK),
 		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/wrong/plat:acct/https/example.com/path", nil)
@@ -149,6 +155,7 @@ func TestInboundMux_EmptyProxyTokenDoesNotReserveTokenAPI(t *testing.T) {
 		tagHandler("forward", http.StatusOK),
 		tagHandler("reverse", http.StatusOK),
 		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
 	)
 
 	req := httptest.NewRequest(http.MethodGet, "/any-token/api/v1/system/info", nil)
@@ -157,5 +164,23 @@ func TestInboundMux_EmptyProxyTokenDoesNotReserveTokenAPI(t *testing.T) {
 
 	if rec.Header().Get("X-Route") != "reverse" {
 		t.Fatalf("expected reverse route when proxy token empty, got %q", rec.Header().Get("X-Route"))
+	}
+}
+
+func TestInboundMux_RoutesTokenInheritLeaseAction(t *testing.T) {
+	mux := newInboundMux(
+		"tok",
+		tagHandler("forward", http.StatusOK),
+		tagHandler("reverse", http.StatusOK),
+		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/tok/api/v1/Default/actions/inherit-lease", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Header().Get("X-Route") != "token-action" {
+		t.Fatalf("expected token-action route, got %q", rec.Header().Get("X-Route"))
 	}
 }

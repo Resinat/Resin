@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+	"strings"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/model"
 	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 var (
@@ -485,6 +486,56 @@ func (r *Router) ReadLease(key model.LeaseKey) *model.Lease {
 		ExpiryNs:       lease.ExpiryNs,
 		LastAccessedNs: lease.LastAccessedNs,
 	}
+}
+
+// UpsertLease writes or replaces a lease for (platform_id, account).
+// It updates per-IP lease counters and emits LeaseCreate/LeaseReplace events.
+func (r *Router) UpsertLease(ml model.Lease) error {
+	platformID := strings.TrimSpace(ml.PlatformID)
+	if platformID == "" {
+		return errors.New("platform_id is required")
+	}
+	account := strings.TrimSpace(ml.Account)
+	if account == "" {
+		return errors.New("account is required")
+	}
+
+	h, err := node.ParseHex(ml.NodeHash)
+	if err != nil {
+		return fmt.Errorf("parse node_hash: %w", err)
+	}
+	ip, err := netip.ParseAddr(ml.EgressIP)
+	if err != nil {
+		return fmt.Errorf("parse egress_ip: %w", err)
+	}
+
+	state := r.ensurePlatformState(platformID)
+	lease := Lease{
+		NodeHash:       h,
+		EgressIP:       ip,
+		CreatedAtNs:    ml.CreatedAtNs,
+		ExpiryNs:       ml.ExpiryNs,
+		LastAccessedNs: ml.LastAccessedNs,
+	}
+
+	eventType := LeaseCreate
+	_, _ = state.Leases.leases.Compute(account, func(current Lease, loaded bool) (Lease, xsync.ComputeOp) {
+		if loaded {
+			state.Leases.stats.Dec(current.EgressIP)
+			eventType = LeaseReplace
+		}
+		state.Leases.stats.Inc(lease.EgressIP)
+		return lease, xsync.UpdateOp
+	})
+
+	r.emitLeaseEvent(LeaseEvent{
+		Type:       eventType,
+		PlatformID: platformID,
+		Account:    account,
+		NodeHash:   lease.NodeHash,
+		EgressIP:   lease.EgressIP,
+	})
+	return nil
 }
 
 // SnapshotIPLoad returns a best-effort point-in-time IP load snapshot for a platform.

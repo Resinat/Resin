@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Resinat/Resin/internal/model"
@@ -66,6 +67,47 @@ func (s *ControlPlaneService) GetLease(platformID, account string) (*LeaseRespon
 	}
 	resp := leaseToResponse(*ml)
 	return &resp, nil
+}
+
+// InheritLeaseByPlatformName copies a valid parent lease onto newAccount.
+func (s *ControlPlaneService) InheritLeaseByPlatformName(platformName, parentAccount, newAccount string) error {
+	platformName = strings.TrimSpace(platformName)
+	if platformName == "" {
+		return invalidArg("platform: must be non-empty")
+	}
+	parentAccount = strings.TrimSpace(parentAccount)
+	if parentAccount == "" {
+		return invalidArg("parent_account: must be non-empty")
+	}
+	newAccount = strings.TrimSpace(newAccount)
+	if newAccount == "" {
+		return invalidArg("new_account: must be non-empty")
+	}
+	if parentAccount == newAccount {
+		return invalidArg("new_account: must differ from parent_account")
+	}
+
+	plat, ok := s.Pool.GetPlatformByName(platformName)
+	if !ok || plat == nil {
+		return notFound("platform not found")
+	}
+
+	parentLease := s.Router.ReadLease(model.LeaseKey{
+		PlatformID: plat.ID,
+		Account:    parentAccount,
+	})
+	nowNs := time.Now().UnixNano()
+	if parentLease == nil || parentLease.ExpiryNs < nowNs {
+		return notFound("parent lease not found")
+	}
+
+	next := *parentLease
+	next.Account = newAccount
+	if err := s.Router.UpsertLease(next); err != nil {
+		return internal("inherit lease", err)
+	}
+
+	return nil
 }
 
 // DeleteLease removes a single lease.

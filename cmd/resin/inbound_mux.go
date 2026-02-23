@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func newInboundMux(proxyToken string, forward, reverse, apiHandler http.Handler) http.Handler {
+func newInboundMux(proxyToken string, forward, reverse, apiHandler, tokenActionHandler http.Handler) http.Handler {
 	if forward == nil {
 		forward = http.NotFoundHandler()
 	}
@@ -16,6 +16,9 @@ func newInboundMux(proxyToken string, forward, reverse, apiHandler http.Handler)
 	if apiHandler == nil {
 		apiHandler = http.NotFoundHandler()
 	}
+	if tokenActionHandler == nil {
+		tokenActionHandler = http.NotFoundHandler()
+	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if shouldRouteForwardProxy(r) {
@@ -24,6 +27,10 @@ func newInboundMux(proxyToken string, forward, reverse, apiHandler http.Handler)
 		}
 		if shouldRouteControlPlane(r) {
 			apiHandler.ServeHTTP(w, r)
+			return
+		}
+		if shouldRouteTokenInheritLeaseAction(r, proxyToken) {
+			tokenActionHandler.ServeHTTP(w, r)
 			return
 		}
 		if shouldRouteReservedTokenAPI(r, proxyToken) {
@@ -65,6 +72,41 @@ func shouldRouteReservedTokenAPI(r *http.Request, proxyToken string) bool {
 		return false
 	}
 	return second == "api"
+}
+
+func shouldRouteTokenInheritLeaseAction(r *http.Request, proxyToken string) bool {
+	if proxyToken == "" || r == nil {
+		return false
+	}
+	segments := escapedPathSegments(r)
+	if len(segments) != 6 {
+		return false
+	}
+	token, ok := decodePathSegment(segments[0])
+	if !ok || token != proxyToken {
+		return false
+	}
+	apiSeg, ok := decodePathSegment(segments[1])
+	if !ok || apiSeg != "api" {
+		return false
+	}
+	versionSeg, ok := decodePathSegment(segments[2])
+	if !ok || versionSeg != "v1" {
+		return false
+	}
+	platformSeg, ok := decodePathSegment(segments[3])
+	if !ok || strings.TrimSpace(platformSeg) == "" {
+		return false
+	}
+	actionsSeg, ok := decodePathSegment(segments[4])
+	if !ok || actionsSeg != "actions" {
+		return false
+	}
+	actionName, ok := decodePathSegment(segments[5])
+	if !ok || actionName != "inherit-lease" {
+		return false
+	}
+	return true
 }
 
 func shouldRouteControlPlane(r *http.Request) bool {

@@ -377,6 +377,11 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		a.requestlogRepo,
 		a.metricsManager,
 	)
+	tokenActionHandler := api.NewTokenActionHandler(
+		a.envCfg.ProxyToken,
+		cpService,
+		int64(a.envCfg.APIMaxBodyBytes),
+	)
 
 	proxyEvents := a.buildProxyEvents()
 	outboundTransportCfg := proxy.OutboundTransportConfig{
@@ -417,6 +422,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		forwardProxy,
 		reverseProxy,
 		apiSrv.Handler(),
+		tokenActionHandler,
 	)
 	inboundLn, err := net.Listen("tcp", formatListenAddress(a.envCfg.ListenAddress, a.envCfg.ResinPort))
 	if err != nil {
