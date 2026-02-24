@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -146,6 +147,43 @@ func TestForwardProxy_E2EHTTPSuccess(t *testing.T) {
 	}
 }
 
+func TestForwardProxy_E2EHTTPClientCanceledBeforeResponse(t *testing.T) {
+	env := newProxyE2EEnv(t)
+	emitter := newMockEventEmitter()
+	health := &mockHealthRecorder{}
+
+	fp := NewForwardProxy(ForwardProxyConfig{
+		ProxyToken: "tok",
+		Router:     env.router,
+		Pool:       env.pool,
+		Health:     health,
+		Events:     emitter,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/v1/cancel", nil)
+	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	ctx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	fp.ServeHTTP(w, req)
+
+	select {
+	case logEv := <-emitter.logCh:
+		if !logEv.NetOK {
+			t.Fatal("client-canceled forward HTTP should log net_ok=true")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected forward log event")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if health.resultCalls.Load() != 0 {
+		t.Fatalf("client-canceled forward HTTP should not record health result, got %d calls", health.resultCalls.Load())
+	}
+}
+
 func TestReverseProxy_E2ESuccess(t *testing.T) {
 	env := newProxyE2EEnv(t)
 
@@ -192,6 +230,43 @@ func TestReverseProxy_E2ESuccess(t *testing.T) {
 	}
 	if got := w.Body.String(); got != "reverse-e2e" {
 		t.Fatalf("body: got %q, want %q", got, "reverse-e2e")
+	}
+}
+
+func TestReverseProxy_E2EClientCanceledBeforeResponse(t *testing.T) {
+	env := newProxyE2EEnv(t)
+	emitter := newMockEventEmitter()
+	health := &mockHealthRecorder{}
+
+	rp := NewReverseProxy(ReverseProxyConfig{
+		ProxyToken:     "tok",
+		Router:         env.router,
+		Pool:           env.pool,
+		PlatformLookup: env.pool,
+		Health:         health,
+		Events:         emitter,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/tok/plat:acct/http/example.com/v1/cancel", nil)
+	ctx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	rp.ServeHTTP(w, req)
+
+	select {
+	case logEv := <-emitter.logCh:
+		if !logEv.NetOK {
+			t.Fatal("client-canceled reverse request should log net_ok=true")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected reverse log event")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if health.resultCalls.Load() != 0 {
+		t.Fatalf("client-canceled reverse request should not record health result, got %d calls", health.resultCalls.Load())
 	}
 }
 
@@ -531,6 +606,44 @@ func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("expected RecordResult call for CONNECT success")
+}
+
+func TestForwardProxy_CONNECTClientCanceledBeforeResponse(t *testing.T) {
+	env := newProxyE2EEnv(t)
+	emitter := newMockEventEmitter()
+	health := &mockHealthRecorder{}
+
+	fp := NewForwardProxy(ForwardProxyConfig{
+		ProxyToken: "tok",
+		Router:     env.router,
+		Pool:       env.pool,
+		Health:     health,
+		Events:     emitter,
+	})
+
+	req := httptest.NewRequest(http.MethodConnect, "http://example.com:443", nil)
+	req.Host = "example.com:443"
+	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	ctx, cancel := context.WithCancel(req.Context())
+	cancel()
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	fp.ServeHTTP(w, req)
+
+	select {
+	case logEv := <-emitter.logCh:
+		if !logEv.NetOK {
+			t.Fatal("client-canceled CONNECT should log net_ok=true")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected CONNECT log event")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+	if health.resultCalls.Load() != 0 {
+		t.Fatalf("client-canceled CONNECT should not record health result, got %d calls", health.resultCalls.Load())
+	}
 }
 
 func TestForwardProxy_CONNECTZeroTrafficMarkedFailed(t *testing.T) {

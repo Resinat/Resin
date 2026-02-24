@@ -270,6 +270,9 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		proxyErr := classifyUpstreamError(err)
 		if proxyErr == nil {
 			// context.Canceled — skip health recording, close silently.
+			// Request ended due to client-side cancellation before upstream
+			// response; treat as net-ok in request log semantics.
+			lifecycle.setNetOK(true)
 			return
 		}
 		lifecycle.setHTTPStatus(proxyErr.HTTPCode)
@@ -329,7 +332,10 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		proxyErr := classifyConnectError(err)
 		if proxyErr == nil {
-			return // context.Canceled
+			// context.Canceled before CONNECT response — no health penalty,
+			// but mark log as net-ok.
+			lifecycle.setNetOK(true)
+			return
 		}
 		lifecycle.setHTTPStatus(proxyErr.HTTPCode)
 		go p.health.RecordResult(nodeHashRaw, false)

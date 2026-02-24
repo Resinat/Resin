@@ -336,12 +336,15 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 		Transport: transport,
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
-			lifecycle.setNetOK(false)
 			proxyErr := classifyUpstreamError(err)
 			if proxyErr == nil {
 				// context.Canceled — no health recording, silently close.
+				// Treat as net-ok for request-log semantics when canceled
+				// before upstream response.
+				lifecycle.setNetOK(true)
 				return
 			}
+			lifecycle.setNetOK(false)
 			lifecycle.setHTTPStatus(proxyErr.HTTPCode)
 			go p.health.RecordResult(nodeHashRaw, false)
 			writeProxyError(rw, proxyErr)
