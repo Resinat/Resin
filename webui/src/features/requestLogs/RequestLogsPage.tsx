@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
-import { AlertTriangle, Eraser, Eye, RefreshCw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Eraser, RefreshCw, Sparkles, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
@@ -171,7 +171,6 @@ export function RequestLogsPage() {
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedLogId, setSelectedLogId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [payloadForId, setPayloadForId] = useState("");
   const [payloadTab, setPayloadTab] = useState<PayloadTab>("req_headers");
   const { toasts, dismissToast } = useToast();
 
@@ -219,7 +218,6 @@ export function RequestLogsPage() {
 
   const detailLogId = selectedLogId;
   const drawerVisible = drawerOpen && Boolean(detailLogId);
-  const payloadOpen = drawerVisible && Boolean(payloadForId) && payloadForId === detailLogId;
 
   const detailQuery = useQuery({
     queryKey: ["request-log", detailLogId],
@@ -232,7 +230,7 @@ export function RequestLogsPage() {
   const payloadQuery = useQuery({
     queryKey: ["request-log-payload", detailLogId],
     queryFn: () => getRequestLogPayloads(detailLogId),
-    enabled: payloadOpen,
+    enabled: drawerVisible && Boolean(detailLog?.payload_present),
     staleTime: 30_000,
   });
 
@@ -258,7 +256,6 @@ export function RequestLogsPage() {
     setPageIndex(0);
     setSelectedLogId("");
     setDrawerOpen(false);
-    setPayloadForId("");
   };
 
   const resetFilters = () => {
@@ -267,13 +264,11 @@ export function RequestLogsPage() {
     setPageIndex(0);
     setSelectedLogId("");
     setDrawerOpen(false);
-    setPayloadForId("");
   };
 
   const openDrawer = (logId: string) => {
     setSelectedLogId(logId);
     setDrawerOpen(true);
-    setPayloadForId("");
     setPayloadTab("req_headers");
   };
 
@@ -293,23 +288,15 @@ export function RequestLogsPage() {
     setPageIndex((prev) => prev + 1);
     setSelectedLogId("");
     setDrawerOpen(false);
-    setPayloadForId("");
   };
 
   const movePrev = () => {
     setPageIndex((prev) => Math.max(0, prev - 1));
     setSelectedLogId("");
     setDrawerOpen(false);
-    setPayloadForId("");
   };
 
-  const loadPayload = () => {
-    if (!detailLogId) {
-      return;
-    }
-    setPayloadForId(detailLogId);
-    setPayloadTab("req_headers");
-  };
+
 
   const payloadText = useMemo(() => {
     if (!payloadQuery.data) {
@@ -839,31 +826,15 @@ export function RequestLogsPage() {
                 </div>
               </section>
 
-              <section className="platform-drawer-section platform-ops-section">
+              <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
                   <h4>报文内容</h4>
-                  <p>按需加载并查看请求/响应内容。</p>
+                  <p>查看请求/响应内容。</p>
                 </div>
 
-                <div className="platform-ops-list">
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>查看报文内容</h5>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={loadPayload}
-                      disabled={!detailLog.payload_present || payloadQuery.isFetching}
-                      title={!detailLog.payload_present ? "该条日志未记录报文内容。" : undefined}
-                    >
-                      <Eye size={14} />
-                      {payloadQuery.isFetching ? "加载中..." : "查看报文内容"}
-                    </Button>
-                  </div>
-                </div>
-
-
-                {payloadOpen ? (
+                {!detailLog.payload_present ? (
+                  <p className="muted" style={{ fontSize: "13px" }}>该条日志未记录报文内容。</p>
+                ) : (
                   <section className="logs-payload-section">
                     <div className="logs-payload-tabs">
                       {PAYLOAD_TABS.map((tab) => {
@@ -897,9 +868,16 @@ export function RequestLogsPage() {
                       </div>
                     ) : null}
 
-                    <pre className="logs-payload-box">{payloadText || "（空）"}</pre>
+                    {payloadQuery.isFetching && !payloadText ? (
+                      <div className="callout" style={{ marginTop: "12px", color: "var(--text-secondary)" }}>
+                        <RefreshCw size={14} className="spin" />
+                        <span>加载报文内容中...</span>
+                      </div>
+                    ) : (
+                      <pre className="logs-payload-box">{payloadText || "（空）"}</pre>
+                    )}
                   </section>
-                ) : null}
+                )}
               </section>
             </div>
           </Card>
