@@ -84,18 +84,153 @@ function boolFromFilter(value: BoolFilter): boolean | undefined {
   return undefined;
 }
 
-function decodeBase64ToText(raw: string): string {
+function decodeBase64ToBytes(raw: string): Uint8Array | null {
   if (!raw) {
-    return "";
+    return new Uint8Array(0);
   }
 
   try {
     const binary = atob(raw);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
   } catch {
+    return null;
+  }
+}
+
+function decodeBytesToText(bytes: Uint8Array, charset?: string): string {
+  if (!bytes.length) {
+    return "";
+  }
+
+  if (charset) {
+    try {
+      return new TextDecoder(charset).decode(bytes);
+    } catch {
+      // Fallback to UTF-8 when charset is unsupported.
+    }
+  }
+
+  return new TextDecoder().decode(bytes);
+}
+
+function decodeBase64ToText(raw: string): string {
+  const bytes = decodeBase64ToBytes(raw);
+  if (!bytes) {
     return "[Base64 解码失败]";
   }
+  return decodeBytesToText(bytes);
+}
+
+function parseHeaderMap(headersText: string): Map<string, string> {
+  const map = new Map<string, string>();
+
+  for (const line of headersText.split(/\r?\n/)) {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim().toLowerCase();
+    const value = line.slice(separatorIndex + 1).trim();
+    if (!key || !value) {
+      continue;
+    }
+
+    const current = map.get(key);
+    map.set(key, current ? `${current}, ${value}` : value);
+  }
+
+  return map;
+}
+
+function parseCharset(contentType?: string): string | undefined {
+  if (!contentType) {
+    return undefined;
+  }
+  const match = contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i);
+  return match?.[1]?.trim();
+}
+
+function parseContentEncodings(contentEncoding?: string): string[] {
+  if (!contentEncoding) {
+    return [];
+  }
+
+  return contentEncoding
+    .split(",")
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token && token !== "identity");
+}
+
+function normalizeContentEncoding(token: string): "gzip" | "deflate" | "br" | "zstd" | null {
+  switch (token) {
+    case "gzip":
+    case "x-gzip":
+      return "gzip";
+    case "deflate":
+      return "deflate";
+    case "br":
+      return "br";
+    case "zstd":
+    case "x-zstd":
+      return "zstd";
+    default:
+      return null;
+  }
+}
+
+async function decompressWithEncoding(bytes: Uint8Array, encoding: "gzip" | "deflate" | "br" | "zstd"): Promise<Uint8Array> {
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("当前浏览器不支持 DecompressionStream，无法自动解压");
+  }
+
+  const stream = new Blob([new Uint8Array(bytes)]).stream().pipeThrough(new DecompressionStream(encoding as never));
+  const arrayBuffer = await new Response(stream).arrayBuffer();
+  return new Uint8Array(arrayBuffer);
+}
+
+async function decodeContentEncodings(bytes: Uint8Array, encodings: string[]): Promise<Uint8Array> {
+  let decoded = bytes;
+
+  // Content-Encoding is listed in the order applied, so decoding must reverse it.
+  for (let i = encodings.length - 1; i >= 0; i -= 1) {
+    const token = encodings[i];
+    const encoding = normalizeContentEncoding(token);
+    if (!encoding) {
+      throw new Error(`暂不支持的 Content-Encoding: ${token}`);
+    }
+    try {
+      decoded = await decompressWithEncoding(decoded, encoding);
+    } catch {
+      throw new Error(`Content-Encoding=${token} 解压失败`);
+    }
+  }
+
+  return decoded;
+}
+
+async function decodePayloadBodyForDisplay(rawBodyBase64: string, headersText: string): Promise<string> {
+  const bodyBytes = decodeBase64ToBytes(rawBodyBase64);
+  if (!bodyBytes) {
+    return "[Base64 解码失败]";
+  }
+  if (!bodyBytes.length) {
+    return "";
+  }
+
+  const headerMap = parseHeaderMap(headersText);
+  const encodings = parseContentEncodings(headerMap.get("content-encoding"));
+  const contentType = headerMap.get("content-type");
+  let decodedBytes = bodyBytes;
+  if (encodings.length) {
+    try {
+      decodedBytes = await decodeContentEncodings(bodyBytes, encodings);
+    } catch {
+      // Best-effort: fallback to undecoded bytes when content-encoding decode fails.
+    }
+  }
+
+  return decodeBytesToText(decodedBytes, parseCharset(contentType));
 }
 
 function isFromBeforeTo(fromISO?: string, toISO?: string): boolean {
@@ -172,6 +307,11 @@ export function RequestLogsPage() {
   const [selectedLogId, setSelectedLogId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [payloadTab, setPayloadTab] = useState<PayloadTab>("request");
+  const [payloadData, setPayloadData] = useState<{ headers: string; body: string }>({
+    headers: "",
+    body: "",
+  });
+  const [payloadDecodePending, setPayloadDecodePending] = useState(false);
   const { toasts, dismissToast } = useToast();
 
   const configQuery = useQuery({
@@ -296,28 +436,49 @@ export function RequestLogsPage() {
     setDrawerOpen(false);
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    const payload = payloadQuery.data;
 
-
-  const payloadData = useMemo(() => {
-    if (!payloadQuery.data) {
-      return { headers: "", body: "" };
+    if (!payload) {
+      setPayloadData({ headers: "", body: "" });
+      setPayloadDecodePending(false);
+      return () => {
+        cancelled = true;
+      };
     }
 
-    const { req_headers_b64, req_body_b64, resp_headers_b64, resp_body_b64 } = payloadQuery.data;
+    setPayloadData({ headers: "", body: "" });
+    setPayloadDecodePending(true);
 
-    switch (payloadTab) {
-      case "request": {
-        const headers = decodeBase64ToText(req_headers_b64).trimEnd();
-        const body = decodeBase64ToText(req_body_b64).trimEnd();
-        return { headers, body };
+    const decodePayload = async () => {
+      const [headersBase64, bodyBase64] =
+        payloadTab === "request"
+          ? [payload.req_headers_b64, payload.req_body_b64]
+          : [payload.resp_headers_b64, payload.resp_body_b64];
+
+      const headers = decodeBase64ToText(headersBase64).trimEnd();
+      const body = (await decodePayloadBodyForDisplay(bodyBase64, headers)).trimEnd();
+
+      if (cancelled) {
+        return;
       }
-      case "response":
-      default: {
-        const headers = decodeBase64ToText(resp_headers_b64).trimEnd();
-        const body = decodeBase64ToText(resp_body_b64).trimEnd();
-        return { headers, body };
+      setPayloadData({ headers, body });
+      setPayloadDecodePending(false);
+    };
+
+    void decodePayload().catch((error: unknown) => {
+      if (cancelled) {
+        return;
       }
-    }
+      const message = error instanceof Error ? error.message : "未知错误";
+      setPayloadData({ headers: "", body: `[Body 解码失败：${message}]` });
+      setPayloadDecodePending(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [payloadQuery.data, payloadTab]);
 
   const hasMore = Boolean(logsQuery.data?.has_more && logsQuery.data?.next_cursor);
@@ -874,7 +1035,7 @@ export function RequestLogsPage() {
                       </div>
                     ) : null}
 
-                    {payloadQuery.isFetching && !(payloadData.headers || payloadData.body) ? (
+                    {(payloadQuery.isFetching || payloadDecodePending) && !(payloadData.headers || payloadData.body) ? (
                       <div className="callout" style={{ marginTop: "12px", color: "var(--text-secondary)" }}>
                         <RefreshCw size={14} className="spin" />
                         <span>加载报文内容中...</span>
