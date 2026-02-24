@@ -551,35 +551,39 @@ a {
 }
 
 .platform-detail-tabs {
-  display: flex;
+  display: inline-flex;
+  align-self: flex-start;
   align-items: center;
-  gap: 2px;
-  padding: 0 2px 8px;
-  border-bottom: 1px solid rgba(37, 72, 120, 0.2);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(30, 60, 100, 0.05);
+  margin-bottom: 4px;
+  max-width: 100%;
   overflow-x: auto;
   scrollbar-width: thin;
 }
 
 .platform-detail-tab {
   border: none;
-  border-radius: 8px 8px 0 0;
+  border-radius: 8px;
   background: transparent;
   color: #5e6f89;
-  padding: 9px 14px 10px;
+  padding: 8px 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   white-space: nowrap;
   font-size: 14px;
-  font-weight: 700;
-  line-height: 1.1;
+  font-weight: 600;
+  line-height: 1.2;
   cursor: pointer;
-  transition: background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+  transition: all 0.2s ease;
 }
 
-.platform-detail-tab:hover {
+.platform-detail-tab:hover:not(.platform-detail-tab-active) {
   color: #1d4d91;
-  background: rgba(20, 112, 255, 0.08);
+  background: rgba(30, 60, 100, 0.06);
 }
 
 .platform-detail-tab span {
@@ -588,13 +592,14 @@ a {
 
 .platform-detail-tab-active {
   color: #0f417d;
-  background: rgba(20, 112, 255, 0.1);
-  box-shadow: inset 0 -2px 0 #1f6bef;
+  background: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(30, 60, 100, 0.08), 0 1px 2px rgba(30, 60, 100, 0.04);
 }
 
 .platform-detail-tab:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 1px rgba(20, 112, 255, 0.52), 0 0 0 2px rgba(20, 112, 255, 0.16);
+  box-shadow: 0 0 0 2px rgba(20, 112, 255, 0.3);
 }
 
 .platform-detail-panel {
@@ -2118,35 +2123,55 @@ a {
 
 .logs-payload-section {
   margin-top: 12px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.8);
-  padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
 .logs-payload-tabs {
-  display: flex;
+  display: inline-flex;
+  align-self: flex-start;
   flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(30, 60, 100, 0.05);
+  margin-bottom: 4px;
+  max-width: 100%;
 }
 
 .payload-tab {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fff;
-  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #5e6f89;
+  padding: 6px 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.payload-tab:hover:not(.payload-tab-active) {
+  color: #1d4d91;
+  background: rgba(30, 60, 100, 0.06);
 }
 
 .payload-tab-active {
-  border-color: rgba(20, 112, 255, 0.3);
-  background: rgba(20, 112, 255, 0.08);
+  color: #0f417d;
+  background: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(30, 60, 100, 0.08), 0 1px 2px rgba(30, 60, 100, 0.04);
+}
+
+.payload-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(20, 112, 255, 0.3);
 }
 
 .logs-payload-box {
@@ -2535,9 +2560,7 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .platform-detail-tabs {
-    padding-bottom: 6px;
-  }
+  /* removed padding-bottom tweak for platform-detail-tabs */
 
   .drawer-panel {
     width: 100vw;

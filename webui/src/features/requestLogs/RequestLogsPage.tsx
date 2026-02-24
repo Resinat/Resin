@@ -49,7 +49,7 @@ const defaultFilters: FilterDraft = {
 };
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000, 2000] as const;
 
-const PAYLOAD_TABS = ["req_headers", "req_body", "resp_headers", "resp_body"] as const;
+const PAYLOAD_TABS = ["request", "response"] as const;
 type PayloadTab = (typeof PAYLOAD_TABS)[number];
 const EMPTY_LOGS: RequestLogItem[] = [];
 
@@ -171,7 +171,7 @@ export function RequestLogsPage() {
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedLogId, setSelectedLogId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [payloadTab, setPayloadTab] = useState<PayloadTab>("req_headers");
+  const [payloadTab, setPayloadTab] = useState<PayloadTab>("request");
   const { toasts, dismissToast } = useToast();
 
   const configQuery = useQuery({
@@ -269,7 +269,7 @@ export function RequestLogsPage() {
   const openDrawer = (logId: string) => {
     setSelectedLogId(logId);
     setDrawerOpen(true);
-    setPayloadTab("req_headers");
+    setPayloadTab("request");
   };
 
   const moveNext = () => {
@@ -298,21 +298,25 @@ export function RequestLogsPage() {
 
 
 
-  const payloadText = useMemo(() => {
+  const payloadData = useMemo(() => {
     if (!payloadQuery.data) {
-      return "";
+      return { headers: "", body: "" };
     }
 
+    const { req_headers_b64, req_body_b64, resp_headers_b64, resp_body_b64 } = payloadQuery.data;
+
     switch (payloadTab) {
-      case "req_headers":
-        return decodeBase64ToText(payloadQuery.data.req_headers_b64);
-      case "req_body":
-        return decodeBase64ToText(payloadQuery.data.req_body_b64);
-      case "resp_headers":
-        return decodeBase64ToText(payloadQuery.data.resp_headers_b64);
-      case "resp_body":
-      default:
-        return decodeBase64ToText(payloadQuery.data.resp_body_b64);
+      case "request": {
+        const headers = decodeBase64ToText(req_headers_b64).trimEnd();
+        const body = decodeBase64ToText(req_body_b64).trimEnd();
+        return { headers, body };
+      }
+      case "response":
+      default: {
+        const headers = decodeBase64ToText(resp_headers_b64).trimEnd();
+        const body = decodeBase64ToText(resp_body_b64).trimEnd();
+        return { headers, body };
+      }
     }
   }, [payloadQuery.data, payloadTab]);
 
@@ -839,13 +843,15 @@ export function RequestLogsPage() {
                     <div className="logs-payload-tabs">
                       {PAYLOAD_TABS.map((tab) => {
                         const labelMap: Record<PayloadTab, string> = {
-                          req_headers: "请求头",
-                          req_body: "请求体",
-                          resp_headers: "响应头",
-                          resp_body: "响应体",
+                          request: "请求",
+                          response: "响应",
                         };
 
-                        const truncated = payloadQuery.data ? payloadQuery.data.truncated[tab] : false;
+                        const truncated = payloadQuery.data
+                          ? (tab === "request"
+                            ? payloadQuery.data.truncated.req_headers || payloadQuery.data.truncated.req_body
+                            : payloadQuery.data.truncated.resp_headers || payloadQuery.data.truncated.resp_body)
+                          : false;
 
                         return (
                           <button
@@ -868,13 +874,20 @@ export function RequestLogsPage() {
                       </div>
                     ) : null}
 
-                    {payloadQuery.isFetching && !payloadText ? (
+                    {payloadQuery.isFetching && !(payloadData.headers || payloadData.body) ? (
                       <div className="callout" style={{ marginTop: "12px", color: "var(--text-secondary)" }}>
                         <RefreshCw size={14} className="spin" />
                         <span>加载报文内容中...</span>
                       </div>
                     ) : (
-                      <pre className="logs-payload-box">{payloadText || "（空）"}</pre>
+                      <>
+                        <pre className="logs-payload-box" style={{ minHeight: "auto", border: "1px solid var(--border)", marginBottom: "8px" }}>
+                          {payloadData.headers || "（空 Headers）"}
+                        </pre>
+                        <pre className="logs-payload-box">
+                          {payloadData.body || "（空 Body）"}
+                        </pre>
+                      </>
                     )}
                   </section>
                 )}
