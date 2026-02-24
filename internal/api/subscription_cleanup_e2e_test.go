@@ -60,6 +60,7 @@ func TestAPIContract_SubscriptionCleanupAction_E2E(t *testing.T) {
 	}
 	outbound := testutil.NewNoopOutbound()
 	healthyEntry.Outbound.Store(&outbound)
+	healthyEntry.CircuitOpenSince.Store(0)
 
 	cleanupRec := doJSONRequest(
 		t,

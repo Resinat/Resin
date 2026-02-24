@@ -66,6 +66,7 @@ func TestCleanupSubscriptionCircuitOpenNodes_RemovesCircuitAndOutboundFailureNod
 	}
 	outbound := testutil.NewNoopOutbound()
 	healthyEntry.Outbound.Store(&outbound)
+	healthyEntry.CircuitOpenSince.Store(0)
 
 	sharedRaw := []byte(`{"type":"ss","server":"4.4.4.4","port":443}`)
 	sharedHash := node.HashFromRawOptions(sharedRaw)
