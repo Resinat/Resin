@@ -33,6 +33,11 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 			NetOK:             true,
 			HTTPMethod:        "GET",
 			HTTPStatus:        200,
+			ResinError:        "",
+			UpstreamStage:     "",
+			UpstreamErrKind:   "",
+			UpstreamErrno:     "",
+			UpstreamErrMsg:    "",
 			IngressBytes:      1234,
 			EgressBytes:       567,
 			ReqHeadersLen:     8,
@@ -47,23 +52,28 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 			RespBodyTruncated: true,
 		},
 		{
-			ID:           "log-b",
-			StartedAtNs:  ts,
-			ProxyType:    proxy.ProxyTypeReverse,
-			ClientIP:     "10.0.0.2",
-			PlatformID:   "plat-2",
-			PlatformName: "Platform Two",
-			Account:      "acct-b",
-			TargetHost:   "example.org",
-			TargetURL:    "https://example.org/b",
-			DurationNs:   int64(20 * time.Millisecond),
-			NetOK:        false,
-			HTTPMethod:   "POST",
-			HTTPStatus:   502,
-			IngressBytes: 2222,
-			EgressBytes:  1111,
-			ReqBodyLen:   10,
-			RespBodyLen:  11,
+			ID:              "log-b",
+			StartedAtNs:     ts,
+			ProxyType:       proxy.ProxyTypeReverse,
+			ClientIP:        "10.0.0.2",
+			PlatformID:      "plat-2",
+			PlatformName:    "Platform Two",
+			Account:         "acct-b",
+			TargetHost:      "example.org",
+			TargetURL:       "https://example.org/b",
+			DurationNs:      int64(20 * time.Millisecond),
+			NetOK:           false,
+			HTTPMethod:      "POST",
+			HTTPStatus:      502,
+			ResinError:      "UPSTREAM_REQUEST_FAILED",
+			UpstreamStage:   "reverse_roundtrip",
+			UpstreamErrKind: "connection_refused",
+			UpstreamErrno:   "ECONNREFUSED",
+			UpstreamErrMsg:  "dial tcp 203.0.113.1:443: connect: connection refused",
+			IngressBytes:    2222,
+			EgressBytes:     1111,
+			ReqBodyLen:      10,
+			RespBodyLen:     11,
 		},
 	}
 	inserted, err := repo.InsertBatch(rows)
@@ -169,6 +179,23 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 	}
 	if !row.ReqBodyTruncated || !row.RespBodyTruncated {
 		t.Fatalf("truncated flags not persisted: %+v", row)
+	}
+
+	rowB, err := repo.GetByID("log-b")
+	if err != nil {
+		t.Fatalf("repo.GetByID(log-b): %v", err)
+	}
+	if rowB == nil {
+		t.Fatal("expected log-b row")
+	}
+	if rowB.ResinError != "UPSTREAM_REQUEST_FAILED" ||
+		rowB.UpstreamStage != "reverse_roundtrip" ||
+		rowB.UpstreamErrKind != "connection_refused" ||
+		rowB.UpstreamErrno != "ECONNREFUSED" {
+		t.Fatalf("upstream error fields not persisted: %+v", rowB)
+	}
+	if rowB.UpstreamErrMsg == "" {
+		t.Fatal("expected upstream error message")
 	}
 
 	payload, err := repo.GetPayloads("log-a")

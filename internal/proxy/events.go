@@ -42,24 +42,29 @@ type RequestFinishedEvent struct {
 // RequestLogEntry captures per-request details for the structured request log.
 // Used by the requestlog subsystem (Phase 8).
 type RequestLogEntry struct {
-	ID           string    // optional stable ID; repo generates one when empty
-	StartedAtNs  int64     // request start time (Unix nano), used as ts_ns in DB
-	ProxyType    ProxyType // 1=forward, 2=reverse
-	ClientIP     string
-	PlatformID   string
-	PlatformName string
-	Account      string
-	TargetHost   string
-	TargetURL    string
-	NodeHash     string
-	NodeTag      string // display tag: "<Subscription>/<Tag>" (DESIGN.md §601)
-	EgressIP     string
-	DurationNs   int64
-	NetOK        bool
-	HTTPMethod   string
-	HTTPStatus   int
-	IngressBytes int64 // bytes from upstream to client (header + body)
-	EgressBytes  int64 // bytes from client to upstream (header + body)
+	ID              string    // optional stable ID; repo generates one when empty
+	StartedAtNs     int64     // request start time (Unix nano), used as ts_ns in DB
+	ProxyType       ProxyType // 1=forward, 2=reverse
+	ClientIP        string
+	PlatformID      string
+	PlatformName    string
+	Account         string
+	TargetHost      string
+	TargetURL       string
+	NodeHash        string
+	NodeTag         string // display tag: "<Subscription>/<Tag>" (DESIGN.md §601)
+	EgressIP        string
+	DurationNs      int64
+	NetOK           bool
+	HTTPMethod      string
+	HTTPStatus      int
+	ResinError      string // logical proxy error code, e.g. UPSTREAM_TIMEOUT
+	UpstreamStage   string // where upstream/network failure happened
+	UpstreamErrKind string // normalized error family
+	UpstreamErrno   string // normalized errno, when available
+	UpstreamErrMsg  string // sanitized upstream error message
+	IngressBytes    int64  // bytes from upstream to client (header + body)
+	EgressBytes     int64  // bytes from client to upstream (header + body)
 
 	// Optional detail payload (mainly for reverse proxy request logging).
 	ReqHeaders           []byte

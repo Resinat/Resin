@@ -245,6 +245,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, platName, account, r.Host)
 	if routeErr != nil {
+		lifecycle.setProxyError(routeErr)
 		lifecycle.setHTTPStatus(routeErr.HTTPCode)
 		writeProxyError(w, routeErr)
 		return
@@ -275,6 +276,8 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			lifecycle.setNetOK(true)
 			return
 		}
+		lifecycle.setProxyError(proxyErr)
+		lifecycle.setUpstreamError("forward_roundtrip", err)
 		lifecycle.setHTTPStatus(proxyErr.HTTPCode)
 		go p.health.RecordResult(routed.Route.NodeHash, false)
 		writeProxyError(w, proxyErr)
@@ -292,6 +295,8 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	lifecycle.addIngressBytes(copiedBytes)
 	if copyErr != nil {
 		if shouldRecordForwardCopyFailure(r, copyErr) {
+			lifecycle.setProxyError(ErrUpstreamRequestFailed)
+			lifecycle.setUpstreamError("forward_upstream_to_client_copy", copyErr)
 			lifecycle.setNetOK(false)
 			go p.health.RecordResult(routed.Route.NodeHash, false)
 		}
@@ -317,6 +322,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 
 	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, platName, account, target)
 	if routeErr != nil {
+		lifecycle.setProxyError(routeErr)
 		lifecycle.setHTTPStatus(routeErr.HTTPCode)
 		writeProxyError(w, routeErr)
 		return
@@ -337,6 +343,8 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 			lifecycle.setNetOK(true)
 			return
 		}
+		lifecycle.setProxyError(proxyErr)
+		lifecycle.setUpstreamError("connect_dial", err)
 		lifecycle.setHTTPStatus(proxyErr.HTTPCode)
 		go p.health.RecordResult(nodeHashRaw, false)
 		writeProxyError(w, proxyErr)
@@ -363,6 +371,8 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
 		upstreamConn.Close()
+		lifecycle.setProxyError(ErrUpstreamRequestFailed)
+		lifecycle.setUpstreamError("connect_hijack", errors.New("response writer does not support hijacking"))
 		lifecycle.setHTTPStatus(ErrUpstreamRequestFailed.HTTPCode)
 		recordConnectResult(false)
 		writeProxyError(w, ErrUpstreamRequestFailed)
@@ -372,6 +382,8 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	clientConn, clientBuf, err := hijacker.Hijack()
 	if err != nil {
 		upstreamConn.Close()
+		lifecycle.setProxyError(ErrUpstreamRequestFailed)
+		lifecycle.setUpstreamError("connect_hijack", err)
 		recordConnectResult(false)
 		return
 	}
@@ -380,12 +392,16 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	if _, err := clientBuf.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		upstreamConn.Close()
 		clientConn.Close()
+		lifecycle.setProxyError(ErrUpstreamRequestFailed)
+		lifecycle.setUpstreamError("connect_client_response_write", err)
 		recordConnectResult(false)
 		return
 	}
 	if err := clientBuf.Flush(); err != nil {
 		upstreamConn.Close()
 		clientConn.Close()
+		lifecycle.setProxyError(ErrUpstreamRequestFailed)
+		lifecycle.setUpstreamError("connect_client_response_flush", err)
 		recordConnectResult(false)
 		return
 	}
@@ -397,28 +413,51 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		upstreamConn.Close()
 		clientConn.Close()
+		lifecycle.setProxyError(ErrUpstreamRequestFailed)
+		lifecycle.setUpstreamError("connect_client_prefetch_drain", err)
 		recordConnectResult(false)
 		return
 	}
 
 	// Bidirectional tunnel — no HTTP error responses after this point.
 	type copyResult struct {
-		n int64
+		n   int64
+		err error
 	}
 	egressBytesCh := make(chan copyResult, 1)
 	go func() {
 		defer upstreamConn.Close()
 		defer clientConn.Close()
-		n, _ := io.Copy(upstreamConn, clientToUpstream)
-		egressBytesCh <- copyResult{n: n}
+		n, copyErr := io.Copy(upstreamConn, clientToUpstream)
+		egressBytesCh <- copyResult{n: n, err: copyErr}
 	}()
-	ingressBytes, _ := io.Copy(clientConn, upstreamConn)
+	ingressBytes, ingressCopyErr := io.Copy(clientConn, upstreamConn)
 	lifecycle.addIngressBytes(ingressBytes)
 	clientConn.Close()
 	upstreamConn.Close()
 	egressResult := <-egressBytesCh
 	lifecycle.addEgressBytes(egressResult.n)
-	recordConnectResult(ingressBytes > 0 && egressResult.n > 0)
+
+	okResult := ingressBytes > 0 && egressResult.n > 0
+	if !okResult {
+		lifecycle.setProxyError(ErrUpstreamRequestFailed)
+		switch {
+		case !isBenignTunnelCopyError(ingressCopyErr):
+			lifecycle.setUpstreamError("connect_upstream_to_client_copy", ingressCopyErr)
+		case !isBenignTunnelCopyError(egressResult.err):
+			lifecycle.setUpstreamError("connect_client_to_upstream_copy", egressResult.err)
+		default:
+			switch {
+			case ingressBytes == 0 && egressResult.n == 0:
+				lifecycle.setUpstreamError("connect_zero_traffic", nil)
+			case ingressBytes == 0:
+				lifecycle.setUpstreamError("connect_no_ingress_traffic", nil)
+			default:
+				lifecycle.setUpstreamError("connect_no_egress_traffic", nil)
+			}
+		}
+	}
+	recordConnectResult(okResult)
 }
 
 // makeTunnelClientReader returns a reader for client->upstream copy that

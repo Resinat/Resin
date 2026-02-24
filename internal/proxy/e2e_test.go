@@ -723,6 +723,12 @@ func TestForwardProxy_CONNECTZeroTrafficMarkedFailed(t *testing.T) {
 		if logEv.NetOK {
 			t.Fatal("CONNECT zero-traffic log net_ok: got true, want false")
 		}
+		if logEv.ResinError != "UPSTREAM_REQUEST_FAILED" {
+			t.Fatalf("CONNECT zero-traffic resin_error: got %q, want %q", logEv.ResinError, "UPSTREAM_REQUEST_FAILED")
+		}
+		if logEv.UpstreamStage != "connect_zero_traffic" {
+			t.Fatalf("CONNECT zero-traffic upstream_stage: got %q, want %q", logEv.UpstreamStage, "connect_zero_traffic")
+		}
 		if logEv.EgressBytes != 0 || logEv.IngressBytes != 0 {
 			t.Fatalf("CONNECT zero-traffic bytes: ingress=%d egress=%d, want both 0", logEv.IngressBytes, logEv.EgressBytes)
 		}
@@ -741,4 +747,113 @@ func TestForwardProxy_CONNECTZeroTrafficMarkedFailed(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("expected RecordResult call for CONNECT zero-traffic failure")
+}
+
+func TestForwardProxy_CONNECTHalfTrafficNotMarkedZeroTraffic(t *testing.T) {
+	env := newProxyE2EEnv(t)
+	emitter := newMockEventEmitter()
+	health := &mockHealthRecorder{}
+
+	targetLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen target: %v", err)
+	}
+	defer targetLn.Close()
+
+	targetDone := make(chan struct{})
+	go func() {
+		defer close(targetDone)
+		conn, err := targetLn.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = conn.Write([]byte("server-push"))
+	}()
+
+	fp := NewForwardProxy(ForwardProxyConfig{
+		ProxyToken: "tok",
+		Router:     env.router,
+		Pool:       env.pool,
+		Health:     health,
+		Events:     emitter,
+	})
+	proxySrv := httptest.NewServer(fp)
+	defer proxySrv.Close()
+
+	proxyAddr := strings.TrimPrefix(proxySrv.URL, "http://")
+	clientConn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatalf("dial proxy: %v", err)
+	}
+	defer clientConn.Close()
+
+	targetAddr := targetLn.Addr().String()
+	req := fmt.Sprintf(
+		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
+		targetAddr,
+		targetAddr,
+		basicAuth("tok", "plat"),
+	)
+	if _, err := clientConn.Write([]byte(req)); err != nil {
+		t.Fatalf("write connect request: %v", err)
+	}
+
+	reader := bufio.NewReader(clientConn)
+	statusLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read status line: %v", err)
+	}
+	if !strings.Contains(statusLine, "200 Connection Established") {
+		t.Fatalf("unexpected CONNECT status line: %q", statusLine)
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read response headers: %v", err)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+
+	payload := make([]byte, len("server-push"))
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		t.Fatalf("read tunnel payload: %v", err)
+	}
+	if string(payload) != "server-push" {
+		t.Fatalf("payload: got %q, want %q", string(payload), "server-push")
+	}
+	_ = clientConn.Close()
+	<-targetDone
+
+	select {
+	case logEv := <-emitter.logCh:
+		if logEv.NetOK {
+			t.Fatal("CONNECT half-traffic log net_ok: got true, want false")
+		}
+		if logEv.UpstreamStage != "connect_no_egress_traffic" {
+			t.Fatalf("CONNECT half-traffic upstream_stage: got %q, want %q", logEv.UpstreamStage, "connect_no_egress_traffic")
+		}
+		if logEv.UpstreamStage == "connect_zero_traffic" {
+			t.Fatal("CONNECT half-traffic must not be marked as connect_zero_traffic")
+		}
+		if logEv.IngressBytes == 0 || logEv.EgressBytes != 0 {
+			t.Fatalf("CONNECT half-traffic bytes: ingress=%d egress=%d, want ingress>0 and egress=0", logEv.IngressBytes, logEv.EgressBytes)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected CONNECT log event")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if health.resultCalls.Load() > 0 {
+			if health.lastSuccess.Load() != 0 {
+				t.Fatalf("RecordResult lastSuccess: got %d, want 0", health.lastSuccess.Load())
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("expected RecordResult call for CONNECT half-traffic failure")
 }

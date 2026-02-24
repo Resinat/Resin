@@ -614,6 +614,11 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 * `net_ok`：网络层是否成功 (0/1)。
 * `http_method`：HTTP 方法。CONNECT 模式记录为 CONNECT。
 * `http_status`：HTTP 状态码。
+* `resin_error`：Resin 的逻辑错误码快照（如 `UPSTREAM_TIMEOUT`、`UPSTREAM_REQUEST_FAILED`）。
+* `upstream_stage`：失败阶段（例如 `forward_roundtrip`、`connect_dial`、`connect_upstream_to_client_copy`）。
+* `upstream_err_kind`：上游错误归类（例如 `dns_error`、`timeout`、`connection_refused`）。
+* `upstream_errno`：提取到的 errno 码（例如 `ECONNREFUSED`）。
+* `upstream_err_msg`：上游错误消息（归一化并截断）。
 * `ingress_bytes`：下行字节数（从上游到客户端，header+body）。
 * `egress_bytes`：上行字节数（从客户端到上游，header+body）。
 * `payload_present`：是否包含 Payload (0/1)。

@@ -295,6 +295,11 @@ type logListItem struct {
 	NetOK                bool   `json:"net_ok"`
 	HTTPMethod           string `json:"http_method"`
 	HTTPStatus           int    `json:"http_status"`
+	ResinError           string `json:"resin_error"`
+	UpstreamStage        string `json:"upstream_stage"`
+	UpstreamErrKind      string `json:"upstream_err_kind"`
+	UpstreamErrno        string `json:"upstream_errno"`
+	UpstreamErrMsg       string `json:"upstream_err_msg"`
 	IngressBytes         int64  `json:"ingress_bytes"`
 	EgressBytes          int64  `json:"egress_bytes"`
 	PayloadPresent       bool   `json:"payload_present"`
@@ -326,6 +331,11 @@ func toLogListItem(s requestlog.LogSummary) logListItem {
 		NetOK:                s.NetOK,
 		HTTPMethod:           s.HTTPMethod,
 		HTTPStatus:           s.HTTPStatus,
+		ResinError:           s.ResinError,
+		UpstreamStage:        s.UpstreamStage,
+		UpstreamErrKind:      s.UpstreamErrKind,
+		UpstreamErrno:        s.UpstreamErrno,
+		UpstreamErrMsg:       s.UpstreamErrMsg,
 		IngressBytes:         s.IngressBytes,
 		EgressBytes:          s.EgressBytes,
 		PayloadPresent:       s.PayloadPresent,

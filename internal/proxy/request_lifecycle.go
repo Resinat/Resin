@@ -76,6 +76,29 @@ func (l *requestLifecycle) setHTTPStatus(code int) {
 	l.log.HTTPStatus = code
 }
 
+func (l *requestLifecycle) setProxyError(pe *ProxyError) {
+	if pe == nil {
+		return
+	}
+	l.log.ResinError = pe.ResinError
+	if l.log.HTTPStatus == 0 {
+		l.log.HTTPStatus = pe.HTTPCode
+	}
+}
+
+func (l *requestLifecycle) setUpstreamError(stage string, err error) {
+	if l.log.UpstreamStage == "" && stage != "" {
+		l.log.UpstreamStage = stage
+	}
+	if err == nil || l.log.UpstreamErrMsg != "" {
+		return
+	}
+	detail := summarizeUpstreamError(err)
+	l.log.UpstreamErrKind = detail.Kind
+	l.log.UpstreamErrno = detail.Errno
+	l.log.UpstreamErrMsg = detail.Message
+}
+
 func (l *requestLifecycle) addIngressBytes(n int64) {
 	if n > 0 {
 		l.log.IngressBytes += n

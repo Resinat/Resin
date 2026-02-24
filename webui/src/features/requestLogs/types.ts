@@ -15,6 +15,11 @@ export type RequestLogItem = {
   net_ok: boolean;
   http_method: string;
   http_status: number;
+  resin_error: string;
+  upstream_stage: string;
+  upstream_err_kind: string;
+  upstream_errno: string;
+  upstream_err_msg: string;
   ingress_bytes: number;
   egress_bytes: number;
   payload_present: boolean;

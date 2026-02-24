@@ -137,6 +137,16 @@ function proxyTypeLabel(proxyType: number): string {
   return String(proxyType);
 }
 
+function formatErrorSummary(log: RequestLogItem): string {
+  if (log.resin_error) {
+    return log.resin_error;
+  }
+  if (log.upstream_err_kind) {
+    return log.upstream_err_kind;
+  }
+  return "-";
+}
+
 function splitDateTime(input: string): { date: string; time: string } {
   if (!input) {
     return { date: "-", time: "-" };
@@ -389,6 +399,19 @@ export function RequestLogsPage() {
             <div className="logs-cell-stack">
               <span>{log.http_method || "-"}</span>
               <small>{log.http_status || "-"}</small>
+            </div>
+          );
+        },
+      }),
+      col.display({
+        id: "error",
+        header: "错误",
+        cell: (info) => {
+          const log = info.row.original;
+          return (
+            <div className="logs-cell-stack">
+              <span>{formatErrorSummary(log)}</span>
+              <small>{log.upstream_stage || "-"}</small>
             </div>
           );
         },
@@ -723,6 +746,22 @@ export function RequestLogsPage() {
                     </p>
                   </div>
                   <div>
+                    <span>Resin 错误</span>
+                    <p>{detailLog.resin_error || "-"}</p>
+                  </div>
+                  <div>
+                    <span>失败阶段</span>
+                    <p>{detailLog.upstream_stage || "-"}</p>
+                  </div>
+                  <div>
+                    <span>错误类型</span>
+                    <p>{detailLog.upstream_err_kind || "-"}</p>
+                  </div>
+                  <div>
+                    <span>Errno</span>
+                    <p>{detailLog.upstream_errno || "-"}</p>
+                  </div>
+                  <div>
                     <span>耗时</span>
                     <p>{detailLog.duration_ms} ms</p>
                   </div>
@@ -741,6 +780,10 @@ export function RequestLogsPage() {
                   <div>
                     <span>客户端 IP</span>
                     <p>{detailLog.client_ip || "-"}</p>
+                  </div>
+                  <div>
+                    <span>错误详情</span>
+                    <p style={{ wordBreak: "break-all" }}>{detailLog.upstream_err_msg || "-"}</p>
                   </div>
                 </div>
               </section>

@@ -1329,6 +1329,15 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	if !ok || len(items) != 1 {
 		t.Fatalf("items: got %T len=%d, want 1", itemsRaw, len(items))
 	}
+	firstItem, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("first item type: got %T", items[0])
+	}
+	for _, key := range []string{"resin_error", "upstream_stage", "upstream_err_kind", "upstream_errno", "upstream_err_msg"} {
+		if _, exists := firstItem[key]; !exists {
+			t.Fatalf("first item missing field %q", key)
+		}
+	}
 
 	rec = doJSONRequest(
 		t,
@@ -1442,6 +1451,11 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	row := decodeJSONMap(t, rec)
 	if row["id"] != logID {
 		t.Fatalf("id: got %v, want %q", row["id"], logID)
+	}
+	for _, key := range []string{"resin_error", "upstream_stage", "upstream_err_kind", "upstream_errno", "upstream_err_msg"} {
+		if _, exists := row[key]; !exists {
+			t.Fatalf("row missing field %q", key)
+		}
 	}
 	if row["payload_present"] != true {
 		t.Fatalf("payload_present: got %v, want true", row["payload_present"])

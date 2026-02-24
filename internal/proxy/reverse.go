@@ -291,6 +291,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			plat = p.resolveDefaultPlatform()
 		}
 		if plat != nil && plat.ReverseProxyMissAction == string(platform.ReverseProxyMissActionReject) {
+			lifecycle.setProxyError(ErrAccountRejected)
 			lifecycle.setHTTPStatus(ErrAccountRejected.HTTPCode)
 			writeProxyError(w, ErrAccountRejected)
 			return
@@ -300,6 +301,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, parsed.PlatformName, account, parsed.Host)
 	if routeErr != nil {
+		lifecycle.setProxyError(routeErr)
 		lifecycle.setHTTPStatus(routeErr.HTTPCode)
 		writeProxyError(w, routeErr)
 		return
@@ -312,6 +314,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	target, targetErr := buildReverseTargetURL(parsed, r.URL.RawQuery)
 	if targetErr != nil {
+		lifecycle.setProxyError(targetErr)
 		lifecycle.setHTTPStatus(targetErr.HTTPCode)
 		writeProxyError(w, targetErr)
 		return
@@ -344,6 +347,8 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				lifecycle.setNetOK(true)
 				return
 			}
+			lifecycle.setProxyError(proxyErr)
+			lifecycle.setUpstreamError("reverse_roundtrip", err)
 			lifecycle.setNetOK(false)
 			lifecycle.setHTTPStatus(proxyErr.HTTPCode)
 			go p.health.RecordResult(nodeHashRaw, false)
