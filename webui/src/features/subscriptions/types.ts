@@ -4,6 +4,7 @@ export type Subscription = {
   url: string;
   update_interval: string;
   node_count: number;
+  healthy_node_count: number;
   ephemeral: boolean;
   ephemeral_node_evict_delay: string;
   enabled: boolean;

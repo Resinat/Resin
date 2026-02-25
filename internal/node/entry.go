@@ -179,6 +179,15 @@ func (e *NodeEntry) HasOutbound() bool {
 	return e.Outbound.Load() != nil
 }
 
+// IsHealthy returns true when the node can be treated as healthy for
+// routing/statistics: outbound is ready and circuit is not open.
+func (e *NodeEntry) IsHealthy() bool {
+	if e == nil {
+		return false
+	}
+	return !e.IsCircuitOpen() && e.HasOutbound()
+}
+
 // GetEgressIP returns the node's egress IP, or the zero Addr if unknown.
 func (e *NodeEntry) GetEgressIP() netip.Addr {
 	ptr := e.egressIP.Load()

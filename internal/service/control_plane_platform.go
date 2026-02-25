@@ -446,6 +446,11 @@ type NodeSummary struct {
 	Tags                             []NodeTag `json:"tags"`
 }
 
+// IsHealthy follows the unified health rule used across the backend.
+func (n NodeSummary) IsHealthy() bool {
+	return n.HasOutbound && n.CircuitOpenSince == nil
+}
+
 type NodeTag struct {
 	SubscriptionID          string `json:"subscription_id"`
 	SubscriptionName        string `json:"subscription_name"`

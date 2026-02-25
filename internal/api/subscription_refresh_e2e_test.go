@@ -57,6 +57,9 @@ func TestAPIContract_SubscriptionRefreshAction_E2EHTTPSource(t *testing.T) {
 	if got := createBody["node_count"]; got != float64(0) {
 		t.Fatalf("create subscription node_count: got %v, want %v", got, 0)
 	}
+	if got := createBody["healthy_node_count"]; got != float64(0) {
+		t.Fatalf("create subscription healthy_node_count: got %v, want %v", got, 0)
+	}
 
 	refreshRec := doJSONRequest(
 		t,
@@ -100,6 +103,9 @@ func TestAPIContract_SubscriptionRefreshAction_E2EHTTPSource(t *testing.T) {
 	}
 	if got := subBody["node_count"]; got != float64(1) {
 		t.Fatalf("subscription node_count after refresh: got %v, want %v", got, 1)
+	}
+	if got := subBody["healthy_node_count"]; got != float64(0) {
+		t.Fatalf("subscription healthy_node_count after refresh: got %v, want %v", got, 0)
 	}
 
 	nodesRec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/nodes?subscription_id="+subID, nil, true)

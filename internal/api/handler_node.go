@@ -80,10 +80,7 @@ func countUniqueHealthyEgressIPs(nodes []service.NodeSummary) int {
 		if n.EgressIP == "" {
 			continue
 		}
-		if !n.HasOutbound {
-			continue
-		}
-		if n.CircuitOpenSince != nil {
+		if !n.IsHealthy() {
 			continue
 		}
 		seen[n.EgressIP] = struct{}{}

@@ -62,6 +62,18 @@ func TestAPIContract_SubscriptionCleanupAction_E2E(t *testing.T) {
 	healthyEntry.Outbound.Store(&outbound)
 	healthyEntry.CircuitOpenSince.Store(0)
 
+	beforeCleanupSubRec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions/"+subID, nil, true)
+	if beforeCleanupSubRec.Code != http.StatusOK {
+		t.Fatalf("get subscription before cleanup status: got %d, want %d, body=%s", beforeCleanupSubRec.Code, http.StatusOK, beforeCleanupSubRec.Body.String())
+	}
+	beforeCleanupSubBody := decodeJSONMap(t, beforeCleanupSubRec)
+	if got := beforeCleanupSubBody["node_count"]; got != float64(3) {
+		t.Fatalf("subscription node_count before cleanup: got %v, want 3", got)
+	}
+	if got := beforeCleanupSubBody["healthy_node_count"]; got != float64(1) {
+		t.Fatalf("subscription healthy_node_count before cleanup: got %v, want 1", got)
+	}
+
 	cleanupRec := doJSONRequest(
 		t,
 		srv,
@@ -96,6 +108,18 @@ func TestAPIContract_SubscriptionCleanupAction_E2E(t *testing.T) {
 	}
 	if got, _ := item["node_hash"].(string); got != healthyHash.Hex() {
 		t.Fatalf("remaining node hash: got %q, want %q", got, healthyHash.Hex())
+	}
+
+	afterCleanupSubRec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions/"+subID, nil, true)
+	if afterCleanupSubRec.Code != http.StatusOK {
+		t.Fatalf("get subscription after cleanup status: got %d, want %d, body=%s", afterCleanupSubRec.Code, http.StatusOK, afterCleanupSubRec.Body.String())
+	}
+	afterCleanupSubBody := decodeJSONMap(t, afterCleanupSubRec)
+	if got := afterCleanupSubBody["node_count"]; got != float64(1) {
+		t.Fatalf("subscription node_count after cleanup: got %v, want 1", got)
+	}
+	if got := afterCleanupSubBody["healthy_node_count"]; got != float64(1) {
+		t.Fatalf("subscription healthy_node_count after cleanup: got %v, want 1", got)
 	}
 
 	secondCleanupRec := doJSONRequest(

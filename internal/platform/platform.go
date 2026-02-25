@@ -111,8 +111,8 @@ func (p *Platform) evaluateNode(
 	subLookup node.SubLookupFunc,
 	geoLookup GeoLookupFunc,
 ) bool {
-	// 1. Not circuit-broken.
-	if entry.IsCircuitOpen() {
+	// 1. Healthy for routing (outbound ready + circuit not open).
+	if !entry.IsHealthy() {
 		return false
 	}
 
@@ -137,11 +137,6 @@ func (p *Platform) evaluateNode(
 
 	// 5. Has at least one latency record.
 	if !entry.HasLatency() {
-		return false
-	}
-
-	// 6. Outbound is not nil.
-	if !entry.HasOutbound() {
 		return false
 	}
 

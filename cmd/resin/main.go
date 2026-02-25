@@ -529,7 +529,7 @@ func (a *runtimeStatsAdapter) TotalNodes() int { return a.pool.Size() }
 func (a *runtimeStatsAdapter) HealthyNodes() int {
 	count := 0
 	a.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
-		if !entry.IsCircuitOpen() && entry.HasOutbound() {
+		if entry.IsHealthy() {
 			count++
 		}
 		return true
@@ -551,7 +551,7 @@ func (a *runtimeStatsAdapter) EgressIPCount() int {
 func (a *runtimeStatsAdapter) UniqueHealthyEgressIPCount() int {
 	seen := make(map[netip.Addr]struct{})
 	a.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
-		if entry.IsCircuitOpen() || !entry.HasOutbound() {
+		if !entry.IsHealthy() {
 			return true
 		}
 		if ip := entry.GetEgressIP(); ip.IsValid() {

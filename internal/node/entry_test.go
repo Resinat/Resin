@@ -213,6 +213,24 @@ func TestNodeEntry_Outbound(t *testing.T) {
 	}
 }
 
+func TestNodeEntry_IsHealthy(t *testing.T) {
+	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)
+	if e.IsHealthy() {
+		t.Fatal("node without outbound should not be healthy")
+	}
+
+	ob := testutil.NewNoopOutbound()
+	e.Outbound.Store(&ob)
+	if !e.IsHealthy() {
+		t.Fatal("node with outbound and no circuit should be healthy")
+	}
+
+	e.CircuitOpenSince.Store(time.Now().UnixNano())
+	if e.IsHealthy() {
+		t.Fatal("circuit-open node should not be healthy")
+	}
+}
+
 func TestNodeEntry_EgressIP(t *testing.T) {
 	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)
 

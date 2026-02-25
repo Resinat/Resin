@@ -27,6 +27,7 @@ type SubscriptionResponse struct {
 	URL                     string `json:"url"`
 	UpdateInterval          string `json:"update_interval"`
 	NodeCount               int    `json:"node_count"`
+	HealthyNodeCount        int    `json:"healthy_node_count"`
 	Ephemeral               bool   `json:"ephemeral"`
 	EphemeralNodeEvictDelay string `json:"ephemeral_node_evict_delay"`
 	Enabled                 bool   `json:"enabled"`
@@ -36,10 +37,20 @@ type SubscriptionResponse struct {
 	LastError               string `json:"last_error,omitempty"`
 }
 
-func subToResponse(sub *subscription.Subscription) SubscriptionResponse {
+func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) SubscriptionResponse {
 	nodeCount := 0
+	healthyNodeCount := 0
 	if managed := sub.ManagedNodes(); managed != nil {
 		nodeCount = managed.Size()
+		if s != nil && s.Pool != nil {
+			managed.Range(func(h node.Hash, _ []string) bool {
+				entry, ok := s.Pool.GetEntry(h)
+				if ok && entry.IsHealthy() {
+					healthyNodeCount++
+				}
+				return true
+			})
+		}
 	}
 
 	resp := SubscriptionResponse{
@@ -48,6 +59,7 @@ func subToResponse(sub *subscription.Subscription) SubscriptionResponse {
 		URL:                     sub.URL(),
 		UpdateInterval:          time.Duration(sub.UpdateIntervalNs()).String(),
 		NodeCount:               nodeCount,
+		HealthyNodeCount:        healthyNodeCount,
 		Ephemeral:               sub.Ephemeral(),
 		EphemeralNodeEvictDelay: time.Duration(sub.EphemeralNodeEvictDelayNs()).String(),
 		Enabled:                 sub.Enabled(),
@@ -70,7 +82,7 @@ func (s *ControlPlaneService) ListSubscriptions(enabled *bool) ([]SubscriptionRe
 		if enabled != nil && sub.Enabled() != *enabled {
 			return true
 		}
-		result = append(result, subToResponse(sub))
+		result = append(result, s.subToResponse(sub))
 		return true
 	})
 	if result == nil {
@@ -85,7 +97,7 @@ func (s *ControlPlaneService) GetSubscription(id string) (*SubscriptionResponse,
 	if sub == nil {
 		return nil, notFound("subscription not found")
 	}
-	r := subToResponse(sub)
+	r := s.subToResponse(sub)
 	return &r, nil
 }
 
@@ -174,7 +186,7 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 	sub.UpdatedAtNs = now
 	s.SubMgr.Register(sub)
 
-	r := subToResponse(sub)
+	r := s.subToResponse(sub)
 	return &r, nil
 }
 
@@ -294,7 +306,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 		go s.Scheduler.UpdateSubscription(sub)
 	}
 
-	r := subToResponse(sub)
+	r := s.subToResponse(sub)
 	return &r, nil
 }
 

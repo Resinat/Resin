@@ -359,8 +359,13 @@ export function SubscriptionPage() {
         header: "更新间隔",
         cell: (info) => formatGoDuration(info.getValue()),
       }),
-      col.accessor("node_count", {
+      col.display({
+        id: "node_count",
         header: "节点数",
+        cell: (info) => {
+          const s = info.row.original;
+          return `${s.healthy_node_count} / ${s.node_count}`;
+        },
       }),
       col.display({
         id: "status",

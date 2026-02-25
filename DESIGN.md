@@ -1204,6 +1204,8 @@ API 阻塞到重建完成为止。
   "name": "sub-A",
   "url": "https://example.com/sub",
   "update_interval": "5m",
+  "node_count": 1200,
+  "healthy_node_count": 980,
   "ephemeral": false,
   "ephemeral_node_evict_delay": "72h",
   "enabled": true,
@@ -1213,6 +1215,8 @@ API 阻塞到重建完成为止。
   "last_error": ""
 }
 ```
+
+`healthy_node_count` 规则：节点 `Outbound` 非空且节点未熔断。
 
 #### 列出订阅
 
@@ -1241,7 +1245,7 @@ Body：
 
 * 必填字段：`name`、`url`
 * 可选字段：`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`
-* 不可传字段：`id`、`created_at`、`last_checked`、`last_updated`、`last_error`
+* 不可传字段：`id`、`node_count`、`healthy_node_count`、`created_at`、`last_checked`、`last_updated`、`last_error`
 * 默认值：`update_interval="5m"`、`enabled=true`、`ephemeral=false`、`ephemeral_node_evict_delay="72h"`
 
 关键校验（最小集）：
@@ -1278,7 +1282,7 @@ Body（partial patch 示例）：
 
 * 必填字段：无
 * 可改字段：`name`、`url`、`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`
-* 不可改字段：`id`、`created_at`、`last_checked`、`last_updated`、`last_error`
+* 不可改字段：`id`、`node_count`、`healthy_node_count`、`created_at`、`last_checked`、`last_updated`、`last_error`
 
 关键校验：与“创建订阅”一致。
 
