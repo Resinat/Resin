@@ -1,0 +1,21 @@
+FROM alpine:3.21
+
+# Docker platform args automatically provided by buildx
+ARG TARGETOS
+ARG TARGETARCH
+
+RUN apk add --no-cache ca-certificates tzdata \
+  && addgroup -S resin \
+  && adduser -S -G resin -h /var/lib/resin resin \
+  && mkdir -p /var/cache/resin /var/lib/resin /var/log/resin \
+  && chown -R resin:resin /var/cache/resin /var/lib/resin /var/log/resin
+
+# Copy the pre-built binaries from the GitHub Actions host into the image
+# Buildx provides TARGETOS (linux) and TARGETARCH (amd64 or arm64)
+COPY release-bin/${TARGETOS}/${TARGETARCH}/resin-${TARGETOS}-${TARGETARCH} /usr/local/bin/resin
+
+USER resin
+EXPOSE 2260
+VOLUME ["/var/cache/resin", "/var/lib/resin", "/var/log/resin"]
+
+ENTRYPOINT ["/usr/local/bin/resin"]
