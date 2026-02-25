@@ -14,12 +14,19 @@ import (
 )
 
 type testPlatformStats struct {
-	platforms map[string]struct{}
+	platforms            map[string]struct{}
+	totalNodes           int
+	healthyNodes         int
+	egressIPCount        int
+	healthyEgressIPCount int
 }
 
-func (s testPlatformStats) TotalNodes() int    { return 0 }
-func (s testPlatformStats) HealthyNodes() int  { return 0 }
-func (s testPlatformStats) EgressIPCount() int { return 0 }
+func (s testPlatformStats) TotalNodes() int    { return s.totalNodes }
+func (s testPlatformStats) HealthyNodes() int  { return s.healthyNodes }
+func (s testPlatformStats) EgressIPCount() int { return s.egressIPCount }
+func (s testPlatformStats) UniqueHealthyEgressIPCount() int {
+	return s.healthyEgressIPCount
+}
 
 func (s testPlatformStats) LeaseCountsByPlatform() map[string]int { return nil }
 
@@ -329,6 +336,47 @@ func TestMetricsHandlers_RealtimeLeasesWithoutPlatformAggregatesAllPlatforms(t *
 	}
 	if item["active_leases"] != float64(12) {
 		t.Fatalf("active_leases: got %v, want 12", item["active_leases"])
+	}
+}
+
+func TestMetricsHandlers_SnapshotNodePool_IncludesHealthyEgressIPCount(t *testing.T) {
+	repo, err := metrics.NewMetricsRepo(filepath.Join(t.TempDir(), "metrics.db"))
+	if err != nil {
+		t.Fatalf("NewMetricsRepo: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	mgr := metrics.NewManager(metrics.ManagerConfig{
+		Repo: repo,
+		RuntimeStats: testRuntimeStatsProvider{
+			testPlatformStats: testPlatformStats{
+				totalNodes:           20,
+				healthyNodes:         15,
+				egressIPCount:        6,
+				healthyEgressIPCount: 4,
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics/snapshots/node-pool", nil)
+	rec := httptest.NewRecorder()
+	HandleSnapshotNodePool(mgr).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if body["total_nodes"] != float64(20) || body["healthy_nodes"] != float64(15) {
+		t.Fatalf("snapshot node-pool values mismatch: %+v", body)
+	}
+	if body["egress_ip_count"] != float64(6) {
+		t.Fatalf("egress_ip_count: got %v, want 6", body["egress_ip_count"])
+	}
+	if body["healthy_egress_ip_count"] != float64(4) {
+		t.Fatalf("healthy_egress_ip_count: got %v, want 4", body["healthy_egress_ip_count"])
 	}
 }
 

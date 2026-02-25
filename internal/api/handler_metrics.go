@@ -466,10 +466,11 @@ func HandleSnapshotNodePool(mgr *metrics.Manager) http.Handler {
 			return
 		}
 		WriteJSON(w, http.StatusOK, map[string]any{
-			"generated_at":    formatTimestamp(time.Now()),
-			"total_nodes":     stats.TotalNodes(),
-			"healthy_nodes":   stats.HealthyNodes(),
-			"egress_ip_count": stats.EgressIPCount(),
+			"generated_at":            formatTimestamp(time.Now()),
+			"total_nodes":             stats.TotalNodes(),
+			"healthy_nodes":           stats.HealthyNodes(),
+			"egress_ip_count":         stats.EgressIPCount(),
+			"healthy_egress_ip_count": stats.UniqueHealthyEgressIPCount(),
 		})
 	})
 }

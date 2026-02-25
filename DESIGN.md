@@ -793,7 +793,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
   * egress/latency probe 每发起一次请求记 1 次，维度为全局。
 * 节点数量（历史 + 手动）：
   * 每 bucket 统计全局 `total_nodes / healthy_nodes / egress_ip_count` 并落库。
-  * 同时提供手动即时统计（不落库）。
+  * 同时提供手动即时统计（不落库），返回 `total_nodes / healthy_nodes / egress_ip_count / healthy_egress_ip_count`。
 * Platform 节点数量（手动）：
   * 即时统计 `routable_node_count / egress_ip_count`，维度为 platform。
 * 节点延迟分布（手动）：
@@ -1457,6 +1457,7 @@ Response：
   "limit": 50,
   "offset": 0,
   "unique_egress_ips": 1,
+  "unique_healthy_egress_ips": 1,
   "items": [
     {
       "node_hash": "9f2c0b1a6d3e4f5c8a9b0c1d2e3f4a5b",
@@ -1495,6 +1496,8 @@ Response：
 * 统计对象是“当前过滤条件命中的全部节点”（即分页前结果）。
 * 不受 `limit` / `offset` 影响。
 * 仅统计有有效 `egress_ip` 的节点（空值不计入）。
+
+`unique_healthy_egress_ips` 说明：unique_egress_ips 中健康的部分。
 
 #### 获取单个节点
 
@@ -1928,7 +1931,8 @@ API 阻塞到更新完成
   "generated_at": "2026-02-12T12:00:00Z",
   "total_nodes": 1500,
   "healthy_nodes": 1400,
-  "egress_ip_count": 420
+  "egress_ip_count": 420,
+  "healthy_egress_ip_count": 360
 }
 ```
 

@@ -485,6 +485,7 @@ async function getSnapshotNodePool(): Promise<SnapshotNodePool> {
     total_nodes: toNumber(data.total_nodes),
     healthy_nodes: toNumber(data.healthy_nodes),
     egress_ip_count: toNumber(data.egress_ip_count),
+    healthy_egress_ip_count: toNumber(data.healthy_egress_ip_count),
   };
 }
 

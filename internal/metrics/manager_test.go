@@ -16,6 +16,9 @@ type managerTestRuntimeStats struct {
 func (managerTestRuntimeStats) TotalNodes() int    { return 9 }
 func (managerTestRuntimeStats) HealthyNodes() int  { return 7 }
 func (managerTestRuntimeStats) EgressIPCount() int { return 3 }
+func (managerTestRuntimeStats) UniqueHealthyEgressIPCount() int {
+	return 2
+}
 
 func (p managerTestRuntimeStats) LeaseCountsByPlatform() map[string]int {
 	out := make(map[string]int, len(p.counts))

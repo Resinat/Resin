@@ -548,6 +548,20 @@ func (a *runtimeStatsAdapter) EgressIPCount() int {
 	return len(seen)
 }
 
+func (a *runtimeStatsAdapter) UniqueHealthyEgressIPCount() int {
+	seen := make(map[netip.Addr]struct{})
+	a.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
+		if entry.IsCircuitOpen() || !entry.HasOutbound() {
+			return true
+		}
+		if ip := entry.GetEgressIP(); ip.IsValid() {
+			seen[ip] = struct{}{}
+		}
+		return true
+	})
+	return len(seen)
+}
+
 func (a *runtimeStatsAdapter) LeaseCountsByPlatform() map[string]int {
 	result := make(map[string]int)
 	a.pool.RangePlatforms(func(plat *platform.Platform) bool {

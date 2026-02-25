@@ -313,6 +313,7 @@ export function NodesPage() {
     limit: pageSize,
     offset: page * pageSize,
     unique_egress_ips: 0,
+    unique_healthy_egress_ips: 0,
   };
   const nodes = nodesPage.items;
 
@@ -590,7 +591,7 @@ export function NodesPage() {
         <div className="list-card-header">
           <div>
             <h3>节点列表</h3>
-            <p>共 {nodesPage.total} 个节点，{nodesPage.unique_egress_ips} 个出口 IP</p>
+            <p>共 {nodesPage.total} 个节点，{nodesPage.unique_healthy_egress_ips} 个健康 IP</p>
           </div>
 
           <div

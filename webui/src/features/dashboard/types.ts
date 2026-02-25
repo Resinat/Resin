@@ -99,6 +99,7 @@ export type SnapshotNodePool = {
   total_nodes: number;
   healthy_nodes: number;
   egress_ip_count: number;
+  healthy_egress_ip_count: number;
 };
 
 export type SnapshotPlatformNodePool = {

@@ -17,6 +17,7 @@ type RuntimeStatsProvider interface {
 	TotalNodes() int
 	HealthyNodes() int
 	EgressIPCount() int
+	UniqueHealthyEgressIPCount() int
 	LeaseCountsByPlatform() map[string]int
 	RoutableNodeCount(platformID string) (int, bool)
 	PlatformEgressIPCount(platformID string) (int, bool)

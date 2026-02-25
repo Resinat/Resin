@@ -789,6 +789,7 @@ export function DashboardPage() {
         total_nodes: 0,
         healthy_nodes: 0,
         egress_ip_count: 0,
+        healthy_egress_ip_count: 0,
       },
       snapshot_latency_global: globalSnapshotQuery.data?.snapshot_latency_global ?? {
         generated_at: "",
@@ -876,6 +877,7 @@ export function DashboardPage() {
   const successRequests = requestItems.reduce((acc, item) => acc + item.success_requests, 0);
 
   const snapshotNodePool = globalData?.snapshot_node_pool;
+  const uniqueHealthyEgressIPs = snapshotNodePool?.healthy_egress_ip_count ?? 0;
   const nodeHealthRate = snapshotNodePool ? successRate(snapshotNodePool.total_nodes, snapshotNodePool.healthy_nodes) : 0;
 
   const activeLatencyHistogram = globalData?.snapshot_latency_global.buckets ?? [];
@@ -947,7 +949,7 @@ export function DashboardPage() {
             </p>
           </div>
           <Badge className="dashboard-kpi-badge" variant={nodeHealthRate >= 0.75 ? "success" : "warning"}>
-            {formatCount(snapshotNodePool?.egress_ip_count ?? 0)} IP
+            {formatCount(uniqueHealthyEgressIPs)} IP
           </Badge>
         </Card>
 

@@ -42,6 +42,19 @@ func addNodeForNodeListTestWithTag(
 	entry.SetEgressIP(netip.MustParseAddr(egressIP))
 }
 
+func markNodeHealthyForNodeListTest(t *testing.T, cp *service.ControlPlaneService, raw string) {
+	t.Helper()
+
+	hash := node.HashFromRawOptions([]byte(raw))
+	entry, ok := cp.Pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing after add", hash.Hex())
+	}
+	ob := testutil.NewNoopOutbound()
+	entry.Outbound.Store(&ob)
+	entry.CircuitOpenSince.Store(0)
+}
+
 func TestHandleListNodes_TagKeywordFiltersByNodeName(t *testing.T) {
 	srv, cp, _ := newControlPlaneTestServer(t)
 
@@ -76,11 +89,21 @@ func TestHandleListNodes_UniqueEgressIPsUsesFilteredResult(t *testing.T) {
 	cp.SubMgr.Register(subA)
 	cp.SubMgr.Register(subB)
 
-	addNodeForNodeListTest(t, cp, subA, `{"type":"ss","server":"1.1.1.1","port":443}`, "203.0.113.10")
-	addNodeForNodeListTest(t, cp, subA, `{"type":"ss","server":"2.2.2.2","port":443}`, "203.0.113.10")
-	addNodeForNodeListTest(t, cp, subA, `{"type":"ss","server":"3.3.3.3","port":443}`, "203.0.113.11")
-	addNodeForNodeListTest(t, cp, subA, `{"type":"ss","server":"4.4.4.4","port":443}`, "")
-	addNodeForNodeListTest(t, cp, subB, `{"type":"ss","server":"5.5.5.5","port":443}`, "203.0.113.99")
+	const rawA1 = `{"type":"ss","server":"1.1.1.1","port":443}`
+	const rawA2 = `{"type":"ss","server":"2.2.2.2","port":443}`
+	const rawA3 = `{"type":"ss","server":"3.3.3.3","port":443}`
+	const rawA4 = `{"type":"ss","server":"4.4.4.4","port":443}`
+	const rawB1 = `{"type":"ss","server":"5.5.5.5","port":443}`
+
+	addNodeForNodeListTest(t, cp, subA, rawA1, "203.0.113.10")
+	addNodeForNodeListTest(t, cp, subA, rawA2, "203.0.113.10")
+	addNodeForNodeListTest(t, cp, subA, rawA3, "203.0.113.11")
+	addNodeForNodeListTest(t, cp, subA, rawA4, "")
+	addNodeForNodeListTest(t, cp, subB, rawB1, "203.0.113.99")
+
+	// Healthy condition: has outbound + not circuit-open.
+	markNodeHealthyForNodeListTest(t, cp, rawA1)
+	markNodeHealthyForNodeListTest(t, cp, rawA2)
 
 	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/nodes?subscription_id="+subA.ID, nil, true)
 	if rec.Code != http.StatusOK {
@@ -92,6 +115,9 @@ func TestHandleListNodes_UniqueEgressIPsUsesFilteredResult(t *testing.T) {
 	}
 	if body["unique_egress_ips"] != float64(2) {
 		t.Fatalf("unique_egress_ips: got %v, want 2", body["unique_egress_ips"])
+	}
+	if body["unique_healthy_egress_ips"] != float64(1) {
+		t.Fatalf("unique_healthy_egress_ips: got %v, want 1", body["unique_healthy_egress_ips"])
 	}
 
 	rec = doJSONRequest(
@@ -112,6 +138,9 @@ func TestHandleListNodes_UniqueEgressIPsUsesFilteredResult(t *testing.T) {
 	if body["unique_egress_ips"] != float64(2) {
 		t.Fatalf("paged unique_egress_ips: got %v, want 2", body["unique_egress_ips"])
 	}
+	if body["unique_healthy_egress_ips"] != float64(1) {
+		t.Fatalf("paged unique_healthy_egress_ips: got %v, want 1", body["unique_healthy_egress_ips"])
+	}
 
 	rec = doJSONRequest(
 		t,
@@ -130,6 +159,9 @@ func TestHandleListNodes_UniqueEgressIPsUsesFilteredResult(t *testing.T) {
 	}
 	if body["unique_egress_ips"] != float64(1) {
 		t.Fatalf("filtered unique_egress_ips: got %v, want 1", body["unique_egress_ips"])
+	}
+	if body["unique_healthy_egress_ips"] != float64(1) {
+		t.Fatalf("filtered unique_healthy_egress_ips: got %v, want 1", body["unique_healthy_egress_ips"])
 	}
 }
 

@@ -185,6 +185,9 @@ type contractRuntimeStats struct {
 func (contractRuntimeStats) TotalNodes() int    { return 20 }
 func (contractRuntimeStats) HealthyNodes() int  { return 15 }
 func (contractRuntimeStats) EgressIPCount() int { return 6 }
+func (contractRuntimeStats) UniqueHealthyEgressIPCount() int {
+	return 4
+}
 
 func (s contractRuntimeStats) LeaseCountsByPlatform() map[string]int {
 	return map[string]int{s.platformID: 0}
@@ -1605,6 +1608,9 @@ func TestAPIContract_MetricsEndpoints(t *testing.T) {
 	body = decodeJSONMap(t, rec)
 	if body["total_nodes"] != float64(20) || body["healthy_nodes"] != float64(15) {
 		t.Fatalf("snapshot node-pool values mismatch: %+v", body)
+	}
+	if body["healthy_egress_ip_count"] != float64(4) {
+		t.Fatalf("snapshot node-pool healthy_egress_ip_count mismatch: %+v", body)
 	}
 
 	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/metrics/snapshots/platform-node-pool?platform_id="+platformID, nil, true)
