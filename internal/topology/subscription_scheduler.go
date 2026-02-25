@@ -7,11 +7,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/scanloop"
 	"github.com/Resinat/Resin/internal/subscription"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 const schedulerLookahead = 15 * time.Second
@@ -197,7 +197,7 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 	}
 
 	// 2. Parse (lock-free).
-	parsed, err := subscription.ParseSingboxSubscription(body)
+	parsed, err := subscription.ParseGeneralSubscription(body)
 	if err != nil {
 		s.handleUpdateFailure(sub, attemptStartedNs, attemptURL, "parse", err)
 		return

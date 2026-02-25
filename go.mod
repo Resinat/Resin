@@ -11,6 +11,7 @@ require (
 	github.com/sagernet/sing-box v1.12.21
 	github.com/zeebo/xxh3 v1.0.2
 	golang.org/x/net v0.50.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.45.0
 )
 

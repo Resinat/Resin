@@ -1,6 +1,8 @@
 package subscription
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -154,4 +156,129 @@ func TestParseSingboxSubscription_RawOptionsPreservesFullJSON(t *testing.T) {
 	if !strings.Contains(raw, "aes-256-gcm") {
 		t.Fatalf("RawOptions missing method: %s", raw)
 	}
+}
+
+func TestParseGeneralSubscription_ClashJSON(t *testing.T) {
+	data := []byte(`{
+		"proxies": [
+			{
+				"name": "ss-test",
+				"type": "ss",
+				"server": "1.1.1.1",
+				"port": 8388,
+				"cipher": "aes-128-gcm",
+				"password": "pass"
+			},
+			{
+				"name": "ignored-http",
+				"type": "http",
+				"server": "2.2.2.2",
+				"port": 8080
+			}
+		]
+	}`)
+
+	nodes, err := ParseGeneralSubscription(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 parsed node, got %d", len(nodes))
+	}
+
+	obj := parseNodeRaw(t, nodes[0].RawOptions)
+	if got := obj["type"]; got != "shadowsocks" {
+		t.Fatalf("expected type shadowsocks, got %v", got)
+	}
+	if got := obj["tag"]; got != "ss-test" {
+		t.Fatalf("expected tag ss-test, got %v", got)
+	}
+}
+
+func TestParseGeneralSubscription_ClashYAML(t *testing.T) {
+	data := []byte(`
+proxies:
+  - name: vmess-yaml
+    type: vmess
+    server: 3.3.3.3
+    port: 443
+    uuid: 26a1d547-b031-4139-9fc5-6671e1d0408a
+    cipher: auto
+    tls: true
+    servername: example.com
+`)
+
+	nodes, err := ParseGeneralSubscription(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 parsed node, got %d", len(nodes))
+	}
+
+	obj := parseNodeRaw(t, nodes[0].RawOptions)
+	if got := obj["type"]; got != "vmess" {
+		t.Fatalf("expected type vmess, got %v", got)
+	}
+	if got := obj["tag"]; got != "vmess-yaml" {
+		t.Fatalf("expected tag vmess-yaml, got %v", got)
+	}
+}
+
+func TestParseGeneralSubscription_URILines(t *testing.T) {
+	data := []byte(`
+trojan://password@example.com:443?allowInsecure=1&type=ws&sni=example.com#Trojan%20Node
+vless://26a1d547-b031-4139-9fc5-6671e1d0408a@example.com:443?type=tcp&security=tls&sni=example.com#VLESS%20Node
+`)
+
+	nodes, err := ParseGeneralSubscription(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 parsed nodes, got %d", len(nodes))
+	}
+
+	first := parseNodeRaw(t, nodes[0].RawOptions)
+	second := parseNodeRaw(t, nodes[1].RawOptions)
+	if first["type"] != "trojan" || second["type"] != "vless" {
+		t.Fatalf("unexpected node types: %v, %v", first["type"], second["type"])
+	}
+}
+
+func TestParseGeneralSubscription_Base64WrappedURIs(t *testing.T) {
+	plain := "ss://YWVzLTEyOC1nY206cGFzcw==@1.1.1.1:8388#SS-Node"
+	encoded := base64.StdEncoding.EncodeToString([]byte(plain))
+
+	nodes, err := ParseGeneralSubscription([]byte(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 parsed node, got %d", len(nodes))
+	}
+
+	obj := parseNodeRaw(t, nodes[0].RawOptions)
+	if got := obj["type"]; got != "shadowsocks" {
+		t.Fatalf("expected type shadowsocks, got %v", got)
+	}
+	if got := obj["tag"]; got != "SS-Node" {
+		t.Fatalf("expected tag SS-Node, got %v", got)
+	}
+}
+
+func TestParseGeneralSubscription_UnknownFormatReturnsError(t *testing.T) {
+	_, err := ParseGeneralSubscription([]byte("this is not a subscription format"))
+	if err == nil {
+		t.Fatal("expected error for unknown subscription format")
+	}
+}
+
+func parseNodeRaw(t *testing.T, raw json.RawMessage) map[string]any {
+	t.Helper()
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatalf("unmarshal node raw failed: %v", err)
+	}
+	return obj
 }
