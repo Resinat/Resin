@@ -7,7 +7,8 @@ import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
 import { useI18n } from "../../i18n";
 import { getCurrentLocale, isEnglishLocale } from "../../i18n/locale";
-import { ApiError, apiRequest } from "../../lib/api-client";
+import { apiRequest } from "../../lib/api-client";
+import { formatApiErrorMessage } from "../../lib/error-message";
 import type {
   HistoryAccessLatencyResponse,
   HistoryLeaseLifetimeResponse,
@@ -84,16 +85,6 @@ const EMPTY_REALTIME_ITEMS: RealtimeLeasesResponse["items"] = [];
 const EMPTY_HISTORY_REQUEST_ITEMS: HistoryResponse<HistoryRequestsItem>["items"] = [];
 const EMPTY_ACCESS_LATENCY_ITEMS: HistoryAccessLatencyResponse["items"] = [];
 const EMPTY_LEASE_LIFETIME_ITEMS: HistoryLeaseLifetimeResponse["items"] = [];
-
-function fromApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "未知错误";
-}
 
 function toNumber(raw: unknown): number {
   const value = Number(raw);
@@ -499,6 +490,8 @@ function RequestQualityTooltipContent({ active, payload, label }: any) {
 }
 
 function HistogramTooltipContent({ active, payload }: any) {
+  const { t } = useI18n();
+
   if (!active || !payload?.length) {
     return null;
   }
@@ -512,7 +505,7 @@ function HistogramTooltipContent({ active, payload }: any) {
   return (
     <div className="histogram-tooltip">
       <p className="histogram-tooltip-title">{`${formatCount(lowerBound)}～${formatCount(upperBound)} ms`}</p>
-      <p className="histogram-tooltip-value">{`节点数 ${formatCount(safeCount)}`}</p>
+      <p className="histogram-tooltip-value">{t("节点数 {{count}}", { count: formatCount(safeCount) })}</p>
     </div>
   );
 }
@@ -590,6 +583,8 @@ function RequestQualityChart({
   data: Array<{ label: string; total_requests: number; success_rate: number }>;
   emptyText: string;
 }) {
+  const { t } = useI18n();
+
   if (!data.length) {
     return <EmptyChart text={emptyText} />;
   }
@@ -638,7 +633,7 @@ function RequestQualityChart({
             <Bar
               yAxisId="left"
               dataKey="total_requests"
-              name="请求总数"
+              name={t("请求总数")}
               fill="rgba(37, 108, 233, 0.76)"
               radius={[4, 4, 0, 0]}
               maxBarSize={24}
@@ -648,7 +643,7 @@ function RequestQualityChart({
               yAxisId="right"
               type="monotone"
               dataKey="success_rate"
-              name="成功率"
+              name={t("成功率")}
               stroke="#0f9d8b"
               strokeWidth={1.8}
               dot={false}
@@ -764,7 +759,7 @@ function LatencyHistogram({ buckets, emptyText }: LatencyHistogramProps) {
 }
 
 export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const [rangeKey, setRangeKey] = useState<RangeKey>("6h");
 
   const realtimeQuery = useQuery({
@@ -895,12 +890,12 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
     <section className="platform-drawer-section platform-monitor-section">
       <div className="platform-drawer-section-head platform-monitor-head">
         <div>
-          <h4>平台监控</h4>
-          <p>查看当前平台的租约、请求成功率、延迟和节点情况。</p>
+          <h4>{t("平台监控")}</h4>
+          <p>{t("查看当前平台的租约、请求成功率、延迟和节点情况。")}</p>
         </div>
 
         <label className="platform-monitor-range" htmlFor="platform-monitor-range">
-          <span>时间范围</span>
+          <span>{t("时间范围")}</span>
           <Select
             id="platform-monitor-range"
             value={rangeKey}
@@ -908,7 +903,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
           >
             {RANGE_OPTIONS.map((option) => (
               <option key={option.key} value={option.key}>
-                {option.label}
+                {t(option.label)}
               </option>
             ))}
           </Select>
@@ -918,7 +913,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
       {monitorError ? (
         <div className="callout callout-error">
           <AlertTriangle size={14} />
-          <span>{fromApiError(monitorError)}</span>
+          <span>{formatApiErrorMessage(monitorError, t)}</span>
         </div>
       ) : null}
 
@@ -928,9 +923,9 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
             <Layers size={16} />
           </div>
           <div>
-            <p className="platform-monitor-kpi-label">活跃租约</p>
+            <p className="platform-monitor-kpi-label">{t("活跃租约")}</p>
             <p className="platform-monitor-kpi-value">{formatCount(latestActiveLeases)}</p>
-            <p className="platform-monitor-kpi-sub">当前实时值</p>
+            <p className="platform-monitor-kpi-sub">{t("当前实时值")}</p>
           </div>
         </Card>
 
@@ -939,10 +934,10 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
             <ShieldCheck size={16} />
           </div>
           <div>
-            <p className="platform-monitor-kpi-label">请求成功率</p>
+            <p className="platform-monitor-kpi-label">{t("请求成功率")}</p>
             <p className="platform-monitor-kpi-value">{formatPercent(requestSuccessRatio)}</p>
             <p className="platform-monitor-kpi-sub">
-              成功 {formatCount(successRequests)} / 总计 {formatCount(totalRequests)}
+              {t("成功")} {formatCount(successRequests)} / {t("总计")} {formatCount(totalRequests)}
             </p>
           </div>
         </Card>
@@ -952,9 +947,9 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
             <Waypoints size={16} />
           </div>
           <div>
-            <p className="platform-monitor-kpi-label">可路由节点</p>
+            <p className="platform-monitor-kpi-label">{t("可路由节点")}</p>
             <p className="platform-monitor-kpi-value">{formatCount(snapshotNodePool?.routable_node_count ?? 0)}</p>
-            <p className="platform-monitor-kpi-sub">出口 IP {formatCount(snapshotNodePool?.egress_ip_count ?? 0)}</p>
+            <p className="platform-monitor-kpi-sub">{t("出口 IP")} {formatCount(snapshotNodePool?.egress_ip_count ?? 0)}</p>
           </div>
         </Card>
 
@@ -963,9 +958,9 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
             <Clock3 size={16} />
           </div>
           <div>
-            <p className="platform-monitor-kpi-label">租约 P50 存活时长</p>
+            <p className="platform-monitor-kpi-label">{t("租约 P50 存活时长")}</p>
             <p className="platform-monitor-kpi-value">{formatLatency(latestP50LeaseMs)}</p>
-            <p className="platform-monitor-kpi-sub">历史租约时长统计</p>
+            <p className="platform-monitor-kpi-sub">{t("历史租约时长统计")}</p>
           </div>
         </Card>
       </div>
@@ -973,37 +968,37 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
       <div className="platform-monitor-grid">
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>活跃租约趋势</h3>
-            <p>平台实时租约数量</p>
+            <h3>{t("活跃租约趋势")}</h3>
+            <p>{t("平台实时租约数量")}</p>
           </div>
           <TrendLineChart
             data={leaseTrendData}
-            emptyText="暂无租约实时数据"
+            emptyText={t("暂无租约实时数据")}
             yTickFormatter={formatShortNumber}
-            lines={[{ dataKey: "active_leases", name: "活跃租约", color: "#2068f6" }]}
+            lines={[{ dataKey: "active_leases", name: t("活跃租约"), color: "#2068f6" }]}
           />
         </Card>
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>请求质量</h3>
-            <p>请求总量 + 成功率</p>
+            <h3>{t("请求质量")}</h3>
+            <p>{t("请求总量 + 成功率")}</p>
           </div>
-          <RequestQualityChart data={requestTrendData} emptyText="暂无请求统计数据" />
+          <RequestQualityChart data={requestTrendData} emptyText={t("暂无请求统计数据")} />
           <div className="dashboard-summary-inline">
-            <span>总请求 {formatCount(totalRequests)}</span>
-            <span>成功率 {formatPercent(requestSuccessRatio)}</span>
+            <span>{t("总请求")} {formatCount(totalRequests)}</span>
+            <span>{t("成功率")} {formatPercent(requestSuccessRatio)}</span>
           </div>
         </Card>
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>租约存活分位趋势</h3>
+            <h3>{t("租约存活分位趋势")}</h3>
             <p>P1 / P5 / P50 (ms)</p>
           </div>
           <TrendLineChart
             data={leaseLifetimeTrendData}
-            emptyText="暂无租约生命周期数据"
+            emptyText={t("暂无租约生命周期数据")}
             yTickFormatter={formatLatency}
             lines={[
               { dataKey: "p1_ms", name: "P1", color: "#2d63d8" },
@@ -1015,25 +1010,25 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>平台节点快照</h3>
-            <p>当前平台节点池与延迟样本</p>
+            <h3>{t("平台节点快照")}</h3>
+            <p>{t("当前平台节点池与延迟样本")}</p>
           </div>
 
           <div className="platform-monitor-snapshot-list">
             <div>
-              <span>可路由节点数</span>
+              <span>{t("可路由节点数")}</span>
               <p>{formatCount(snapshotNodePool?.routable_node_count ?? 0)}</p>
             </div>
             <div>
-              <span>出口 IP 数</span>
+              <span>{t("出口 IP 数")}</span>
               <p>{formatCount(snapshotNodePool?.egress_ip_count ?? 0)}</p>
             </div>
             <div>
-              <span>延迟样本数</span>
+              <span>{t("延迟样本数")}</span>
               <p>{formatCount(snapshotLatency?.sample_count ?? 0)}</p>
             </div>
             <div>
-              <span>快照更新时间</span>
+              <span>{t("快照更新时间")}</span>
               <p>{snapshotLatency?.generated_at ? formatClock(snapshotLatency.generated_at) : "--"}</p>
             </div>
           </div>
@@ -1041,27 +1036,27 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
 
         <Card className="dashboard-panel platform-monitor-span-2">
           <div className="dashboard-panel-header">
-            <h3>访问延迟分布（历史最新桶）</h3>
-            <p>历史访问延迟分布</p>
+            <h3>{t("访问延迟分布（历史最新桶）")}</h3>
+            <p>{t("历史访问延迟分布")}</p>
           </div>
-          <LatencyHistogram buckets={latestAccessLatency?.buckets ?? []} emptyText="暂无访问延迟分布数据" />
+          <LatencyHistogram buckets={latestAccessLatency?.buckets ?? []} emptyText={t("暂无访问延迟分布数据")} />
           <div className="dashboard-summary-inline">
-            <span>时间 {latestAccessLatency ? formatClock(latestAccessLatency.bucket_end) : "--"}</span>
-            <span>样本 {formatCount(latestAccessLatency?.sample_count ?? 0)}</span>
-            <span>溢出 {formatCount(latestAccessLatency?.overflow_count ?? 0)}</span>
+            <span>{t("时间")} {latestAccessLatency ? formatClock(latestAccessLatency.bucket_end) : "--"}</span>
+            <span>{t("样本")} {formatCount(latestAccessLatency?.sample_count ?? 0)}</span>
+            <span>{t("溢出")} {formatCount(latestAccessLatency?.overflow_count ?? 0)}</span>
           </div>
         </Card>
 
         <Card className="dashboard-panel platform-monitor-span-2">
           <div className="dashboard-panel-header">
-            <h3>节点延迟分布（实时快照）</h3>
-            <p>实时节点延迟分布快照</p>
+            <h3>{t("节点延迟分布（实时快照）")}</h3>
+            <p>{t("实时节点延迟分布快照")}</p>
           </div>
-          <LatencyHistogram buckets={snapshotLatency?.buckets ?? []} emptyText="暂无节点延迟快照数据" />
+          <LatencyHistogram buckets={snapshotLatency?.buckets ?? []} emptyText={t("暂无节点延迟快照数据")} />
           <div className="dashboard-summary-inline">
-            <span>样本 {formatCount(snapshotLatency?.sample_count ?? 0)}</span>
-            <span>溢出 {formatCount(snapshotLatency?.overflow_count ?? 0)}</span>
-            <span>分桶 {formatCount(snapshotLatency?.bin_width_ms ?? 0)}ms</span>
+            <span>{t("样本")} {formatCount(snapshotLatency?.sample_count ?? 0)}</span>
+            <span>{t("溢出")} {formatCount(snapshotLatency?.overflow_count ?? 0)}</span>
+            <span>{t("分桶")} {formatCount(snapshotLatency?.bin_width_ms ?? 0)}ms</span>
           </div>
         </Card>
       </div>
@@ -1069,13 +1064,13 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
       {isInitialLoading ? (
         <div className="callout callout-warning">
           <Activity size={14} />
-          <span>平台监控数据加载中...</span>
+          <span>{t("平台监控数据加载中...")}</span>
         </div>
       ) : null}
 
       {(realtimeQuery.isFetching || historyQuery.isFetching || snapshotQuery.isFetching) && !isInitialLoading ? (
         <div className="platform-monitor-refreshing">
-          <Badge variant="warning">监控数据刷新中</Badge>
+          <Badge variant="warning">{t("监控数据刷新中")}</Badge>
         </div>
       ) : null}
     </section>

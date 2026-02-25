@@ -32,9 +32,9 @@ export function LanguageSwitcher({ className, compact = false }: LanguageSwitche
         type="button"
         className={cn("locale-switch-btn", locale === "zh-CN" && "locale-switch-btn-active")}
         onClick={() => setLocale("zh-CN")}
-        title="中文"
+        title={t("中文")}
       >
-        中文
+        {t("中文")}
       </button>
       <button
         type="button"

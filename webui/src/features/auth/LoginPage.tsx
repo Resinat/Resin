@@ -81,7 +81,7 @@ export function LoginPage() {
       });
     } catch (error) {
       if (error instanceof ApiError) {
-        setSubmitError(t(`登录失败：${error.message}`));
+        setSubmitError(t("登录失败：{{message}}", { message: error.message }));
       } else {
         setSubmitError(t("登录失败：无法连接 API。请确认 Resin 在 2260 端口运行，并使用 `npm run dev`（含 /api 代理）启动前端。"));
       }
@@ -126,7 +126,7 @@ export function LoginPage() {
             />
           </div>
 
-          {errors.token?.message ? <p className="field-error">{errors.token.message}</p> : null}
+          {errors.token?.message ? <p className="field-error">{t(errors.token.message)}</p> : null}
           {submitError ? <p className="field-error">{submitError}</p> : null}
 
           <Button type="submit" className="w-full" disabled={isSubmitting}>

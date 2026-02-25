@@ -5,8 +5,9 @@ import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, ResponsiveCont
 import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
+import { useI18n } from "../../i18n";
 import { getCurrentLocale, isEnglishLocale } from "../../i18n/locale";
-import { ApiError } from "../../lib/api-client";
+import { formatApiErrorMessage } from "../../lib/error-message";
 import {
   type DashboardGlobalHistoryData,
   type DashboardGlobalRealtimeData,
@@ -93,16 +94,6 @@ const MAX_HISTORY_REFRESH_MS = 300_000;
 const SNAPSHOT_REFRESH_MS = 5_000;
 const MAX_TREND_POINTS = 480;
 const MAX_HISTOGRAM_BUCKETS = 120;
-
-function fromApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "未知错误";
-}
 
 function getTimeWindow(rangeKey: RangeKey): TimeWindow {
   const option = RANGE_OPTIONS.find((item) => item.key === rangeKey) ?? RANGE_OPTIONS[1];
@@ -444,6 +435,7 @@ function TrendTooltipContent({ active, payload, label, series, valueFormatter }:
 }
 
 function TrendChart({ labels, series, formatYAxisLabel }: TrendChartProps) {
+  const { t } = useI18n();
   const safeSeries = sanitizeSeries(series);
   const sampled = downsampleTrendInput(labels, safeSeries, MAX_TREND_POINTS);
   const yLabelFormatter = formatYAxisLabel ?? formatShortNumber;
@@ -469,7 +461,7 @@ function TrendChart({ labels, series, formatYAxisLabel }: TrendChartProps) {
     return (
       <div className="empty-box dashboard-empty">
         <AlertTriangle size={14} />
-        <p>无可视化数据</p>
+        <p>{t("无可视化数据")}</p>
       </div>
     );
   }
@@ -547,6 +539,8 @@ function TrendChart({ labels, series, formatYAxisLabel }: TrendChartProps) {
 }
 
 function HistogramTooltipContent({ active, payload }: HistogramTooltipContentProps) {
+  const { t } = useI18n();
+
   if (!active || !payload?.length) {
     return null;
   }
@@ -560,7 +554,7 @@ function HistogramTooltipContent({ active, payload }: HistogramTooltipContentPro
   return (
     <div className="histogram-tooltip">
       <p className="histogram-tooltip-title">{`${formatCount(lowerBound)}～${formatCount(upperBound)} ms`}</p>
-      <p className="histogram-tooltip-value">{`节点数 ${formatCount(safeCount)}`}</p>
+      <p className="histogram-tooltip-value">{t("节点数 {{count}}", { count: formatCount(safeCount) })}</p>
     </div>
   );
 }
@@ -586,13 +580,14 @@ function compressHistogram(buckets: LatencyBucket[], limit = MAX_HISTOGRAM_BUCKE
 }
 
 function Histogram({ buckets }: { buckets: LatencyBucket[] }) {
+  const { t } = useI18n();
   const gradientId = `histogram-gradient-${useId().replace(/:/g, "")}`;
 
   if (!buckets.length) {
     return (
       <div className="empty-box dashboard-empty">
         <AlertTriangle size={14} />
-        <p>无分布数据</p>
+        <p>{t("无分布数据")}</p>
       </div>
     );
   }
@@ -716,6 +711,7 @@ function historyRefreshMsFromBuckets(bucketSeconds: Array<number | undefined>): 
 }
 
 export function DashboardPage() {
+  const { t } = useI18n();
   const [rangeKey, setRangeKey] = useState<RangeKey>("6h");
   const queryClient = useQueryClient();
 
@@ -891,16 +887,16 @@ export function DashboardPage() {
     <section className="dashboard-page">
       <header className="module-header">
         <div>
-          <h2>总览看板</h2>
-          <p className="module-description">快速发现流量与节点异常，掌握整体运行状态。</p>
+          <h2>{t("总览看板")}</h2>
+          <p className="module-description">{t("快速发现流量与节点异常，掌握整体运行状态。")}</p>
         </div>
         <div className="dashboard-header-controls">
           <label className="dashboard-control">
-            <span>时间范围</span>
+            <span>{t("时间范围")}</span>
             <Select value={rangeKey} onChange={(event) => setRangeKey(event.target.value as RangeKey)}>
               {RANGE_OPTIONS.map((item) => (
                 <option key={item.key} value={item.key}>
-                  {item.label}
+                  {t(item.label)}
                 </option>
               ))}
             </Select>
@@ -911,7 +907,7 @@ export function DashboardPage() {
       {globalError ? (
         <div className="callout callout-error">
           <AlertTriangle size={14} />
-          <span>{fromApiError(globalError)}</span>
+          <span>{formatApiErrorMessage(globalError, t)}</span>
         </div>
       ) : null}
 
@@ -921,10 +917,10 @@ export function DashboardPage() {
             <Waves size={18} />
           </div>
           <div>
-            <p className="dashboard-kpi-label">实时吞吐</p>
+            <p className="dashboard-kpi-label">{t("实时吞吐")}</p>
             <p className="dashboard-kpi-value">{formatBps(latestIngress + latestEgress)}</p>
             <p className="dashboard-kpi-sub">
-              下载 {formatBps(latestIngress)} · 上传 {formatBps(latestEgress)}
+              {t("下载")} {formatBps(latestIngress)} · {t("上传")} {formatBps(latestEgress)}
             </p>
           </div>
         </Card>
@@ -934,10 +930,10 @@ export function DashboardPage() {
             <Gauge size={18} />
           </div>
           <div>
-            <p className="dashboard-kpi-label">实时连接数</p>
+            <p className="dashboard-kpi-label">{t("实时连接数")}</p>
             <p className="dashboard-kpi-value">{formatCount(latestConnections)}</p>
             <p className="dashboard-kpi-sub">
-              入站 {formatCount(latestValue(connectionsInbound))} · 出站 {formatCount(latestValue(connectionsOutbound))}
+              {t("入站")} {formatCount(latestValue(connectionsInbound))} · {t("出站")} {formatCount(latestValue(connectionsOutbound))}
             </p>
           </div>
         </Card>
@@ -947,10 +943,10 @@ export function DashboardPage() {
             <Shield size={18} />
           </div>
           <div>
-            <p className="dashboard-kpi-label">节点健康率</p>
+            <p className="dashboard-kpi-label">{t("节点健康率")}</p>
             <p className="dashboard-kpi-value">{formatPercent(nodeHealthRate)}</p>
             <p className="dashboard-kpi-sub">
-              健康 {formatCount(snapshotNodePool?.healthy_nodes ?? 0)} / 总计 {formatCount(snapshotNodePool?.total_nodes ?? 0)}
+              {t("健康")} {formatCount(snapshotNodePool?.healthy_nodes ?? 0)} / {t("总计")} {formatCount(snapshotNodePool?.total_nodes ?? 0)}
             </p>
           </div>
           <Badge className="dashboard-kpi-badge" variant={nodeHealthRate >= 0.75 ? "success" : "warning"}>
@@ -963,9 +959,9 @@ export function DashboardPage() {
             <Layers size={18} />
           </div>
           <div>
-            <p className="dashboard-kpi-label">活跃租约数</p>
+            <p className="dashboard-kpi-label">{t("活跃租约数")}</p>
             <p className="dashboard-kpi-value">{formatCount(latestLeases)}</p>
-            <p className="dashboard-kpi-sub">来自所有平台租约总和</p>
+            <p className="dashboard-kpi-sub">{t("来自所有平台租约总和")}</p>
           </div>
         </Card>
       </div>
@@ -973,21 +969,21 @@ export function DashboardPage() {
       <div className="dashboard-main-grid">
         <Card className="dashboard-panel span-2">
           <div className="dashboard-panel-header">
-            <h3>吞吐趋势</h3>
-            <p>实时下载 / 上传速率（bps）</p>
+            <h3>{t("吞吐趋势")}</h3>
+            <p>{t("实时下载 / 上传速率（bps）")}</p>
           </div>
           <TrendChart
             labels={throughputLabels}
             formatYAxisLabel={formatShortBps}
             series={[
               {
-                name: "下载速率",
+                name: t("下载速率"),
                 values: throughputIngress,
                 color: "#1076ff",
                 fillColor: "rgba(16, 118, 255, 0.14)",
               },
               {
-                name: "上传速率",
+                name: t("上传速率"),
                 values: throughputEgress,
                 color: "#00a17f",
               },
@@ -996,32 +992,32 @@ export function DashboardPage() {
           <div className="dashboard-legend">
             <span>
               <i style={{ background: "#1076ff" }} />
-              下载速率
+              {t("下载速率")}
             </span>
             <span>
               <i style={{ background: "#00a17f" }} />
-              上传速率
+              {t("上传速率")}
             </span>
           </div>
         </Card>
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>连接峰值</h3>
-            <p>实时入站 / 出站连接</p>
+            <h3>{t("连接峰值")}</h3>
+            <p>{t("实时入站 / 出站连接")}</p>
           </div>
           <TrendChart
             labels={connectionsLabels}
             formatYAxisLabel={formatShortNumber}
             series={[
               {
-                name: "入站连接",
+                name: t("入站连接"),
                 values: connectionsInbound,
                 color: "#2467e4",
                 fillColor: "rgba(36, 103, 228, 0.12)",
               },
               {
-                name: "出站连接",
+                name: t("出站连接"),
                 values: connectionsOutbound,
                 color: "#f18f01",
               },
@@ -1030,19 +1026,19 @@ export function DashboardPage() {
           <div className="dashboard-legend">
             <span>
               <i style={{ background: "#2467e4" }} />
-              入站连接
+              {t("入站连接")}
             </span>
             <span>
               <i style={{ background: "#f18f01" }} />
-              出站连接
+              {t("出站连接")}
             </span>
           </div>
         </Card>
 
         <Card className="dashboard-panel span-2">
           <div className="dashboard-panel-header">
-            <h3>节点延迟分布</h3>
-            <p>延迟直方图</p>
+            <h3>{t("节点延迟分布")}</h3>
+            <p>{t("延迟直方图")}</p>
           </div>
 
           <Histogram buckets={activeLatencyHistogram} />
@@ -1050,21 +1046,21 @@ export function DashboardPage() {
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>节点池趋势</h3>
-            <p>节点总数 / 健康节点数</p>
+            <h3>{t("节点池趋势")}</h3>
+            <p>{t("节点总数 / 健康节点数")}</p>
           </div>
           <TrendChart
             labels={nodeLabels}
             formatYAxisLabel={formatShortNumber}
             series={[
               {
-                name: "节点总数",
+                name: t("节点总数"),
                 values: nodeTotal,
                 color: "#2d63d8",
                 fillColor: "rgba(45, 99, 216, 0.11)",
               },
               {
-                name: "健康节点数",
+                name: t("健康节点数"),
                 values: nodeHealthy,
                 color: "#0c9f68",
               },
@@ -1074,69 +1070,69 @@ export function DashboardPage() {
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>请求统计</h3>
-            <p>总请求数 / 成功请求数</p>
+            <h3>{t("请求统计")}</h3>
+            <p>{t("总请求数 / 成功请求数")}</p>
           </div>
           <TrendChart
             labels={requestLabels}
             formatYAxisLabel={formatShortNumber}
             series={[
               {
-                name: "总请求数",
+                name: t("总请求数"),
                 values: requestTotals,
                 color: "#2467e4",
               },
               {
-                name: "成功请求数",
+                name: t("成功请求数"),
                 values: requestSuccesses,
                 color: "#0f9d8b",
               },
             ]}
           />
           <div className="dashboard-summary-inline">
-            <span>总请求 {formatCount(totalRequests)}</span>
-            <span>成功请求 {formatCount(successRequests)}</span>
+            <span>{t("总请求")} {formatCount(totalRequests)}</span>
+            <span>{t("成功请求")} {formatCount(successRequests)}</span>
           </div>
         </Card>
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>流量累计</h3>
-            <p>窗口内下载 / 上传流量（字节）</p>
+            <h3>{t("流量累计")}</h3>
+            <p>{t("窗口内下载 / 上传流量（字节）")}</p>
           </div>
           <TrendChart
             labels={trafficLabels}
             formatYAxisLabel={formatShortBytes}
             series={[
               {
-                name: "下载流量",
+                name: t("下载流量"),
                 values: trafficIngress,
                 color: "#2068f6",
                 fillColor: "rgba(32, 104, 246, 0.12)",
               },
               {
-                name: "上传流量",
+                name: t("上传流量"),
                 values: trafficEgress,
                 color: "#0f9d8b",
               },
             ]}
           />
           <div className="dashboard-summary-inline">
-            <span>总流量 {formatBytes(totalTrafficBytes)}</span>
+            <span>{t("总流量")} {formatBytes(totalTrafficBytes)}</span>
           </div>
         </Card>
 
         <Card className="dashboard-panel">
           <div className="dashboard-panel-header">
-            <h3>探测任务量</h3>
-            <p>历史探测总次数</p>
+            <h3>{t("探测任务量")}</h3>
+            <p>{t("历史探测总次数")}</p>
           </div>
           <TrendChart
             labels={probeLabels}
             formatYAxisLabel={formatShortNumber}
             series={[
               {
-                name: "探测次数",
+                name: t("探测次数"),
                 values: probeCounts,
                 color: "#e26a2c",
                 fillColor: "rgba(226, 106, 44, 0.16)",
@@ -1150,7 +1146,7 @@ export function DashboardPage() {
       {isInitialLoading ? (
         <div className="callout callout-warning">
           <Server size={14} />
-          <span>总览看板数据加载中...</span>
+          <span>{t("总览看板数据加载中...")}</span>
         </div>
       ) : null}
     </section>

@@ -14,7 +14,8 @@ import { Select } from "../../components/ui/Select";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
-import { ApiError } from "../../lib/api-client";
+import { useI18n } from "../../i18n";
+import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatGoDuration, formatRelativeTime } from "../../lib/time";
 import { createPlatform, listPlatforms } from "./api";
 import type { Platform, PlatformAllocationPolicy, PlatformMissAction } from "./types";
@@ -65,17 +66,8 @@ function parseLinesToList(input: string | undefined, normalize?: (value: string)
     .map((item) => (normalize ? normalize(item) : item));
 }
 
-function fromApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "未知错误";
-}
-
 export function PlatformPage() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -121,11 +113,11 @@ export function PlatformPage() {
       await queryClient.invalidateQueries({ queryKey: ["platforms"] });
       setCreateModalOpen(false);
       createForm.reset();
-      showToast("success", `平台 ${created.name} 创建成功`);
+      showToast("success", t("平台 {{name}} 创建成功", { name: created.name }));
       navigate(`/platforms/${created.id}`);
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -149,8 +141,8 @@ export function PlatformPage() {
     <section className="platform-page">
       <header className="module-header">
         <div>
-          <h2>平台管理</h2>
-          <p className="module-description">集中维护平台策略与节点分配规则。</p>
+          <h2>{t("平台管理")}</h2>
+          <p className="module-description">{t("集中维护平台策略与节点分配规则。")}</p>
         </div>
       </header>
 
@@ -159,15 +151,15 @@ export function PlatformPage() {
       <Card className="platform-list-card platform-directory-card">
         <div className="list-card-header">
           <div>
-            <h3>平台列表</h3>
-            <p>共 {totalPlatforms} 个平台</p>
+            <h3>{t("平台列表")}</h3>
+            <p>{t("共 {{count}} 个平台", { count: totalPlatforms })}</p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <label className="search-box" htmlFor="platform-search" style={{ maxWidth: 200, margin: 0, gap: 6 }}>
               <Search size={16} />
               <Input
                 id="platform-search"
-                placeholder="搜索平台"
+                placeholder={t("搜索平台")}
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value);
@@ -182,7 +174,7 @@ export function PlatformPage() {
               onClick={() => setCreateModalOpen(true)}
             >
               <Plus size={16} />
-              新建
+              {t("新建")}
             </Button>
             <Button
               variant="secondary"
@@ -191,26 +183,26 @@ export function PlatformPage() {
               disabled={platformsQuery.isFetching}
             >
               <RefreshCw size={16} className={platformsQuery.isFetching ? "spin" : undefined} />
-              刷新
+              {t("刷新")}
             </Button>
           </div>
         </div>
       </Card>
 
       <Card className="platform-cards-container">
-        {platformsQuery.isLoading ? <p className="muted">正在加载平台数据...</p> : null}
+        {platformsQuery.isLoading ? <p className="muted">{t("正在加载平台数据...")}</p> : null}
 
         {platformsQuery.isError ? (
           <div className="callout callout-error">
             <AlertTriangle size={14} />
-            <span>{fromApiError(platformsQuery.error)}</span>
+            <span>{formatApiErrorMessage(platformsQuery.error, t)}</span>
           </div>
         ) : null}
 
         {!platformsQuery.isLoading && !platforms.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
-            <p>没有匹配的平台</p>
+            <p>{t("没有匹配的平台")}</p>
           </div>
         ) : null}
 
@@ -218,7 +210,7 @@ export function PlatformPage() {
           {platforms.map((platform) => {
             const regionCount = platform.region_filters.length;
             const regexCount = platform.regex_filters.length;
-            const stickyTTL = formatGoDuration(platform.sticky_ttl, "默认");
+            const stickyTTL = formatGoDuration(platform.sticky_ttl, t("默认"));
 
             return (
               <button
@@ -230,26 +222,30 @@ export function PlatformPage() {
                 <div className="platform-tile-head">
                   <p>{platform.name}</p>
                   <Badge variant={platform.id === ZERO_UUID ? "warning" : "success"}>
-                    {platform.id === ZERO_UUID ? "内置平台" : "自定义平台"}
+                    {platform.id === ZERO_UUID ? t("内置平台") : t("自定义平台")}
                   </Badge>
                 </div>
                 <div className="platform-tile-facts">
                   <span className="platform-fact">
-                    <span>区域</span>
+                    <span>{t("区域")}</span>
                     <strong>{regionCount}</strong>
                   </span>
                   <span className="platform-fact">
-                    <span>正则</span>
+                    <span>{t("正则")}</span>
                     <strong>{regexCount}</strong>
                   </span>
                   <span className="platform-fact">
-                    <span>租约时长</span>
+                    <span>{t("租约时长")}</span>
                     <strong>{stickyTTL}</strong>
                   </span>
                 </div>
                 <div className="platform-tile-foot">
-                  <span className="platform-tile-meta">{platform.routable_node_count} 个可用节点</span>
-                  <span className="platform-tile-meta platform-tile-updated">更新于 {formatRelativeTime(platform.updated_at)}</span>
+                  <span className="platform-tile-meta">
+                    {t("{{count}} 个可用节点", { count: platform.routable_node_count })}
+                  </span>
+                  <span className="platform-tile-meta platform-tile-updated">
+                    {t("更新于 {{time}}", { time: formatRelativeTime(platform.updated_at) })}
+                  </span>
                 </div>
               </button>
             );
@@ -271,38 +267,38 @@ export function PlatformPage() {
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <Card className="modal-card">
             <div className="modal-header">
-              <h3>新建平台</h3>
+              <h3>{t("新建平台")}</h3>
               <Button variant="ghost" size="sm" onClick={() => setCreateModalOpen(false)}>
-                关闭
+                {t("关闭")}
               </Button>
             </div>
 
             <form className="form-grid" onSubmit={onCreateSubmit}>
               <div className="field-group">
                 <label className="field-label" htmlFor="create-name">
-                  名称
+                  {t("名称")}
                 </label>
                 <Input id="create-name" invalid={Boolean(createForm.formState.errors.name)} {...createForm.register("name")} />
                 {createForm.formState.errors.name?.message ? (
-                  <p className="field-error">{createForm.formState.errors.name.message}</p>
+                  <p className="field-error">{t(createForm.formState.errors.name.message)}</p>
                 ) : null}
               </div>
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-sticky">
-                  租约保持时长（可选）
+                  {t("租约保持时长（可选）")}
                 </label>
-                <Input id="create-sticky" placeholder="例如 168h" {...createForm.register("sticky_ttl")} />
+                <Input id="create-sticky" placeholder={t("例如 168h")} {...createForm.register("sticky_ttl")} />
               </div>
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-miss-action">
-                  反向代理未命中策略
+                  {t("反向代理未命中策略")}
                 </label>
                 <Select id="create-miss-action" {...createForm.register("reverse_proxy_miss_action")}>
                   {missActions.map((item) => (
                     <option key={item} value={item}>
-                      {missActionLabel[item]}
+                      {t(missActionLabel[item])}
                     </option>
                   ))}
                 </Select>
@@ -310,12 +306,12 @@ export function PlatformPage() {
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-policy">
-                  节点分配策略
+                  {t("节点分配策略")}
                 </label>
                 <Select id="create-policy" {...createForm.register("allocation_policy")}>
                   {allocationPolicies.map((item) => (
                     <option key={item} value={item}>
-                      {allocationPolicyLabel[item]}
+                      {t(allocationPolicyLabel[item])}
                     </option>
                   ))}
                 </Select>
@@ -323,24 +319,24 @@ export function PlatformPage() {
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-regex">
-                  节点名正则过滤规则（可选）
+                  {t("节点名正则过滤规则（可选）")}
                 </label>
-                <Textarea id="create-regex" rows={4} placeholder="每行一条" {...createForm.register("regex_filters_text")} />
+                <Textarea id="create-regex" rows={4} placeholder={t("每行一条")} {...createForm.register("regex_filters_text")} />
               </div>
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-region">
-                  地区过滤规则（可选）
+                  {t("地区过滤规则（可选）")}
                 </label>
-                <Textarea id="create-region" rows={4} placeholder="每行一条，如 hk / us" {...createForm.register("region_filters_text")} />
+                <Textarea id="create-region" rows={4} placeholder={t("每行一条，如 hk / us")} {...createForm.register("region_filters_text")} />
               </div>
 
               <div className="detail-actions">
                 <Button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending ? "创建中..." : "确认创建"}
+                  {createMutation.isPending ? t("创建中...") : t("确认创建")}
                 </Button>
                 <Button variant="secondary" onClick={() => setCreateModalOpen(false)}>
-                  取消
+                  {t("取消")}
                 </Button>
               </div>
             </form>

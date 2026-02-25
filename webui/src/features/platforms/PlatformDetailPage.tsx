@@ -14,7 +14,7 @@ import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
-import { ApiError } from "../../lib/api-client";
+import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatGoDuration, formatRelativeTime } from "../../lib/time";
 import { deletePlatform, getPlatform, rebuildPlatform, resetPlatform, updatePlatform } from "./api";
 import { PlatformMonitorPanel } from "./PlatformMonitorPanel";
@@ -84,16 +84,6 @@ function platformToEditForm(platform: Platform): PlatformEditForm {
   };
 }
 
-function fromApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "未知错误";
-}
-
 export function PlatformDetailPage() {
   const { t } = useI18n();
   const { platformId = "" } = useParams();
@@ -156,10 +146,10 @@ export function PlatformDetailPage() {
     onSuccess: async (updated) => {
       await invalidatePlatform(updated.id);
       editForm.reset(platformToEditForm(updated));
-      showToast("success", `平台 ${updated.name} 已更新`);
+      showToast("success", t("平台 {{name}} 已更新", { name: updated.name }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -173,10 +163,10 @@ export function PlatformDetailPage() {
     onSuccess: async (updated) => {
       await invalidatePlatform(updated.id);
       editForm.reset(platformToEditForm(updated));
-      showToast("success", `平台 ${updated.name} 已重置为默认配置`);
+      showToast("success", t("平台 {{name}} 已重置为默认配置", { name: updated.name }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -189,10 +179,10 @@ export function PlatformDetailPage() {
       return platform;
     },
     onSuccess: (updated) => {
-      showToast("success", `平台 ${updated.name} 已完成节点池重建`);
+      showToast("success", t("平台 {{name}} 已完成节点池重建", { name: updated.name }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -206,11 +196,11 @@ export function PlatformDetailPage() {
     },
     onSuccess: async (deleted) => {
       await queryClient.invalidateQueries({ queryKey: ["platforms"] });
-      showToast("success", `平台 ${deleted.name} 已删除`);
+      showToast("success", t("平台 {{name}} 已删除", { name: deleted.name }));
       navigate("/platforms", { replace: true });
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -222,14 +212,14 @@ export function PlatformDetailPage() {
     if (!platform) {
       return;
     }
-    const confirmed = window.confirm(t(`确认删除平台 ${platform.name}？该操作不可撤销。`));
+    const confirmed = window.confirm(t("确认删除平台 {{name}}？该操作不可撤销。", { name: platform.name }));
     if (!confirmed) {
       return;
     }
     await deleteMutation.mutateAsync();
   };
 
-  const stickyTTL = platform ? formatGoDuration(platform.sticky_ttl, "默认") : "默认";
+  const stickyTTL = platform ? formatGoDuration(platform.sticky_ttl, t("默认")) : t("默认");
   const regionCount = platform?.region_filters.length ?? 0;
   const regexCount = platform?.regex_filters.length ?? 0;
 
@@ -237,17 +227,17 @@ export function PlatformDetailPage() {
     <section className="platform-page platform-detail-page">
       <header className="module-header">
         <div>
-          <h2>平台详情</h2>
-          <p className="module-description">调整当前平台策略，并执行维护操作。</p>
+          <h2>{t("平台详情")}</h2>
+          <p className="module-description">{t("调整当前平台策略，并执行维护操作。")}</p>
         </div>
         <div className="platform-detail-toolbar">
           <Button variant="secondary" size="sm" onClick={() => navigate("/platforms")}>
             <ArrowLeft size={16} />
-            返回列表
+            {t("返回列表")}
           </Button>
           <Button variant="secondary" size="sm" onClick={() => platformQuery.refetch()} disabled={!platformId || platformQuery.isFetching}>
             <RefreshCw size={16} className={platformQuery.isFetching ? "spin" : undefined} />
-            刷新
+            {t("刷新")}
           </Button>
         </div>
       </header>
@@ -257,20 +247,20 @@ export function PlatformDetailPage() {
       {!platformId ? (
         <div className="callout callout-error">
           <AlertTriangle size={14} />
-          <span>平台 ID 缺失，无法加载详情。</span>
+          <span>{t("平台 ID 缺失，无法加载详情。")}</span>
         </div>
       ) : null}
 
       {platformQuery.isError && !platform ? (
         <div className="callout callout-error">
           <AlertTriangle size={14} />
-          <span>{fromApiError(platformQuery.error)}</span>
+          <span>{formatApiErrorMessage(platformQuery.error, t)}</span>
         </div>
       ) : null}
 
       {platformQuery.isLoading && !platform ? (
         <Card className="platform-cards-container">
-          <p className="muted">正在加载平台详情...</p>
+          <p className="muted">{t("正在加载平台详情...")}</p>
         </Card>
       ) : null}
 
@@ -284,43 +274,43 @@ export function PlatformDetailPage() {
               </div>
               <div className="platform-detail-header-meta">
                 <Badge variant={platform.id === ZERO_UUID ? "warning" : "success"}>
-                  {platform.id === ZERO_UUID ? "内置平台" : "自定义平台"}
+                  {platform.id === ZERO_UUID ? t("内置平台") : t("自定义平台")}
                 </Badge>
-                <span>更新于 {formatRelativeTime(platform.updated_at)}</span>
+                <span>{t("更新于 {{time}}", { time: formatRelativeTime(platform.updated_at) })}</span>
               </div>
             </div>
             <div className="platform-detail-header-footer">
               <div className="platform-tile-facts">
                 <span className="platform-fact">
-                  <span>区域</span>
+                  <span>{t("区域")}</span>
                   <strong>{regionCount}</strong>
                 </span>
                 <span className="platform-fact">
-                  <span>正则</span>
+                  <span>{t("正则")}</span>
                   <strong>{regexCount}</strong>
                 </span>
                 <span className="platform-fact">
-                  <span>租约时长</span>
+                  <span>{t("租约时长")}</span>
                   <strong>{stickyTTL}</strong>
                 </span>
                 <span className="platform-fact">
-                  <span>策略</span>
-                  <strong>{allocationPolicyLabel[platform.allocation_policy]}</strong>
+                  <span>{t("策略")}</span>
+                  <strong>{t(allocationPolicyLabel[platform.allocation_policy])}</strong>
                 </span>
                 <span className="platform-fact">
-                  <span>未命中策略</span>
-                  <strong>{missActionLabel[platform.reverse_proxy_miss_action]}</strong>
+                  <span>{t("未命中策略")}</span>
+                  <strong>{t(missActionLabel[platform.reverse_proxy_miss_action])}</strong>
                 </span>
               </div>
               <Link to={`/nodes?platform_id=${encodeURIComponent(platform.id)}`} className="platform-detail-node-link">
                 <Link2 size={14} />
-                <span>可路由节点</span>
+                <span>{t("可路由节点")}</span>
               </Link>
             </div>
           </Card>
 
           <Card className="platform-cards-container platform-detail-main-card">
-            <div className="platform-detail-tabs" role="tablist" aria-label="平台详情板块">
+            <div className="platform-detail-tabs" role="tablist" aria-label={t("平台详情板块")}>
               {DETAIL_TABS.map((tab) => {
                 const selected = activeTab === tab.key;
                 return (
@@ -332,10 +322,10 @@ export function PlatformDetailPage() {
                     aria-selected={selected}
                     aria-controls={`platform-tabpanel-${tab.key}`}
                     className={`platform-detail-tab ${selected ? "platform-detail-tab-active" : ""}`}
-                    title={tab.hint}
+                    title={t(tab.hint)}
                     onClick={() => setActiveTab(tab.key)}
                   >
-                    <span>{tab.label}</span>
+                    <span>{t(tab.label)}</span>
                   </button>
                 );
               })}
@@ -360,28 +350,28 @@ export function PlatformDetailPage() {
                 className="platform-detail-tabpanel"
               >
                 <div className="platform-drawer-section-head">
-                  <h4>平台配置</h4>
-                  <p>修改过滤策略与路由策略后点击保存。</p>
+                  <h4>{t("平台配置")}</h4>
+                  <p>{t("修改过滤策略与路由策略后点击保存。")}</p>
                 </div>
 
                 <form className="form-grid platform-config-form" onSubmit={onEditSubmit}>
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-name">
-                      名称
+                      {t("名称")}
                     </label>
                     <Input id="detail-edit-name" invalid={Boolean(editForm.formState.errors.name)} {...editForm.register("name")} />
                     {editForm.formState.errors.name?.message ? (
-                      <p className="field-error">{editForm.formState.errors.name.message}</p>
+                      <p className="field-error">{t(editForm.formState.errors.name.message)}</p>
                     ) : null}
                   </div>
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-sticky">
-                      租约保持时长
+                      {t("租约保持时长")}
                     </label>
                     <Input
                       id="detail-edit-sticky"
-                      placeholder="例如 168h"
+                      placeholder={t("例如 168h")}
                       invalid={Boolean(editForm.formState.errors.sticky_ttl)}
                       {...editForm.register("sticky_ttl")}
                     />
@@ -389,12 +379,12 @@ export function PlatformDetailPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-miss-action">
-                      反向代理未命中策略
+                      {t("反向代理未命中策略")}
                     </label>
                     <Select id="detail-edit-miss-action" {...editForm.register("reverse_proxy_miss_action")}>
                       {missActions.map((item) => (
                         <option key={item} value={item}>
-                          {missActionLabel[item]}
+                          {t(missActionLabel[item])}
                         </option>
                       ))}
                     </Select>
@@ -402,12 +392,12 @@ export function PlatformDetailPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-policy">
-                      节点分配策略
+                      {t("节点分配策略")}
                     </label>
                     <Select id="detail-edit-policy" {...editForm.register("allocation_policy")}>
                       {allocationPolicies.map((item) => (
                         <option key={item} value={item}>
-                          {allocationPolicyLabel[item]}
+                          {t(allocationPolicyLabel[item])}
                         </option>
                       ))}
                     </Select>
@@ -415,26 +405,26 @@ export function PlatformDetailPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-regex">
-                      节点名正则过滤规则
+                      {t("节点名正则过滤规则")}
                     </label>
-                    <Textarea id="detail-edit-regex" rows={6} placeholder="每行一条" {...editForm.register("regex_filters_text")} />
+                    <Textarea id="detail-edit-regex" rows={6} placeholder={t("每行一条")} {...editForm.register("regex_filters_text")} />
                   </div>
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-region">
-                      地区过滤规则
+                      {t("地区过滤规则")}
                     </label>
                     <Textarea
                       id="detail-edit-region"
                       rows={6}
-                      placeholder="每行一条，如 hk / us"
+                      placeholder={t("每行一条，如 hk / us")}
                       {...editForm.register("region_filters_text")}
                     />
                   </div>
 
                   <div className="platform-config-actions">
                     <Button type="submit" disabled={updateMutation.isPending}>
-                      {updateMutation.isPending ? "保存中..." : "保存配置"}
+                      {updateMutation.isPending ? t("保存中...") : t("保存配置")}
                     </Button>
                   </div>
                 </form>
@@ -449,38 +439,38 @@ export function PlatformDetailPage() {
                 className="platform-detail-tabpanel platform-ops-section"
               >
                 <div className="platform-drawer-section-head">
-                  <h4>运维操作</h4>
-                  <p>以下操作会直接作用于当前平台，请谨慎执行。</p>
+                  <h4>{t("运维操作")}</h4>
+                  <p>{t("以下操作会直接作用于当前平台，请谨慎执行。")}</p>
                 </div>
 
                 <div className="platform-ops-list">
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>重建路由池</h5>
-                      <p className="platform-op-hint">重新整理当前平台可用节点，不会修改配置。</p>
+                      <h5>{t("重建路由池")}</h5>
+                      <p className="platform-op-hint">{t("重新整理当前平台可用节点，不会修改配置。")}</p>
                     </div>
                     <Button variant="secondary" onClick={() => void rebuildMutation.mutateAsync()} disabled={rebuildMutation.isPending}>
-                      {rebuildMutation.isPending ? "重建中..." : "重建路由池"}
+                      {rebuildMutation.isPending ? t("重建中...") : t("重建路由池")}
                     </Button>
                   </div>
 
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>重置为默认配置</h5>
-                      <p className="platform-op-hint">恢复默认设置，并覆盖当前修改。</p>
+                      <h5>{t("重置为默认配置")}</h5>
+                      <p className="platform-op-hint">{t("恢复默认设置，并覆盖当前修改。")}</p>
                     </div>
                     <Button variant="secondary" onClick={() => void resetMutation.mutateAsync()} disabled={resetMutation.isPending}>
-                      {resetMutation.isPending ? "重置中..." : "重置为默认配置"}
+                      {resetMutation.isPending ? t("重置中...") : t("重置为默认配置")}
                     </Button>
                   </div>
 
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>删除平台</h5>
-                      <p className="platform-op-hint">永久删除当前平台及其配置，操作不可撤销。</p>
+                      <h5>{t("删除平台")}</h5>
+                      <p className="platform-op-hint">{t("永久删除当前平台及其配置，操作不可撤销。")}</p>
                     </div>
                     <Button variant="danger" onClick={() => void handleDelete()} disabled={deleteMutation.isPending}>
-                      {deleteMutation.isPending ? "删除中..." : "删除平台"}
+                      {deleteMutation.isPending ? t("删除中...") : t("删除平台")}
                     </Button>
                   </div>
                 </div>

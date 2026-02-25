@@ -11,21 +11,11 @@ import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
-import { ApiError } from "../../lib/api-client";
+import { formatApiErrorMessage } from "../../lib/error-message";
 import { deleteRule, listRules, resolveRule, upsertRule } from "./api";
 import type { ResolveResult, Rule } from "./types";
 
 const EMPTY_RULES: Rule[] = [];
-
-function fromApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "未知错误";
-}
 
 function parseHeaderList(raw: string): string[] {
   return raw
@@ -134,10 +124,10 @@ export function RulesPage() {
       setCreateModalOpen(false);
       setCreatePrefix("");
       setCreateHeadersRaw("");
-      showToast("success", `规则 ${rule.url_prefix} 已创建`);
+      showToast("success", t("规则 {{prefix}} 已创建", { prefix: rule.url_prefix }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -156,10 +146,10 @@ export function RulesPage() {
     onSuccess: async (rule) => {
       await invalidateRules();
       syncFormFromRule(rule);
-      showToast("success", `规则 ${rule.url_prefix} 已保存`);
+      showToast("success", t("规则 {{prefix}} 已保存", { prefix: rule.url_prefix }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -174,10 +164,10 @@ export function RulesPage() {
         setSelectedPrefix("");
         setDrawerOpen(false);
       }
-      showToast("success", `规则 ${prefix} 已删除`);
+      showToast("success", t("规则 {{prefix}} 已删除", { prefix }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
   const deleteRuleMutateAsync = deleteMutation.mutateAsync;
@@ -195,7 +185,7 @@ export function RulesPage() {
       setResolveOutput(result);
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -204,7 +194,7 @@ export function RulesPage() {
       showToast("error", '兜底规则 "*" 不允许删除');
       return;
     }
-    const confirmed = window.confirm(t(`确认删除规则 ${rule.url_prefix} 吗？`));
+    const confirmed = window.confirm(t("确认删除规则 {{prefix}} 吗？", { prefix: rule.url_prefix }));
     if (!confirmed) {
       return;
     }
@@ -250,22 +240,22 @@ export function RulesPage() {
   const ruleColumns = useMemo(
     () => [
       col.accessor("url_prefix", {
-        header: "URL 前缀",
+        header: t("URL 前缀"),
         cell: (info) => <span title={info.getValue()}>{info.getValue()}</span>,
       }),
       col.display({
         id: "headers",
-        header: "请求头",
+        header: t("请求头"),
         cell: (info) => <RuleHeadersPreview rule={info.row.original} />,
       }),
       col.display({
         id: "actions",
-        header: "操作",
+        header: t("操作"),
         cell: (info) => {
           const rule = info.row.original;
           return (
             <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
-              <Button size="sm" variant="ghost" onClick={() => openDrawerForRule(rule)} title="编辑">
+              <Button size="sm" variant="ghost" onClick={() => openDrawerForRule(rule)} title={t("编辑")}>
                 <Pencil size={14} />
               </Button>
               <Button
@@ -273,7 +263,7 @@ export function RulesPage() {
                 variant="ghost"
                 onClick={() => void handleDelete(rule)}
                 disabled={isDeletePending || isFallbackRule(rule)}
-                title={isFallbackRule(rule) ? '兜底规则 "*" 不可删除' : "删除"}
+                title={isFallbackRule(rule) ? t('兜底规则 "*" 不可删除') : t("删除")}
                 style={{ color: "var(--delete-btn-color, #c27070)" }}
               >
                 <Trash2 size={14} />
@@ -283,15 +273,15 @@ export function RulesPage() {
         },
       }),
     ],
-    [col, handleDelete, isDeletePending, openDrawerForRule]
+    [col, handleDelete, isDeletePending, openDrawerForRule, t]
   );
 
   return (
     <section className="rules-page">
       <header className="module-header">
         <div>
-          <h2>请求头规则</h2>
-          <p className="module-description">为不同地址设置请求头规则，并先测试后应用。</p>
+          <h2>{t("请求头规则")}</h2>
+          <p className="module-description">{t("为不同地址设置请求头规则，并先测试后应用。")}</p>
         </div>
       </header>
 
@@ -300,15 +290,15 @@ export function RulesPage() {
       <Card className="platform-list-card platform-directory-card rules-list-card">
         <div className="list-card-header">
           <div>
-            <h3>规则列表</h3>
-            <p>共 {rules.length} 条</p>
+            <h3>{t("规则列表")}</h3>
+            <p>{t("共 {{count}} 条", { count: rules.length })}</p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <label className="search-box" htmlFor="rules-search" style={{ maxWidth: 200, margin: 0, gap: 6 }}>
               <Search size={16} />
               <Input
                 id="rules-search"
-                placeholder="搜索规则"
+                placeholder={t("搜索规则")}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 style={{ padding: "6px 10px", borderRadius: 8 }}
@@ -316,11 +306,11 @@ export function RulesPage() {
             </label>
             <Button variant="secondary" size="sm" onClick={() => setCreateModalOpen(true)}>
               <Plus size={16} />
-              新建
+              {t("新建")}
             </Button>
             <Button variant="secondary" size="sm" onClick={() => setResolveModalOpen(true)}>
               <Bug size={16} />
-              调试
+              {t("调试")}
             </Button>
             <Button
               variant="secondary"
@@ -329,26 +319,26 @@ export function RulesPage() {
               disabled={rulesQuery.isFetching}
             >
               <RefreshCw size={16} className={rulesQuery.isFetching ? "spin" : undefined} />
-              刷新
+              {t("刷新")}
             </Button>
           </div>
         </div>
       </Card>
 
       <Card className="platform-cards-container subscriptions-table-card rules-table-card">
-        {rulesQuery.isLoading ? <p className="muted">正在加载规则...</p> : null}
+        {rulesQuery.isLoading ? <p className="muted">{t("正在加载规则...")}</p> : null}
 
         {rulesQuery.isError ? (
           <div className="callout callout-error">
             <AlertTriangle size={14} />
-            <span>{fromApiError(rulesQuery.error)}</span>
+            <span>{formatApiErrorMessage(rulesQuery.error, t)}</span>
           </div>
         ) : null}
 
         {!rulesQuery.isLoading && !rules.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
-            <p>没有匹配规则</p>
+            <p>{t("没有匹配规则")}</p>
           </div>
         ) : null}
 
@@ -364,12 +354,12 @@ export function RulesPage() {
       </Card>
 
       {drawerOpen ? (
-        <div className="drawer-overlay" role="dialog" aria-modal="true" aria-label="规则编辑抽屉" onClick={() => setDrawerOpen(false)}>
+        <div className="drawer-overlay" role="dialog" aria-modal="true" aria-label={t("规则编辑抽屉")} onClick={() => setDrawerOpen(false)}>
           <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header">
               <div>
-                <h3>{selectedRule?.url_prefix || "规则编辑"}</h3>
-                <p>编辑当前规则</p>
+                <h3>{selectedRule?.url_prefix || t("规则编辑")}</h3>
+                <p>{t("编辑当前规则")}</p>
               </div>
               <div className="drawer-header-actions">
                 <Button variant="ghost" size="sm" onClick={() => setDrawerOpen(false)}>
@@ -381,18 +371,18 @@ export function RulesPage() {
             <div className="platform-drawer-layout">
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
-                  <h4>规则编辑</h4>
-                  <p>修改地址前缀和请求头后保存。</p>
+                  <h4>{t("规则编辑")}</h4>
+                  <p>{t("修改地址前缀和请求头后保存。")}</p>
                 </div>
 
                 <form className="form-grid single-column" onSubmit={handleUpdateSubmit}>
                   <div className="field-group">
                     <label className="field-label" htmlFor="rule-prefix">
-                      地址前缀
+                      {t("地址前缀")}
                     </label>
                     <Input
                       id="rule-prefix"
-                      placeholder="例如 api.example.com/v1"
+                      placeholder={t("例如 api.example.com/v1")}
                       value={formPrefix}
                       onChange={(event) => setFormPrefix(event.target.value)}
                     />
@@ -400,12 +390,12 @@ export function RulesPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="rule-headers">
-                      请求头
+                      {t("请求头")}
                     </label>
                     <Textarea
                       id="rule-headers"
                       rows={5}
-                      placeholder="每行一个 header，例如 Authorization"
+                      placeholder={t("每行一个 header，例如 Authorization")}
                       value={formHeadersRaw}
                       onChange={(event) => setFormHeadersRaw(event.target.value)}
                     />
@@ -413,7 +403,7 @@ export function RulesPage() {
                   <div className="detail-actions" style={{ justifyContent: "flex-end" }}>
                     <Button type="submit" disabled={updateMutation.isPending}>
                       <Wand2 size={14} />
-                      {updateMutation.isPending ? "保存中..." : "保存规则"}
+                      {updateMutation.isPending ? t("保存中...") : t("保存规则")}
                     </Button>
                   </div>
                 </form>
@@ -422,16 +412,16 @@ export function RulesPage() {
               {selectedRule ? (
                 <section className="platform-drawer-section platform-ops-section">
                   <div className="platform-drawer-section-head">
-                    <h4>运维操作</h4>
+                    <h4>{t("运维操作")}</h4>
                   </div>
                   <div className="platform-ops-list">
                     <article className="platform-op-item">
                       <div className="platform-op-copy">
-                        <h5>删除规则</h5>
+                        <h5>{t("删除规则")}</h5>
                         <p className="platform-op-hint">
                           {isFallbackRule(selectedRule)
-                            ? '兜底规则 "*" 仅允许编辑，不允许删除。'
-                            : "删除后该规则将不再生效。"}
+                            ? t('兜底规则 "*" 仅允许编辑，不允许删除。')
+                            : t("删除后该规则将不再生效。")}
                         </p>
                       </div>
                       <Button
@@ -439,7 +429,7 @@ export function RulesPage() {
                         onClick={() => void handleDelete(selectedRule)}
                         disabled={deleteMutation.isPending || isFallbackRule(selectedRule)}
                       >
-                        删除
+                        {t("删除")}
                       </Button>
                     </article>
                   </div>
@@ -451,12 +441,12 @@ export function RulesPage() {
       ) : null}
 
       {resolveModalOpen ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="规则测试">
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={t("规则测试")}>
           <Card className="modal-card rules-resolve-modal-card">
             <div className="modal-header">
               <div>
-                <h3>规则测试</h3>
-                <p>输入地址查看命中规则和请求头。</p>
+                <h3>{t("规则测试")}</h3>
+                <p>{t("输入地址查看命中规则和请求头。")}</p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setResolveModalOpen(false)}>
                 <X size={16} />
@@ -466,7 +456,7 @@ export function RulesPage() {
             <div className="rules-resolve-modal-body">
               <div className="field-group">
                 <label className="field-label" htmlFor="resolve-url">
-                  目标地址
+                  {t("目标地址")}
                 </label>
                 <Input
                   id="resolve-url"
@@ -482,17 +472,17 @@ export function RulesPage() {
                   onClick={() => void resolveMutation.mutateAsync()}
                   disabled={resolveMutation.isPending}
                 >
-                  {resolveMutation.isPending ? "测试中..." : "开始测试"}
+                  {resolveMutation.isPending ? t("测试中...") : t("开始测试")}
                 </Button>
               </div>
 
               {resolveOutput ? (
                 <div className="resolve-result">
                   <p>
-                    <strong>命中前缀：</strong> {resolveOutput.matched_url_prefix || "无"}
+                    <strong>{t("命中前缀：")}</strong> {resolveOutput.matched_url_prefix || t("无")}
                   </p>
                   <div className="resolve-headers">
-                    <strong>命中请求头：</strong>
+                    <strong>{t("命中请求头：")}</strong>
                     {resolveOutput.headers?.length ? (
                       <div className="resolve-badges">
                         {resolveOutput.headers.map((header) => (
@@ -502,7 +492,7 @@ export function RulesPage() {
                         ))}
                       </div>
                     ) : (
-                      <p className="muted">无</p>
+                      <p className="muted">{t("无")}</p>
                     )}
                   </div>
                 </div>
@@ -516,7 +506,7 @@ export function RulesPage() {
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <Card className="modal-card">
             <div className="modal-header">
-              <h3>新建规则</h3>
+              <h3>{t("新建规则")}</h3>
               <Button variant="ghost" size="sm" onClick={() => setCreateModalOpen(false)}>
                 <X size={16} />
               </Button>
@@ -525,11 +515,11 @@ export function RulesPage() {
             <form className="form-grid single-column" onSubmit={handleCreateSubmit}>
               <div className="field-group">
                 <label className="field-label" htmlFor="create-rule-prefix">
-                  地址前缀
+                  {t("地址前缀")}
                 </label>
                 <Input
                   id="create-rule-prefix"
-                  placeholder="例如 api.example.com/v1"
+                  placeholder={t("例如 api.example.com/v1")}
                   value={createPrefix}
                   onChange={(event) => setCreatePrefix(event.target.value)}
                 />
@@ -537,22 +527,22 @@ export function RulesPage() {
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-rule-headers">
-                  请求头
+                  {t("请求头")}
                 </label>
                 <Textarea
                   id="create-rule-headers"
                   rows={5}
-                  placeholder="每行一个 header，例如 Authorization"
+                  placeholder={t("每行一个 header，例如 Authorization")}
                   value={createHeadersRaw}
                   onChange={(event) => setCreateHeadersRaw(event.target.value)}
                 />
               </div>
               <div className="detail-actions" style={{ justifyContent: "flex-end" }}>
                 <Button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending ? "创建中..." : "确认创建"}
+                  {createMutation.isPending ? t("创建中...") : t("确认创建")}
                 </Button>
                 <Button variant="secondary" onClick={() => setCreateModalOpen(false)}>
-                  取消
+                  {t("取消")}
                 </Button>
               </div>
             </form>

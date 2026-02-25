@@ -40,7 +40,13 @@ export function OffsetPagination({
   return (
     <div className="nodes-pagination">
       <p className="nodes-pagination-meta">
-        {t(`第 ${normalizedPage + 1} / ${normalizedTotalPages} 页 · 显示 ${pageStart}-${pageEnd} / ${totalItems}`)}
+        {t("第 {{page}} / {{pages}} 页 · 显示 {{start}}-{{end}} / {{total}}", {
+          page: normalizedPage + 1,
+          pages: normalizedTotalPages,
+          start: pageStart,
+          end: pageEnd,
+          total: totalItems,
+        })}
       </p>
       <div className="nodes-pagination-controls">
         <label className="nodes-page-size">

@@ -12,9 +12,10 @@ import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
+import { useI18n } from "../../i18n";
 import { getCurrentLocale, isEnglishLocale } from "../../i18n/locale";
-import { ApiError } from "../../lib/api-client";
 import { formatBytes } from "../../lib/bytes";
+import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatDateTime } from "../../lib/time";
 import { getSystemConfig } from "../systemConfig/api";
 import { getRequestLog, getRequestLogPayloads, listRequestLogs } from "./api";
@@ -53,16 +54,10 @@ const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000, 2000] as const;
 const PAYLOAD_TABS = ["request", "response"] as const;
 type PayloadTab = (typeof PAYLOAD_TABS)[number];
 const EMPTY_LOGS: RequestLogItem[] = [];
-
-function fromApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "未知错误";
-}
+const BASE64_DECODE_FAILED = "[Base64 解码失败]";
+const UNSUPPORTED_CONTENT_ENCODING_PREFIX = "暂不支持的 Content-Encoding: ";
+const CONTENT_ENCODING_DECODE_FAILED_PREFIX = "Content-Encoding=";
+const CONTENT_ENCODING_DECODE_FAILED_SUFFIX = " 解压失败";
 
 function toRFC3339(localDateTime: string): string {
   if (!localDateTime) {
@@ -117,7 +112,7 @@ function decodeBytesToText(bytes: Uint8Array, charset?: string): string {
 function decodeBase64ToText(raw: string): string {
   const bytes = decodeBase64ToBytes(raw);
   if (!bytes) {
-    return "[Base64 解码失败]";
+    return BASE64_DECODE_FAILED;
   }
   return decodeBytesToText(bytes);
 }
@@ -180,6 +175,22 @@ function normalizeContentEncoding(token: string): "gzip" | "deflate" | "br" | "z
   }
 }
 
+function translatePayloadDecodeErrorMessage(rawMessage: string, t: (text: string, options?: Record<string, unknown>) => string): string {
+  if (rawMessage.startsWith(UNSUPPORTED_CONTENT_ENCODING_PREFIX)) {
+    const token = rawMessage.slice(UNSUPPORTED_CONTENT_ENCODING_PREFIX.length).trim();
+    return t("暂不支持的 Content-Encoding: {{token}}", { token });
+  }
+
+  if (rawMessage.startsWith(CONTENT_ENCODING_DECODE_FAILED_PREFIX) && rawMessage.endsWith(CONTENT_ENCODING_DECODE_FAILED_SUFFIX)) {
+    const token = rawMessage
+      .slice(CONTENT_ENCODING_DECODE_FAILED_PREFIX.length, rawMessage.length - CONTENT_ENCODING_DECODE_FAILED_SUFFIX.length)
+      .trim();
+    return t("Content-Encoding={{token}} 解压失败", { token });
+  }
+
+  return t(rawMessage);
+}
+
 async function decompressWithEncoding(bytes: Uint8Array, encoding: "gzip" | "deflate" | "br" | "zstd"): Promise<Uint8Array> {
   if (typeof DecompressionStream === "undefined") {
     throw new Error("当前浏览器不支持 DecompressionStream，无法自动解压");
@@ -213,7 +224,7 @@ async function decodeContentEncodings(bytes: Uint8Array, encodings: string[]): P
 async function decodePayloadBodyForDisplay(rawBodyBase64: string, headersText: string): Promise<string> {
   const bodyBytes = decodeBase64ToBytes(rawBodyBase64);
   if (!bodyBytes) {
-    return "[Base64 解码失败]";
+    return BASE64_DECODE_FAILED;
   }
   if (!bodyBytes.length) {
     return "";
@@ -305,6 +316,7 @@ function splitDateTime(input: string): { date: string; time: string } {
 }
 
 export function RequestLogsPage() {
+  const { t } = useI18n();
   const [filters, setFilters] = useState<FilterDraft>(defaultFilters);
   const [cursorStack, setCursorStack] = useState<string[]>([""]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -461,8 +473,10 @@ export function RequestLogsPage() {
           ? [payload.req_headers_b64, payload.req_body_b64]
           : [payload.resp_headers_b64, payload.resp_body_b64];
 
-      const headers = decodeBase64ToText(headersBase64).trimEnd();
-      const body = (await decodePayloadBodyForDisplay(bodyBase64, headers)).trimEnd();
+      const rawHeaders = decodeBase64ToText(headersBase64).trimEnd();
+      const rawBody = (await decodePayloadBodyForDisplay(bodyBase64, rawHeaders)).trimEnd();
+      const headers = rawHeaders === BASE64_DECODE_FAILED ? t(rawHeaders) : rawHeaders;
+      const body = rawBody === BASE64_DECODE_FAILED ? t(rawBody) : rawBody;
 
       if (cancelled) {
         return;
@@ -475,15 +489,15 @@ export function RequestLogsPage() {
       if (cancelled) {
         return;
       }
-      const message = error instanceof Error ? error.message : "未知错误";
-      setPayloadData({ headers: "", body: `[Body 解码失败：${message}]` });
+      const message = error instanceof Error ? translatePayloadDecodeErrorMessage(error.message, t) : t("未知错误");
+      setPayloadData({ headers: "", body: t("[Body 解码失败：{{message}}]", { message }) });
       setPayloadDecodePending(false);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [payloadQuery.data, payloadTab]);
+  }, [payloadQuery.data, payloadTab, t]);
 
   const hasMore = Boolean(logsQuery.data?.has_more && logsQuery.data?.next_cursor);
 
@@ -492,7 +506,7 @@ export function RequestLogsPage() {
   const logColumns = useMemo(
     () => [
       col.accessor("ts", {
-        header: "时间",
+        header: t("时间"),
         cell: (info) => {
           const timeParts = splitDateTime(info.getValue());
           return (
@@ -504,17 +518,17 @@ export function RequestLogsPage() {
         },
       }),
       col.accessor("proxy_type", {
-        header: "代理",
+        header: t("代理"),
         cell: (info) => {
           const val = info.getValue();
-          if (val === 1) return <Badge variant="info">正向</Badge>;
-          if (val === 2) return <Badge variant="accent">反向</Badge>;
+          if (val === 1) return <Badge variant="info">{t("正向")}</Badge>;
+          if (val === 2) return <Badge variant="accent">{t("反向")}</Badge>;
           return <Badge variant="neutral">{val}</Badge>;
         },
       }),
       col.display({
         id: "platform_account",
-        header: "平台 / 账号",
+        header: t("平台 / 账号"),
         cell: (info) => {
           const log = info.row.original;
           return (
@@ -527,7 +541,7 @@ export function RequestLogsPage() {
       }),
       col.display({
         id: "target",
-        header: "目标",
+        header: t("目标"),
         cell: (info) => {
           const log = info.row.original;
           return (
@@ -553,20 +567,20 @@ export function RequestLogsPage() {
       }),
 
       col.accessor("net_ok", {
-        header: "网络",
+        header: t("网络"),
         cell: (info) => (
           <Badge variant={info.getValue() ? "success" : "warning"}>
-            {info.getValue() ? "成功" : "失败"}
+            {info.getValue() ? t("成功") : t("失败")}
           </Badge>
         ),
       }),
       col.accessor("duration_ms", {
-        header: "耗时",
+        header: t("耗时"),
         cell: (info) => `${info.getValue()} ms`,
       }),
       col.display({
         id: "traffic",
-        header: "流量",
+        header: t("流量"),
         cell: (info) => {
           const log = info.row.original;
           return formatBytes((log.ingress_bytes || 0) + (log.egress_bytes || 0));
@@ -574,7 +588,7 @@ export function RequestLogsPage() {
       }),
       col.display({
         id: "node",
-        header: "节点",
+        header: t("节点"),
         cell: (info) => {
           const log = info.row.original;
           return (
@@ -582,7 +596,7 @@ export function RequestLogsPage() {
               {log.node_tag ? (
                 <Link
                   to={`/nodes?tag_keyword=${encodeURIComponent(log.node_tag)}`}
-                  title={`在节点池搜索 ${log.node_tag}`}
+                  title={t("在节点池搜索 {{tag}}", { tag: log.node_tag })}
                   onClick={(event) => event.stopPropagation()}
                   style={{
                     color: "var(--accent-primary)",
@@ -601,20 +615,20 @@ export function RequestLogsPage() {
         },
       }),
     ],
-    [col]
+    [col, t]
   );
 
   return (
     <section className="nodes-page">
       <header className="module-header">
         <div>
-          <h2>请求日志</h2>
-          <p className="module-description">按条件检索请求记录，快速定位问题。</p>
+          <h2>{t("请求日志")}</h2>
+          <p className="module-description">{t("按条件检索请求记录，快速定位问题。")}</p>
         </div>
         {!configQuery.isLoading && configQuery.data && (
           <Link to="/system-config" style={{ display: "flex", textDecoration: "none" }}>
             <Badge variant={configQuery.data.request_log_enabled ? "success" : "warning"} style={{ cursor: "pointer", fontSize: "13px", padding: "6px 12px" }}>
-              {configQuery.data.request_log_enabled ? "当前实时日志记录已开启" : "当前实时日志记录未开启"}
+              {configQuery.data.request_log_enabled ? t("当前实时日志记录已开启") : t("当前实时日志记录未开启")}
             </Badge>
           </Link>
         )}
@@ -632,7 +646,7 @@ export function RequestLogsPage() {
             >
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-from" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  开始时间
+                  {t("开始时间")}
                 </label>
                 <Input
                   id="logs-from"
@@ -645,7 +659,7 @@ export function RequestLogsPage() {
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-to" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  结束时间
+                  {t("结束时间")}
                 </label>
                 <Input
                   id="logs-to"
@@ -658,7 +672,7 @@ export function RequestLogsPage() {
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-platform-name" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  平台
+                  {t("平台")}
                 </label>
                 <Input
                   id="logs-platform-name"
@@ -670,7 +684,7 @@ export function RequestLogsPage() {
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-account" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  账号
+                  {t("账号")}
                 </label>
                 <Input
                   id="logs-account"
@@ -682,7 +696,7 @@ export function RequestLogsPage() {
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-target-host" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  目标主机
+                  {t("目标主机")}
                 </label>
                 <Input
                   id="logs-target-host"
@@ -700,7 +714,7 @@ export function RequestLogsPage() {
             >
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-proxy-type" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  代理类型
+                  {t("代理类型")}
                 </label>
                 <Select
                   id="logs-proxy-type"
@@ -708,15 +722,15 @@ export function RequestLogsPage() {
                   onChange={(event) => updateFilter("proxy_type", event.target.value as ProxyTypeFilter)}
                   style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
                 >
-                  <option value="all">全部</option>
-                  <option value="1">正向代理</option>
-                  <option value="2">反向代理</option>
+                  <option value="all">{t("全部")}</option>
+                  <option value="1">{t("正向代理")}</option>
+                  <option value="2">{t("反向代理")}</option>
                 </Select>
               </div>
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-egress-ip" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  出口 IP
+                  {t("出口 IP")}
                 </label>
                 <Input
                   id="logs-egress-ip"
@@ -728,7 +742,7 @@ export function RequestLogsPage() {
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-net-ok" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  网络状态
+                  {t("网络状态")}
                 </label>
                 <Select
                   id="logs-net-ok"
@@ -736,15 +750,15 @@ export function RequestLogsPage() {
                   onChange={(event) => updateFilter("net_ok", event.target.value as BoolFilter)}
                   style={{ width: "100%", padding: "4px 8px", fontSize: "0.875rem", minHeight: "32px", height: "32px" }}
                 >
-                  <option value="all">全部</option>
-                  <option value="true">成功</option>
-                  <option value="false">失败</option>
+                  <option value="all">{t("全部")}</option>
+                  <option value="true">{t("成功")}</option>
+                  <option value="false">{t("失败")}</option>
                 </Select>
               </div>
 
               <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                 <label htmlFor="logs-http-status" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                  HTTP 状态
+                  {t("HTTP 状态")}
                 </label>
                 <Input
                   id="logs-http-status"
@@ -764,7 +778,7 @@ export function RequestLogsPage() {
                   style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}
                 >
                   <RefreshCw size={14} className={logsQuery.isFetching ? "spin" : undefined} />
-                  刷新
+                  {t("刷新")}
                 </Button>
                 <Button
                   size="sm"
@@ -773,31 +787,31 @@ export function RequestLogsPage() {
                   style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}
                 >
                   <Eraser size={14} />
-                  重置
+                  {t("重置")}
                 </Button>
               </div>
             </div>
           </div>
         </div>
 
-        {rangeInvalid ? <div className="callout callout-warning">时间范围错误：开始时间必须早于结束时间，已暂不应用结束时间筛选。</div> : null}
-        {httpStatusInvalid ? <div className="callout callout-warning">HTTP 状态码需为 100-599 的整数，当前输入暂不应用。</div> : null}
+        {rangeInvalid ? <div className="callout callout-warning">{t("时间范围错误：开始时间必须早于结束时间，已暂不应用结束时间筛选。")}</div> : null}
+        {httpStatusInvalid ? <div className="callout callout-warning">{t("HTTP 状态码需为 100-599 的整数，当前输入暂不应用。")}</div> : null}
       </Card>
 
       <Card className="nodes-table-card platform-cards-container subscriptions-table-card">
-        {logsQuery.isLoading ? <p className="muted">正在加载日志...</p> : null}
+        {logsQuery.isLoading ? <p className="muted">{t("正在加载日志...")}</p> : null}
 
         {logsQuery.isError ? (
           <div className="callout callout-error">
             <AlertTriangle size={14} />
-            <span>{fromApiError(logsQuery.error)}</span>
+            <span>{formatApiErrorMessage(logsQuery.error, t)}</span>
           </div>
         ) : null}
 
         {!logsQuery.isLoading && !visibleLogs.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
-            <p>没有匹配日志</p>
+            <p>{t("没有匹配日志")}</p>
           </div>
         ) : null}
 
@@ -828,17 +842,17 @@ export function RequestLogsPage() {
           className="drawer-overlay"
           role="dialog"
           aria-modal="true"
-          aria-label={`请求日志详情 ${detailLog.id}`}
+          aria-label={t("请求日志详情 {{id}}", { id: detailLog.id })}
           onClick={() => setDrawerOpen(false)}
         >
           <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header">
               <div>
-                <h3>{detailLog.target_host || detailLog.account || "请求日志详情"}</h3>
+                <h3>{detailLog.target_host || detailLog.account || t("请求日志详情")}</h3>
                 <p>{detailLog.id}</p>
               </div>
               <div className="drawer-header-actions">
-                <Button variant="ghost" size="sm" aria-label="关闭详情面板" onClick={() => setDrawerOpen(false)}>
+                <Button variant="ghost" size="sm" aria-label={t("关闭详情面板")} onClick={() => setDrawerOpen(false)}>
                   <X size={16} />
                 </Button>
               </div>
@@ -847,31 +861,31 @@ export function RequestLogsPage() {
             <div className="platform-drawer-layout">
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
-                  <h4>日志摘要</h4>
-                  <p>请求时间、协议结果与平台路由信息。</p>
+                  <h4>{t("日志摘要")}</h4>
+                  <p>{t("请求时间、协议结果与平台路由信息。")}</p>
                 </div>
 
                 {detailQuery.isError ? (
                   <div className="callout callout-error">
                     <AlertTriangle size={14} />
-                    <span>{fromApiError(detailQuery.error)}</span>
+                    <span>{formatApiErrorMessage(detailQuery.error, t)}</span>
                   </div>
                 ) : null}
 
                 <div className="stats-grid">
                   <div>
-                    <span>时间</span>
+                    <span>{t("时间")}</span>
                     <p>{formatDateTime(detailLog.ts)}</p>
                   </div>
                   <div>
-                    <span>代理类型</span>
+                    <span>{t("代理类型")}</span>
                     <p>
                       {detailLog.proxy_type === 1 ? (
-                        <Badge variant="info">正向</Badge>
+                        <Badge variant="info">{t("正向")}</Badge>
                       ) : detailLog.proxy_type === 2 ? (
-                        <Badge variant="accent">反向</Badge>
+                        <Badge variant="accent">{t("反向")}</Badge>
                       ) : (
-                        proxyTypeLabel(detailLog.proxy_type)
+                        t(proxyTypeLabel(detailLog.proxy_type))
                       )}
                     </p>
                   </div>
@@ -883,23 +897,23 @@ export function RequestLogsPage() {
                   </div>
 
                   <div>
-                    <span>耗时</span>
+                    <span>{t("耗时")}</span>
                     <p>{detailLog.duration_ms} ms</p>
                   </div>
                   <div>
-                    <span>平台</span>
+                    <span>{t("平台")}</span>
                     <p>{detailLog.platform_name || "-"}</p>
                   </div>
                   <div>
-                    <span>账号</span>
+                    <span>{t("账号")}</span>
                     <p>{detailLog.account || "-"}</p>
                   </div>
                   <div>
-                    <span>出口 IP</span>
+                    <span>{t("出口 IP")}</span>
                     <p>{detailLog.egress_ip || "-"}</p>
                   </div>
                   <div>
-                    <span>客户端 IP</span>
+                    <span>{t("客户端 IP")}</span>
                     <p>{detailLog.client_ip || "-"}</p>
                   </div>
                 </div>
@@ -907,8 +921,8 @@ export function RequestLogsPage() {
 
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
-                  <h4>诊断</h4>
-                  <p>异常排查与连接状态分析。</p>
+                  <h4>{t("诊断")}</h4>
+                  <p>{t("异常排查与连接状态分析。")}</p>
                 </div>
                 <div style={{
                   backgroundColor: "var(--surface)",
@@ -925,19 +939,19 @@ export function RequestLogsPage() {
                       <tbody>
                         {detailLog.resin_error ? (
                           <tr>
-                            <td style={{ color: "var(--danger)", fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>Resin 错误:</td>
+                            <td style={{ color: "var(--danger)", fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("Resin 错误:")}</td>
                             <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.resin_error}</td>
                           </tr>
                         ) : null}
                         {detailLog.upstream_stage ? (
                           <tr>
-                            <td style={{ color: "var(--warning)", fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>失败阶段:</td>
+                            <td style={{ color: "var(--warning)", fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("失败阶段:")}</td>
                             <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_stage}</td>
                           </tr>
                         ) : null}
                         {detailLog.upstream_err_kind ? (
                           <tr>
-                            <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>错误类型:</td>
+                            <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("错误类型:")}</td>
                             <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_err_kind}</td>
                           </tr>
                         ) : null}
@@ -949,7 +963,7 @@ export function RequestLogsPage() {
                         ) : null}
                         {detailLog.upstream_err_msg ? (
                           <tr>
-                            <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>错误详情:</td>
+                            <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("错误详情:")}</td>
                             <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_err_msg}</td>
                           </tr>
                         ) : null}
@@ -959,7 +973,7 @@ export function RequestLogsPage() {
                   {!detailLog.resin_error && !detailLog.upstream_stage && !detailLog.upstream_err_kind && !detailLog.upstream_err_msg ? (
                     <div style={{ color: "var(--success)", display: "flex", alignItems: "center", gap: "6px" }}>
                       <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--success)" }}></span>
-                      当前请求未产生异常诊断信息
+                      {t("当前请求未产生异常诊断信息")}
                     </div>
                   ) : null}
                 </div>
@@ -967,19 +981,19 @@ export function RequestLogsPage() {
 
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
-                  <h4>目标与节点</h4>
-                  <p>请求目标与命中节点信息。</p>
+                  <h4>{t("目标与节点")}</h4>
+                  <p>{t("请求目标与命中节点信息。")}</p>
                 </div>
 
                 <div className="stats-grid">
                   <div>
-                    <span>目标地址</span>
+                    <span>{t("目标地址")}</span>
                     <p>{detailLog.target_host || "-"}</p>
                     <code style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{detailLog.target_url || "-"}</code>
                   </div>
 
                   <div>
-                    <span>流量</span>
+                    <span>{t("流量")}</span>
                     <p>{formatBytes((detailLog.ingress_bytes || 0) + (detailLog.egress_bytes || 0))}</p>
                     <div style={{ display: 'flex', gap: '8px', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)' }}>
                       <span>↓ {formatBytes(detailLog.ingress_bytes || 0)}</span>
@@ -988,7 +1002,7 @@ export function RequestLogsPage() {
                   </div>
 
                   <div>
-                    <span>节点</span>
+                    <span>{t("节点")}</span>
                     <p>{detailLog.node_tag || "-"}</p>
                     <code style={{ display: 'block', marginTop: '4px', fontSize: '11px', color: 'var(--text-muted)', wordBreak: 'break-all' }}>{detailLog.node_hash || "-"}</code>
                   </div>
@@ -997,19 +1011,19 @@ export function RequestLogsPage() {
 
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
-                  <h4>报文内容</h4>
-                  <p>查看请求/响应内容。</p>
+                  <h4>{t("报文内容")}</h4>
+                  <p>{t("查看请求/响应内容。")}</p>
                 </div>
 
                 {!detailLog.payload_present ? (
-                  <p className="muted" style={{ fontSize: "13px" }}>该条日志未记录报文内容。</p>
+                  <p className="muted" style={{ fontSize: "13px" }}>{t("该条日志未记录报文内容。")}</p>
                 ) : (
                   <section className="logs-payload-section">
                     <div className="logs-payload-tabs">
                       {PAYLOAD_TABS.map((tab) => {
                         const labelMap: Record<PayloadTab, string> = {
-                          request: "请求",
-                          response: "响应",
+                          request: t("请求"),
+                          response: t("响应"),
                         };
 
                         const truncated = payloadQuery.data
@@ -1026,7 +1040,7 @@ export function RequestLogsPage() {
                             onClick={() => setPayloadTab(tab)}
                           >
                             <span>{labelMap[tab]}</span>
-                            {truncated ? <Badge variant="warning">已截断</Badge> : null}
+                            {truncated ? <Badge variant="warning">{t("已截断")}</Badge> : null}
                           </button>
                         );
                       })}
@@ -1035,22 +1049,22 @@ export function RequestLogsPage() {
                     {payloadQuery.isError ? (
                       <div className="callout callout-error">
                         <AlertTriangle size={14} />
-                        <span>{fromApiError(payloadQuery.error)}</span>
+                        <span>{formatApiErrorMessage(payloadQuery.error, t)}</span>
                       </div>
                     ) : null}
 
                     {(payloadQuery.isFetching || payloadDecodePending) && !(payloadData.headers || payloadData.body) ? (
                       <div className="callout" style={{ marginTop: "12px", color: "var(--text-secondary)" }}>
                         <RefreshCw size={14} className="spin" />
-                        <span>加载报文内容中...</span>
+                        <span>{t("加载报文内容中...")}</span>
                       </div>
                     ) : (
                       <>
                         <pre className="logs-payload-box" style={{ minHeight: "auto", border: "1px solid var(--border)", marginBottom: "8px" }}>
-                          {payloadData.headers || "（空 Headers）"}
+                          {payloadData.headers || t("（空 Headers）")}
                         </pre>
                         <pre className="logs-payload-box">
-                          {payloadData.body || "（空 Body）"}
+                          {payloadData.body || t("（空 Body）")}
                         </pre>
                       </>
                     )}

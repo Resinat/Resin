@@ -1,10 +1,32 @@
-import { useContext } from "react";
-import { I18nContext, type I18nContextValue } from "./context";
+import { useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
+import { isEnglishLocale, normalizeLocale, type AppLocale } from "./locale";
+
+export type I18nContextValue = {
+  locale: AppLocale;
+  isEnglish: boolean;
+  setLocale: (locale: AppLocale) => void;
+  t: (text: string, options?: Record<string, unknown>) => string;
+};
 
 export function useI18n(): I18nContextValue {
-  const context = useContext(I18nContext);
-  if (!context) {
-    throw new Error("useI18n must be used within I18nProvider");
-  }
-  return context;
+  const { t, i18n } = useTranslation();
+
+  const locale = normalizeLocale(i18n.resolvedLanguage ?? i18n.language);
+  const setLocale = useCallback(
+    (next: AppLocale) => {
+      void i18n.changeLanguage(next);
+    },
+    [i18n],
+  );
+
+  return useMemo<I18nContextValue>(
+    () => ({
+      locale,
+      isEnglish: isEnglishLocale(locale),
+      setLocale,
+      t: (text, options) => t(text, options),
+    }),
+    [locale, setLocale, t],
+  );
 }

@@ -22,7 +22,7 @@ export function ToastContainer({ toasts, onDismiss }: ToastContainerProps) {
                     key={toast.id}
                     className={`toast-item toast-${toast.tone}${toast.exiting ? " toast-exit" : ""}`}
                 >
-                    <span className="toast-text">{toast.text}</span>
+                    <span className="toast-text">{t(toast.text)}</span>
                     <button
                         type="button"
                         className="toast-close"

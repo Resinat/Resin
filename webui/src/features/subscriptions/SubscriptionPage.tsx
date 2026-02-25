@@ -18,7 +18,7 @@ import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
-import { ApiError } from "../../lib/api-client";
+import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatDateTime, formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
   cleanupSubscriptionCircuitOpenNodes,
@@ -79,16 +79,6 @@ function extractHostname(url: string): string {
   } catch {
     return url;
   }
-}
-
-function fromApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "未知错误";
 }
 
 function subscriptionToEditForm(subscription: Subscription): SubscriptionEditForm {
@@ -243,10 +233,10 @@ export function SubscriptionPage() {
         enabled: true,
         ephemeral: false,
       });
-      showToast("success", `订阅 ${created.name} 创建成功`);
+      showToast("success", t("订阅 {{name}} 创建成功", { name: created.name }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -271,10 +261,10 @@ export function SubscriptionPage() {
     onSuccess: async (updated) => {
       await invalidateSubscriptions();
       setSelectedSubscriptionId(updated.id);
-      showToast("success", `订阅 ${updated.name} 已更新`);
+      showToast("success", t("订阅 {{name}} 已更新", { name: updated.name }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -289,10 +279,10 @@ export function SubscriptionPage() {
         setSelectedSubscriptionId("");
         setDrawerOpen(false);
       }
-      showToast("success", `订阅 ${deleted.name} 已删除`);
+      showToast("success", t("订阅 {{name}} 已删除", { name: deleted.name }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
   const deleteSubscriptionMutateAsync = deleteMutation.mutateAsync;
@@ -305,10 +295,10 @@ export function SubscriptionPage() {
     },
     onSuccess: async (subscription) => {
       await invalidateSubscriptions();
-      showToast("success", `订阅 ${subscription.name} 已手动刷新`);
+      showToast("success", t("订阅 {{name}} 已手动刷新", { name: subscription.name }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
   const refreshSubscriptionMutateAsync = refreshMutation.mutateAsync;
@@ -322,13 +312,13 @@ export function SubscriptionPage() {
     onSuccess: async ({ subscription, cleanedCount }) => {
       await invalidateSubscriptionsAndNodes();
       if (cleanedCount > 0) {
-        showToast("success", `订阅 ${subscription.name} 已清理 ${cleanedCount} 个节点`);
+        showToast("success", t("订阅 {{name}} 已清理 {{count}} 个节点", { name: subscription.name, count: cleanedCount }));
         return;
       }
-      showToast("success", `订阅 ${subscription.name} 没有可清理的熔断或异常节点`);
+      showToast("success", t("订阅 {{name}} 没有可清理的熔断或异常节点", { name: subscription.name }));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -352,7 +342,7 @@ export function SubscriptionPage() {
   });
 
   const handleDelete = useCallback(async (subscription: Subscription) => {
-    const confirmed = window.confirm(t(`确认删除订阅 ${subscription.name}？关联节点会被清理。`));
+    const confirmed = window.confirm(t("确认删除订阅 {{name}}？关联节点会被清理。", { name: subscription.name }));
     if (!confirmed) {
       return;
     }
@@ -360,7 +350,7 @@ export function SubscriptionPage() {
   }, [deleteSubscriptionMutateAsync, t]);
 
   const handleCleanupCircuitOpenNodes = async (subscription: Subscription) => {
-    const confirmed = window.confirm(t(`确认立即清理订阅 ${subscription.name} 中的熔断或异常节点？`));
+    const confirmed = window.confirm(t("确认立即清理订阅 {{name}} 中的熔断或异常节点？", { name: subscription.name }));
     if (!confirmed) {
       return;
     }
@@ -386,17 +376,17 @@ export function SubscriptionPage() {
   const subColumns = useMemo(
     () => [
       col.accessor("name", {
-        header: "名称",
+        header: t("名称"),
         cell: (info) => <p className="subscriptions-name-cell">{info.getValue()}</p>,
       }),
       col.accessor("url", {
-        header: "订阅源",
+        header: t("订阅源"),
         cell: (info) => {
           const s = info.row.original;
           if (s.source_type === "local") {
             return (
-              <p className="subscriptions-url-cell" title="本地订阅文本">
-                本地文本
+              <p className="subscriptions-url-cell" title={t("本地订阅文本")}>
+                {t("本地文本")}
               </p>
             );
           }
@@ -408,12 +398,12 @@ export function SubscriptionPage() {
         },
       }),
       col.accessor("update_interval", {
-        header: "更新间隔",
+        header: t("更新间隔"),
         cell: (info) => formatGoDuration(info.getValue()),
       }),
       col.display({
         id: "node_count",
-        header: "节点数",
+        header: t("节点数"),
         cell: (info) => {
           const s = info.row.original;
           return `${s.healthy_node_count} / ${s.node_count}`;
@@ -421,33 +411,33 @@ export function SubscriptionPage() {
       }),
       col.display({
         id: "status",
-        header: "状态",
+        header: t("状态"),
         cell: (info) => {
           const s = info.row.original;
           return (
             <div className="subscriptions-status-cell">
               {!s.enabled ? (
-                <Badge variant="warning">已禁用</Badge>
+                <Badge variant="warning">{t("已禁用")}</Badge>
               ) : s.last_error ? (
-                <Badge variant="danger">错误</Badge>
+                <Badge variant="danger">{t("错误")}</Badge>
               ) : (
-                <Badge variant="success">正常</Badge>
+                <Badge variant="success">{t("正常")}</Badge>
               )}
             </div>
           );
         },
       }),
       col.accessor("last_checked", {
-        header: "上次检查",
+        header: t("上次检查"),
         cell: (info) => formatRelativeTime(info.getValue() || ""),
       }),
       col.accessor("last_updated", {
-        header: "上次更新",
+        header: t("上次更新"),
         cell: (info) => formatRelativeTime(info.getValue() || ""),
       }),
       col.display({
         id: "actions",
-        header: "操作",
+        header: t("操作"),
         cell: (info) => {
           const s = info.row.original;
           return (
@@ -455,12 +445,12 @@ export function SubscriptionPage() {
               <Link
                 className="btn btn-ghost btn-sm"
                 to={`/nodes?subscription_id=${encodeURIComponent(s.id)}`}
-                title="预览节点池"
-                aria-label={`预览订阅 ${s.name} 的节点池`}
+                title={t("预览节点池")}
+                aria-label={t("预览订阅 {{name}} 的节点池", { name: s.name })}
               >
                 <Eye size={14} />
               </Link>
-              <Button size="sm" variant="ghost" onClick={() => openDrawer(s)} title="编辑">
+              <Button size="sm" variant="ghost" onClick={() => openDrawer(s)} title={t("编辑")}>
                 <Pencil size={14} />
               </Button>
               <Button
@@ -468,7 +458,7 @@ export function SubscriptionPage() {
                 variant="ghost"
                 onClick={() => void handleRefresh(s)}
                 disabled={isRefreshPending}
-                title="刷新"
+                title={t("刷新")}
               >
                 <RefreshCw size={14} />
               </Button>
@@ -477,7 +467,7 @@ export function SubscriptionPage() {
                 variant="ghost"
                 onClick={() => void handleDelete(s)}
                 disabled={isDeletePending}
-                title="删除"
+                title={t("删除")}
                 style={{ color: "var(--delete-btn-color, #c27070)" }}
               >
                 <Trash2 size={14} />
@@ -487,15 +477,15 @@ export function SubscriptionPage() {
         },
       }),
     ],
-    [col, handleDelete, handleRefresh, isDeletePending, isRefreshPending, openDrawer]
+    [col, handleDelete, handleRefresh, isDeletePending, isRefreshPending, openDrawer, t]
   );
 
   return (
     <section className="platform-page">
       <header className="module-header">
         <div>
-          <h2>订阅管理</h2>
-          <p className="module-description">保障订阅按计划更新，异常时可一键刷新。</p>
+          <h2>{t("订阅管理")}</h2>
+          <p className="module-description">{t("保障订阅按计划更新，异常时可一键刷新。")}</p>
         </div>
       </header>
 
@@ -504,8 +494,8 @@ export function SubscriptionPage() {
       <Card className="platform-list-card platform-directory-card">
         <div className="list-card-header">
           <div>
-            <h3>订阅列表</h3>
-            <p>共 {totalSubscriptions} 个订阅</p>
+            <h3>{t("订阅列表")}</h3>
+            <p>{t("共 {{count}} 个订阅", { count: totalSubscriptions })}</p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <label className="subscription-inline-filter" htmlFor="sub-status-filter" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -518,16 +508,16 @@ export function SubscriptionPage() {
                   setPage(0);
                 }}
               >
-                <option value="all">全部</option>
-                <option value="enabled">仅启用</option>
-                <option value="disabled">仅禁用</option>
+                <option value="all">{t("全部")}</option>
+                <option value="enabled">{t("仅启用")}</option>
+                <option value="disabled">{t("仅禁用")}</option>
               </Select>
             </label>
             <label className="search-box" htmlFor="subscription-search" style={{ maxWidth: 200, margin: 0, gap: 6 }}>
               <Search size={16} />
               <Input
                 id="subscription-search"
-                placeholder="搜索订阅"
+                placeholder={t("搜索订阅")}
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value);
@@ -542,7 +532,7 @@ export function SubscriptionPage() {
               onClick={() => setCreateModalOpen(true)}
             >
               <Plus size={16} />
-              新建
+              {t("新建")}
             </Button>
             <Button
               variant="secondary"
@@ -551,26 +541,26 @@ export function SubscriptionPage() {
               disabled={subscriptionsQuery.isFetching}
             >
               <RefreshCw size={16} className={subscriptionsQuery.isFetching ? "spin" : undefined} />
-              刷新
+              {t("刷新")}
             </Button>
           </div>
         </div>
       </Card>
 
       <Card className="platform-cards-container subscriptions-table-card">
-        {subscriptionsQuery.isLoading ? <p className="muted">正在加载订阅数据...</p> : null}
+        {subscriptionsQuery.isLoading ? <p className="muted">{t("正在加载订阅数据...")}</p> : null}
 
         {subscriptionsQuery.isError ? (
           <div className="callout callout-error">
             <AlertTriangle size={14} />
-            <span>{fromApiError(subscriptionsQuery.error)}</span>
+            <span>{formatApiErrorMessage(subscriptionsQuery.error, t)}</span>
           </div>
         ) : null}
 
         {!subscriptionsQuery.isLoading && !subscriptions.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
-            <p>没有匹配的订阅</p>
+            <p>{t("没有匹配的订阅")}</p>
           </div>
         ) : null}
 
@@ -600,7 +590,7 @@ export function SubscriptionPage() {
           className="drawer-overlay"
           role="dialog"
           aria-modal="true"
-          aria-label={`编辑订阅 ${selectedSubscription.name}`}
+          aria-label={t("编辑订阅 {{name}}", { name: selectedSubscription.name })}
           onClick={() => setDrawerOpen(false)}
         >
           <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
@@ -611,12 +601,12 @@ export function SubscriptionPage() {
               </div>
               <div className="drawer-header-actions">
                 <Badge variant={selectedSubscription.enabled ? "success" : "warning"}>
-                  {selectedSubscription.enabled ? "运行中" : "已停用"}
+                  {selectedSubscription.enabled ? t("运行中") : t("已停用")}
                 </Badge>
                 <Button
                   variant="ghost"
                   size="sm"
-                  aria-label="关闭编辑面板"
+                  aria-label={t("关闭编辑面板")}
                   onClick={() => setDrawerOpen(false)}
                 >
                   <X size={16} />
@@ -626,33 +616,33 @@ export function SubscriptionPage() {
             <div className="platform-drawer-layout">
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
-                  <h4>订阅配置</h4>
+                  <h4>{t("订阅配置")}</h4>
                   <p>
                     {editSourceType === "local"
-                      ? "更新本地订阅文本、刷新周期与状态开关后点击保存。"
-                      : "更新 URL、刷新周期与状态开关后点击保存。"}
+                      ? t("更新本地订阅文本、刷新周期与状态开关后点击保存。")
+                      : t("更新 URL、刷新周期与状态开关后点击保存。")}
                   </p>
                 </div>
 
                 <div className="stats-grid">
                   <div>
-                    <span>创建时间</span>
+                    <span>{t("创建时间")}</span>
                     <p>{formatDateTime(selectedSubscription.created_at)}</p>
                   </div>
                   <div>
-                    <span>上次检查</span>
+                    <span>{t("上次检查")}</span>
                     <p>{formatDateTime(selectedSubscription.last_checked || "")}</p>
                   </div>
                   <div>
-                    <span>上次更新</span>
+                    <span>{t("上次更新")}</span>
                     <p>{formatDateTime(selectedSubscription.last_updated || "")}</p>
                   </div>
                 </div>
 
                 {selectedSubscription.last_error ? (
-                  <div className="callout callout-error">最近错误：{selectedSubscription.last_error}</div>
+                  <div className="callout callout-error">{t("最近错误：{{message}}", { message: selectedSubscription.last_error })}</div>
                 ) : (
-                  <div className="callout callout-success">最近一次刷新无错误</div>
+                  <div className="callout callout-success">{t("最近一次刷新无错误")}</div>
                 )}
 
                 <form className="form-grid" onSubmit={onEditSubmit}>
@@ -660,7 +650,7 @@ export function SubscriptionPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="edit-sub-name">
-                      订阅名称
+                      {t("订阅名称")}
                     </label>
                     <Input
                       id="edit-sub-name"
@@ -668,17 +658,17 @@ export function SubscriptionPage() {
                       {...editForm.register("name")}
                     />
                     {editForm.formState.errors.name?.message ? (
-                      <p className="field-error">{editForm.formState.errors.name.message}</p>
+                      <p className="field-error">{t(editForm.formState.errors.name.message)}</p>
                     ) : null}
                   </div>
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="edit-sub-source-type">
-                      订阅类型
+                      {t("订阅类型")}
                     </label>
                     <Input
                       id="edit-sub-source-type"
-                      value={sourceTypeLabel(editSourceType)}
+                      value={t(sourceTypeLabel(editSourceType))}
                       readOnly
                       disabled
                     />
@@ -686,54 +676,54 @@ export function SubscriptionPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="edit-sub-interval">
-                      更新间隔
+                      {t("更新间隔")}
                     </label>
                     <Input
                       id="edit-sub-interval"
-                      placeholder="例如 12h"
+                      placeholder={t("例如 12h")}
                       invalid={Boolean(editForm.formState.errors.update_interval)}
                       {...editForm.register("update_interval")}
                     />
                     {editForm.formState.errors.update_interval?.message ? (
-                      <p className="field-error">{editForm.formState.errors.update_interval.message}</p>
+                      <p className="field-error">{t(editForm.formState.errors.update_interval.message)}</p>
                     ) : null}
                   </div>
 
                   {editSourceType === "remote" ? (
                     <div className="field-group field-span-2">
                       <label className="field-label" htmlFor="edit-sub-url">
-                        订阅链接
+                        {t("订阅链接")}
                       </label>
                       <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
                       {editForm.formState.errors.url?.message ? (
-                        <p className="field-error">{editForm.formState.errors.url.message}</p>
+                        <p className="field-error">{t(editForm.formState.errors.url.message)}</p>
                       ) : null}
                     </div>
                   ) : (
                     <div className="field-group field-span-2">
                       <label className="field-label" htmlFor="edit-sub-content">
-                        订阅内容
+                        {t("订阅内容")}
                       </label>
                       <Textarea
                         id="edit-sub-content"
                         rows={8}
-                        placeholder="支持 sing-box JSON / Clash YAML / URI 列表"
+                        placeholder={t("支持 sing-box JSON / Clash YAML / URI 列表")}
                         invalid={Boolean(editForm.formState.errors.content)}
                         {...editForm.register("content")}
                       />
                       {editForm.formState.errors.content?.message ? (
-                        <p className="field-error">{editForm.formState.errors.content.message}</p>
+                        <p className="field-error">{t(editForm.formState.errors.content.message)}</p>
                       ) : null}
                     </div>
                   )}
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="edit-sub-ephemeral" style={{ visibility: "hidden" }}>
-                      临时订阅
+                      {t("临时订阅")}
                     </label>
                     <div className="subscription-switch-item">
                       <label className="subscription-switch-label" htmlFor="edit-sub-ephemeral">
-                        临时订阅
+                        {t("临时订阅")}
                       </label>
                       <Switch id="edit-sub-ephemeral" {...editForm.register("ephemeral")} />
                     </div>
@@ -741,27 +731,27 @@ export function SubscriptionPage() {
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="edit-sub-ephemeral-evict-delay">
-                      临时节点驱逐延迟
+                      {t("临时节点驱逐延迟")}
                     </label>
                     <Input
                       id="edit-sub-ephemeral-evict-delay"
-                      placeholder="例如 72h"
+                      placeholder={t("例如 72h")}
                       invalid={Boolean(editForm.formState.errors.ephemeral_node_evict_delay)}
                       disabled={!editEphemeral}
                       {...editForm.register("ephemeral_node_evict_delay")}
                     />
                     {editForm.formState.errors.ephemeral_node_evict_delay?.message ? (
-                      <p className="field-error">{editForm.formState.errors.ephemeral_node_evict_delay.message}</p>
+                      <p className="field-error">{t(editForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
                     ) : null}
                   </div>
 
                   <div className="subscription-switch-item">
                     <label className="subscription-switch-label" htmlFor="edit-sub-enabled">
-                      <span>启用</span>
+                      <span>{t("启用")}</span>
                       <span
                         className="subscription-info-icon"
-                        title={SUBSCRIPTION_DISABLE_HINT}
-                        aria-label={SUBSCRIPTION_DISABLE_HINT}
+                        title={t(SUBSCRIPTION_DISABLE_HINT)}
+                        aria-label={t(SUBSCRIPTION_DISABLE_HINT)}
                         tabIndex={0}
                       >
                         <Info size={13} />
@@ -772,7 +762,7 @@ export function SubscriptionPage() {
 
                   <div className="platform-config-actions">
                     <Button type="submit" disabled={updateMutation.isPending}>
-                      {updateMutation.isPending ? "保存中..." : "保存配置"}
+                      {updateMutation.isPending ? t("保存中...") : t("保存配置")}
                     </Button>
                   </div>
                 </form>
@@ -780,49 +770,49 @@ export function SubscriptionPage() {
 
               <section className="platform-drawer-section platform-ops-section">
                 <div className="platform-drawer-section-head">
-                  <h4>运维操作</h4>
+                  <h4>{t("运维操作")}</h4>
                 </div>
 
                 <div className="platform-ops-list">
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>手动刷新</h5>
-                      <p className="platform-op-hint">立即刷新订阅并同步节点。</p>
+                      <h5>{t("手动刷新")}</h5>
+                      <p className="platform-op-hint">{t("立即刷新订阅并同步节点。")}</p>
                     </div>
                     <Button
                       variant="secondary"
                       onClick={() => void refreshMutation.mutateAsync(selectedSubscription)}
                       disabled={refreshMutation.isPending}
                     >
-                      {refreshMutation.isPending ? "刷新中..." : "立即刷新"}
+                      {refreshMutation.isPending ? t("刷新中...") : t("立即刷新")}
                     </Button>
                   </div>
 
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>清理失效节点</h5>
-                      <p className="platform-op-hint">立即清理当前熔断，或出错错误的节点。（订阅更新后节点可能会被重新添加）</p>
+                      <h5>{t("清理失效节点")}</h5>
+                      <p className="platform-op-hint">{t("立即清理当前熔断，或出错错误的节点。（订阅更新后节点可能会被重新添加）")}</p>
                     </div>
                     <Button
                       variant="secondary"
                       onClick={() => void handleCleanupCircuitOpenNodes(selectedSubscription)}
                       disabled={cleanupCircuitOpenNodesMutation.isPending}
                     >
-                      {cleanupCircuitOpenNodesMutation.isPending ? "清理中..." : "立即清理"}
+                      {cleanupCircuitOpenNodesMutation.isPending ? t("清理中...") : t("立即清理")}
                     </Button>
                   </div>
 
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>删除订阅</h5>
-                      <p className="platform-op-hint">删除订阅并清理关联节点，操作不可撤销。</p>
+                      <h5>{t("删除订阅")}</h5>
+                      <p className="platform-op-hint">{t("删除订阅并清理关联节点，操作不可撤销。")}</p>
                     </div>
                     <Button
                       variant="danger"
                       onClick={() => void handleDelete(selectedSubscription)}
                       disabled={deleteMutation.isPending}
                     >
-                      {deleteMutation.isPending ? "删除中..." : "删除订阅"}
+                      {deleteMutation.isPending ? t("删除中...") : t("删除订阅")}
                     </Button>
                   </div>
                 </div>
@@ -836,7 +826,7 @@ export function SubscriptionPage() {
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <Card className="modal-card">
             <div className="modal-header">
-              <h3>新建订阅</h3>
+              <h3>{t("新建订阅")}</h3>
               <Button variant="ghost" size="sm" onClick={() => setCreateModalOpen(false)}>
                 <X size={16} />
               </Button>
@@ -847,7 +837,7 @@ export function SubscriptionPage() {
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-sub-name">
-                  订阅名称
+                  {t("订阅名称")}
                 </label>
                 <Input
                   id="create-sub-name"
@@ -855,28 +845,28 @@ export function SubscriptionPage() {
                   {...createForm.register("name")}
                 />
                 {createForm.formState.errors.name?.message ? (
-                  <p className="field-error">{createForm.formState.errors.name.message}</p>
+                  <p className="field-error">{t(createForm.formState.errors.name.message)}</p>
                 ) : null}
               </div>
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-sub-interval">
-                  更新间隔
+                  {t("更新间隔")}
                 </label>
                 <Input
                   id="create-sub-interval"
-                  placeholder="例如 12h"
+                  placeholder={t("例如 12h")}
                   invalid={Boolean(createForm.formState.errors.update_interval)}
                   {...createForm.register("update_interval")}
                 />
                 {createForm.formState.errors.update_interval?.message ? (
-                  <p className="field-error">{createForm.formState.errors.update_interval.message}</p>
+                  <p className="field-error">{t(createForm.formState.errors.update_interval.message)}</p>
                 ) : null}
               </div>
 
               <div className="field-group field-span-2">
-                <label className="field-label">订阅来源</label>
-                <div className="platform-detail-tabs" role="tablist" aria-label="订阅来源类型">
+                <label className="field-label">{t("订阅来源")}</label>
+                <div className="platform-detail-tabs" role="tablist" aria-label={t("订阅来源类型")}>
                   {SUBSCRIPTION_SOURCE_TABS.map((tab) => {
                     const selected = createSourceType === tab.key;
                     return (
@@ -886,10 +876,10 @@ export function SubscriptionPage() {
                         role="tab"
                         aria-selected={selected}
                         className={`platform-detail-tab ${selected ? "platform-detail-tab-active" : ""}`}
-                        title={tab.hint}
+                        title={t(tab.hint)}
                         onClick={() => createForm.setValue("source_type", tab.key, { shouldDirty: true, shouldValidate: true })}
                       >
-                        <span>{tab.label}</span>
+                        <span>{t(tab.label)}</span>
                       </button>
                     );
                   })}
@@ -899,7 +889,7 @@ export function SubscriptionPage() {
               {createSourceType === "remote" ? (
                 <div className="field-group field-span-2">
                   <label className="field-label" htmlFor="create-sub-url">
-                    订阅链接
+                    {t("订阅链接")}
                   </label>
                   <Input
                     id="create-sub-url"
@@ -907,50 +897,50 @@ export function SubscriptionPage() {
                     {...createForm.register("url")}
                   />
                   {createForm.formState.errors.url?.message ? (
-                    <p className="field-error">{createForm.formState.errors.url.message}</p>
+                    <p className="field-error">{t(createForm.formState.errors.url.message)}</p>
                   ) : null}
                 </div>
               ) : (
                 <div className="field-group field-span-2">
                   <label className="field-label" htmlFor="create-sub-content">
-                    订阅内容
+                    {t("订阅内容")}
                   </label>
                   <Textarea
                     id="create-sub-content"
                     rows={8}
-                    placeholder="支持 sing-box JSON / Clash YAML / URI 列表"
+                    placeholder={t("支持 sing-box JSON / Clash YAML / URI 列表")}
                     invalid={Boolean(createForm.formState.errors.content)}
                     {...createForm.register("content")}
                   />
                   {createForm.formState.errors.content?.message ? (
-                    <p className="field-error">{createForm.formState.errors.content.message}</p>
+                    <p className="field-error">{t(createForm.formState.errors.content.message)}</p>
                   ) : null}
                 </div>
               )}
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-sub-ephemeral-evict-delay">
-                  临时节点驱逐延迟
+                  {t("临时节点驱逐延迟")}
                 </label>
                 <Input
                   id="create-sub-ephemeral-evict-delay"
-                  placeholder="例如 72h"
+                  placeholder={t("例如 72h")}
                   invalid={Boolean(createForm.formState.errors.ephemeral_node_evict_delay)}
                   disabled={!createEphemeral}
                   {...createForm.register("ephemeral_node_evict_delay")}
                 />
                 {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
-                  <p className="field-error">{createForm.formState.errors.ephemeral_node_evict_delay.message}</p>
+                  <p className="field-error">{t(createForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
                 ) : null}
               </div>
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-sub-ephemeral" style={{ visibility: "hidden" }}>
-                  临时订阅
+                  {t("临时订阅")}
                 </label>
                 <div className="subscription-switch-item">
                   <label className="subscription-switch-label" htmlFor="create-sub-ephemeral">
-                    临时订阅
+                    {t("临时订阅")}
                   </label>
                   <Switch id="create-sub-ephemeral" {...createForm.register("ephemeral")} />
                 </div>
@@ -958,11 +948,11 @@ export function SubscriptionPage() {
 
               <div className="subscription-switch-item">
                 <label className="subscription-switch-label" htmlFor="create-sub-enabled">
-                  <span>启用</span>
+                  <span>{t("启用")}</span>
                   <span
                     className="subscription-info-icon"
-                    title={SUBSCRIPTION_DISABLE_HINT}
-                    aria-label={SUBSCRIPTION_DISABLE_HINT}
+                    title={t(SUBSCRIPTION_DISABLE_HINT)}
+                    aria-label={t(SUBSCRIPTION_DISABLE_HINT)}
                     tabIndex={0}
                   >
                     <Info size={13} />
@@ -973,10 +963,10 @@ export function SubscriptionPage() {
 
               <div className="detail-actions" style={{ justifyContent: "flex-end" }}>
                 <Button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending ? "创建中..." : "确认创建"}
+                  {createMutation.isPending ? t("创建中...") : t("确认创建")}
                 </Button>
                 <Button variant="secondary" onClick={() => setCreateModalOpen(false)}>
-                  取消
+                  {t("取消")}
                 </Button>
               </div>
             </form>

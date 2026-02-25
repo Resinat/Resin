@@ -1,12 +1,23 @@
 export type AppLocale = "zh-CN" | "en-US";
 
-const STORAGE_KEY = "resin.webui.locale";
-const DEFAULT_LOCALE: AppLocale = "zh-CN";
+export const STORAGE_KEY = "resin.webui.locale";
+export const DEFAULT_LOCALE: AppLocale = "zh-CN";
+export const SUPPORTED_LOCALES: readonly AppLocale[] = ["zh-CN", "en-US"];
 
 let currentLocale: AppLocale = DEFAULT_LOCALE;
 
 function isLocale(value: unknown): value is AppLocale {
   return value === "zh-CN" || value === "en-US";
+}
+
+export function normalizeLocale(value: string | null | undefined): AppLocale {
+  if (value && isLocale(value)) {
+    return value;
+  }
+  if (value?.toLowerCase().startsWith("zh")) {
+    return "zh-CN";
+  }
+  return "en-US";
 }
 
 export function detectInitialLocale(): AppLocale {
@@ -19,12 +30,7 @@ export function detectInitialLocale(): AppLocale {
     return stored;
   }
 
-  const browserLanguage = window.navigator.language.toLowerCase();
-  if (browserLanguage.startsWith("zh")) {
-    return "zh-CN";
-  }
-
-  return "en-US";
+  return normalizeLocale(window.navigator.language);
 }
 
 export function persistLocale(locale: AppLocale) {

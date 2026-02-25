@@ -13,7 +13,7 @@ import { Select } from "../../components/ui/Select";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
-import { ApiError } from "../../lib/api-client";
+import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatDateTime, formatRelativeTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
 import type { Platform } from "../platforms/types";
@@ -60,16 +60,6 @@ const NODE_FILTER_CONTROL_STYLE: CSSProperties = {
   minHeight: "32px",
   height: "32px",
 };
-
-function fromApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "未知错误";
-}
 
 function parseBoolParam(value: string | null): boolean | undefined {
   if (value === null) {
@@ -251,7 +241,7 @@ function regionToFlag(region: string | undefined): string {
 }
 
 export function NodesPage() {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const location = useLocation();
   const [draftFilters, setDraftFilters] = useState<NodeFilterDraft>(() => draftFromQuery(location.search));
   const [activeFilters, setActiveFilters] = useState<NodeListFilters>(() =>
@@ -374,12 +364,16 @@ export function NodesPage() {
       await refreshNodes();
       showToast(
         "success",
-        `出口探测完成：出口 IP=${result.egress_ip || "-"}，区域=${result.region || "-"}，延迟=${formatLatency(result.latency_ewma_ms)}`
+        t("出口探测完成：出口 IP={{ip}}，区域={{region}}，延迟={{latency}}", {
+          ip: result.egress_ip || "-",
+          region: result.region || "-",
+          latency: formatLatency(result.latency_ewma_ms),
+        })
       );
     },
     onError: async (error) => {
       await refreshNodes();
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -387,11 +381,11 @@ export function NodesPage() {
     mutationFn: async (hash: string) => probeLatency(hash),
     onSuccess: async (result) => {
       await refreshNodes();
-      showToast("success", `延迟探测完成：延迟=${formatLatency(result.latency_ewma_ms)}`);
+      showToast("success", t("延迟探测完成：延迟={{latency}}", { latency: formatLatency(result.latency_ewma_ms) }));
     },
     onError: async (error) => {
       await refreshNodes();
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -444,7 +438,7 @@ export function NodesPage() {
       id: "tag",
       header: () => (
         <button type="button" className="table-sort-btn" onClick={() => changeSort("tag")}>
-          节点名
+          {t("节点名")}
           <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
         </button>
       ),
@@ -457,7 +451,7 @@ export function NodesPage() {
     col.accessor("region", {
       header: () => (
         <button type="button" className="table-sort-btn" onClick={() => changeSort("region")}>
-          区域
+          {t("区域")}
           <span>{sortIndicator(sortBy === "region", sortOrder)}</span>
         </button>
       ),
@@ -471,7 +465,7 @@ export function NodesPage() {
       },
     }),
     col.accessor("egress_ip", {
-      header: "出口 IP",
+      header: t("出口 IP"),
       cell: (info) => {
         const val = info.getValue() || "-";
         return (
@@ -483,7 +477,7 @@ export function NodesPage() {
     }),
     col.display({
       id: "reference_latency_ms",
-      header: "参考延迟",
+      header: t("参考延迟"),
       cell: (info) => {
         const node = info.row.original;
         const latencyMs = displayableReferenceLatencyMs(node);
@@ -498,13 +492,13 @@ export function NodesPage() {
       },
     }),
     col.accessor("last_latency_probe_attempt", {
-      header: "上次探测",
+      header: t("上次探测"),
       cell: (info) => formatRelativeTime(info.getValue()),
     }),
     col.accessor("failure_count", {
       header: () => (
         <button type="button" className="table-sort-btn" onClick={() => changeSort("failure_count")}>
-          连续失败
+          {t("连续失败")}
           <span>{sortIndicator(sortBy === "failure_count", sortOrder)}</span>
         </button>
       ),
@@ -515,20 +509,20 @@ export function NodesPage() {
     }),
     col.display({
       id: "status",
-      header: "状态",
+      header: t("状态"),
       cell: (info) => {
         const node = info.row.original;
         const status = getNodeDisplayStatus(node);
-        if (status === "error") return <Badge variant="danger">错误</Badge>;
-        if (status === "pending_test") return <Badge variant="muted">待测</Badge>;
-        if (status === "circuit_open") return <Badge variant="warning">熔断</Badge>;
-        return <Badge variant="success">健康</Badge>;
+        if (status === "error") return <Badge variant="danger">{t("错误")}</Badge>;
+        if (status === "pending_test") return <Badge variant="muted">{t("待测")}</Badge>;
+        if (status === "circuit_open") return <Badge variant="warning">{t("熔断")}</Badge>;
+        return <Badge variant="success">{t("健康")}</Badge>;
       },
     }),
     col.accessor("created_at", {
       header: () => (
         <button type="button" className="table-sort-btn" onClick={() => changeSort("created_at")}>
-          创建时间
+          {t("创建时间")}
           <span>{sortIndicator(sortBy === "created_at", sortOrder)}</span>
         </button>
       ),
@@ -549,7 +543,7 @@ export function NodesPage() {
     }),
     col.display({
       id: "actions",
-      header: "操作",
+      header: t("操作"),
       cell: (info) => {
         const node = info.row.original;
         return (
@@ -557,7 +551,7 @@ export function NodesPage() {
             <Button
               size="sm"
               variant="ghost"
-              title="触发出口探测"
+              title={t("触发出口探测")}
               onClick={() => void runProbeEgress(node.node_hash)}
               disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
             >
@@ -566,7 +560,7 @@ export function NodesPage() {
             <Button
               size="sm"
               variant="ghost"
-              title="触发延迟探测"
+              title={t("触发延迟探测")}
               onClick={() => void runProbeLatency(node.node_hash)}
               disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
             >
@@ -582,8 +576,8 @@ export function NodesPage() {
     <section className="nodes-page">
       <header className="module-header">
         <div>
-          <h2>节点池</h2>
-          <p className="module-description">快速定位异常节点并进行探测处理。</p>
+          <h2>{t("节点池")}</h2>
+          <p className="module-description">{t("快速定位异常节点并进行探测处理。")}</p>
         </div>
       </header>
 
@@ -592,8 +586,8 @@ export function NodesPage() {
       <Card className="filter-card platform-list-card platform-directory-card">
         <div className="list-card-header">
           <div>
-            <h3>节点列表</h3>
-            <p>共 {nodesPage.total} 个节点，{nodesPage.unique_healthy_egress_ips} 个健康 IP</p>
+            <h3>{t("节点列表")}</h3>
+            <p>{t("共 {{total}} 个节点，{{healthy}} 个健康 IP", { total: nodesPage.total, healthy: nodesPage.unique_healthy_egress_ips })}</p>
           </div>
 
           <div
@@ -607,20 +601,20 @@ export function NodesPage() {
           >
             <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-tag-keyword" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                节点名
+                {t("节点名")}
               </label>
               <Input
                 id="node-tag-keyword"
                 value={draftFilters.tag_keyword}
                 onChange={(event) => handleFilterChange("tag_keyword", event.target.value)}
-                placeholder="模糊搜索"
+                placeholder={t("模糊搜索")}
                 style={NODE_FILTER_CONTROL_STYLE}
               />
             </div>
 
             <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-platform-id" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                被此平台路由
+                {t("被此平台路由")}
               </label>
               <Select
                 id="node-platform-id"
@@ -628,7 +622,7 @@ export function NodesPage() {
                 onChange={(event) => handleFilterChange("platform_id", event.target.value)}
                 style={NODE_FILTER_CONTROL_STYLE}
               >
-                <option value="">无限制</option>
+                <option value="">{t("无限制")}</option>
                 {platforms.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -639,7 +633,7 @@ export function NodesPage() {
 
             <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-subscription-id" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                来自此订阅
+                {t("来自此订阅")}
               </label>
               <Select
                 id="node-subscription-id"
@@ -647,7 +641,7 @@ export function NodesPage() {
                 onChange={(event) => handleFilterChange("subscription_id", event.target.value)}
                 style={NODE_FILTER_CONTROL_STYLE}
               >
-                <option value="">全部</option>
+                <option value="">{t("全部")}</option>
                 {subscriptions.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -658,7 +652,7 @@ export function NodesPage() {
 
             <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-region" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                区域
+                {t("区域")}
               </label>
               <Select
                 id="node-region"
@@ -666,7 +660,7 @@ export function NodesPage() {
                 onChange={(event) => handleFilterChange("region", event.target.value)}
                 style={NODE_FILTER_CONTROL_STYLE}
               >
-                <option value="">全部</option>
+                <option value="">{t("全部")}</option>
                 {allRegions.map((r) => (
                   <option key={r.code} value={r.code}>
                     {r.name}
@@ -677,7 +671,7 @@ export function NodesPage() {
 
             <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-egress-ip" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                出口 IP
+                {t("出口 IP")}
               </label>
               <Input
                 id="node-egress-ip"
@@ -690,7 +684,7 @@ export function NodesPage() {
 
             <div style={NODE_FILTER_ITEM_STYLE}>
               <label htmlFor="node-status" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                状态
+                {t("状态")}
               </label>
               <Select
                 id="node-status"
@@ -698,21 +692,21 @@ export function NodesPage() {
                 onChange={(event) => handleFilterChange("status", event.target.value)}
                 style={NODE_FILTER_CONTROL_STYLE}
               >
-                <option value="all">全部</option>
-                <option value="healthy">健康</option>
-                <option value="circuit_open">熔断 / 待测</option>
-                <option value="error">错误</option>
+                <option value="all">{t("全部")}</option>
+                <option value="healthy">{t("健康")}</option>
+                <option value="circuit_open">{t("熔断 / 待测")}</option>
+                <option value="error">{t("错误")}</option>
               </Select>
             </div>
 
             <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.125rem", marginLeft: "auto" }}>
               <Button size="sm" variant="secondary" onClick={refreshNodes} disabled={nodesQuery.isFetching} style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
                 <RefreshCw size={16} className={nodesQuery.isFetching ? "spin" : undefined} />
-                刷新
+                {t("刷新")}
               </Button>
               <Button size="sm" variant="secondary" onClick={resetFilters} style={{ minHeight: "32px", height: "32px", padding: "0 0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
                 <Eraser size={16} />
-                重置
+                {t("重置")}
               </Button>
             </div>
           </div>
@@ -720,19 +714,19 @@ export function NodesPage() {
       </Card>
 
       <Card className="nodes-table-card platform-cards-container subscriptions-table-card">
-        {nodesQuery.isLoading ? <p className="muted">正在加载节点数据...</p> : null}
+        {nodesQuery.isLoading ? <p className="muted">{t("正在加载节点数据...")}</p> : null}
 
         {nodesQuery.isError ? (
           <div className="callout callout-error">
             <AlertTriangle size={14} />
-            <span>{fromApiError(nodesQuery.error)}</span>
+            <span>{formatApiErrorMessage(nodesQuery.error, t)}</span>
           </div>
         ) : null}
 
         {!nodesQuery.isLoading && !nodes.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
-            <p>没有匹配的节点</p>
+            <p>{t("没有匹配的节点")}</p>
           </div>
         ) : null}
 
@@ -761,7 +755,7 @@ export function NodesPage() {
           className="drawer-overlay"
           role="dialog"
           aria-modal="true"
-          aria-label={`节点详情 ${firstTag(detailNode)}`}
+          aria-label={t("节点详情 {{name}}", { name: firstTag(detailNode) })}
           onClick={() => setDrawerOpen(false)}
         >
           <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
@@ -774,7 +768,7 @@ export function NodesPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  aria-label="关闭详情面板"
+                  aria-label={t("关闭详情面板")}
                   onClick={() => setDrawerOpen(false)}
                 >
                   <X size={16} />
@@ -785,34 +779,34 @@ export function NodesPage() {
             <div className="platform-drawer-layout">
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
-                  <h4>节点状态</h4>
-                  <p>节点的网络出口、探测状态以及失败历史。</p>
+                  <h4>{t("节点状态")}</h4>
+                  <p>{t("节点的网络出口、探测状态以及失败历史。")}</p>
                 </div>
 
                 <div className="stats-grid">
                   <div>
-                    <span>创建时间</span>
+                    <span>{t("创建时间")}</span>
                     <p>{formatDateTime(detailNode.created_at)}</p>
                   </div>
                   <div>
-                    <span>连续失败</span>
+                    <span>{t("连续失败")}</span>
                     <p>{!detailNode.has_outbound ? "-" : detailNode.failure_count}</p>
                   </div>
                   <div>
-                    <span>状态</span>
+                    <span>{t("状态")}</span>
                     <div>
                       {(() => {
                         const status = getNodeDisplayStatus(detailNode);
                         return (
                           <div style={{ display: "flex", alignItems: "baseline", gap: "4px", flexWrap: "wrap" }}>
                             {status === "error" ? (
-                              <Badge variant="danger">错误</Badge>
+                              <Badge variant="danger">{t("错误")}</Badge>
                             ) : status === "pending_test" ? (
-                              <Badge variant="muted">待测</Badge>
+                              <Badge variant="muted">{t("待测")}</Badge>
                             ) : status === "circuit_open" ? (
-                              <Badge variant="warning">熔断</Badge>
+                              <Badge variant="warning">{t("熔断")}</Badge>
                             ) : (
-                              <Badge variant="success">健康</Badge>
+                              <Badge variant="success">{t("健康")}</Badge>
                             )}
                             {(status === "circuit_open" || status === "pending_test") && detailNode.circuit_open_since ? (
                               <span
@@ -831,13 +825,13 @@ export function NodesPage() {
                     </div>
                   </div>
                   <div>
-                    <span>出口 / 区域</span>
+                    <span>{t("出口 / 区域")}</span>
                     <p>
                       {detailNode.egress_ip || "-"} / {regionToFlag(detailNode.region)}
                     </p>
                   </div>
                   <div>
-                    <span>参考延迟</span>
+                    <span>{t("参考延迟")}</span>
                     {(() => {
                       const latencyMs = displayableReferenceLatencyMs(detailNode);
                       if (latencyMs === null) {
@@ -847,22 +841,22 @@ export function NodesPage() {
                     })()}
                   </div>
                   <div>
-                    <span>上次探测</span>
+                    <span>{t("上次探测")}</span>
                     <p>{formatDateTime(detailNode.last_latency_probe_attempt || "")}</p>
                   </div>
                 </div>
 
                 {detailNode.last_error ? (
-                  <div className="callout callout-error">最近错误：{detailNode.last_error}</div>
+                  <div className="callout callout-error">{t("最近错误：{{message}}", { message: detailNode.last_error })}</div>
                 ) : null}
               </section>
 
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
-                  <h4>节点别名</h4>
+                  <h4>{t("节点别名")}</h4>
                 </div>
                 {!detailNode.tags.length ? (
-                  <p className="muted">无节点名信息</p>
+                  <p className="muted">{t("无节点名信息")}</p>
                 ) : (
                   <div className="tag-list">
                     {detailNode.tags.map((tag) => (
@@ -878,33 +872,33 @@ export function NodesPage() {
 
               <section className="platform-drawer-section platform-ops-section">
                 <div className="platform-drawer-section-head">
-                  <h4>运维操作</h4>
+                  <h4>{t("运维操作")}</h4>
                 </div>
                 <div className="platform-ops-list">
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>出口探测</h5>
-                      <p className="platform-op-hint">检查节点当前出口 IP。</p>
+                      <h5>{t("出口探测")}</h5>
+                      <p className="platform-op-hint">{t("检查节点当前出口 IP。")}</p>
                     </div>
                     <Button
                       variant="secondary"
                       onClick={() => void runProbeEgress(detailNode.node_hash)}
                       disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
                     >
-                      {probeEgressMutation.isPending ? "探测中..." : "触发出口探测"}
+                      {probeEgressMutation.isPending ? t("探测中...") : t("触发出口探测")}
                     </Button>
                   </div>
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
-                      <h5>延迟探测</h5>
-                      <p className="platform-op-hint">检测节点网络延迟。</p>
+                      <h5>{t("延迟探测")}</h5>
+                      <p className="platform-op-hint">{t("检测节点网络延迟。")}</p>
                     </div>
                     <Button
                       variant="secondary"
                       onClick={() => void runProbeLatency(detailNode.node_hash)}
                       disabled={probeEgressMutation.isPending || probeLatencyMutation.isPending}
                     >
-                      {probeLatencyMutation.isPending ? "探测中..." : "触发延迟探测"}
+                      {probeLatencyMutation.isPending ? t("探测中...") : t("触发延迟探测")}
                     </Button>
                   </div>
                 </div>

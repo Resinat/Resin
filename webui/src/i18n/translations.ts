@@ -3,8 +3,6 @@ import type { AppLocale } from "./locale";
 export const APP_TITLE_ZH = "Resin · 高性能粘性代理池";
 const APP_TITLE_EN = "Resin · Sticky Proxy Pool";
 
-const HAN_RE = /[\u3400-\u9fff]/;
-
 const EXACT_ZH_TO_EN: Record<string, string> = {
   "Resin · 高性能粘性代理池": APP_TITLE_EN,
   "高性能粘性代理池 · 管理面板": "High-performance sticky proxy pool · Admin Console",
@@ -498,428 +496,84 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "URL 不能为空": "URL cannot be empty",
   "User-Agent 不能为空": "User-Agent cannot be empty",
   "最近错误": "Recent errors",
+  "暂不支持的 Content-Encoding: {{token}}": "Unsupported Content-Encoding: {{token}}",
+  "Content-Encoding={{token}} 解压失败": "Failed to decode Content-Encoding={{token}}",
+  "[Body 解码失败：{{message}}]": "[Body decode failed: {{message}}]",
+  "{{count}} 个可用节点": "{{count}} available nodes",
+  "{{count}} 项待提交": "{{count}} pending changes",
+  "{{field}} 不能为空": "{{field}} cannot be empty",
+  "{{field}} 必须是非负整数": "{{field}} must be a non-negative integer",
+  "保存内容预览": "Save preview",
+  "编辑订阅 {{name}}": "Edit subscription {{name}}",
+  "成功率": "Success rate",
+  "成功请求": "Successful requests",
+  "出口探测完成：出口 IP={{ip}}，区域={{region}}，延迟={{latency}}":
+    "Egress probe complete: egress IP={{ip}}, region={{region}}, latency={{latency}}",
+  "出站": "Outbound",
+  "登录失败：{{message}}": "Login failed: {{message}}",
+  "第 {{page}} / {{pages}} 页 · 显示 {{start}}-{{end}} / {{total}}":
+    "Page {{page}} / {{pages}} · Showing {{start}}-{{end}} / {{total}}",
+  "第 {{page}} 页 · 存在下一页": "Page {{page}} · More pages available",
+  "第 {{page}} 页 · 无更多数据": "Page {{page}} · No more data",
+  "订阅 {{name}} 创建成功": "Subscription {{name}} created",
+  "订阅 {{name}} 没有可清理的熔断或异常节点":
+    "Subscription {{name}} has no circuit-open or failed nodes to clean",
+  "订阅 {{name}} 已更新": "Subscription {{name}} updated",
+  "订阅 {{name}} 已清理 {{count}} 个节点": "Subscription {{name}} cleaned {{count}} nodes",
+  "订阅 {{name}} 已删除": "Subscription {{name}} deleted",
+  "订阅 {{name}} 已手动刷新": "Subscription {{name}} refreshed manually",
+  "分桶": "Bin width",
+  "更新于 {{time}}": "Updated {{time}}",
+  "共 {{count}} 个订阅": "{{count}} subscriptions",
+  "共 {{count}} 个平台": "{{count}} platforms",
+  "共 {{count}} 条": "{{count}} items",
+  "共 {{total}} 个节点，{{healthy}} 个健康 IP": "{{total}} nodes, {{healthy}} healthy IPs",
+  "规则 {{prefix}} 已保存": "Rule {{prefix}} saved",
+  "规则 {{prefix}} 已创建": "Rule {{prefix}} created",
+  "规则 {{prefix}} 已删除": "Rule {{prefix}} deleted",
+  "恢复为默认值: {{value}}": "Restore default: {{value}}",
+  "节点数 {{count}}": "Node count {{count}}",
+  "节点详情 {{name}}": "Node details {{name}}",
+  "静态配置加载失败": "Failed to load static config",
+  "开启": "On",
+  "平台 {{name}} 创建成功": "Platform {{name}} created",
+  "平台 {{name}} 已更新": "Platform {{name}} updated",
+  "平台 {{name}} 已删除": "Platform {{name}} deleted",
+  "平台 {{name}} 已完成节点池重建": "Platform {{name}} node pool rebuilt",
+  "平台 {{name}} 已重置为默认配置": "Platform {{name}} reset to defaults",
+  "请求日志详情 {{id}}": "Request log details {{id}}",
+  "确认立即清理订阅 {{name}} 中的熔断或异常节点？":
+    "Clean circuit-open or failed nodes in subscription {{name}} now?",
+  "确认删除订阅 {{name}}？关联节点会被清理。":
+    "Delete subscription {{name}}? Related nodes will be cleaned.",
+  "确认删除规则 {{prefix}} 吗？": "Delete rule {{prefix}}?",
+  "确认删除平台 {{name}}？该操作不可撤销。":
+    "Delete platform {{name}}? This action cannot be undone.",
+  "入站": "Inbound",
+  "上传": "Upload",
+  "下载": "Download",
+  "延迟探测完成：延迟={{latency}}": "Latency probe complete: latency={{latency}}",
+  "样本": "Samples",
+  "溢出": "Overflow",
+  "预览订阅 {{name}} 的节点池": "Preview node pool for subscription {{name}}",
+  "在节点池搜索 {{tag}}": "Search node pool for {{tag}}",
+  "总计": "Total",
+  "总流量": "Total traffic",
+  "总请求": "Total requests",
+  "最近错误：{{message}}": "Recent error: {{message}}",
+  "配置已更新（{{count}} 项变更）": "Config updated ({{count}} changes)",
 };
-
-type PatternRule = {
-  pattern: RegExp;
-  replace: (...groups: string[]) => string;
-};
-
-const PATTERN_RULES: PatternRule[] = [
-  {
-    pattern: /^第 (\d+) \/ (\d+) 页 · 显示 (\d+)-(\d+) \/ (\d+)$/,
-    replace: (page, pages, start, end, total) => `Page ${page} / ${pages} · Showing ${start}-${end} / ${total}`,
-  },
-  {
-    pattern: /^第 (\d+) 页 · 存在下一页$/,
-    replace: (page) => `Page ${page} · More pages available`,
-  },
-  {
-    pattern: /^第 (\d+) 页 · 无更多数据$/,
-    replace: (page) => `Page ${page} · No more data`,
-  },
-  {
-    pattern: /^平台 (.+) 创建成功$/,
-    replace: (name) => `Platform ${name} created successfully`,
-  },
-  {
-    pattern: /^平台 (.+) 已更新$/,
-    replace: (name) => `Platform ${name} updated`,
-  },
-  {
-    pattern: /^平台 (.+) 已删除$/,
-    replace: (name) => `Platform ${name} deleted`,
-  },
-  {
-    pattern: /^平台 (.+) 已重置为默认配置$/,
-    replace: (name) => `Platform ${name} reset to defaults`,
-  },
-  {
-    pattern: /^平台 (.+) 已完成节点池重建$/,
-    replace: (name) => `Platform ${name} node pool rebuilt`,
-  },
-  {
-    pattern: /^订阅 (.+) 创建成功$/,
-    replace: (name) => `Subscription ${name} created successfully`,
-  },
-  {
-    pattern: /^订阅 (.+) 已更新$/,
-    replace: (name) => `Subscription ${name} updated`,
-  },
-  {
-    pattern: /^订阅 (.+) 已删除$/,
-    replace: (name) => `Subscription ${name} deleted`,
-  },
-  {
-    pattern: /^订阅 (.+) 已手动刷新$/,
-    replace: (name) => `Subscription ${name} refreshed`,
-  },
-  {
-    pattern: /^订阅 (.+) 已清理 (\d+) 个节点$/,
-    replace: (name, count) => `Subscription ${name} cleaned ${count} nodes`,
-  },
-  {
-    pattern: /^订阅 (.+) 没有可清理的熔断或异常节点$/,
-    replace: (name) => `Subscription ${name} has no circuit-open or error nodes to clean`,
-  },
-  {
-    pattern: /^规则 (.+) 已创建$/,
-    replace: (prefix) => `Rule ${prefix} created`,
-  },
-  {
-    pattern: /^规则 (.+) 已保存$/,
-    replace: (prefix) => `Rule ${prefix} saved`,
-  },
-  {
-    pattern: /^规则 (.+) 已删除$/,
-    replace: (prefix) => `Rule ${prefix} deleted`,
-  },
-  {
-    pattern: /^确认删除平台 (.+)？该操作不可撤销。$/,
-    replace: (name) => `Delete platform ${name}? This action cannot be undone.`,
-  },
-  {
-    pattern: /^确认删除订阅 (.+)？关联节点会被清理。$/,
-    replace: (name) => `Delete subscription ${name}? Related nodes will be cleaned.`,
-  },
-  {
-    pattern: /^确认删除规则 (.+) 吗？$/,
-    replace: (prefix) => `Delete rule ${prefix}?`,
-  },
-  {
-    pattern: /^确认立即清理订阅 (.+) 中的熔断或异常节点？$/,
-    replace: (name) => `Clean circuit-open or error nodes in subscription ${name} now?`,
-  },
-  {
-    pattern: /^登录失败：(.+)$/,
-    replace: (message) => `Login failed: ${message}`,
-  },
-  {
-    pattern: /^配置已更新（(\d+) 项变更）$/,
-    replace: (count) => `Config updated (${count} changes)`,
-  },
-  {
-    pattern: /^恢复为默认值: (.+)$/,
-    replace: (value) => `Reset to default: ${value}`,
-  },
-  {
-    pattern: /^编辑订阅 (.+)$/,
-    replace: (name) => `Edit subscription ${name}`,
-  },
-  {
-    pattern: /^预览订阅 (.+) 的节点池$/,
-    replace: (name) => `Preview node pool of subscription ${name}`,
-  },
-  {
-    pattern: /^节点详情 (.+)$/,
-    replace: (name) => `Node details ${name}`,
-  },
-  {
-    pattern: /^请求日志详情 (.+)$/,
-    replace: (id) => `Request log details ${id}`,
-  },
-  {
-    pattern: /^节点数 (.+)$/,
-    replace: (count) => `Nodes ${count}`,
-  },
-  {
-    pattern: /^出口探测完成：出口 IP=(.+)，区域=(.+)，延迟=(.+)$/,
-    replace: (ip, region, latency) => `Egress probe complete: egress IP=${ip}, region=${region}, latency=${latency}`,
-  },
-  {
-    pattern: /^延迟探测完成：延迟=(.+)$/,
-    replace: (latency) => `Latency probe complete: latency=${latency}`,
-  },
-  {
-    pattern: /^更新于 (.+)$/,
-    replace: (time) => `Updated ${time}`,
-  },
-  {
-    pattern: /^下载 (.+)$/,
-    replace: (value) => `Download ${value}`,
-  },
-  {
-    pattern: /^上传 (.+)$/,
-    replace: (value) => `Upload ${value}`,
-  },
-  {
-    pattern: /^入站 (.+)$/,
-    replace: (value) => `Inbound ${value}`,
-  },
-  {
-    pattern: /^出站 (.+)$/,
-    replace: (value) => `Outbound ${value}`,
-  },
-  {
-    pattern: /^共 (\d+) 个平台$/,
-    replace: (count) => `${count} platforms`,
-  },
-  {
-    pattern: /^共 (\d+) 个节点，(\d+) 个健康 IP$/,
-    replace: (nodes, healthyIPs) => `${nodes} nodes, ${healthyIPs} healthy IPs`,
-  },
-  {
-    pattern: /^共 (\d+) 条$/,
-    replace: (count) => `${count} items`,
-  },
-  {
-    pattern: /^(\d+) 个可用节点$/,
-    replace: (count) => `${count} available nodes`,
-  },
-  {
-    pattern: /^样本 (.+)$/,
-    replace: (count) => `Samples ${count}`,
-  },
-  {
-    pattern: /^\[Body 解码失败：(.+)\]$/,
-    replace: (message) => `[Body decode failed: ${message}]`,
-  },
-  {
-    pattern: /^暂不支持的 Content-Encoding: (.+)$/,
-    replace: (encoding) => `Unsupported Content-Encoding: ${encoding}`,
-  },
-  {
-    pattern: /^Content-Encoding=(.+) 解压失败$/,
-    replace: (encoding) => `Failed to decode Content-Encoding=${encoding}`,
-  },
-  {
-    pattern: /^在节点池搜索 (.+)$/,
-    replace: (nodeTag) => `Search in node pool: ${nodeTag}`,
-  },
-  {
-    pattern: /^(.+)不能为空$/,
-    replace: (field) => `${field} cannot be empty`,
-  },
-  {
-    pattern: /^(.+)必须是 http\/https 地址$/,
-    replace: (field) => `${field} must be an http/https URL`,
-  },
-  {
-    pattern: /^(.+)必须是非负整数$/,
-    replace: (field) => `${field} must be a non-negative integer`,
-  },
-  {
-    pattern: /^(.+)不存在或已被删除$/,
-    replace: (entity) => `${entity} does not exist or has been deleted`,
-  },
-  {
-    pattern: /^(.+)创建成功$/,
-    replace: (entity) => `${entity} created successfully`,
-  },
-  {
-    pattern: /^(.+)已更新$/,
-    replace: (entity) => `${entity} updated`,
-  },
-  {
-    pattern: /^(.+)已删除$/,
-    replace: (entity) => `${entity} deleted`,
-  },
-  {
-    pattern: /^(.+)已保存$/,
-    replace: (entity) => `${entity} saved`,
-  },
-  {
-    pattern: /^(.+)已加载$/,
-    replace: (entity) => `${entity} loaded`,
-  },
-];
-
-const TERM_REPLACEMENTS: Array<[string, string]> = [
-  ["共 ", ""],
-  [" 个平台", " platforms"],
-  [" 个订阅", " subscriptions"],
-  [" 个节点，", " nodes, "],
-  [" 个健康 IP", " healthy IPs"],
-  [" 个可用节点", " available nodes"],
-  [" 条", " items"],
-  ["更新于 ", "Updated "],
-  ["下载 ", "Download "],
-  ["上传 ", "Upload "],
-  ["入站 ", "Inbound "],
-  ["出站 ", "Outbound "],
-  ["样本 ", "Samples "],
-  ["最近错误：", "Recent error: "],
-  ["总览看板", "Dashboard"],
-  ["平台管理", "Platform Management"],
-  ["平台监控", "Platform Monitoring"],
-  ["平台详情", "Platform Details"],
-  ["订阅管理", "Subscription Management"],
-  ["节点池", "Node Pool"],
-  ["请求头规则", "Header Rules"],
-  ["请求日志", "Request Logs"],
-  ["系统配置", "System Config"],
-  ["资源", "Resources"],
-  ["反向代理", "Reverse Proxy"],
-  ["正向代理", "Forward Proxy"],
-  ["反向", "Reverse"],
-  ["正向", "Forward"],
-  ["节点分配策略", "Node Allocation Policy"],
-  ["未命中策略", "Miss Policy"],
-  ["租约保持时长", "Lease Sticky TTL"],
-  ["启用请求日志", "Enable Request Logs"],
-  ["记录详细反代日志", "Record Detailed Reverse Proxy Logs"],
-  ["最大连续失败次数", "Max Consecutive Failures"],
-  ["延迟测试目标 URL", "Latency Test Target URL"],
-  ["延迟测试权威域名列表", "Latency Test Authorities"],
-  ["节点延迟最大测试间隔", "Max Node Latency Probe Interval"],
-  ["权威域名最大测试间隔", "Max Authority Probe Interval"],
-  ["出口 IP 更新检查间隔", "Egress IP Refresh Check Interval"],
-  ["缓存异步刷盘间隔", "Cache Flush Interval"],
-  ["缓存刷盘脏阈值", "Cache Flush Dirty Threshold"],
-  ["请求头最大字节数", "Max Request Header Bytes"],
-  ["请求体最大字节数", "Max Request Body Bytes"],
-  ["响应头最大字节数", "Max Response Header Bytes"],
-  ["响应体最大字节数", "Max Response Body Bytes"],
-  ["请求成功率", "Request Success Rate"],
-  ["成功请求数", "Successful Requests"],
-  ["总请求数", "Total Requests"],
-  ["健康节点数", "Healthy Nodes"],
-  ["节点总数", "Total Nodes"],
-  ["活跃租约", "Active Leases"],
-  ["吞吐趋势", "Throughput Trend"],
-  ["连接峰值", "Connection Peaks"],
-  ["节点延迟分布", "Node Latency Distribution"],
-  ["流量累计", "Traffic Total"],
-  ["探测任务量", "Probe Volume"],
-  ["下载速率", "Download Rate"],
-  ["上传速率", "Upload Rate"],
-  ["下载流量", "Download Traffic"],
-  ["上传流量", "Upload Traffic"],
-  ["出站连接", "Outbound Connections"],
-  ["入站连接", "Inbound Connections"],
-  ["数据库状态", "Database Status"],
-  ["数据库更新时间", "Database Updated At"],
-  ["下次计划更新", "Next Scheduled Update"],
-  ["单 IP 查询", "Single IP Lookup"],
-  ["当前加载时间与下一次计划更新时间", "Current load time and next scheduled update time"],
-  ["当前为免认证访问模式", "Running in no-auth mode"],
-  ["安全警告", "Security Warning"],
-  ["主导航", "Main Navigation"],
-  ["请输入", "Please enter "],
-  ["不能为空", " cannot be empty"],
-  ["必须是非负整数", " must be a non-negative integer"],
-  ["必须是 http/https 地址", " must be a http/https URL"],
-  ["创建成功", "created successfully"],
-  ["已更新", "updated"],
-  ["已删除", "deleted"],
-  ["已保存", "saved"],
-  ["已加载", "loaded"],
-  ["已清理", "cleaned"],
-  ["已手动刷新", "refreshed"],
-  ["不存在或已被删除", "does not exist or has been deleted"],
-  ["立即刷新", "Refresh Now"],
-  ["立即清理", "Clean Now"],
-  ["立即更新", "Update Now"],
-  ["刷新中", "Refreshing"],
-  ["保存中", "Saving"],
-  ["更新中", "Updating"],
-  ["创建中", "Creating"],
-  ["删除中", "Deleting"],
-  ["重置中", "Resetting"],
-  ["重建中", "Rebuilding"],
-  ["探测中", "Probing"],
-  ["测试中", "Testing"],
-  ["校验中", "Verifying"],
-  ["加载中", "Loading"],
-  ["登录失败", "Login failed"],
-  ["规则", "Rule"],
-  ["订阅", "Subscription"],
-  ["平台", "Platform"],
-  ["节点", "Node"],
-  ["日志", "Log"],
-  ["请求", "Request"],
-  ["响应", "Response"],
-  ["地址", "Address"],
-  ["目标", "Target"],
-  ["状态", "Status"],
-  ["成功", "Success"],
-  ["失败", "Failed"],
-  ["错误", "Error"],
-  ["健康", "Healthy"],
-  ["熔断", "Circuit Open"],
-  ["待测", "Pending Test"],
-  ["启用", "Enable"],
-  ["禁用", "Disable"],
-  ["刷新", "Refresh"],
-  ["保存", "Save"],
-  ["删除", "Delete"],
-  ["创建", "Create"],
-  ["更新", "Update"],
-  ["查询", "Lookup"],
-  ["重置", "Reset"],
-  ["重建", "Rebuild"],
-  ["关闭", "Close"],
-  ["取消", "Cancel"],
-  ["确认", "Confirm"],
-  ["返回", "Back"],
-];
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-const TERM_RULES = TERM_REPLACEMENTS.map(([source, target]) => ({
-  pattern: new RegExp(escapeRegExp(source), "g"),
-  target,
-}));
-
-function applyPatternRules(text: string): string {
-  let output = text;
-  for (const rule of PATTERN_RULES) {
-    const match = output.match(rule.pattern);
-    if (!match) {
-      continue;
-    }
-    output = output.replace(rule.pattern, rule.replace(...match.slice(1)));
-  }
-  return output;
-}
-
-function applyTermRules(text: string): string {
-  let output = text;
-  for (const rule of TERM_RULES) {
-    output = output.replace(rule.pattern, rule.target);
-  }
-  return output;
-}
-
-export function translate(locale: AppLocale, text: string): string {
-  if (locale === "zh-CN") {
-    return text;
-  }
-  if (!text || !HAN_RE.test(text)) {
-    return text;
-  }
-
-  const exact = EXACT_ZH_TO_EN[text];
-  if (exact) {
-    return exact;
-  }
-
-  let output = applyPatternRules(text);
-  output = applyTermRules(output);
-  output = output
-    .replace(/，/g, ", ")
-    .replace(/。/g, ".")
-    .replace(/：/g, ": ")
-    .replace(/；/g, "; ")
-    .replace(/（/g, "(")
-    .replace(/）/g, ")");
-
-  // Keep leading/trailing whitespace from source text nodes.
-  // React often splits sentence fragments into multiple adjacent text nodes.
-  // Trimming here would glue translated fragments together (e.g. "4subscriptions").
-  output = output.replace(/[^\S\r\n]{2,}/g, " ");
-
-  // Avoid mixed-language artifacts from partial term replacement.
-  // If translation is not fully resolved, keep original text.
-  if (HAN_RE.test(output)) {
-    return text;
-  }
-
-  return output;
-}
 
 export function translateDocumentTitle(locale: AppLocale): string {
   return locale === "en-US" ? APP_TITLE_EN : APP_TITLE_ZH;
+}
+
+export const EN_TRANSLATIONS: Readonly<Record<string, string>> = EXACT_ZH_TO_EN;
+
+export function buildZhTranslations(): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const key of Object.keys(EXACT_ZH_TO_EN)) {
+    map[key] = key;
+  }
+  return map;
 }

@@ -7,7 +7,8 @@ import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
-import { ApiError } from "../../lib/api-client";
+import { useI18n } from "../../i18n";
+import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatDateTime } from "../../lib/time";
 import { getRegionName } from "../nodes/regions";
 import { getGeoIPStatus, lookupIP, updateGeoIPNow } from "./api";
@@ -22,21 +23,12 @@ function getFlagEmoji(countryCode: string) {
   return String.fromCodePoint(...codePoints);
 }
 
-function fromApiError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return `${error.code}: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "未知错误";
-}
-
 function statusVariant(hasValue: boolean): "success" | "warning" {
   return hasValue ? "success" : "warning";
 }
 
 export function GeoIPPage() {
+  const { t } = useI18n();
   const [singleIP, setSingleIP] = useState("");
   const [singleResult, setSingleResult] = useState<GeoIPLookupResult | null>(null);
   const { toasts, showToast, dismissToast } = useToast();
@@ -51,7 +43,7 @@ export function GeoIPPage() {
     mutationFn: async () => {
       const ip = singleIP.trim();
       if (!ip) {
-        throw new Error("请输入 IP 地址");
+        throw new Error(t("请输入 IP 地址"));
       }
       return lookupIP(ip);
     },
@@ -59,7 +51,7 @@ export function GeoIPPage() {
       setSingleResult(result);
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -67,10 +59,10 @@ export function GeoIPPage() {
     mutationFn: updateGeoIPNow,
     onSuccess: async () => {
       await statusQuery.refetch();
-      showToast("success", "GeoIP 数据库更新任务已执行");
+      showToast("success", t("GeoIP 数据库更新任务已执行"));
     },
     onError: (error) => {
-      showToast("error", fromApiError(error));
+      showToast("error", formatApiErrorMessage(error, t));
     },
   });
 
@@ -80,7 +72,7 @@ export function GeoIPPage() {
 
   const singleRegion = useMemo(() => {
     if (!singleResult || !singleResult.region) {
-      return "（空）";
+      return t("（空）");
     }
     const code = singleResult.region.toUpperCase();
     const name = getRegionName(code);
@@ -89,14 +81,14 @@ export function GeoIPPage() {
     }
     const emoji = getFlagEmoji(code);
     return `${emoji} ${code} ${name}`;
-  }, [singleResult]);
+  }, [singleResult, t]);
 
   return (
     <section className="geoip-page">
       <header className="module-header">
         <div>
-          <h2>资源</h2>
-          <p className="module-description">查询 IP 所在地区，并维护 GeoIP 数据库。</p>
+          <h2>{t("资源")}</h2>
+          <p className="module-description">{t("查询 IP 所在地区，并维护 GeoIP 数据库。")}</p>
         </div>
       </header>
 
@@ -106,11 +98,11 @@ export function GeoIPPage() {
         <div className="list-card-header">
           <div>
             <h3>GeoIP</h3>
-            <p>可查看数据库状态并进行 IP 查询。</p>
+            <p>{t("可查看数据库状态并进行 IP 查询。")}</p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => void statusQuery.refetch()} disabled={statusQuery.isFetching}>
             <RefreshCw size={16} className={statusQuery.isFetching ? "spin" : undefined} />
-            刷新
+            {t("刷新")}
           </Button>
         </div>
 
@@ -118,8 +110,8 @@ export function GeoIPPage() {
           <Card className="geoip-status-card">
             <div className="detail-header">
               <div>
-                <h3>数据库状态</h3>
-                <p>当前加载时间与下一次计划更新时间</p>
+                <h3>{t("数据库状态")}</h3>
+                <p>{t("当前加载时间与下一次计划更新时间")}</p>
               </div>
               <Database size={16} />
             </div>
@@ -127,28 +119,28 @@ export function GeoIPPage() {
             {statusQuery.isError ? (
               <div className="callout callout-error">
                 <AlertTriangle size={14} />
-                <span>{fromApiError(statusQuery.error)}</span>
+                <span>{formatApiErrorMessage(statusQuery.error, t)}</span>
               </div>
             ) : null}
 
             <div className="geoip-status-grid">
               <div className="geoip-kv">
-                <span>数据库更新时间</span>
+                <span>{t("数据库更新时间")}</span>
                 <p>{hasDBTime ? formatDateTime(status?.db_mtime || "") : "-"}</p>
               </div>
               <div className="geoip-kv">
-                <span>下次计划更新</span>
+                <span>{t("下次计划更新")}</span>
                 <p>{hasNextSchedule ? formatDateTime(status?.next_scheduled_update || "") : "-"}</p>
               </div>
             </div>
 
             <div className="geoip-actions">
               <Badge variant={statusVariant(hasDBTime)}>
-                {hasDBTime ? "数据库已加载" : "数据库未加载"}
+                {hasDBTime ? t("数据库已加载") : t("数据库未加载")}
               </Badge>
               <Button size="sm" variant="secondary" onClick={() => void updateMutation.mutateAsync()} disabled={updateMutation.isPending}>
                 <ArrowDownToLine size={14} className={updateMutation.isPending ? "spin" : undefined} />
-                {updateMutation.isPending ? "更新中..." : "立即更新"}
+                {updateMutation.isPending ? t("更新中...") : t("立即更新")}
               </Button>
             </div>
           </Card>
@@ -156,8 +148,8 @@ export function GeoIPPage() {
           <Card className="geoip-single-card">
             <div className="detail-header">
               <div>
-                <h3>单 IP 查询</h3>
-                <p>输入 IP 后点击查询。</p>
+                <h3>{t("单 IP 查询")}</h3>
+                <p>{t("输入 IP 后点击查询。")}</p>
               </div>
             </div>
 
@@ -166,7 +158,7 @@ export function GeoIPPage() {
                 <div style={{ display: "flex", gap: "8px" }}>
                   <Input
                     id="geoip-single-ip"
-                    placeholder="输入 IP 地址例如 8.8.8.8"
+                    placeholder={t("输入 IP 地址例如 8.8.8.8")}
                     value={singleIP}
                     onChange={(event) => setSingleIP(event.target.value)}
                     onKeyDown={(e) => {
@@ -181,7 +173,7 @@ export function GeoIPPage() {
                     onClick={() => void lookupMutation.mutateAsync()}
                     disabled={lookupMutation.isPending}
                     style={{ padding: "0 12px" }}
-                    title="查询"
+                    title={t("查询")}
                   >
                     <Search size={16} className={lookupMutation.isPending ? "spin" : undefined} />
                   </Button>
@@ -196,14 +188,14 @@ export function GeoIPPage() {
                   <p>{singleResult.ip}</p>
                 </div>
                 <div>
-                  <span>区域</span>
+                  <span>{t("区域")}</span>
                   <p>{singleRegion}</p>
                 </div>
               </div>
             ) : (
               <div className="empty-box">
                 <Sparkles size={16} />
-                <p>输入 IP 执行查询</p>
+                <p>{t("输入 IP 执行查询")}</p>
               </div>
             )}
           </Card>

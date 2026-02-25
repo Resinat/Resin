@@ -26,7 +26,9 @@ export function CursorPagination({
     return (
         <div className="nodes-pagination">
             <p className="nodes-pagination-meta">
-                {t(`第 ${pageIndex + 1} 页 · ${hasMore ? "存在下一页" : "无更多数据"}`)}
+                {hasMore
+                    ? t("第 {{page}} 页 · 存在下一页", { page: pageIndex + 1 })
+                    : t("第 {{page}} 页 · 无更多数据", { page: pageIndex + 1 })}
             </p>
             <div className="nodes-pagination-controls">
                 <label className="nodes-page-size">
