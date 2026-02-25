@@ -427,6 +427,90 @@ async function fetchPlatformSnapshotNodeLatency(platformId: string): Promise<Sna
   return normalizeNodeLatencySnapshot(data);
 }
 
+type TrendTooltipContentProps = {
+  active?: boolean;
+  payload?: any[];
+  label?: string;
+  lines: TrendLineDefinition[];
+  valueFormatter: (value: number) => string;
+};
+
+function TrendTooltipContent({ active, payload, label, lines, valueFormatter }: TrendTooltipContentProps) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  return (
+    <div className="trend-tooltip">
+      <p className="trend-tooltip-time">{label ?? "--"}</p>
+      <div className="trend-tooltip-list">
+        {lines.map((line) => {
+          const entry = payload.find((item) => item.dataKey === line.dataKey);
+          const value = Number(entry?.value ?? 0);
+          const safeValue = Number.isFinite(value) ? value : 0;
+
+          return (
+            <p key={line.dataKey} className="trend-tooltip-row">
+              <span>
+                <i style={{ background: line.color }} />
+                {line.name}
+              </span>
+              <b>{valueFormatter(safeValue)}</b>
+            </p>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RequestQualityTooltipContent({ active, payload, label }: any) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  return (
+    <div className="trend-tooltip">
+      <p className="trend-tooltip-time">{label ?? "--"}</p>
+      <div className="trend-tooltip-list">
+        {payload.map((entry: any) => {
+          const isRate = entry.dataKey === "success_rate";
+          const valueStr = isRate ? `${Number(entry.value).toFixed(1)}%` : formatCount(Number(entry.value));
+
+          return (
+            <p key={entry.dataKey} className="trend-tooltip-row">
+              <span>
+                <i style={{ background: entry.color }} />
+                {entry.name}
+              </span>
+              <b>{valueStr}</b>
+            </p>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HistogramTooltipContent({ active, payload }: any) {
+  if (!active || !payload?.length) {
+    return null;
+  }
+
+  const point = payload[0]?.payload as HistogramBarPoint | undefined;
+  const count = Number(payload[0]?.value ?? point?.count ?? 0);
+  const safeCount = Number.isFinite(count) ? count : 0;
+  const lowerBound = typeof point?.lower_ms === "number" && Number.isFinite(point.lower_ms) ? point.lower_ms : 0;
+  const upperBound = typeof point?.upper_ms === "number" && Number.isFinite(point.upper_ms) ? point.upper_ms : 0;
+
+  return (
+    <div className="histogram-tooltip">
+      <p className="histogram-tooltip-title">{`${formatCount(lowerBound)}～${formatCount(upperBound)} ms`}</p>
+      <p className="histogram-tooltip-value">{`节点数 ${formatCount(safeCount)}`}</p>
+    </div>
+  );
+}
+
 function EmptyChart({ text }: { text: string }) {
   return (
     <div className="empty-box dashboard-empty">
@@ -468,11 +552,9 @@ function TrendLineChart({ data, lines, yTickFormatter, emptyText }: TrendLineCha
               domain={[0, "auto"]}
             />
             <Tooltip
+              cursor={{ stroke: "rgba(15, 94, 216, 0.34)", strokeWidth: 1 }}
               wrapperStyle={{ outline: "none" }}
-              formatter={(value: number | string | undefined, name: string | number | undefined) => {
-                const lineName = typeof name === "string" ? name : `${name}`;
-                return [formatYAxis(toNumber(value)), lineName];
-              }}
+              content={<TrendTooltipContent lines={lines} valueFormatter={formatYAxis} />}
             />
             {lines.map((line) => (
               <Line
@@ -543,14 +625,9 @@ function RequestQualityChart({
               domain={[0, 100]}
             />
             <Tooltip
+              cursor={{ stroke: "rgba(15, 94, 216, 0.34)", strokeWidth: 1 }}
               wrapperStyle={{ outline: "none" }}
-              formatter={(value: number | string | undefined, name: string | number | undefined) => {
-                const safeName = typeof name === "string" ? name : `${name}`;
-                if (safeName.includes("成功率")) {
-                  return [`${toNumber(value).toFixed(1)}%`, safeName];
-                }
-                return [formatCount(toNumber(value)), safeName];
-              }}
+              content={<RequestQualityTooltipContent />}
             />
             <Bar
               yAxisId="left"
@@ -663,15 +740,9 @@ function LatencyHistogram({ buckets, emptyText }: LatencyHistogramProps) {
             tickFormatter={(value) => formatShortNumber(toNumber(value))}
           />
           <Tooltip
+            cursor={{ fill: "rgba(15, 94, 216, 0.08)" }}
             wrapperStyle={{ outline: "none" }}
-            labelFormatter={(_, payload) => {
-              const first = payload?.[0]?.payload as HistogramBarPoint | undefined;
-              if (!first) {
-                return "";
-              }
-              return `${formatCount(first.lower_ms)}～${formatCount(first.upper_ms)} ms`;
-            }}
-            formatter={(value: number | string | undefined) => [formatCount(toNumber(value)), "节点数"]}
+            content={<HistogramTooltipContent />}
           />
           <Bar
             dataKey="count"
