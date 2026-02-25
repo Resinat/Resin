@@ -10,6 +10,7 @@ import { Input } from "../../components/ui/Input";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
+import { useI18n } from "../../i18n";
 import { ApiError } from "../../lib/api-client";
 import { deleteRule, listRules, resolveRule, upsertRule } from "./api";
 import type { ResolveResult, Rule } from "./types";
@@ -70,6 +71,7 @@ function isFallbackRule(rule: Rule): boolean {
 }
 
 export function RulesPage() {
+  const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [selectedPrefix, setSelectedPrefix] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -202,12 +204,12 @@ export function RulesPage() {
       showToast("error", '兜底规则 "*" 不允许删除');
       return;
     }
-    const confirmed = window.confirm(`确认删除规则 ${rule.url_prefix} 吗？`);
+    const confirmed = window.confirm(t(`确认删除规则 ${rule.url_prefix} 吗？`));
     if (!confirmed) {
       return;
     }
     await deleteRuleMutateAsync(rule.url_prefix);
-  }, [deleteRuleMutateAsync, showToast]);
+  }, [deleteRuleMutateAsync, showToast, t]);
 
   const handleUpdateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

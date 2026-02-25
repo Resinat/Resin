@@ -1,5 +1,6 @@
 import { Button } from "./Button";
 import { Select } from "./Select";
+import { useI18n } from "../../i18n";
 
 type CursorPaginationProps = {
     pageIndex: number;
@@ -20,14 +21,16 @@ export function CursorPagination({
     onPrev,
     onNext,
 }: CursorPaginationProps) {
+    const { t } = useI18n();
+
     return (
         <div className="nodes-pagination">
             <p className="nodes-pagination-meta">
-                第 {pageIndex + 1} 页 · {hasMore ? "存在下一页" : "无更多数据"}
+                {t(`第 ${pageIndex + 1} 页 · ${hasMore ? "存在下一页" : "无更多数据"}`)}
             </p>
             <div className="nodes-pagination-controls">
                 <label className="nodes-page-size">
-                    <span>每页</span>
+                    <span>{t("每页")}</span>
                     <Select value={String(pageSize)} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
                         {pageSizeOptions.map((size) => (
                             <option key={size} value={size}>
@@ -38,10 +41,10 @@ export function CursorPagination({
                 </label>
 
                 <Button variant="secondary" size="sm" onClick={onPrev} disabled={pageIndex <= 0}>
-                    上一页
+                    {t("上一页")}
                 </Button>
                 <Button variant="secondary" size="sm" onClick={onNext} disabled={!hasMore}>
-                    下一页
+                    {t("下一页")}
                 </Button>
             </div>
         </div>

@@ -13,6 +13,7 @@ import { Select } from "../../components/ui/Select";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
+import { useI18n } from "../../i18n";
 import { ApiError } from "../../lib/api-client";
 import { formatGoDuration, formatRelativeTime } from "../../lib/time";
 import { deletePlatform, getPlatform, rebuildPlatform, resetPlatform, updatePlatform } from "./api";
@@ -94,6 +95,7 @@ function fromApiError(error: unknown): string {
 }
 
 export function PlatformDetailPage() {
+  const { t } = useI18n();
   const { platformId = "" } = useParams();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<PlatformDetailTab>("monitor");
@@ -220,7 +222,7 @@ export function PlatformDetailPage() {
     if (!platform) {
       return;
     }
-    const confirmed = window.confirm(`确认删除平台 ${platform.name}？该操作不可撤销。`);
+    const confirmed = window.confirm(t(`确认删除平台 ${platform.name}？该操作不可撤销。`));
     if (!confirmed) {
       return;
     }

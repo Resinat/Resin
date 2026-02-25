@@ -16,6 +16,7 @@ import { Select } from "../../components/ui/Select";
 import { Switch } from "../../components/ui/Switch";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
+import { useI18n } from "../../i18n";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime, formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
@@ -93,6 +94,7 @@ function parseEnabledFilter(value: EnabledFilter): boolean | undefined {
 }
 
 export function SubscriptionPage() {
+  const { t } = useI18n();
   const [enabledFilter, setEnabledFilter] = useState<EnabledFilter>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -310,15 +312,15 @@ export function SubscriptionPage() {
   });
 
   const handleDelete = useCallback(async (subscription: Subscription) => {
-    const confirmed = window.confirm(`确认删除订阅 ${subscription.name}？关联节点会被清理。`);
+    const confirmed = window.confirm(t(`确认删除订阅 ${subscription.name}？关联节点会被清理。`));
     if (!confirmed) {
       return;
     }
     await deleteSubscriptionMutateAsync(subscription);
-  }, [deleteSubscriptionMutateAsync]);
+  }, [deleteSubscriptionMutateAsync, t]);
 
   const handleCleanupCircuitOpenNodes = async (subscription: Subscription) => {
-    const confirmed = window.confirm(`确认立即清理订阅 ${subscription.name} 中的熔断或异常节点？`);
+    const confirmed = window.confirm(t(`确认立即清理订阅 ${subscription.name} 中的熔断或异常节点？`));
     if (!confirmed) {
       return;
     }

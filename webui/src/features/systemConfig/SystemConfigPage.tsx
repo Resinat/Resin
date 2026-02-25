@@ -9,6 +9,7 @@ import { Switch } from "../../components/ui/Switch";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
+import { useI18n } from "../../i18n";
 import { ApiError } from "../../lib/api-client";
 import { getEnvConfig, patchSystemConfig, getSystemConfig, getDefaultSystemConfig } from "./api";
 import type { RuntimeConfig, RuntimeConfigPatch } from "./types";
@@ -236,6 +237,7 @@ function buildPatch(current: RuntimeConfig, next: RuntimeConfig): RuntimeConfigP
 }
 
 export function SystemConfigPage() {
+  const { t } = useI18n();
   const [draftForm, setDraftForm] = useState<RuntimeConfigForm | null>(null);
   const [customPatchText, setCustomPatchText] = useState<string | null>(null);
   const { toasts, showToast, dismissToast } = useToast();
@@ -393,7 +395,7 @@ export function SystemConfigPage() {
 
   const reloadFromServer = async () => {
     if (hasUnsavedChanges) {
-      const confirmed = window.confirm("当前有未保存变更，确认丢弃并重新加载运行时配置？");
+      const confirmed = window.confirm(t("当前有未保存变更，确认丢弃并重新加载运行时配置？"));
       if (!confirmed) {
         return;
       }
@@ -828,19 +830,19 @@ export function SystemConfigPage() {
                     </div>
                     <div className="field-group">
                       <label className="field-label" style={{ margin: 0 }}>默认节点分配策略</label>
-                      <Input readOnly disabled value={displayAllocationPolicy(envBaseline.default_platform_allocation_policy)} />
+                      <Input readOnly disabled value={t(displayAllocationPolicy(envBaseline.default_platform_allocation_policy))} />
                     </div>
                     <div className="field-group">
                       <label className="field-label" style={{ margin: 0 }}>默认反代不匹配行为</label>
-                      <Input readOnly disabled value={displayMissAction(envBaseline.default_platform_reverse_proxy_miss_action)} />
+                      <Input readOnly disabled value={t(displayMissAction(envBaseline.default_platform_reverse_proxy_miss_action))} />
                     </div>
                     <div className="field-group field-span-2">
                       <label className="field-label" style={{ margin: 0 }}>默认正则黑名单</label>
-                      <Textarea readOnly disabled rows={3} value={envBaseline.default_platform_regex_filters?.join("\n") || "无"} />
+                      <Textarea readOnly disabled rows={3} value={envBaseline.default_platform_regex_filters?.join("\n") || t("无")} />
                     </div>
                     <div className="field-group field-span-2">
                       <label className="field-label" style={{ margin: 0 }}>默认地区黑名单</label>
-                      <Textarea readOnly disabled rows={2} value={envBaseline.default_platform_region_filters?.join(",") || "无"} />
+                      <Textarea readOnly disabled rows={2} value={envBaseline.default_platform_region_filters?.join(",") || t("无")} />
                     </div>
                   </div>
                 </section>

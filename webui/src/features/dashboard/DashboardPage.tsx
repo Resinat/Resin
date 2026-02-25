@@ -5,6 +5,7 @@ import { Area, Bar, BarChart, CartesianGrid, ComposedChart, Line, ResponsiveCont
 import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
+import { getCurrentLocale, isEnglishLocale } from "../../i18n/locale";
 import { ApiError } from "../../lib/api-client";
 import {
   type DashboardGlobalHistoryData,
@@ -120,8 +121,12 @@ function latestValue(values: number[]): number {
   return values[values.length - 1];
 }
 
+function numberLocale(): string {
+  return isEnglishLocale(getCurrentLocale()) ? "en-US" : "zh-CN";
+}
+
 function formatCount(value: number): string {
-  return new Intl.NumberFormat("zh-CN").format(Math.round(value));
+  return new Intl.NumberFormat(numberLocale()).format(Math.round(value));
 }
 
 function formatPercent(value: number): string {
@@ -205,7 +210,7 @@ function formatClock(iso: string): string {
   if (Number.isNaN(date.getTime())) {
     return iso;
   }
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(numberLocale(), {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",

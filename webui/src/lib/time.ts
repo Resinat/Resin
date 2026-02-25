@@ -1,3 +1,9 @@
+import { getCurrentLocale, isEnglishLocale } from "../i18n/locale";
+
+function isEnglish(): boolean {
+  return isEnglishLocale(getCurrentLocale());
+}
+
 export function formatDateTime(input: string): string {
   if (!input) {
     return "-";
@@ -8,7 +14,9 @@ export function formatDateTime(input: string): string {
     return input;
   }
 
-  return new Intl.DateTimeFormat("zh-CN", {
+  const locale = isEnglish() ? "en-US" : "zh-CN";
+
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -20,6 +28,7 @@ export function formatDateTime(input: string): string {
 }
 
 export function formatGoDuration(input: string, emptyLabel = "-"): string {
+  const english = isEnglish();
   const raw = input.trim();
   if (!raw) {
     return emptyLabel;
@@ -52,7 +61,7 @@ export function formatGoDuration(input: string, emptyLabel = "-"): string {
 
   const wholeSeconds = Math.floor(totalSeconds);
   if (wholeSeconds <= 0) {
-    return "0 秒";
+    return english ? "0s" : "0 秒";
   }
 
   const days = Math.floor(wholeSeconds / 86_400);
@@ -61,6 +70,22 @@ export function formatGoDuration(input: string, emptyLabel = "-"): string {
   const seconds = wholeSeconds % 60;
 
   const parts: string[] = [];
+  if (english) {
+    if (days > 0) {
+      parts.push(`${days}d`);
+    }
+    if (hours > 0) {
+      parts.push(`${hours}h`);
+    }
+    if (days === 0 && minutes > 0) {
+      parts.push(`${minutes}m`);
+    }
+    if (days === 0 && hours === 0 && seconds > 0) {
+      parts.push(`${seconds}s`);
+    }
+    return parts.slice(0, 2).join(" ");
+  }
+
   if (days > 0) {
     parts.push(`${days} 天`);
   }
@@ -78,6 +103,7 @@ export function formatGoDuration(input: string, emptyLabel = "-"): string {
 }
 
 export function formatRelativeTime(input: string | null | undefined, emptyLabel = "-"): string {
+  const english = isEnglish();
   if (!input) {
     return emptyLabel;
   }
@@ -96,6 +122,15 @@ export function formatRelativeTime(input: string | null | undefined, emptyLabel 
   const days = Math.floor(hours / 24);
   const months = Math.floor(days / 30);
   const years = Math.floor(days / 365);
+
+  if (english) {
+    if (years > 0) return `${years} year${years === 1 ? "" : "s"} ago`;
+    if (months > 0) return `${months} month${months === 1 ? "" : "s"} ago`;
+    if (days > 0) return `${days} day${days === 1 ? "" : "s"} ago`;
+    if (hours > 0) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    if (minutes > 0) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+    return "just now";
+  }
 
   if (years > 0) return `${years} 年前`;
   if (months > 0) return `${months} 个月前`;

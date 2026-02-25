@@ -12,6 +12,7 @@ import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
+import { useI18n } from "../../i18n";
 import { ApiError } from "../../lib/api-client";
 import { formatDateTime, formatRelativeTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
@@ -250,6 +251,7 @@ function regionToFlag(region: string | undefined): string {
 }
 
 export function NodesPage() {
+  const { locale } = useI18n();
   const location = useLocation();
   const [draftFilters, setDraftFilters] = useState<NodeFilterDraft>(() => draftFromQuery(location.search));
   const [activeFilters, setActiveFilters] = useState<NodeListFilters>(() =>
@@ -265,7 +267,7 @@ export function NodesPage() {
 
   const queryClient = useQueryClient();
 
-  const allRegions = useMemo(() => getAllRegions(), []);
+  const allRegions = useMemo(() => getAllRegions(), [locale]);
 
   const platformsQuery = useQuery({
     queryKey: ["platforms", "all"],

@@ -98,6 +98,7 @@ a {
   border-right: 1px solid var(--border);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(247, 251, 255, 0.95));
   backdrop-filter: blur(10px);
+  overflow: hidden;
 }
 
 .brand {
@@ -105,9 +106,11 @@ a {
   align-items: center;
   gap: 12px;
   padding: 8px;
+  min-width: 0;
 }
 
 .brand-logo {
+  flex: 0 0 34px;
   width: 34px;
   height: 34px;
   border-radius: 11px;
@@ -119,6 +122,16 @@ a {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
+.brand-logo img {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
 .brand-title {
   font-size: 14px;
   font-weight: 700;
@@ -127,12 +140,26 @@ a {
 .brand-subtitle {
   font-size: 12px;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  margin-right: -2px;
 }
 
 .nav-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 0;
+  padding-bottom: 4px;
 }
 
 .nav-item {
@@ -144,6 +171,14 @@ a {
   color: #2f3b51;
   border: 1px solid transparent;
   transition: 0.2s ease;
+  min-width: 0;
+}
+
+.nav-item span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nav-item:hover {
@@ -158,8 +193,17 @@ a {
   box-shadow: inset 0 0 0 1px rgba(20, 112, 255, 0.08);
 }
 
+.sidebar-bottom {
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
 .sidebar-footer {
-  margin-top: auto;
+  margin-top: 0;
 }
 
 .sidebar-hint {
@@ -167,6 +211,99 @@ a {
   font-size: 12px;
   color: var(--text-muted);
   text-align: center;
+}
+
+.sidebar-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+}
+
+.sidebar-tool-spacer {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+}
+
+.sidebar-icon-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+  flex: 0 0 34px;
+}
+
+.sidebar-icon-btn.btn-sm {
+  padding: 0;
+}
+
+.sidebar-icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.locale-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.locale-switch-btn {
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.locale-switch-btn:hover {
+  color: var(--text);
+}
+
+.locale-switch-btn-active {
+  color: var(--primary-strong);
+  background: var(--primary-soft);
+}
+
+.locale-switch-compact {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text-muted);
+  min-height: 34px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.locale-switch-compact:hover {
+  color: var(--text);
+  border-color: rgba(20, 112, 255, 0.25);
+  background: rgba(20, 112, 255, 0.08);
+}
+
+.locale-switch-compact span {
+  min-width: 2ch;
+  text-align: center;
+}
+
+.sidebar-locale {
+  margin-top: 0;
+  margin-left: auto;
 }
 
 .main {
@@ -196,11 +333,12 @@ a {
 }
 
 .sidebar-warning {
-  margin-top: auto;
+  margin-top: 0;
   align-items: flex-start;
   gap: 6px;
   padding: 10px;
   font-size: 12px;
+  max-width: 100%;
 }
 
 .sidebar-warning-copy {
@@ -217,6 +355,15 @@ a {
 .sidebar-warning-copy span {
   font-size: 12px;
   line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.sidebar-warning-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .content {
@@ -2479,6 +2626,10 @@ a {
   gap: 14px;
 }
 
+.login-locale {
+  align-self: flex-end;
+}
+
 .login-header {
   display: flex;
   gap: 12px;
@@ -2522,6 +2673,14 @@ a {
     height: auto;
     border-right: none;
     border-bottom: 1px solid var(--border);
+    overflow: visible;
+  }
+
+  .sidebar-main {
+    min-height: auto;
+    overflow: visible;
+    padding-right: 0;
+    margin-right: 0;
   }
 
   .platform-grid {

@@ -5,6 +5,8 @@ import { Bar, BarChart, CartesianGrid, ComposedChart, Line, ResponsiveContainer,
 import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
+import { useI18n } from "../../i18n";
+import { getCurrentLocale, isEnglishLocale } from "../../i18n/locale";
 import { ApiError, apiRequest } from "../../lib/api-client";
 import type {
   HistoryAccessLatencyResponse,
@@ -105,8 +107,12 @@ function toString(raw: unknown): string {
   return typeof raw === "string" ? raw : "";
 }
 
+function numberLocale(): string {
+  return isEnglishLocale(getCurrentLocale()) ? "en-US" : "zh-CN";
+}
+
 function formatCount(value: number): string {
-  return new Intl.NumberFormat("zh-CN").format(Math.round(value));
+  return new Intl.NumberFormat(numberLocale()).format(Math.round(value));
 }
 
 function formatPercent(value: number): string {
@@ -150,7 +156,7 @@ function formatClock(iso: string): string {
   if (Number.isNaN(date.getTime())) {
     return "--";
   }
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(numberLocale(), {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -758,6 +764,7 @@ function LatencyHistogram({ buckets, emptyText }: LatencyHistogramProps) {
 }
 
 export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
+  const { locale } = useI18n();
   const [rangeKey, setRangeKey] = useState<RangeKey>("6h");
 
   const realtimeQuery = useQuery({
@@ -865,7 +872,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
       label: formatClock(item.ts),
       active_leases: item.active_leases,
     }));
-  }, [sortedRealtimeItems]);
+  }, [sortedRealtimeItems, locale]);
 
   const requestTrendData = useMemo(() => {
     return downsampleArray(sortedRequestsItems, MAX_TREND_POINTS).map((item) => ({
@@ -873,7 +880,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
       total_requests: item.total_requests,
       success_rate: item.success_rate * 100,
     }));
-  }, [sortedRequestsItems]);
+  }, [sortedRequestsItems, locale]);
 
   const leaseLifetimeTrendData = useMemo(() => {
     return downsampleArray(sortedLeaseLifetimeItems, MAX_TREND_POINTS).map((item) => ({
@@ -882,7 +889,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
       p5_ms: item.p5_ms,
       p50_ms: item.p50_ms,
     }));
-  }, [sortedLeaseLifetimeItems]);
+  }, [sortedLeaseLifetimeItems, locale]);
 
   return (
     <section className="platform-drawer-section platform-monitor-section">

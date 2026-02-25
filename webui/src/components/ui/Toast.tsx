@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import type { ToastItem } from "../../hooks/useToast";
+import { useI18n } from "../../i18n";
 
 interface ToastContainerProps {
     toasts: ToastItem[];
@@ -8,6 +9,8 @@ interface ToastContainerProps {
 }
 
 export function ToastContainer({ toasts, onDismiss }: ToastContainerProps) {
+    const { t } = useI18n();
+
     if (toasts.length === 0) {
         return null;
     }
@@ -23,7 +26,7 @@ export function ToastContainer({ toasts, onDismiss }: ToastContainerProps) {
                     <button
                         type="button"
                         className="toast-close"
-                        aria-label="关闭"
+                        aria-label={t("关闭")}
                         onClick={() => onDismiss(toast.id)}
                     >
                         <X size={14} />

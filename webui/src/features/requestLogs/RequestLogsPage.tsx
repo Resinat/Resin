@@ -12,6 +12,7 @@ import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
+import { getCurrentLocale, isEnglishLocale } from "../../i18n/locale";
 import { ApiError } from "../../lib/api-client";
 import { formatBytes } from "../../lib/bytes";
 import { formatDateTime } from "../../lib/time";
@@ -272,6 +273,9 @@ function proxyTypeLabel(proxyType: number): string {
   return String(proxyType);
 }
 
+function dateLocale(): string {
+  return isEnglishLocale(getCurrentLocale()) ? "en-US" : "zh-CN";
+}
 
 
 function splitDateTime(input: string): { date: string; time: string } {
@@ -284,13 +288,13 @@ function splitDateTime(input: string): { date: string; time: string } {
     return { date: input, time: "-" };
   }
 
-  const date = new Intl.DateTimeFormat("zh-CN", {
+  const date = new Intl.DateTimeFormat(dateLocale(), {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(value);
 
-  const time = new Intl.DateTimeFormat("zh-CN", {
+  const time = new Intl.DateTimeFormat(dateLocale(), {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
