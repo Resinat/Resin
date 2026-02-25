@@ -28,6 +28,9 @@ func TestNewSubscription(t *testing.T) {
 	if s.ManagedNodes() == nil {
 		t.Fatal("ManagedNodes should not be nil")
 	}
+	if got := s.SourceType(); got != SourceTypeRemote {
+		t.Fatalf("expected default source type %q, got %q", SourceTypeRemote, got)
+	}
 }
 
 func TestSubscription_NameThreadSafe(t *testing.T) {
@@ -61,6 +64,23 @@ func TestSubscription_SwapManagedNodes(t *testing.T) {
 	tags, ok := loaded.Load(h1)
 	if !ok || len(tags) != 1 || tags[0] != "tag-a" {
 		t.Fatalf("unexpected tag for h1: ok=%v, tags=%v", ok, tags)
+	}
+}
+
+func TestSubscription_SourceTypeAndContent(t *testing.T) {
+	s := NewSubscription("id1", "sub", "url", true, false)
+	v0 := s.ConfigVersion()
+
+	s.SetSourceType(SourceTypeLocal)
+	s.SetContent("vmess://example")
+	if got := s.SourceType(); got != SourceTypeLocal {
+		t.Fatalf("expected source type %q, got %q", SourceTypeLocal, got)
+	}
+	if got := s.Content(); got != "vmess://example" {
+		t.Fatalf("unexpected content: %q", got)
+	}
+	if s.ConfigVersion() <= v0 {
+		t.Fatalf("expected config version to increase: old=%d new=%d", v0, s.ConfigVersion())
 	}
 }
 

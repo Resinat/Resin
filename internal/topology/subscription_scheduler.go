@@ -188,18 +188,29 @@ func (s *SubscriptionScheduler) runUpdatesWithWorkerLimit(subs []*subscription.S
 func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscription) {
 	attemptStartedNs := time.Now().UnixNano()
 	attemptURL := sub.URL()
+	attemptSourceType := sub.SourceType()
+	attemptContent := sub.Content()
+	attemptConfigVersion := sub.ConfigVersion()
 
-	// 1. Fetch (lock-free).
-	body, err := s.Fetcher(attemptURL)
-	if err != nil {
-		s.handleUpdateFailure(sub, attemptStartedNs, attemptURL, "fetch", err)
-		return
+	// 1. Fetch/read content (lock-free).
+	var (
+		body []byte
+		err  error
+	)
+	if attemptSourceType == subscription.SourceTypeLocal {
+		body = []byte(attemptContent)
+	} else {
+		body, err = s.Fetcher(attemptURL)
+		if err != nil {
+			s.handleUpdateFailure(sub, attemptStartedNs, attemptConfigVersion, "fetch", err)
+			return
+		}
 	}
 
 	// 2. Parse (lock-free).
 	parsed, err := subscription.ParseGeneralSubscription(body)
 	if err != nil {
-		s.handleUpdateFailure(sub, attemptStartedNs, attemptURL, "parse", err)
+		s.handleUpdateFailure(sub, attemptStartedNs, attemptConfigVersion, "parse", err)
 		return
 	}
 
@@ -219,8 +230,8 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 	// 4. Diff, swap, add/remove — under lock.
 	applied := false
 	sub.WithOpLock(func() {
-		// If fetch URL changed while this attempt was in-flight, discard.
-		if sub.URL() != attemptURL {
+		// If refresh-input config changed while this attempt was in-flight, discard.
+		if sub.ConfigVersion() != attemptConfigVersion {
 			return
 		}
 		// Stale success guard: if a newer successful update has already landed,
@@ -262,18 +273,19 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 }
 
 // handleUpdateFailure applies a fetch/parse failure to subscription state.
-// It ignores stale failures from an outdated attempt (identified by LastUpdatedNs).
+// It ignores stale failures from an outdated attempt (config-version guard +
+// LastUpdatedNs stale-success guard).
 func (s *SubscriptionScheduler) handleUpdateFailure(
 	sub *subscription.Subscription,
 	attemptStartedNs int64,
-	attemptURL string,
+	attemptConfigVersion int64,
 	stage string,
 	err error,
 ) {
 	applied := false
 	sub.WithOpLock(func() {
-		// If fetch URL changed while this attempt was in-flight, discard.
-		if sub.URL() != attemptURL {
+		// If refresh-input config changed while this attempt was in-flight, discard.
+		if sub.ConfigVersion() != attemptConfigVersion {
 			return
 		}
 		if sub.LastUpdatedNs.Load() > attemptStartedNs {

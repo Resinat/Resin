@@ -190,6 +190,51 @@ func TestScheduler_UpdateSubscription_ParseFailure(t *testing.T) {
 	}
 }
 
+func TestScheduler_UpdateSubscription_LocalSubscription_SuccessWithoutFetcher(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "LocalSub", "", true, false)
+	sub.SetFetchConfig("", int64(time.Hour))
+	sub.SetSourceType(subscription.SourceTypeLocal)
+	sub.SetContent(`{"outbounds":[{"type":"shadowsocks","tag":"local-ss","server":"1.1.1.1","server_port":443}]}`)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	// If fetcher gets called for local subscription, this test should fail.
+	fetcher := makeMockFetcher(nil, errors.New("fetch should not be called for local subscription"))
+	sched := newTestScheduler(subMgr, pool, fetcher)
+
+	sched.UpdateSubscription(sub)
+
+	if sub.GetLastError() != "" {
+		t.Fatalf("unexpected last error: %q", sub.GetLastError())
+	}
+	if pool.Size() != 1 {
+		t.Fatalf("expected 1 node in pool, got %d", pool.Size())
+	}
+}
+
+func TestScheduler_UpdateSubscription_LocalSubscription_ParseFailure(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "LocalSub", "", true, false)
+	sub.SetFetchConfig("", int64(time.Hour))
+	sub.SetSourceType(subscription.SourceTypeLocal)
+	sub.SetContent("not valid subscription content")
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	fetcher := makeMockFetcher(nil, errors.New("fetch should not be called for local subscription"))
+	sched := newTestScheduler(subMgr, pool, fetcher)
+
+	sched.UpdateSubscription(sub)
+
+	if sub.GetLastError() == "" {
+		t.Fatal("expected last error on local parse failure")
+	}
+	if pool.Size() != 0 {
+		t.Fatalf("expected empty pool, got %d", pool.Size())
+	}
+}
+
 // --- Test: Swap-before-add/remove ordering ---
 
 func TestScheduler_UpdateSubscription_SwapBeforePoolMutation(t *testing.T) {

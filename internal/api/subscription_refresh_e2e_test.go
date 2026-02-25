@@ -131,3 +131,51 @@ func TestAPIContract_SubscriptionRefreshAction_E2EHTTPSource(t *testing.T) {
 		t.Fatalf("node hash: got %q, want %q", gotHash, wantHash)
 	}
 }
+
+func TestAPIContract_SubscriptionRefreshAction_E2ELocalSource(t *testing.T) {
+	srv, _, _ := newControlPlaneTestServer(t)
+
+	const rawOutbound = `{"type":"shadowsocks","tag":"edge-local","server":"1.1.1.1","server_port":443,"method":"aes-256-gcm","password":"secret"}`
+	localContent := `{"outbounds":[` + rawOutbound + `]}`
+
+	createRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
+		"name":        "sub-local-e2e",
+		"source_type": "local",
+		"content":     localContent,
+	}, true)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create local subscription status: got %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
+	}
+	createBody := decodeJSONMap(t, createRec)
+	subID, _ := createBody["id"].(string)
+	if subID == "" {
+		t.Fatalf("create local subscription missing id: body=%s", createRec.Body.String())
+	}
+	if got, _ := createBody["source_type"].(string); got != "local" {
+		t.Fatalf("create local source_type: got %q, want %q", got, "local")
+	}
+
+	refreshRec := doJSONRequest(
+		t,
+		srv,
+		http.MethodPost,
+		"/api/v1/subscriptions/"+subID+"/actions/refresh",
+		nil,
+		true,
+	)
+	if refreshRec.Code != http.StatusOK {
+		t.Fatalf("refresh local subscription status: got %d, want %d, body=%s", refreshRec.Code, http.StatusOK, refreshRec.Body.String())
+	}
+
+	getRec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions/"+subID, nil, true)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get local subscription status: got %d, want %d, body=%s", getRec.Code, http.StatusOK, getRec.Body.String())
+	}
+	subBody := decodeJSONMap(t, getRec)
+	if got := subBody["node_count"]; got != float64(1) {
+		t.Fatalf("local subscription node_count after refresh: got %v, want %v", got, 1)
+	}
+	if got, _ := subBody["last_error"].(string); got != "" {
+		t.Fatalf("local subscription last_error: got %q, want empty", got)
+	}
+}

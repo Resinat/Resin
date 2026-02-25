@@ -9,6 +9,8 @@ import type {
 const basePath = "/api/v1/subscriptions";
 
 type ApiSubscription = Omit<Subscription, "last_checked" | "last_updated" | "last_error"> & {
+  source_type?: "remote" | "local";
+  content?: string;
   last_checked?: string | null;
   last_updated?: string | null;
   last_error?: string | null;
@@ -17,6 +19,8 @@ type ApiSubscription = Omit<Subscription, "last_checked" | "last_updated" | "las
 function normalizeSubscription(raw: ApiSubscription): Subscription {
   return {
     ...raw,
+    source_type: raw.source_type ?? "remote",
+    content: raw.content ?? "",
     last_checked: raw.last_checked || "",
     last_updated: raw.last_updated || "",
     last_error: raw.last_error || "",

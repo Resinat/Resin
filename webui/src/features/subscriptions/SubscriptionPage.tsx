@@ -14,6 +14,7 @@ import { Input } from "../../components/ui/Input";
 import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
 import { Switch } from "../../components/ui/Switch";
+import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
@@ -30,20 +31,38 @@ import {
 import type { Subscription } from "./types";
 
 type EnabledFilter = "all" | "enabled" | "disabled";
+type SubscriptionSourceType = "remote" | "local";
+
+const SUBSCRIPTION_SOURCE_TABS: Array<{ key: SubscriptionSourceType; label: string; hint: string }> = [
+  { key: "remote", label: "远程", hint: "从 HTTP/HTTPS 订阅链接拉取内容" },
+  { key: "local", label: "本地", hint: "直接填写订阅文本，不经过网络拉取" },
+];
 
 const subscriptionCreateSchema = z.object({
   name: z.string().trim().min(1, "订阅名称不能为空"),
-  url: z
-    .string()
-    .trim()
-    .min(1, "URL 不能为空")
-    .refine((value) => value.startsWith("http://") || value.startsWith("https://"), {
-      message: "URL 必须是 http/https 地址",
-    }),
+  source_type: z.enum(["remote", "local"]),
+  url: z.string(),
+  content: z.string(),
   update_interval: z.string().trim().min(1, "更新间隔不能为空"),
   ephemeral_node_evict_delay: z.string().trim().min(1, "临时节点驱逐延迟不能为空"),
   enabled: z.boolean(),
   ephemeral: z.boolean(),
+}).superRefine((value, ctx) => {
+  const url = value.url.trim();
+  const content = value.content.trim();
+  if (value.source_type === "remote") {
+    if (!url) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["url"], message: "URL 不能为空" });
+      return;
+    }
+    if (!(url.startsWith("http://") || url.startsWith("https://"))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["url"], message: "URL 必须是 http/https 地址" });
+    }
+    return;
+  }
+  if (!content) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["content"], message: "订阅内容不能为空" });
+  }
 });
 
 const subscriptionEditSchema = subscriptionCreateSchema;
@@ -75,12 +94,18 @@ function fromApiError(error: unknown): string {
 function subscriptionToEditForm(subscription: Subscription): SubscriptionEditForm {
   return {
     name: subscription.name,
+    source_type: subscription.source_type,
     url: subscription.url,
+    content: subscription.content ?? "",
     update_interval: subscription.update_interval,
     ephemeral_node_evict_delay: subscription.ephemeral_node_evict_delay,
     enabled: subscription.enabled,
     ephemeral: subscription.ephemeral,
   };
+}
+
+function sourceTypeLabel(sourceType: SubscriptionSourceType): string {
+  return sourceType === "local" ? "本地" : "远程";
 }
 
 function parseEnabledFilter(value: EnabledFilter): boolean | undefined {
@@ -139,7 +164,9 @@ export function SubscriptionPage() {
     resolver: zodResolver(subscriptionCreateSchema),
     defaultValues: {
       name: "",
+      source_type: "remote",
       url: "",
+      content: "",
       update_interval: "12h",
       ephemeral_node_evict_delay: "72h",
       enabled: true,
@@ -148,12 +175,15 @@ export function SubscriptionPage() {
   });
 
   const createEphemeral = createForm.watch("ephemeral");
+  const createSourceType = createForm.watch("source_type");
 
   const editForm = useForm<SubscriptionEditForm>({
     resolver: zodResolver(subscriptionEditSchema),
     defaultValues: {
       name: "",
+      source_type: "remote",
       url: "",
+      content: "",
       update_interval: "12h",
       ephemeral_node_evict_delay: "72h",
       enabled: true,
@@ -162,6 +192,7 @@ export function SubscriptionPage() {
   });
 
   const editEphemeral = editForm.watch("ephemeral");
+  const editSourceType = editForm.watch("source_type");
 
   useEffect(() => {
     if (!selectedSubscription) {
@@ -204,7 +235,9 @@ export function SubscriptionPage() {
       setCreateModalOpen(false);
       createForm.reset({
         name: "",
+        source_type: "remote",
         url: "",
+        content: "",
         update_interval: "12h",
         ephemeral_node_evict_delay: "72h",
         enabled: true,
@@ -223,14 +256,17 @@ export function SubscriptionPage() {
         throw new Error("请选择要编辑的订阅");
       }
 
-      return updateSubscription(selectedSubscription.id, {
+      const payload = {
         name: formData.name.trim(),
-        url: formData.url.trim(),
         update_interval: formData.update_interval.trim(),
         ephemeral_node_evict_delay: formData.ephemeral_node_evict_delay.trim(),
         enabled: formData.enabled,
         ephemeral: formData.ephemeral,
-      });
+        ...(formData.source_type === "remote"
+          ? { url: formData.url.trim() }
+          : { content: formData.content }),
+      };
+      return updateSubscription(selectedSubscription.id, payload);
     },
     onSuccess: async (updated) => {
       await invalidateSubscriptions();
@@ -297,14 +333,18 @@ export function SubscriptionPage() {
   });
 
   const onCreateSubmit = createForm.handleSubmit(async (values) => {
-    await createMutation.mutateAsync({
+    const payload = {
       name: values.name.trim(),
-      url: values.url.trim(),
+      source_type: values.source_type,
       update_interval: values.update_interval.trim(),
       ephemeral_node_evict_delay: values.ephemeral_node_evict_delay.trim(),
       enabled: values.enabled,
       ephemeral: values.ephemeral,
-    });
+      ...(values.source_type === "remote"
+        ? { url: values.url.trim() }
+        : { content: values.content }),
+    };
+    await createMutation.mutateAsync(payload);
   });
 
   const onEditSubmit = editForm.handleSubmit(async (values) => {
@@ -350,12 +390,22 @@ export function SubscriptionPage() {
         cell: (info) => <p className="subscriptions-name-cell">{info.getValue()}</p>,
       }),
       col.accessor("url", {
-        header: "订阅站点",
-        cell: (info) => (
-          <p className="subscriptions-url-cell" title={info.getValue()}>
-            {extractHostname(info.getValue())}
-          </p>
-        ),
+        header: "订阅源",
+        cell: (info) => {
+          const s = info.row.original;
+          if (s.source_type === "local") {
+            return (
+              <p className="subscriptions-url-cell" title="本地订阅文本">
+                本地文本
+              </p>
+            );
+          }
+          return (
+            <p className="subscriptions-url-cell" title={info.getValue()}>
+              {extractHostname(info.getValue())}
+            </p>
+          );
+        },
       }),
       col.accessor("update_interval", {
         header: "更新间隔",
@@ -577,7 +627,11 @@ export function SubscriptionPage() {
               <section className="platform-drawer-section">
                 <div className="platform-drawer-section-head">
                   <h4>订阅配置</h4>
-                  <p>更新 URL、刷新周期与状态开关后点击保存。</p>
+                  <p>
+                    {editSourceType === "local"
+                      ? "更新本地订阅文本、刷新周期与状态开关后点击保存。"
+                      : "更新 URL、刷新周期与状态开关后点击保存。"}
+                  </p>
                 </div>
 
                 <div className="stats-grid">
@@ -602,6 +656,8 @@ export function SubscriptionPage() {
                 )}
 
                 <form className="form-grid" onSubmit={onEditSubmit}>
+                  <input type="hidden" {...editForm.register("source_type")} />
+
                   <div className="field-group">
                     <label className="field-label" htmlFor="edit-sub-name">
                       订阅名称
@@ -614,6 +670,18 @@ export function SubscriptionPage() {
                     {editForm.formState.errors.name?.message ? (
                       <p className="field-error">{editForm.formState.errors.name.message}</p>
                     ) : null}
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="edit-sub-source-type">
+                      订阅类型
+                    </label>
+                    <Input
+                      id="edit-sub-source-type"
+                      value={sourceTypeLabel(editSourceType)}
+                      readOnly
+                      disabled
+                    />
                   </div>
 
                   <div className="field-group">
@@ -631,15 +699,33 @@ export function SubscriptionPage() {
                     ) : null}
                   </div>
 
-                  <div className="field-group field-span-2">
-                    <label className="field-label" htmlFor="edit-sub-url">
-                      订阅链接
-                    </label>
-                    <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
-                    {editForm.formState.errors.url?.message ? (
-                      <p className="field-error">{editForm.formState.errors.url.message}</p>
-                    ) : null}
-                  </div>
+                  {editSourceType === "remote" ? (
+                    <div className="field-group field-span-2">
+                      <label className="field-label" htmlFor="edit-sub-url">
+                        订阅链接
+                      </label>
+                      <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
+                      {editForm.formState.errors.url?.message ? (
+                        <p className="field-error">{editForm.formState.errors.url.message}</p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="field-group field-span-2">
+                      <label className="field-label" htmlFor="edit-sub-content">
+                        订阅内容
+                      </label>
+                      <Textarea
+                        id="edit-sub-content"
+                        rows={8}
+                        placeholder="支持 sing-box JSON / Clash YAML / URI 列表"
+                        invalid={Boolean(editForm.formState.errors.content)}
+                        {...editForm.register("content")}
+                      />
+                      {editForm.formState.errors.content?.message ? (
+                        <p className="field-error">{editForm.formState.errors.content.message}</p>
+                      ) : null}
+                    </div>
+                  )}
 
                   <div className="field-group">
                     <label className="field-label" htmlFor="edit-sub-ephemeral" style={{ visibility: "hidden" }}>
@@ -757,6 +843,8 @@ export function SubscriptionPage() {
             </div>
 
             <form className="form-grid" onSubmit={onCreateSubmit}>
+              <input type="hidden" {...createForm.register("source_type")} />
+
               <div className="field-group">
                 <label className="field-label" htmlFor="create-sub-name">
                   订阅名称
@@ -787,30 +875,58 @@ export function SubscriptionPage() {
               </div>
 
               <div className="field-group field-span-2">
-                <label className="field-label" htmlFor="create-sub-url">
-                  订阅链接
-                </label>
-                <Input
-                  id="create-sub-url"
-                  invalid={Boolean(createForm.formState.errors.url)}
-                  {...createForm.register("url")}
-                />
-                {createForm.formState.errors.url?.message ? (
-                  <p className="field-error">{createForm.formState.errors.url.message}</p>
-                ) : null}
-              </div>
-
-              <div className="field-group">
-                <label className="field-label" htmlFor="create-sub-ephemeral" style={{ visibility: "hidden" }}>
-                  临时订阅
-                </label>
-                <div className="subscription-switch-item">
-                  <label className="subscription-switch-label" htmlFor="create-sub-ephemeral">
-                    临时订阅
-                  </label>
-                  <Switch id="create-sub-ephemeral" {...createForm.register("ephemeral")} />
+                <label className="field-label">订阅来源</label>
+                <div className="platform-detail-tabs" role="tablist" aria-label="订阅来源类型">
+                  {SUBSCRIPTION_SOURCE_TABS.map((tab) => {
+                    const selected = createSourceType === tab.key;
+                    return (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        className={`platform-detail-tab ${selected ? "platform-detail-tab-active" : ""}`}
+                        title={tab.hint}
+                        onClick={() => createForm.setValue("source_type", tab.key, { shouldDirty: true, shouldValidate: true })}
+                      >
+                        <span>{tab.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
+
+              {createSourceType === "remote" ? (
+                <div className="field-group field-span-2">
+                  <label className="field-label" htmlFor="create-sub-url">
+                    订阅链接
+                  </label>
+                  <Input
+                    id="create-sub-url"
+                    invalid={Boolean(createForm.formState.errors.url)}
+                    {...createForm.register("url")}
+                  />
+                  {createForm.formState.errors.url?.message ? (
+                    <p className="field-error">{createForm.formState.errors.url.message}</p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="field-group field-span-2">
+                  <label className="field-label" htmlFor="create-sub-content">
+                    订阅内容
+                  </label>
+                  <Textarea
+                    id="create-sub-content"
+                    rows={8}
+                    placeholder="支持 sing-box JSON / Clash YAML / URI 列表"
+                    invalid={Boolean(createForm.formState.errors.content)}
+                    {...createForm.register("content")}
+                  />
+                  {createForm.formState.errors.content?.message ? (
+                    <p className="field-error">{createForm.formState.errors.content.message}</p>
+                  ) : null}
+                </div>
+              )}
 
               <div className="field-group">
                 <label className="field-label" htmlFor="create-sub-ephemeral-evict-delay">
@@ -826,6 +942,18 @@ export function SubscriptionPage() {
                 {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
                   <p className="field-error">{createForm.formState.errors.ephemeral_node_evict_delay.message}</p>
                 ) : null}
+              </div>
+
+              <div className="field-group">
+                <label className="field-label" htmlFor="create-sub-ephemeral" style={{ visibility: "hidden" }}>
+                  临时订阅
+                </label>
+                <div className="subscription-switch-item">
+                  <label className="subscription-switch-label" htmlFor="create-sub-ephemeral">
+                    临时订阅
+                  </label>
+                  <Switch id="create-sub-ephemeral" {...createForm.register("ephemeral")} />
+                </div>
               </div>
 
               <div className="subscription-switch-item">

@@ -332,6 +332,8 @@ func bootstrapTopology(
 	for _, ms := range dbSubs {
 		sub := subscription.NewSubscription(ms.ID, ms.Name, ms.URL, ms.Enabled, ms.Ephemeral)
 		sub.SetFetchConfig(ms.URL, ms.UpdateIntervalNs)
+		sub.SetSourceType(ms.SourceType)
+		sub.SetContent(ms.Content)
 		sub.SetEphemeralNodeEvictDelayNs(ms.EphemeralNodeEvictDelayNs)
 		sub.CreatedAtNs = ms.CreatedAtNs
 		sub.UpdatedAtNs = ms.UpdatedAtNs

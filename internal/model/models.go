@@ -19,7 +19,9 @@ type Platform struct {
 type Subscription struct {
 	ID                        string `json:"id"`
 	Name                      string `json:"name"`
+	SourceType                string `json:"source_type"`
 	URL                       string `json:"url"`
+	Content                   string `json:"content"`
 	UpdateIntervalNs          int64  `json:"update_interval_ns"`
 	Enabled                   bool   `json:"enabled"`
 	Ephemeral                 bool   `json:"ephemeral"`

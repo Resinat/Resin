@@ -12,6 +12,13 @@ import (
 
 const defaultEphemeralNodeEvictDelayNs = int64(72 * time.Hour)
 
+const (
+	// SourceTypeRemote pulls subscription content over HTTP(S) from URL.
+	SourceTypeRemote = "remote"
+	// SourceTypeLocal reads subscription content from local text content.
+	SourceTypeLocal = "local"
+)
+
 // Subscription represents a subscription's runtime state.
 // It has two synchronization layers:
 //   - mu protects mutable config fields
@@ -30,8 +37,10 @@ type Subscription struct {
 	opMu sync.Mutex
 
 	// Mutable fields guarded by mu.
-	mu  sync.RWMutex
-	url string
+	mu         sync.RWMutex
+	url        string
+	sourceType string
+	content    string
 	// updateIntervalNs is the configured subscription refresh interval.
 	updateIntervalNs int64
 	name             string
@@ -54,6 +63,10 @@ type Subscription struct {
 	// managedNodes is the subscription's node view: Hash → Tags.
 	// Swapped atomically on subscription update.
 	managedNodes atomic.Pointer[xsync.Map[node.Hash, []string]]
+
+	// configVersion is incremented whenever refresh-input-related config changes
+	// (URL/source/content/update-interval). Scheduler uses it for stale-guard.
+	configVersion atomic.Int64
 }
 
 // NewSubscription creates a Subscription with an empty ManagedNodes map.
@@ -61,6 +74,7 @@ func NewSubscription(id, name, url string, enabled, ephemeral bool) *Subscriptio
 	s := &Subscription{
 		ID:                        id,
 		url:                       url,
+		sourceType:                SourceTypeRemote,
 		name:                      name,
 		enabled:                   enabled,
 		ephemeral:                 ephemeral,
@@ -70,6 +84,7 @@ func NewSubscription(id, name, url string, enabled, ephemeral bool) *Subscriptio
 	s.managedNodes.Store(empty)
 	emptyErr := ""
 	s.LastError.Store(&emptyErr)
+	s.configVersion.Store(1)
 	return s
 }
 
@@ -93,6 +108,25 @@ func (s *Subscription) URL() string {
 	return s.url
 }
 
+// SourceType returns the subscription source type (thread-safe).
+func (s *Subscription) SourceType() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return normalizeSourceType(s.sourceType)
+}
+
+// Content returns the local subscription content (thread-safe).
+func (s *Subscription) Content() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.content
+}
+
+// ConfigVersion returns the scheduler input config version.
+func (s *Subscription) ConfigVersion() int64 {
+	return s.configVersion.Load()
+}
+
 // UpdateIntervalNs returns the configured update interval in nanoseconds (thread-safe).
 func (s *Subscription) UpdateIntervalNs() int64 {
 	s.mu.RLock()
@@ -103,8 +137,33 @@ func (s *Subscription) UpdateIntervalNs() int64 {
 // SetFetchConfig updates URL and update interval together atomically under lock.
 func (s *Subscription) SetFetchConfig(url string, updateIntervalNs int64) {
 	s.mu.Lock()
+	changed := s.url != url || s.updateIntervalNs != updateIntervalNs
 	s.url = url
 	s.updateIntervalNs = updateIntervalNs
+	if changed {
+		s.configVersion.Add(1)
+	}
+	s.mu.Unlock()
+}
+
+// SetSourceType updates subscription source type (thread-safe).
+func (s *Subscription) SetSourceType(sourceType string) {
+	sourceType = normalizeSourceType(sourceType)
+	s.mu.Lock()
+	if s.sourceType != sourceType {
+		s.sourceType = sourceType
+		s.configVersion.Add(1)
+	}
+	s.mu.Unlock()
+}
+
+// SetContent updates local subscription content (thread-safe).
+func (s *Subscription) SetContent(content string) {
+	s.mu.Lock()
+	if s.content != content {
+		s.content = content
+		s.configVersion.Add(1)
+	}
 	s.mu.Unlock()
 }
 
@@ -198,4 +257,13 @@ func DiffHashes(
 	})
 
 	return added, kept, removed
+}
+
+func normalizeSourceType(sourceType string) string {
+	switch sourceType {
+	case SourceTypeLocal:
+		return SourceTypeLocal
+	default:
+		return SourceTypeRemote
+	}
 }

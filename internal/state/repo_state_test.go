@@ -290,6 +290,42 @@ func TestStateRepo_Subscription_CreatedAtNsPreserved(t *testing.T) {
 	}
 }
 
+func TestStateRepo_Subscription_LocalSourcePersists(t *testing.T) {
+	repo := newTestStateRepo(t)
+	now := time.Now().UnixNano()
+
+	s := model.Subscription{
+		ID:                        "sub-local",
+		Name:                      "LocalSub",
+		SourceType:                "local",
+		URL:                       "",
+		Content:                   "vmess://example",
+		UpdateIntervalNs:          int64(time.Hour),
+		Enabled:                   true,
+		Ephemeral:                 false,
+		EphemeralNodeEvictDelayNs: int64(72 * time.Hour),
+		CreatedAtNs:               now,
+		UpdatedAtNs:               now,
+	}
+	if err := repo.UpsertSubscription(s); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := repo.ListSubscriptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 subscription, got %d", len(list))
+	}
+	if list[0].SourceType != "local" {
+		t.Fatalf("source_type: got %q, want %q", list[0].SourceType, "local")
+	}
+	if list[0].Content != "vmess://example" {
+		t.Fatalf("content: got %q", list[0].Content)
+	}
+}
+
 // --- account_header_rules ---
 
 func TestStateRepo_AccountHeaderRules_CRUD(t *testing.T) {

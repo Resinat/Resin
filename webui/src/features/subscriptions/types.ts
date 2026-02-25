@@ -1,7 +1,9 @@
 export type Subscription = {
   id: string;
   name: string;
+  source_type: "remote" | "local";
   url: string;
+  content: string;
   update_interval: string;
   node_count: number;
   healthy_node_count: number;
@@ -23,7 +25,9 @@ export type PageResponse<T> = {
 
 export type SubscriptionCreateInput = {
   name: string;
-  url: string;
+  source_type?: "remote" | "local";
+  url?: string;
+  content?: string;
   update_interval?: string;
   enabled?: boolean;
   ephemeral?: boolean;
@@ -33,6 +37,7 @@ export type SubscriptionCreateInput = {
 export type SubscriptionUpdateInput = {
   name?: string;
   url?: string;
+  content?: string;
   update_interval?: string;
   enabled?: boolean;
   ephemeral?: boolean;

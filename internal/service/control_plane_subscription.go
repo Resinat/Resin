@@ -24,7 +24,9 @@ import (
 type SubscriptionResponse struct {
 	ID                      string `json:"id"`
 	Name                    string `json:"name"`
+	SourceType              string `json:"source_type"`
 	URL                     string `json:"url"`
+	Content                 string `json:"content"`
 	UpdateInterval          string `json:"update_interval"`
 	NodeCount               int    `json:"node_count"`
 	HealthyNodeCount        int    `json:"healthy_node_count"`
@@ -56,7 +58,9 @@ func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) Subs
 	resp := SubscriptionResponse{
 		ID:                      sub.ID,
 		Name:                    sub.Name(),
+		SourceType:              sub.SourceType(),
 		URL:                     sub.URL(),
+		Content:                 sub.Content(),
 		UpdateInterval:          time.Duration(sub.UpdateIntervalNs()).String(),
 		NodeCount:               nodeCount,
 		HealthyNodeCount:        healthyNodeCount,
@@ -104,7 +108,9 @@ func (s *ControlPlaneService) GetSubscription(id string) (*SubscriptionResponse,
 // CreateSubscriptionRequest holds create subscription parameters.
 type CreateSubscriptionRequest struct {
 	Name                    *string `json:"name"`
+	SourceType              *string `json:"source_type"`
 	URL                     *string `json:"url"`
+	Content                 *string `json:"content"`
 	UpdateInterval          *string `json:"update_interval"`
 	Enabled                 *bool   `json:"enabled"`
 	Ephemeral               *bool   `json:"ephemeral"`
@@ -114,6 +120,19 @@ type CreateSubscriptionRequest struct {
 const minSubscriptionUpdateInterval = 30 * time.Second
 const defaultSubscriptionEphemeralNodeEvictDelay = 72 * time.Hour
 
+func parseSubscriptionSourceType(raw *string) (string, *ServiceError) {
+	if raw == nil {
+		return subscription.SourceTypeRemote, nil
+	}
+	value := strings.ToLower(strings.TrimSpace(*raw))
+	switch value {
+	case subscription.SourceTypeRemote, subscription.SourceTypeLocal:
+		return value, nil
+	default:
+		return "", invalidArg("source_type: must be remote or local")
+	}
+}
+
 // CreateSubscription creates a new subscription.
 func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) (*SubscriptionResponse, error) {
 	if req.Name == nil || strings.TrimSpace(*req.Name) == "" {
@@ -121,12 +140,35 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 	}
 	name := strings.TrimSpace(*req.Name)
 
-	if req.URL == nil || *req.URL == "" {
-		return nil, invalidArg("url is required")
-	}
-	subURL := *req.URL
-	if _, verr := parseHTTPAbsoluteURL("url", subURL); verr != nil {
+	sourceType, verr := parseSubscriptionSourceType(req.SourceType)
+	if verr != nil {
 		return nil, verr
+	}
+
+	subURL := ""
+	content := ""
+	switch sourceType {
+	case subscription.SourceTypeRemote:
+		if req.URL == nil || strings.TrimSpace(*req.URL) == "" {
+			return nil, invalidArg("url is required for remote subscription")
+		}
+		subURL = strings.TrimSpace(*req.URL)
+		if _, verr := parseHTTPAbsoluteURL("url", subURL); verr != nil {
+			return nil, verr
+		}
+		if req.Content != nil && strings.TrimSpace(*req.Content) != "" {
+			return nil, invalidArg("content is not allowed for remote subscription")
+		}
+	case subscription.SourceTypeLocal:
+		if req.Content == nil || strings.TrimSpace(*req.Content) == "" {
+			return nil, invalidArg("content is required for local subscription")
+		}
+		content = *req.Content
+		if req.URL != nil && strings.TrimSpace(*req.URL) != "" {
+			return nil, invalidArg("url is not allowed for local subscription")
+		}
+	default:
+		return nil, invalidArg("source_type: must be remote or local")
 	}
 
 	updateInterval := 5 * time.Minute
@@ -167,7 +209,9 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 	ms := model.Subscription{
 		ID:                        id,
 		Name:                      name,
+		SourceType:                sourceType,
 		URL:                       subURL,
+		Content:                   content,
 		UpdateIntervalNs:          int64(updateInterval),
 		Enabled:                   enabled,
 		Ephemeral:                 ephemeral,
@@ -181,6 +225,8 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 
 	sub := subscription.NewSubscription(id, name, subURL, enabled, ephemeral)
 	sub.SetFetchConfig(subURL, int64(updateInterval))
+	sub.SetSourceType(sourceType)
+	sub.SetContent(content)
 	sub.SetEphemeralNodeEvictDelayNs(int64(ephemeralNodeEvictDelay))
 	sub.CreatedAtNs = now
 	sub.UpdatedAtNs = now
@@ -213,6 +259,8 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	nameChanged := false
 	enabledChanged := false
 	urlChanged := false
+	contentChanged := false
+	sourceType := sub.SourceType()
 
 	newName := sub.Name()
 	if nameStr, ok, err := patch.optionalNonEmptyString("name"); err != nil {
@@ -228,12 +276,31 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	if urlStr, ok, err := patch.optionalString("url"); err != nil {
 		return nil, err
 	} else if ok {
+		if sourceType != subscription.SourceTypeRemote {
+			return nil, invalidArg("url: field is not allowed for local subscription")
+		}
 		if _, verr := parseHTTPAbsoluteURL("url", urlStr); verr != nil {
 			return nil, verr
 		}
 		newURL = urlStr
 		if newURL != sub.URL() {
 			urlChanged = true
+		}
+	}
+
+	newContent := sub.Content()
+	if contentStr, ok, err := patch.optionalString("content"); err != nil {
+		return nil, err
+	} else if ok {
+		if sourceType != subscription.SourceTypeLocal {
+			return nil, invalidArg("content: field is not allowed for remote subscription")
+		}
+		if strings.TrimSpace(contentStr) == "" {
+			return nil, invalidArg("content: must be a non-empty string")
+		}
+		newContent = contentStr
+		if newContent != sub.Content() {
+			contentChanged = true
 		}
 	}
 
@@ -278,7 +345,9 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	ms := model.Subscription{
 		ID:                        id,
 		Name:                      newName,
+		SourceType:                sourceType,
 		URL:                       newURL,
+		Content:                   newContent,
 		UpdateIntervalNs:          newInterval,
 		Enabled:                   newEnabled,
 		Ephemeral:                 newEphemeral,
@@ -292,6 +361,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 
 	// Apply side-effects via scheduler.
 	sub.SetFetchConfig(newURL, newInterval)
+	sub.SetContent(newContent)
 	sub.SetEphemeral(newEphemeral)
 	sub.SetEphemeralNodeEvictDelayNs(newEphemeralNodeEvictDelay)
 	sub.UpdatedAtNs = now
@@ -302,7 +372,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	if enabledChanged {
 		s.Scheduler.SetSubscriptionEnabled(sub, newEnabled)
 	}
-	if urlChanged {
+	if urlChanged || contentChanged {
 		go s.Scheduler.UpdateSubscription(sub)
 	}
 

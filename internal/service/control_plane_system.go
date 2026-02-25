@@ -102,6 +102,7 @@ var platformPatchAllowedFields = map[string]bool{
 var subscriptionPatchAllowedFields = map[string]bool{
 	"name":                       true,
 	"url":                        true,
+	"content":                    true,
 	"update_interval":            true,
 	"enabled":                    true,
 	"ephemeral":                  true,

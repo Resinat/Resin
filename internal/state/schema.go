@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS platforms (
 CREATE TABLE IF NOT EXISTS subscriptions (
 	id                TEXT PRIMARY KEY,
 	name              TEXT NOT NULL,
+	source_type       TEXT NOT NULL DEFAULT 'remote',
 	url               TEXT NOT NULL,
+	content           TEXT NOT NULL DEFAULT '',
 	update_interval_ns INTEGER NOT NULL,
 	enabled           INTEGER NOT NULL DEFAULT 1,
 	ephemeral         INTEGER NOT NULL DEFAULT 0,
