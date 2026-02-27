@@ -33,7 +33,7 @@
 注意：外部接口（HTTP 头、反向代理路径）通常使用 Platform Name 作为输入，但在入口处应立即通过 Name -> ID 映射转换为 ID。后续逻辑只认 ID，不认 Name。
 1. 正向代理通过 `Proxy-Authorization: Basic PROXY_TOKEN:Platform:Account` 同时做代理认证与业务身份解析。PROXY_TOKEN 字段用于代理认证。Platform:Account 提供业务身份。PROXY_TOKEN 映射到 Basic 认证的 user 字段，Platform:Account 映射到 pass 字段。解析 pass 时按**第一个** `:` 切分为 `Platform` 与 `Account`。PROXY_TOKEN 与 Platform 不能包含 : @ 符号。Account 不限制符号。该约束属于解析约定，控制面不对 `:` 与 `@` 做额外校验。
 2. 反向代理通过路径 `/PROXY_TOKEN/Platform:Account/protocol/host/path?query` 解析；其中 `Platform:Account` 必须是单个路径段。当 `Account` 为空时，按平台配置 `ReverseProxyEmptyAccountBehavior` 处理：`RANDOM`（直接随机）、`FIXED_HEADER`（按 `ReverseProxyFixedAccountHeader` 列表提取）、`ACCOUNT_HEADER_RULE`（按全局规则提取）。`ReverseProxyFixedAccountHeader` 支持多行，每行一个 Header，按顺序取第一个非空值。protocol 可选 `http/https`；host 可以是域名，可以是 IP，可以加端口。若 `Account` 含 `/` 导致路径分段变化，按反向代理 URL 解析失败处理；该类 malformed 输入不要求固定到某一个错误码，只要返回明确的解析类错误即可（如 `URL_PARSE_ERROR` / `INVALID_PROTOCOL` / `INVALID_HOST`）。
-3. 当 Platform 未提供，默认使用 Default 平台。当正向代理的 Account 未提供，默认使用平台内的随机路由。
+3. 当 Platform 未提供，默认使用 Default 平台。当代理的 Account 未提供，默认使用平台内的随机路由。
 
 正向代理例子：
 * `resin-123456:Google:Tom`：ProxyToken 是 resin-123456；Platform 是 Google；Account 是 Tom。
@@ -45,7 +45,7 @@
 
 ## 反向代理如何在 Account 为空时处理
 当反向代理路径里未提供 Account 时，每个平台独立配置 `ReverseProxyEmptyAccountBehavior`：
-* `RANDOM`：不做提取，直接按平台随机路由。
+* `RANDOM`：不做提取，直接按平台随机路由。（默认）
 * `FIXED_HEADER`：使用该平台的 `ReverseProxyFixedAccountHeader`（多行列表，每行一个 Header）提取。
 * `ACCOUNT_HEADER_RULE`：使用全局 Account Header Rules（下文）做最长前缀匹配后提取。
 
