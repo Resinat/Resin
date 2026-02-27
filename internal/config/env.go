@@ -29,19 +29,21 @@ type EnvConfig struct {
 	APIMaxBodyBytes int
 
 	// Core
-	MaxLatencyTableEntries                int
-	ProbeConcurrency                      int
-	GeoIPUpdateSchedule                   string
-	DefaultPlatformStickyTTL              time.Duration
-	DefaultPlatformRegexFilters           []string
-	DefaultPlatformRegionFilters          []string
-	DefaultPlatformReverseProxyMissAction string
-	DefaultPlatformAllocationPolicy       string
-	ProbeTimeout                          time.Duration
-	ResourceFetchTimeout                  time.Duration
-	ProxyTransportMaxIdleConns            int
-	ProxyTransportMaxIdleConnsPerHost     int
-	ProxyTransportIdleConnTimeout         time.Duration
+	MaxLatencyTableEntries                          int
+	ProbeConcurrency                                int
+	GeoIPUpdateSchedule                             string
+	DefaultPlatformStickyTTL                        time.Duration
+	DefaultPlatformRegexFilters                     []string
+	DefaultPlatformRegionFilters                    []string
+	DefaultPlatformReverseProxyMissAction           string
+	DefaultPlatformReverseProxyEmptyAccountBehavior string
+	DefaultPlatformReverseProxyFixedAccountHeader   string
+	DefaultPlatformAllocationPolicy                 string
+	ProbeTimeout                                    time.Duration
+	ResourceFetchTimeout                            time.Duration
+	ProxyTransportMaxIdleConns                      int
+	ProxyTransportMaxIdleConnsPerHost               int
+	ProxyTransportIdleConnTimeout                   time.Duration
 
 	// Request log
 	RequestLogQueueSize           int
@@ -93,6 +95,14 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION",
 		string(platform.ReverseProxyMissActionRandom),
 	)
+	cfg.DefaultPlatformReverseProxyEmptyAccountBehavior = envStr(
+		"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR",
+		string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
+	)
+	cfg.DefaultPlatformReverseProxyFixedAccountHeader = strings.TrimSpace(envStr(
+		"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER",
+		"Authorization",
+	))
 	cfg.DefaultPlatformAllocationPolicy = envStr(
 		"RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY",
 		string(platform.AllocationPolicyBalanced),
@@ -173,6 +183,35 @@ func LoadEnvConfig() (*EnvConfig, error) {
 			platform.ReverseProxyMissActionRandom,
 			platform.ReverseProxyMissActionReject,
 		))
+	}
+	if !platform.ReverseProxyEmptyAccountBehavior(cfg.DefaultPlatformReverseProxyEmptyAccountBehavior).IsValid() {
+		errs = append(errs, fmt.Sprintf(
+			"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR: invalid value %q (allowed: %s, %s, %s)",
+			cfg.DefaultPlatformReverseProxyEmptyAccountBehavior,
+			platform.ReverseProxyEmptyAccountBehaviorRandom,
+			platform.ReverseProxyEmptyAccountBehaviorFixedHeader,
+			platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule,
+		))
+	}
+	normalizedFixedHeaders, fixedHeaders, fixedHeadersErr := platform.NormalizeFixedAccountHeaders(
+		cfg.DefaultPlatformReverseProxyFixedAccountHeader,
+	)
+	if fixedHeadersErr != nil {
+		errs = append(
+			errs,
+			fmt.Sprintf(
+				"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER: %v",
+				fixedHeadersErr,
+			),
+		)
+	} else {
+		cfg.DefaultPlatformReverseProxyFixedAccountHeader = normalizedFixedHeaders
+	}
+	if cfg.DefaultPlatformReverseProxyEmptyAccountBehavior == string(platform.ReverseProxyEmptyAccountBehaviorFixedHeader) &&
+		len(fixedHeaders) == 0 {
+		errs = append(errs,
+			"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER: required when RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR is FIXED_HEADER",
+		)
 	}
 	if !platform.AllocationPolicy(cfg.DefaultPlatformAllocationPolicy).IsValid() {
 		errs = append(errs, fmt.Sprintf(

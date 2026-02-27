@@ -85,6 +85,12 @@ const MISS_ACTION_LABELS: Record<string, string> = {
   REJECT: "拒绝代理请求",
 };
 
+const EMPTY_ACCOUNT_BEHAVIOR_LABELS: Record<string, string> = {
+  RANDOM: "直接随机路由",
+  FIXED_HEADER: "按固定 Header 提取",
+  ACCOUNT_HEADER_RULE: "按 Account Header Rule 提取",
+};
+
 function configToForm(config: RuntimeConfig): RuntimeConfigForm {
   return {
     user_agent: config.user_agent,
@@ -193,6 +199,10 @@ function displayAllocationPolicy(value: string): string {
 
 function displayMissAction(value: string): string {
   return MISS_ACTION_LABELS[value] ?? value;
+}
+
+function displayEmptyAccountBehavior(value: string): string {
+  return EMPTY_ACCOUNT_BEHAVIOR_LABELS[value] ?? value;
 }
 
 function arrayEquals(a: string[], b: string[]): boolean {
@@ -829,6 +839,23 @@ export function SystemConfigPage() {
                     <div className="field-group">
                       <label className="field-label" style={{ margin: 0 }}>{t("默认反代不匹配行为")}</label>
                       <Input readOnly disabled value={t(displayMissAction(envBaseline.default_platform_reverse_proxy_miss_action))} />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>{t("默认反代空账号行为")}</label>
+                      <Input
+                        readOnly
+                        disabled
+                        value={t(displayEmptyAccountBehavior(envBaseline.default_platform_reverse_proxy_empty_account_behavior))}
+                      />
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label" style={{ margin: 0 }}>{t("默认反代固定账号 Header 列表")}</label>
+                      <Textarea
+                        readOnly
+                        disabled
+                        rows={3}
+                        value={envBaseline.default_platform_reverse_proxy_fixed_account_header || t("无")}
+                      />
                     </div>
                     <div className="field-group field-span-2">
                       <label className="field-label" style={{ margin: 0 }}>{t("默认正则黑名单")}</label>

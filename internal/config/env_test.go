@@ -49,6 +49,18 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	assertEqual(t, "DefaultPlatformRegexFiltersLength", len(cfg.DefaultPlatformRegexFilters), 0)
 	assertEqual(t, "DefaultPlatformRegionFiltersLength", len(cfg.DefaultPlatformRegionFilters), 0)
 	assertEqual(t, "DefaultPlatformReverseProxyMissAction", cfg.DefaultPlatformReverseProxyMissAction, "RANDOM")
+	assertEqual(
+		t,
+		"DefaultPlatformReverseProxyEmptyAccountBehavior",
+		cfg.DefaultPlatformReverseProxyEmptyAccountBehavior,
+		"ACCOUNT_HEADER_RULE",
+	)
+	assertEqual(
+		t,
+		"DefaultPlatformReverseProxyFixedAccountHeader",
+		cfg.DefaultPlatformReverseProxyFixedAccountHeader,
+		"Authorization",
+	)
 	assertEqual(t, "DefaultPlatformAllocationPolicy", cfg.DefaultPlatformAllocationPolicy, "BALANCED")
 	assertEqual(t, "ProbeTimeout", cfg.ProbeTimeout, 15*time.Second)
 	assertEqual(t, "ResourceFetchTimeout", cfg.ResourceFetchTimeout, 30*time.Second)
@@ -86,6 +98,8 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	envs["RESIN_DEFAULT_PLATFORM_REGEX_FILTERS"] = `["^Provider/.*"]`
 	envs["RESIN_DEFAULT_PLATFORM_REGION_FILTERS"] = `["us","hk"]`
 	envs["RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION"] = "REJECT"
+	envs["RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR"] = "FIXED_HEADER"
+	envs["RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER"] = "x-platform-account"
 	envs["RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY"] = "PREFER_LOW_LATENCY"
 	envs["RESIN_PROBE_TIMEOUT"] = "20s"
 	envs["RESIN_RESOURCE_FETCH_TIMEOUT"] = "45s"
@@ -113,6 +127,18 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	assertEqual(t, "DefaultPlatformRegionFilters[0]", cfg.DefaultPlatformRegionFilters[0], "us")
 	assertEqual(t, "DefaultPlatformRegionFilters[1]", cfg.DefaultPlatformRegionFilters[1], "hk")
 	assertEqual(t, "DefaultPlatformReverseProxyMissAction", cfg.DefaultPlatformReverseProxyMissAction, "REJECT")
+	assertEqual(
+		t,
+		"DefaultPlatformReverseProxyEmptyAccountBehavior",
+		cfg.DefaultPlatformReverseProxyEmptyAccountBehavior,
+		"FIXED_HEADER",
+	)
+	assertEqual(
+		t,
+		"DefaultPlatformReverseProxyFixedAccountHeader",
+		cfg.DefaultPlatformReverseProxyFixedAccountHeader,
+		"X-Platform-Account",
+	)
 	assertEqual(t, "DefaultPlatformAllocationPolicy", cfg.DefaultPlatformAllocationPolicy, "PREFER_LOW_LATENCY")
 	assertEqual(t, "ProbeTimeout", cfg.ProbeTimeout, 20*time.Second)
 	assertEqual(t, "ResourceFetchTimeout", cfg.ResourceFetchTimeout, 45*time.Second)
@@ -122,6 +148,25 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	if cfg.RequestLogQueueFlushInterval.String() != "10m0s" {
 		t.Errorf("RequestLogQueueFlushInterval: got %v, want 10m", cfg.RequestLogQueueFlushInterval)
 	}
+}
+
+func TestLoadEnvConfig_DefaultPlatformFixedHeaderMultiline(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR"] = "FIXED_HEADER"
+	envs["RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER"] = " authorization \nx-account-id\nX-Account-Id "
+	setEnvs(t, envs)
+
+	cfg, err := LoadEnvConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertEqual(
+		t,
+		"DefaultPlatformReverseProxyFixedAccountHeader",
+		cfg.DefaultPlatformReverseProxyFixedAccountHeader,
+		"Authorization\nX-Account-Id",
+	)
 }
 
 func TestLoadEnvConfig_MissingAdminToken(t *testing.T) {
@@ -316,6 +361,31 @@ func TestLoadEnvConfig_InvalidDefaultPlatformAllocationPolicy(t *testing.T) {
 		t.Fatal("expected error for invalid default platform allocation policy")
 	}
 	assertContains(t, err.Error(), "RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY")
+}
+
+func TestLoadEnvConfig_InvalidDefaultPlatformEmptyAccountBehavior(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR"] = "UNKNOWN"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid default platform empty-account behavior")
+	}
+	assertContains(t, err.Error(), "RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR")
+}
+
+func TestLoadEnvConfig_FixedHeaderModeRequiresHeader(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR"] = "FIXED_HEADER"
+	envs["RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER"] = "   "
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error when fixed-header mode has empty header")
+	}
+	assertContains(t, err.Error(), "RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER")
 }
 
 func TestLoadEnvConfig_InvalidDefaultPlatformRegex(t *testing.T) {

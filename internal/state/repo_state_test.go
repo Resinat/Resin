@@ -26,6 +26,43 @@ func newTestStateRepo(t *testing.T) *StateRepo {
 	return newStateRepo(db)
 }
 
+func TestEnsureStateSchemaMigrations_AddsPlatformColumns(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// Simulate a legacy platforms schema without newly added columns.
+	_, err = db.Exec(`
+		CREATE TABLE platforms (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			sticky_ttl_ns INTEGER NOT NULL,
+			regex_filters_json TEXT NOT NULL DEFAULT '[]',
+			region_filters_json TEXT NOT NULL DEFAULT '[]',
+			reverse_proxy_miss_action TEXT NOT NULL DEFAULT 'RANDOM',
+			allocation_policy TEXT NOT NULL DEFAULT 'BALANCED',
+			updated_at_ns INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy platforms table: %v", err)
+	}
+
+	if err := EnsureStateSchemaMigrations(db); err != nil {
+		t.Fatalf("EnsureStateSchemaMigrations: %v", err)
+	}
+
+	if ok, err := hasTableColumn(db, "platforms", "reverse_proxy_empty_account_behavior"); err != nil || !ok {
+		t.Fatalf("expected migrated column reverse_proxy_empty_account_behavior, ok=%v err=%v", ok, err)
+	}
+	if ok, err := hasTableColumn(db, "platforms", "reverse_proxy_fixed_account_header"); err != nil || !ok {
+		t.Fatalf("expected migrated column reverse_proxy_fixed_account_header, ok=%v err=%v", ok, err)
+	}
+}
+
 // --- system_config ---
 
 func TestStateRepo_SystemConfig_RoundTrip(t *testing.T) {
@@ -97,6 +134,13 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 	if got.Name != "Default" {
 		t.Fatalf("unexpected get result: %+v", got)
 	}
+	if got.ReverseProxyEmptyAccountBehavior != "RANDOM" {
+		t.Fatalf(
+			"unexpected reverse_proxy_empty_account_behavior: got %q, want %q",
+			got.ReverseProxyEmptyAccountBehavior,
+			"RANDOM",
+		)
+	}
 
 	// List.
 	list, err := repo.ListPlatforms()
@@ -133,6 +177,41 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 	}
 	if _, err := repo.GetPlatform("plat-1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestStateRepo_Platform_ValidationFixedHeaderBehavior(t *testing.T) {
+	repo := newTestStateRepo(t)
+	now := time.Now().UnixNano()
+
+	base := model.Platform{
+		ID: "plat-fixed-header", Name: "FixedHeader", StickyTTLNs: 1000,
+		RegexFilters: []string{}, RegionFilters: []string{},
+		ReverseProxyMissAction:           "RANDOM",
+		ReverseProxyEmptyAccountBehavior: "FIXED_HEADER",
+		AllocationPolicy:                 "BALANCED",
+		UpdatedAtNs:                      now,
+	}
+
+	if err := repo.UpsertPlatform(base); err == nil {
+		t.Fatal("expected error when fixed-header behavior has empty header")
+	}
+
+	base.ReverseProxyFixedAccountHeader = "x-account-id\nauthorization\nX-Account-Id"
+	if err := repo.UpsertPlatform(base); err != nil {
+		t.Fatalf("expected fixed-header behavior to accept valid header, got %v", err)
+	}
+
+	got, err := repo.GetPlatform(base.ID)
+	if err != nil {
+		t.Fatalf("GetPlatform: %v", err)
+	}
+	if got.ReverseProxyFixedAccountHeader != "X-Account-Id\nAuthorization" {
+		t.Fatalf(
+			"fixed header canonicalization mismatch: got %q, want %q",
+			got.ReverseProxyFixedAccountHeader,
+			"X-Account-Id\nAuthorization",
+		)
 	}
 }
 

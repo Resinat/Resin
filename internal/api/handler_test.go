@@ -30,28 +30,30 @@ func newTestServer() *Server {
 		DefaultPlatformRegexFilters:           []string{"^Provider/.*"},
 		DefaultPlatformRegionFilters:          []string{"us", "hk"},
 		DefaultPlatformReverseProxyMissAction: "RANDOM",
-		DefaultPlatformAllocationPolicy:       "BALANCED",
-		ProbeTimeout:                          15 * time.Second,
-		ResourceFetchTimeout:                  30 * time.Second,
-		ProxyTransportMaxIdleConns:            1024,
-		ProxyTransportMaxIdleConnsPerHost:     64,
-		ProxyTransportIdleConnTimeout:         90 * time.Second,
-		RequestLogQueueSize:                   8192,
-		RequestLogQueueFlushBatchSize:         4096,
-		RequestLogQueueFlushInterval:          5 * time.Minute,
-		RequestLogDBMaxMB:                     512,
-		RequestLogDBRetainCount:               5,
-		AdminToken:                            "test-admin-token",
-		ProxyToken:                            "test-proxy-token",
-		MetricThroughputIntervalSeconds:       1,
-		MetricThroughputRetentionSeconds:      3600,
-		MetricBucketSeconds:                   3600,
-		MetricConnectionsIntervalSeconds:      5,
-		MetricConnectionsRetentionSeconds:     18000,
-		MetricLeasesIntervalSeconds:           5,
-		MetricLeasesRetentionSeconds:          18000,
-		MetricLatencyBinWidthMS:               100,
-		MetricLatencyBinOverflowMS:            3000,
+		DefaultPlatformReverseProxyEmptyAccountBehavior: "ACCOUNT_HEADER_RULE",
+		DefaultPlatformReverseProxyFixedAccountHeader:   "Authorization",
+		DefaultPlatformAllocationPolicy:                 "BALANCED",
+		ProbeTimeout:                                    15 * time.Second,
+		ResourceFetchTimeout:                            30 * time.Second,
+		ProxyTransportMaxIdleConns:                      1024,
+		ProxyTransportMaxIdleConnsPerHost:               64,
+		ProxyTransportIdleConnTimeout:                   90 * time.Second,
+		RequestLogQueueSize:                             8192,
+		RequestLogQueueFlushBatchSize:                   4096,
+		RequestLogQueueFlushInterval:                    5 * time.Minute,
+		RequestLogDBMaxMB:                               512,
+		RequestLogDBRetainCount:                         5,
+		AdminToken:                                      "test-admin-token",
+		ProxyToken:                                      "test-proxy-token",
+		MetricThroughputIntervalSeconds:                 1,
+		MetricThroughputRetentionSeconds:                3600,
+		MetricBucketSeconds:                             3600,
+		MetricConnectionsIntervalSeconds:                5,
+		MetricConnectionsRetentionSeconds:               18000,
+		MetricLeasesIntervalSeconds:                     5,
+		MetricLeasesRetentionSeconds:                    18000,
+		MetricLatencyBinWidthMS:                         100,
+		MetricLatencyBinOverflowMS:                      3000,
 	}
 
 	systemInfo := service.SystemInfo{
@@ -308,6 +310,18 @@ func TestSystemEnvConfig_OK(t *testing.T) {
 	}
 	if body["default_platform_sticky_ttl"] != "168h0m0s" {
 		t.Errorf("default_platform_sticky_ttl: got %q, want %q", body["default_platform_sticky_ttl"], "168h0m0s")
+	}
+	if body["default_platform_reverse_proxy_empty_account_behavior"] != "ACCOUNT_HEADER_RULE" {
+		t.Errorf(
+			"default_platform_reverse_proxy_empty_account_behavior: got %v, want ACCOUNT_HEADER_RULE",
+			body["default_platform_reverse_proxy_empty_account_behavior"],
+		)
+	}
+	if body["default_platform_reverse_proxy_fixed_account_header"] != "Authorization" {
+		t.Errorf(
+			"default_platform_reverse_proxy_fixed_account_header: got %v, want Authorization",
+			body["default_platform_reverse_proxy_fixed_account_header"],
+		)
 	}
 	if body["probe_timeout"] != "15s" {
 		t.Errorf("probe_timeout: got %q, want %q", body["probe_timeout"], "15s")

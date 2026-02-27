@@ -1,0 +1,36 @@
+import type {
+  PlatformAllocationPolicy,
+  PlatformEmptyAccountBehavior,
+  PlatformMissAction,
+} from "./types";
+
+export const allocationPolicies: PlatformAllocationPolicy[] = [
+  "BALANCED",
+  "PREFER_LOW_LATENCY",
+  "PREFER_IDLE_IP",
+];
+
+export const missActions: PlatformMissAction[] = ["RANDOM", "REJECT"];
+
+export const emptyAccountBehaviors: PlatformEmptyAccountBehavior[] = [
+  "ACCOUNT_HEADER_RULE",
+  "FIXED_HEADER",
+  "RANDOM",
+];
+
+export const allocationPolicyLabel: Record<PlatformAllocationPolicy, string> = {
+  BALANCED: "均衡",
+  PREFER_LOW_LATENCY: "优先低延迟",
+  PREFER_IDLE_IP: "优先空闲出口 IP",
+};
+
+export const missActionLabel: Record<PlatformMissAction, string> = {
+  RANDOM: "随机选择节点",
+  REJECT: "拒绝代理请求",
+};
+
+export const emptyAccountBehaviorLabel: Record<PlatformEmptyAccountBehavior, string> = {
+  ACCOUNT_HEADER_RULE: "按 Account Header Rule 提取",
+  FIXED_HEADER: "按固定 Header 提取",
+  RANDOM: "直接随机路由",
+};

@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS platforms (
 	regex_filters_json       TEXT NOT NULL DEFAULT '[]',
 	region_filters_json      TEXT NOT NULL DEFAULT '[]',
 	reverse_proxy_miss_action TEXT NOT NULL DEFAULT 'RANDOM',
+	reverse_proxy_empty_account_behavior TEXT NOT NULL DEFAULT 'RANDOM',
+	reverse_proxy_fixed_account_header   TEXT NOT NULL DEFAULT '',
 	allocation_policy        TEXT NOT NULL DEFAULT 'BALANCED',
 	updated_at_ns            INTEGER NOT NULL
 );
@@ -128,4 +130,73 @@ func OpenDB(path string) (*sql.DB, error) {
 func InitDB(db *sql.DB, ddl string) error {
 	_, err := db.Exec(ddl)
 	return err
+}
+
+// EnsureStateSchemaMigrations applies lightweight additive migrations for
+// state.db created by older versions.
+func EnsureStateSchemaMigrations(db *sql.DB) error {
+	if db == nil {
+		return nil
+	}
+	if err := ensureTableColumn(
+		db,
+		"platforms",
+		"reverse_proxy_empty_account_behavior",
+		`reverse_proxy_empty_account_behavior TEXT NOT NULL DEFAULT 'RANDOM'`,
+	); err != nil {
+		return err
+	}
+	if err := ensureTableColumn(
+		db,
+		"platforms",
+		"reverse_proxy_fixed_account_header",
+		`reverse_proxy_fixed_account_header TEXT NOT NULL DEFAULT ''`,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureTableColumn(db *sql.DB, table, column, columnDDL string) error {
+	exists, err := hasTableColumn(db, table, column)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", table, columnDDL)
+	if _, err := db.Exec(stmt); err != nil {
+		return fmt.Errorf("migrate %s.%s: %w", table, column, err)
+	}
+	return nil
+}
+
+func hasTableColumn(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, fmt.Errorf("inspect table %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			colType   string
+			notNull   int
+			defaultV  sql.NullString
+			primaryID int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultV, &primaryID); err != nil {
+			return false, fmt.Errorf("scan table_info(%s): %w", table, err)
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("iterate table_info(%s): %w", table, err)
+	}
+	return false, nil
 }

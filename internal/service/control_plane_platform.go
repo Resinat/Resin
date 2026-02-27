@@ -22,28 +22,34 @@ import (
 
 // PlatformResponse is the API response model for a platform.
 type PlatformResponse struct {
-	ID                     string   `json:"id"`
-	Name                   string   `json:"name"`
-	StickyTTL              string   `json:"sticky_ttl"`
-	RegexFilters           []string `json:"regex_filters"`
-	RegionFilters          []string `json:"region_filters"`
-	RoutableNodeCount      int      `json:"routable_node_count"`
-	ReverseProxyMissAction string   `json:"reverse_proxy_miss_action"`
-	AllocationPolicy       string   `json:"allocation_policy"`
-	UpdatedAt              string   `json:"updated_at"`
+	ID                               string   `json:"id"`
+	Name                             string   `json:"name"`
+	StickyTTL                        string   `json:"sticky_ttl"`
+	RegexFilters                     []string `json:"regex_filters"`
+	RegionFilters                    []string `json:"region_filters"`
+	RoutableNodeCount                int      `json:"routable_node_count"`
+	ReverseProxyMissAction           string   `json:"reverse_proxy_miss_action"`
+	ReverseProxyEmptyAccountBehavior string   `json:"reverse_proxy_empty_account_behavior"`
+	ReverseProxyFixedAccountHeader   string   `json:"reverse_proxy_fixed_account_header"`
+	AllocationPolicy                 string   `json:"allocation_policy"`
+	UpdatedAt                        string   `json:"updated_at"`
 }
 
 func platformToResponse(p model.Platform) PlatformResponse {
+	behavior := normalizePlatformEmptyAccountBehavior(p.ReverseProxyEmptyAccountBehavior)
+	fixedHeader := normalizeHeaderFieldName(p.ReverseProxyFixedAccountHeader)
 	return PlatformResponse{
-		ID:                     p.ID,
-		Name:                   p.Name,
-		StickyTTL:              time.Duration(p.StickyTTLNs).String(),
-		RegexFilters:           append([]string(nil), p.RegexFilters...),
-		RegionFilters:          append([]string(nil), p.RegionFilters...),
-		RoutableNodeCount:      0,
-		ReverseProxyMissAction: p.ReverseProxyMissAction,
-		AllocationPolicy:       p.AllocationPolicy,
-		UpdatedAt:              time.Unix(0, p.UpdatedAtNs).UTC().Format(time.RFC3339Nano),
+		ID:                               p.ID,
+		Name:                             p.Name,
+		StickyTTL:                        time.Duration(p.StickyTTLNs).String(),
+		RegexFilters:                     append([]string(nil), p.RegexFilters...),
+		RegionFilters:                    append([]string(nil), p.RegionFilters...),
+		RoutableNodeCount:                0,
+		ReverseProxyMissAction:           p.ReverseProxyMissAction,
+		ReverseProxyEmptyAccountBehavior: behavior,
+		ReverseProxyFixedAccountHeader:   fixedHeader,
+		AllocationPolicy:                 p.AllocationPolicy,
+		UpdatedAt:                        time.Unix(0, p.UpdatedAtNs).UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -60,12 +66,21 @@ func (s *ControlPlaneService) withRoutableNodeCount(resp PlatformResponse) Platf
 }
 
 type platformConfig struct {
-	Name                   string
-	StickyTTLNs            int64
-	RegexFilters           []string
-	RegionFilters          []string
-	ReverseProxyMissAction string
-	AllocationPolicy       string
+	Name                             string
+	StickyTTLNs                      int64
+	RegexFilters                     []string
+	RegionFilters                    []string
+	ReverseProxyMissAction           string
+	ReverseProxyEmptyAccountBehavior string
+	ReverseProxyFixedAccountHeader   string
+	AllocationPolicy                 string
+}
+
+func normalizePlatformEmptyAccountBehavior(raw string) string {
+	if platform.ReverseProxyEmptyAccountBehavior(raw).IsValid() {
+		return raw
+	}
+	return string(platform.ReverseProxyEmptyAccountBehaviorRandom)
 }
 
 func (s *ControlPlaneService) defaultPlatformConfig(name string) platformConfig {
@@ -75,31 +90,41 @@ func (s *ControlPlaneService) defaultPlatformConfig(name string) platformConfig 
 		RegexFilters:           append([]string(nil), s.EnvCfg.DefaultPlatformRegexFilters...),
 		RegionFilters:          append([]string(nil), s.EnvCfg.DefaultPlatformRegionFilters...),
 		ReverseProxyMissAction: s.EnvCfg.DefaultPlatformReverseProxyMissAction,
-		AllocationPolicy:       s.EnvCfg.DefaultPlatformAllocationPolicy,
+		ReverseProxyEmptyAccountBehavior: normalizePlatformEmptyAccountBehavior(
+			s.EnvCfg.DefaultPlatformReverseProxyEmptyAccountBehavior,
+		),
+		ReverseProxyFixedAccountHeader: normalizeHeaderFieldName(
+			s.EnvCfg.DefaultPlatformReverseProxyFixedAccountHeader,
+		),
+		AllocationPolicy: s.EnvCfg.DefaultPlatformAllocationPolicy,
 	}
 }
 
 func platformConfigFromModel(mp model.Platform) platformConfig {
 	return platformConfig{
-		Name:                   mp.Name,
-		StickyTTLNs:            mp.StickyTTLNs,
-		RegexFilters:           append([]string(nil), mp.RegexFilters...),
-		RegionFilters:          append([]string(nil), mp.RegionFilters...),
-		ReverseProxyMissAction: mp.ReverseProxyMissAction,
-		AllocationPolicy:       mp.AllocationPolicy,
+		Name:                             mp.Name,
+		StickyTTLNs:                      mp.StickyTTLNs,
+		RegexFilters:                     append([]string(nil), mp.RegexFilters...),
+		RegionFilters:                    append([]string(nil), mp.RegionFilters...),
+		ReverseProxyMissAction:           mp.ReverseProxyMissAction,
+		ReverseProxyEmptyAccountBehavior: normalizePlatformEmptyAccountBehavior(mp.ReverseProxyEmptyAccountBehavior),
+		ReverseProxyFixedAccountHeader:   normalizeHeaderFieldName(mp.ReverseProxyFixedAccountHeader),
+		AllocationPolicy:                 mp.AllocationPolicy,
 	}
 }
 
 func (cfg platformConfig) toModel(id string, updatedAtNs int64) model.Platform {
 	return model.Platform{
-		ID:                     id,
-		Name:                   cfg.Name,
-		StickyTTLNs:            cfg.StickyTTLNs,
-		RegexFilters:           append([]string(nil), cfg.RegexFilters...),
-		RegionFilters:          append([]string(nil), cfg.RegionFilters...),
-		ReverseProxyMissAction: cfg.ReverseProxyMissAction,
-		AllocationPolicy:       cfg.AllocationPolicy,
-		UpdatedAtNs:            updatedAtNs,
+		ID:                               id,
+		Name:                             cfg.Name,
+		StickyTTLNs:                      cfg.StickyTTLNs,
+		RegexFilters:                     append([]string(nil), cfg.RegexFilters...),
+		RegionFilters:                    append([]string(nil), cfg.RegionFilters...),
+		ReverseProxyMissAction:           cfg.ReverseProxyMissAction,
+		ReverseProxyEmptyAccountBehavior: cfg.ReverseProxyEmptyAccountBehavior,
+		ReverseProxyFixedAccountHeader:   cfg.ReverseProxyFixedAccountHeader,
+		AllocationPolicy:                 cfg.AllocationPolicy,
+		UpdatedAtNs:                      updatedAtNs,
 	}
 }
 
@@ -115,6 +140,8 @@ func (cfg platformConfig) toRuntime(id string) (*platform.Platform, error) {
 		cfg.RegionFilters,
 		cfg.StickyTTLNs,
 		cfg.ReverseProxyMissAction,
+		cfg.ReverseProxyEmptyAccountBehavior,
+		cfg.ReverseProxyFixedAccountHeader,
 		cfg.AllocationPolicy,
 	), nil
 }
@@ -128,6 +155,47 @@ func validatePlatformMissAction(raw string) *ServiceError {
 		platform.ReverseProxyMissActionRandom,
 		platform.ReverseProxyMissActionReject,
 	))
+}
+
+func validatePlatformEmptyAccountBehavior(raw string) *ServiceError {
+	if platform.ReverseProxyEmptyAccountBehavior(raw).IsValid() {
+		return nil
+	}
+	return invalidArg(fmt.Sprintf(
+		"reverse_proxy_empty_account_behavior: must be %s, %s, or %s",
+		platform.ReverseProxyEmptyAccountBehaviorRandom,
+		platform.ReverseProxyEmptyAccountBehaviorFixedHeader,
+		platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule,
+	))
+}
+
+func normalizeHeaderFieldName(raw string) string {
+	normalized, _, err := platform.NormalizeFixedAccountHeaders(raw)
+	if err != nil {
+		return strings.TrimSpace(raw)
+	}
+	return normalized
+}
+
+func validatePlatformEmptyAccountConfig(cfg *platformConfig) *ServiceError {
+	if cfg == nil {
+		return invalidArg("platform config is required")
+	}
+	if err := validatePlatformEmptyAccountBehavior(cfg.ReverseProxyEmptyAccountBehavior); err != nil {
+		return err
+	}
+	normalizedFixedHeaders, fixedHeaders, err := platform.NormalizeFixedAccountHeaders(cfg.ReverseProxyFixedAccountHeader)
+	if err != nil {
+		return invalidArg("reverse_proxy_fixed_account_header: " + err.Error())
+	}
+	cfg.ReverseProxyFixedAccountHeader = normalizedFixedHeaders
+	if cfg.ReverseProxyEmptyAccountBehavior == string(platform.ReverseProxyEmptyAccountBehaviorFixedHeader) &&
+		len(fixedHeaders) == 0 {
+		return invalidArg(
+			"reverse_proxy_fixed_account_header: required when reverse_proxy_empty_account_behavior is FIXED_HEADER",
+		)
+	}
+	return nil
 }
 
 func validatePlatformAllocationPolicy(raw string) *ServiceError {
@@ -178,12 +246,14 @@ func (s *ControlPlaneService) GetPlatform(id string) (*PlatformResponse, error) 
 
 // CreatePlatformRequest holds create platform parameters.
 type CreatePlatformRequest struct {
-	Name                   *string  `json:"name"`
-	StickyTTL              *string  `json:"sticky_ttl"`
-	RegexFilters           []string `json:"regex_filters"`
-	RegionFilters          []string `json:"region_filters"`
-	ReverseProxyMissAction *string  `json:"reverse_proxy_miss_action"`
-	AllocationPolicy       *string  `json:"allocation_policy"`
+	Name                             *string  `json:"name"`
+	StickyTTL                        *string  `json:"sticky_ttl"`
+	RegexFilters                     []string `json:"regex_filters"`
+	RegionFilters                    []string `json:"region_filters"`
+	ReverseProxyMissAction           *string  `json:"reverse_proxy_miss_action"`
+	ReverseProxyEmptyAccountBehavior *string  `json:"reverse_proxy_empty_account_behavior"`
+	ReverseProxyFixedAccountHeader   *string  `json:"reverse_proxy_fixed_account_header"`
+	AllocationPolicy                 *string  `json:"allocation_policy"`
 }
 
 // CreatePlatform creates a new platform.
@@ -221,11 +291,23 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 		}
 		cfg.ReverseProxyMissAction = *req.ReverseProxyMissAction
 	}
+	if req.ReverseProxyEmptyAccountBehavior != nil {
+		if err := validatePlatformEmptyAccountBehavior(*req.ReverseProxyEmptyAccountBehavior); err != nil {
+			return nil, err
+		}
+		cfg.ReverseProxyEmptyAccountBehavior = *req.ReverseProxyEmptyAccountBehavior
+	}
+	if req.ReverseProxyFixedAccountHeader != nil {
+		cfg.ReverseProxyFixedAccountHeader = *req.ReverseProxyFixedAccountHeader
+	}
 	if req.AllocationPolicy != nil {
 		if err := validatePlatformAllocationPolicy(*req.AllocationPolicy); err != nil {
 			return nil, err
 		}
 		cfg.AllocationPolicy = *req.AllocationPolicy
+	}
+	if err := validatePlatformEmptyAccountConfig(&cfg); err != nil {
+		return nil, err
 	}
 	if err := platform.ValidateRegionFilters(cfg.RegionFilters); err != nil {
 		return nil, invalidArg(err.Error())
@@ -326,6 +408,19 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		}
 		cfg.ReverseProxyMissAction = ma
 	}
+	if behavior, ok, err := patch.optionalString("reverse_proxy_empty_account_behavior"); err != nil {
+		return nil, err
+	} else if ok {
+		if err := validatePlatformEmptyAccountBehavior(behavior); err != nil {
+			return nil, err
+		}
+		cfg.ReverseProxyEmptyAccountBehavior = behavior
+	}
+	if fixedHeader, ok, err := patch.optionalString("reverse_proxy_fixed_account_header"); err != nil {
+		return nil, err
+	} else if ok {
+		cfg.ReverseProxyFixedAccountHeader = fixedHeader
+	}
 
 	if ap, ok, err := patch.optionalString("allocation_policy"); err != nil {
 		return nil, err
@@ -339,6 +434,9 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		if err := platform.ValidateRegionFilters(cfg.RegionFilters); err != nil {
 			return nil, invalidArg(err.Error())
 		}
+	}
+	if err := validatePlatformEmptyAccountConfig(&cfg); err != nil {
+		return nil, err
 	}
 
 	plat, err := cfg.toRuntime(id)

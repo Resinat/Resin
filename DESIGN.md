@@ -13,7 +13,8 @@
 * RegexFilters：一个正则表达式列表。按照节点的 Tag 的正则表达式过滤器。同时满足所有过滤器才符合条件。
 * RegexFiltersCompiled：编译后的正则表达式列表。用于运行时匹配。随着 RegexFilters 更新。
 * RegionFilters：一个地区列表。小写 ISO codes (e.g., "hk", "us")。节点的出口 IP 地区属于该列表才符合条件。空表示不做地区筛选。
-* 反向代理匹配 Account 失败的行为：随机路由 或 拒绝请求。默认是随机路由。
+* 反向代理 Account 为空时的行为：随机路由 / 固定 Header 提取 / 按 Account Header Rule 提取。
+* 反向代理匹配 Account 失败后的行为：随机路由 或 拒绝请求。默认是随机路由。
 * 分配新节点的策略：偏好低延迟、偏好闲置 IP、均衡。默认是均衡。
 
 > 默认平台：系统有一个名为 Default 的平台。该平台不可删除，数据库不存在时自动创建。
@@ -31,7 +32,7 @@
 系统把路由输入统一为 `(platformID, account, targetDomain)`：  
 注意：外部接口（HTTP 头、反向代理路径）通常使用 Platform Name 作为输入，但在入口处应立即通过 Name -> ID 映射转换为 ID。后续逻辑只认 ID，不认 Name。
 1. 正向代理通过 `Proxy-Authorization: Basic PROXY_TOKEN:Platform:Account` 同时做代理认证与业务身份解析。PROXY_TOKEN 字段用于代理认证。Platform:Account 提供业务身份。PROXY_TOKEN 映射到 Basic 认证的 user 字段，Platform:Account 映射到 pass 字段。解析 pass 时按**第一个** `:` 切分为 `Platform` 与 `Account`。PROXY_TOKEN 与 Platform 不能包含 : @ 符号。Account 不限制符号。该约束属于解析约定，控制面不对 `:` 与 `@` 做额外校验。
-2. 反向代理通过路径 `/PROXY_TOKEN/Platform:Account/protocol/host/path?query` 解析；其中 `Platform:Account` 必须是单个路径段。当 `Account` 为空时，从请求头提取。protocol 可选 `http/https`；host 可以是域名，可以是 IP，可以加端口。若 `Account` 含 `/` 导致路径分段变化，按反向代理 URL 解析失败处理；该类 malformed 输入不要求固定到某一个错误码，只要返回明确的解析类错误即可（如 `URL_PARSE_ERROR` / `INVALID_PROTOCOL` / `INVALID_HOST`）。
+2. 反向代理通过路径 `/PROXY_TOKEN/Platform:Account/protocol/host/path?query` 解析；其中 `Platform:Account` 必须是单个路径段。当 `Account` 为空时，按平台配置 `ReverseProxyEmptyAccountBehavior` 处理：`RANDOM`（直接随机）、`FIXED_HEADER`（按 `ReverseProxyFixedAccountHeader` 列表提取）、`ACCOUNT_HEADER_RULE`（按全局规则提取）。`ReverseProxyFixedAccountHeader` 支持多行，每行一个 Header，按顺序取第一个非空值。protocol 可选 `http/https`；host 可以是域名，可以是 IP，可以加端口。若 `Account` 含 `/` 导致路径分段变化，按反向代理 URL 解析失败处理；该类 malformed 输入不要求固定到某一个错误码，只要返回明确的解析类错误即可（如 `URL_PARSE_ERROR` / `INVALID_PROTOCOL` / `INVALID_HOST`）。
 3. 当 Platform 未提供，默认使用 Default 平台。当正向代理的 Account 未提供，默认使用平台内的随机路由。
 
 正向代理例子：
@@ -42,8 +43,13 @@
 * `resin-123456:MyHub:bEA:234`：ProxyToken 是 resin-123456；Platform 是 MyHub；Account 是 bEA:234。
 
 
-## 反向代理如何自动提取 Account 信息
-上文提到，反向代理的 Account 未提供时，自动从请求头中提取。全局配置中有一个“Account Header 表”。每个记录的结构是：(URL, 请求头列表)。例如：
+## 反向代理如何在 Account 为空时处理
+当反向代理路径里未提供 Account 时，每个平台独立配置 `ReverseProxyEmptyAccountBehavior`：
+* `RANDOM`：不做提取，直接按平台随机路由。
+* `FIXED_HEADER`：使用该平台的 `ReverseProxyFixedAccountHeader`（多行列表，每行一个 Header）提取。
+* `ACCOUNT_HEADER_RULE`：使用全局 Account Header Rules（下文）做最长前缀匹配后提取。
+
+当行为为 `ACCOUNT_HEADER_RULE` 时，全局配置中的“Account Header 表”生效。每个记录结构是：(URL, 请求头列表)。例如：
 * api.example.com/v1, ["Authorization"]
 * api.example.com/v2, ["x-api-key"]
 * "*", ["Authorization", "x-api-key"]
@@ -55,7 +61,7 @@
 为了提升匹配性能，使用前缀哈希表进行匹配。
 
 "*" 就是最后的兜底。一个条目可以包含多个请求头，意味着可以进行猜测。依次查询请求头的值，第一个存在且非空的被采用。
-当匹配失败，根据 Platform 的配置，决定是做随机路由还是拒绝本次代理。
+当提取模式为 `FIXED_HEADER` 或 `ACCOUNT_HEADER_RULE` 且提取失败时，根据 Platform 的 `ReverseProxyMissAction` 配置，决定是做随机路由还是拒绝本次代理。
 
 URL 不允许包含查询部分与 ? 字符。
 
@@ -481,7 +487,7 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 ### SQLite 数据模型
 #### state.db
 * system_config(config_json, version, updated_at_ns)
-* platforms(id PK, name UNIQUE, sticky_ttl_ns, regex_filters_json, region_filters_json, reverse_proxy_miss_action, allocation_policy, updated_at_ns)
+* platforms(id PK, name UNIQUE, sticky_ttl_ns, regex_filters_json, region_filters_json, reverse_proxy_miss_action, reverse_proxy_empty_account_behavior, reverse_proxy_fixed_account_header, allocation_policy, updated_at_ns)
 * subscriptions(id PK, name, url, update_interval_ns, enabled, ephemeral, created_at_ns, updated_at_ns)
 * account_header_rules(url_prefix PK, headers_json, updated_at_ns)
 
@@ -1033,6 +1039,8 @@ Body（partial patch 示例）：
   "region_filters": ["hk","us"],
   "routable_node_count": 123,
   "reverse_proxy_miss_action": "RANDOM|REJECT",
+  "reverse_proxy_empty_account_behavior": "RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE",
+  "reverse_proxy_fixed_account_header": "Authorization\nX-Account-Id",
   "allocation_policy": "BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP",
   "updated_at": "2026-02-10T12:34:56Z"
 }
@@ -1055,6 +1063,8 @@ Body：
   "regex_filters": ["^sub1/.*"],
   "region_filters": ["hk", "us"],
   "reverse_proxy_miss_action": "RANDOM",
+  "reverse_proxy_empty_account_behavior": "ACCOUNT_HEADER_RULE",
+  "reverse_proxy_fixed_account_header": "Authorization\nX-Account-Id",
   "allocation_policy": "BALANCED"
 }
 ```
@@ -1062,7 +1072,7 @@ Body：
 字段要求：
 
 * 必填字段：`name`
-* 可选字段：`sticky_ttl`、`regex_filters`、`region_filters`、`reverse_proxy_miss_action`、`allocation_policy`
+* 可选字段：`sticky_ttl`、`regex_filters`、`region_filters`、`reverse_proxy_miss_action`、`reverse_proxy_empty_account_behavior`、`reverse_proxy_fixed_account_header`、`allocation_policy`
 * 不可传字段：`id`、`updated_at`、`routable_node_count`
 * 省略可选字段时，使用当前环境变量默认平台设置（`RESIN_DEFAULT_PLATFORM_*`）对应值
 
@@ -1072,7 +1082,8 @@ Body：
 * `sticky_ttl`：合法 Go duration。
 * `regex_filters`：每项可被 regexp 编译。
 * `region_filters`：每项为 ISO 3166-1 alpha-2 小写代码。
-* 枚举字段：`reverse_proxy_miss_action` 仅 `RANDOM|REJECT`；`allocation_policy` 仅 `BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。
+* 枚举字段：`reverse_proxy_miss_action` 仅 `RANDOM|REJECT`；`reverse_proxy_empty_account_behavior` 仅 `RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE`；`allocation_policy` 仅 `BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。
+* 组合约束：当 `reverse_proxy_empty_account_behavior=FIXED_HEADER` 时，`reverse_proxy_fixed_account_header` 必填；其值支持多行，每行一个合法 HTTP Header 字段名（会按顺序尝试提取）。
 
 错误码映射（最小集）：
 
@@ -1100,7 +1111,7 @@ Body（partial patch 示例）：
 字段要求：
 
 * 必填字段：无
-* 可改字段：`name`、`sticky_ttl`、`regex_filters`、`region_filters`、`reverse_proxy_miss_action`、`allocation_policy`
+* 可改字段：`name`、`sticky_ttl`、`regex_filters`、`region_filters`、`reverse_proxy_miss_action`、`reverse_proxy_empty_account_behavior`、`reverse_proxy_fixed_account_header`、`allocation_policy`
 * 不可改字段：`id`、`updated_at`、`routable_node_count`
 
 关键校验：与“创建平台”一致。
@@ -2011,6 +2022,8 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * `RESIN_DEFAULT_PLATFORM_REGEX_FILTERS`：默认平台正则过滤器（JSON 字符串数组）。默认 `[]`。
 * `RESIN_DEFAULT_PLATFORM_REGION_FILTERS`：默认平台地区过滤器（JSON 字符串数组，小写 ISO 3166-1 alpha-2）。默认 `[]`。
 * `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION`：默认平台反代 miss 行为。枚举：`RANDOM|REJECT`。默认 `RANDOM`。
+* `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR`：默认平台在反代 Account 为空时的行为。枚举：`RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE`。默认 `ACCOUNT_HEADER_RULE`。
+* `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER`：默认平台固定提取 Header 列表（多行，每行一个 Header）。仅当上项为 `FIXED_HEADER` 时必须至少提供一个合法 Header。默认 `Authorization`。
 * `RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY`：默认平台分配策略。枚举：`BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。默认 `BALANCED`。
 * `RESIN_PROBE_TIMEOUT`：单次探测请求超时。默认 "15s"。
 * `RESIN_RESOURCE_FETCH_TIMEOUT`：资源下载（订阅/GeoIP）单次尝试超时。默认 "30s"。

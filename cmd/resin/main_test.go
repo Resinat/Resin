@@ -35,11 +35,13 @@ func newBootstrapTestRuntime(runtimeCfg *config.RuntimeConfig) (*topology.Subscr
 
 func newDefaultPlatformEnvConfig() *config.EnvConfig {
 	return &config.EnvConfig{
-		DefaultPlatformStickyTTL:              7 * 24 * time.Hour,
-		DefaultPlatformRegexFilters:           []string{},
-		DefaultPlatformRegionFilters:          []string{},
-		DefaultPlatformReverseProxyMissAction: "RANDOM",
-		DefaultPlatformAllocationPolicy:       "BALANCED",
+		DefaultPlatformStickyTTL:                        7 * 24 * time.Hour,
+		DefaultPlatformRegexFilters:                     []string{},
+		DefaultPlatformRegionFilters:                    []string{},
+		DefaultPlatformReverseProxyMissAction:           "RANDOM",
+		DefaultPlatformReverseProxyEmptyAccountBehavior: "ACCOUNT_HEADER_RULE",
+		DefaultPlatformReverseProxyFixedAccountHeader:   "Authorization",
+		DefaultPlatformAllocationPolicy:                 "BALANCED",
 	}
 }
 
@@ -56,6 +58,8 @@ func TestBootstrapTopology_CreatesDefaultPlatformWhenMissing(t *testing.T) {
 	envCfg.DefaultPlatformRegexFilters = []string{`^Provider/.*`}
 	envCfg.DefaultPlatformRegionFilters = []string{"us", "hk"}
 	envCfg.DefaultPlatformReverseProxyMissAction = "REJECT"
+	envCfg.DefaultPlatformReverseProxyEmptyAccountBehavior = "FIXED_HEADER"
+	envCfg.DefaultPlatformReverseProxyFixedAccountHeader = "X-Account-Id"
 	envCfg.DefaultPlatformAllocationPolicy = "PREFER_LOW_LATENCY"
 
 	subManager, pool := newBootstrapTestRuntime(runtimeCfg)
@@ -83,6 +87,20 @@ func TestBootstrapTopology_CreatesDefaultPlatformWhenMissing(t *testing.T) {
 	}
 	if defaultPlat.ReverseProxyMissAction != "REJECT" {
 		t.Fatalf("reverse_proxy_miss_action: got %q, want %q", defaultPlat.ReverseProxyMissAction, "REJECT")
+	}
+	if defaultPlat.ReverseProxyEmptyAccountBehavior != "FIXED_HEADER" {
+		t.Fatalf(
+			"reverse_proxy_empty_account_behavior: got %q, want %q",
+			defaultPlat.ReverseProxyEmptyAccountBehavior,
+			"FIXED_HEADER",
+		)
+	}
+	if defaultPlat.ReverseProxyFixedAccountHeader != "X-Account-Id" {
+		t.Fatalf(
+			"reverse_proxy_fixed_account_header: got %q, want %q",
+			defaultPlat.ReverseProxyFixedAccountHeader,
+			"X-Account-Id",
+		)
 	}
 	if defaultPlat.AllocationPolicy != "PREFER_LOW_LATENCY" {
 		t.Fatalf("allocation_policy: got %q, want %q", defaultPlat.AllocationPolicy, "PREFER_LOW_LATENCY")

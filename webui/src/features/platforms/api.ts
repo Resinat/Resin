@@ -7,6 +7,8 @@ type ApiPlatform = Omit<Platform, "regex_filters" | "region_filters"> & {
   regex_filters?: string[] | null;
   region_filters?: string[] | null;
   routable_node_count?: number | null;
+  reverse_proxy_empty_account_behavior?: Platform["reverse_proxy_empty_account_behavior"] | null;
+  reverse_proxy_fixed_account_header?: string | null;
 };
 
 function normalizePlatform(raw: ApiPlatform): Platform {
@@ -15,6 +17,14 @@ function normalizePlatform(raw: ApiPlatform): Platform {
     regex_filters: Array.isArray(raw.regex_filters) ? raw.regex_filters : [],
     region_filters: Array.isArray(raw.region_filters) ? raw.region_filters : [],
     routable_node_count: typeof raw.routable_node_count === "number" ? raw.routable_node_count : 0,
+    reverse_proxy_empty_account_behavior:
+      raw.reverse_proxy_empty_account_behavior === "RANDOM" ||
+      raw.reverse_proxy_empty_account_behavior === "FIXED_HEADER" ||
+      raw.reverse_proxy_empty_account_behavior === "ACCOUNT_HEADER_RULE"
+        ? raw.reverse_proxy_empty_account_behavior
+        : "RANDOM",
+    reverse_proxy_fixed_account_header:
+      typeof raw.reverse_proxy_fixed_account_header === "string" ? raw.reverse_proxy_fixed_account_header : "",
   };
 }
 

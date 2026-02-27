@@ -379,14 +379,16 @@ func ensureDefaultPlatform(
 	}
 
 	defaultPlatform := model.Platform{
-		ID:                     platform.DefaultPlatformID,
-		Name:                   platform.DefaultPlatformName,
-		StickyTTLNs:            int64(envCfg.DefaultPlatformStickyTTL),
-		RegexFilters:           append([]string(nil), envCfg.DefaultPlatformRegexFilters...),
-		RegionFilters:          append([]string(nil), envCfg.DefaultPlatformRegionFilters...),
-		ReverseProxyMissAction: envCfg.DefaultPlatformReverseProxyMissAction,
-		AllocationPolicy:       envCfg.DefaultPlatformAllocationPolicy,
-		UpdatedAtNs:            time.Now().UnixNano(),
+		ID:                               platform.DefaultPlatformID,
+		Name:                             platform.DefaultPlatformName,
+		StickyTTLNs:                      int64(envCfg.DefaultPlatformStickyTTL),
+		RegexFilters:                     append([]string(nil), envCfg.DefaultPlatformRegexFilters...),
+		RegionFilters:                    append([]string(nil), envCfg.DefaultPlatformRegionFilters...),
+		ReverseProxyMissAction:           envCfg.DefaultPlatformReverseProxyMissAction,
+		ReverseProxyEmptyAccountBehavior: envCfg.DefaultPlatformReverseProxyEmptyAccountBehavior,
+		ReverseProxyFixedAccountHeader:   envCfg.DefaultPlatformReverseProxyFixedAccountHeader,
+		AllocationPolicy:                 envCfg.DefaultPlatformAllocationPolicy,
+		UpdatedAtNs:                      time.Now().UnixNano(),
 	}
 	if err := engine.UpsertPlatform(defaultPlatform); err != nil {
 		return err

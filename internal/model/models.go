@@ -5,14 +5,16 @@ import "encoding/json"
 
 // Platform represents a routing platform.
 type Platform struct {
-	ID                     string `json:"id"`
-	Name                   string `json:"name"`
-	StickyTTLNs            int64  `json:"sticky_ttl_ns"`
-	RegexFilters           []string
-	RegionFilters          []string
-	ReverseProxyMissAction string `json:"reverse_proxy_miss_action"`
-	AllocationPolicy       string `json:"allocation_policy"`
-	UpdatedAtNs            int64  `json:"updated_at_ns"`
+	ID                               string `json:"id"`
+	Name                             string `json:"name"`
+	StickyTTLNs                      int64  `json:"sticky_ttl_ns"`
+	RegexFilters                     []string
+	RegionFilters                    []string
+	ReverseProxyMissAction           string `json:"reverse_proxy_miss_action"`
+	ReverseProxyEmptyAccountBehavior string `json:"reverse_proxy_empty_account_behavior"`
+	ReverseProxyFixedAccountHeader   string `json:"reverse_proxy_fixed_account_header"`
+	AllocationPolicy                 string `json:"allocation_policy"`
+	UpdatedAtNs                      int64  `json:"updated_at_ns"`
 }
 
 // Subscription represents a node subscription source.

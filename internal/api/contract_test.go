@@ -91,11 +91,13 @@ func newControlPlaneTestServerWithBodyLimit(
 		MatcherRuntime: proxy.NewAccountMatcherRuntime(nil),
 		RuntimeCfg:     runtimeCfg,
 		EnvCfg: &config.EnvConfig{
-			DefaultPlatformStickyTTL:              30 * time.Minute,
-			DefaultPlatformRegexFilters:           []string{},
-			DefaultPlatformRegionFilters:          []string{},
-			DefaultPlatformReverseProxyMissAction: "RANDOM",
-			DefaultPlatformAllocationPolicy:       "BALANCED",
+			DefaultPlatformStickyTTL:                        30 * time.Minute,
+			DefaultPlatformRegexFilters:                     []string{},
+			DefaultPlatformRegionFilters:                    []string{},
+			DefaultPlatformReverseProxyMissAction:           "RANDOM",
+			DefaultPlatformReverseProxyEmptyAccountBehavior: "ACCOUNT_HEADER_RULE",
+			DefaultPlatformReverseProxyFixedAccountHeader:   "Authorization",
+			DefaultPlatformAllocationPolicy:                 "BALANCED",
 		},
 	}
 
@@ -764,6 +766,66 @@ func TestAPIContract_PlatformStickyTTLMustBePositive(t *testing.T) {
 	}
 }
 
+func TestAPIContract_PlatformEmptyAccountBehavior(t *testing.T) {
+	srv, _, _ := newControlPlaneTestServer(t)
+
+	rec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/platforms", map[string]any{
+		"name":                                 "behavior-fixed-header",
+		"reverse_proxy_empty_account_behavior": "FIXED_HEADER",
+		"reverse_proxy_fixed_account_header":   " authorization\nx-account-id\nX-Account-Id ",
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["reverse_proxy_empty_account_behavior"] != "FIXED_HEADER" {
+		t.Fatalf(
+			"create reverse_proxy_empty_account_behavior: got %v, want FIXED_HEADER",
+			body["reverse_proxy_empty_account_behavior"],
+		)
+	}
+	if body["reverse_proxy_fixed_account_header"] != "Authorization\nX-Account-Id" {
+		t.Fatalf(
+			"create reverse_proxy_fixed_account_header: got %v, want Authorization\\nX-Account-Id",
+			body["reverse_proxy_fixed_account_header"],
+		)
+	}
+	platformID, _ := body["id"].(string)
+	if platformID == "" {
+		t.Fatalf("create platform missing id: body=%s", rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodPatch, "/api/v1/platforms/"+platformID, map[string]any{
+		"reverse_proxy_empty_account_behavior": "RANDOM",
+		"reverse_proxy_fixed_account_header":   "",
+	}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if body["reverse_proxy_empty_account_behavior"] != "RANDOM" {
+		t.Fatalf(
+			"patch reverse_proxy_empty_account_behavior: got %v, want RANDOM",
+			body["reverse_proxy_empty_account_behavior"],
+		)
+	}
+	if body["reverse_proxy_fixed_account_header"] != "" {
+		t.Fatalf(
+			"patch reverse_proxy_fixed_account_header: got %v, want empty",
+			body["reverse_proxy_fixed_account_header"],
+		)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodPatch, "/api/v1/platforms/"+platformID, map[string]any{
+		"reverse_proxy_empty_account_behavior": "FIXED_HEADER",
+		"reverse_proxy_fixed_account_header":   " ",
+	}, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("patch invalid status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "INVALID_ARGUMENT")
+}
+
 func TestAPIContract_SystemConfigPatchSemantics(t *testing.T) {
 	srv, _, runtimeCfg := newControlPlaneTestServer(t)
 
@@ -882,6 +944,18 @@ func TestAPIContract_SystemEnvConfigSnapshot(t *testing.T) {
 		t.Fatalf(
 			"default_platform_reverse_proxy_miss_action: got %v, want RANDOM",
 			body["default_platform_reverse_proxy_miss_action"],
+		)
+	}
+	if body["default_platform_reverse_proxy_empty_account_behavior"] != "ACCOUNT_HEADER_RULE" {
+		t.Fatalf(
+			"default_platform_reverse_proxy_empty_account_behavior: got %v, want ACCOUNT_HEADER_RULE",
+			body["default_platform_reverse_proxy_empty_account_behavior"],
+		)
+	}
+	if body["default_platform_reverse_proxy_fixed_account_header"] != "Authorization" {
+		t.Fatalf(
+			"default_platform_reverse_proxy_fixed_account_header: got %v, want Authorization",
+			body["default_platform_reverse_proxy_fixed_account_header"],
 		)
 	}
 	if body["default_platform_allocation_policy"] != "BALANCED" {

@@ -230,7 +230,10 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "正向代理": "Forward Proxy",
   "反向代理": "Reverse Proxy",
   "随机选择节点": "Select node randomly",
+  "直接随机路由": "Route randomly directly",
   "拒绝代理请求": "Reject proxy requests",
+  "按固定 Header 提取": "Extract by fixed header",
+  "按 Account Header Rule 提取": "Extract by account header rule",
   "均衡": "Balanced",
   "优先低延迟": "Prefer low latency",
   "优先空闲出口 IP": "Prefer idle egress IP",
@@ -312,7 +315,11 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "订阅列表": "Subscription list",
   "订阅配置": "Subscription configuration",
   "队列大小": "Queue size",
+  "反向代理账号为空行为": "Reverse-proxy empty-account behavior",
   "反向代理未命中策略": "Reverse proxy miss policy",
+  "固定账号 Header 列表（仅固定 Header 模式）": "Fixed account header list (fixed-header mode only)",
+  "固定账号 Header 列表不能为空": "Fixed account header list cannot be empty",
+  "每行一个，例如 Authorization 或 X-Account-Id": "One per line, for example Authorization or X-Account-Id",
   "访问延迟分布（历史最新桶）":
     "Access latency distribution (latest historical bucket)",
   "更新 URL、刷新周期与状态开关后点击保存。":
@@ -361,6 +368,9 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "落盘批大小": "Flush batch size",
   "默认地区黑名单": "Default region blacklist",
   "默认反代不匹配行为": "Default reverse-proxy miss action",
+  "默认反代空账号行为": "Default reverse-proxy empty-account behavior",
+  "默认反代固定账号 Header": "Default reverse-proxy fixed account header",
+  "默认反代固定账号 Header 列表": "Default reverse-proxy fixed account header list",
   "默认节点分配策略": "Default node allocation policy",
   "默认平台回退规则": "Default platform fallback rule",
   "默认粘性会话 TTL": "Default sticky session TTL",
@@ -510,6 +520,7 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "出口探测完成：出口 IP={{ip}}，区域={{region}}，延迟={{latency}}":
     "Egress probe complete: egress IP={{ip}}, region={{region}}, latency={{latency}}",
   "出站": "Outbound",
+  "空账号行为": "Empty-account behavior",
   "登录失败：{{message}}": "Login failed: {{message}}",
   "第 {{page}} / {{pages}} 页 · 显示 {{start}}-{{end}} / {{total}}":
     "Page {{page}} / {{pages}} · Showing {{start}}-{{end}} / {{total}}",

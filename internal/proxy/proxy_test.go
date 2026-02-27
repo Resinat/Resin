@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Resinat/Resin/internal/model"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/routing"
@@ -722,6 +723,136 @@ func TestResolveDefaultPlatform(t *testing.T) {
 	}
 }
 
+func TestEffectiveEmptyAccountBehavior_DefaultsToRandom(t *testing.T) {
+	if got := effectiveEmptyAccountBehavior(nil); got != platform.ReverseProxyEmptyAccountBehaviorRandom {
+		t.Fatalf("nil platform behavior: got %q, want %q", got, platform.ReverseProxyEmptyAccountBehaviorRandom)
+	}
+	plat := &platform.Platform{ReverseProxyEmptyAccountBehavior: "INVALID"}
+	if got := effectiveEmptyAccountBehavior(plat); got != platform.ReverseProxyEmptyAccountBehaviorRandom {
+		t.Fatalf("invalid platform behavior: got %q, want %q", got, platform.ReverseProxyEmptyAccountBehaviorRandom)
+	}
+}
+
+func TestShouldRejectReverseProxyEmptyAccount(t *testing.T) {
+	plat := &platform.Platform{ReverseProxyMissAction: string(platform.ReverseProxyMissActionReject)}
+
+	if !shouldRejectReverseProxyEmptyAccount("", platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule, plat) {
+		t.Fatal("expected REJECT when account is empty, behavior needs extraction, and miss action is REJECT")
+	}
+	if shouldRejectReverseProxyEmptyAccount("", platform.ReverseProxyEmptyAccountBehaviorRandom, plat) {
+		t.Fatal("random behavior should bypass account rejection")
+	}
+	if shouldRejectReverseProxyEmptyAccount("acct", platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule, plat) {
+		t.Fatal("non-empty account should never be rejected")
+	}
+	if shouldRejectReverseProxyEmptyAccount("", platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule, nil) {
+		t.Fatal("missing platform should not trigger account rejection")
+	}
+}
+
+func TestReverseProxy_ResolveReverseProxyAccount_BehaviorRandom(t *testing.T) {
+	rp := &ReverseProxy{
+		matcher: BuildAccountMatcher([]model.AccountHeaderRule{
+			{URLPrefix: "*", Headers: []string{"Authorization"}},
+		}),
+	}
+	plat := &platform.Platform{
+		ReverseProxyEmptyAccountBehavior: string(platform.ReverseProxyEmptyAccountBehaviorRandom),
+		ReverseProxyFixedAccountHeader:   "X-Account-Id",
+	}
+	parsed := &parsedPath{Host: "example.com", Path: "v1/users"}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("Authorization", "acct-from-rule")
+	req.Header.Set("X-Account-Id", "acct-from-fixed")
+
+	account, behavior := rp.resolveReverseProxyAccount(parsed, req, plat)
+	if behavior != platform.ReverseProxyEmptyAccountBehaviorRandom {
+		t.Fatalf("behavior: got %q, want %q", behavior, platform.ReverseProxyEmptyAccountBehaviorRandom)
+	}
+	if account != "" {
+		t.Fatalf("account: got %q, want empty", account)
+	}
+}
+
+func TestReverseProxy_ResolveReverseProxyAccount_BehaviorFixedHeader(t *testing.T) {
+	rp := &ReverseProxy{
+		matcher: BuildAccountMatcher([]model.AccountHeaderRule{
+			{URLPrefix: "*", Headers: []string{"Authorization"}},
+		}),
+	}
+	plat := &platform.Platform{
+		ReverseProxyEmptyAccountBehavior: string(platform.ReverseProxyEmptyAccountBehaviorFixedHeader),
+		ReverseProxyFixedAccountHeader:   "X-Missing\nX-Account-Id\nAuthorization",
+	}
+	parsed := &parsedPath{Host: "example.com", Path: "v1/users"}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("Authorization", "acct-from-rule")
+	req.Header.Set("X-Account-Id", "acct-from-fixed")
+
+	account, behavior := rp.resolveReverseProxyAccount(parsed, req, plat)
+	if behavior != platform.ReverseProxyEmptyAccountBehaviorFixedHeader {
+		t.Fatalf("behavior: got %q, want %q", behavior, platform.ReverseProxyEmptyAccountBehaviorFixedHeader)
+	}
+	if account != "acct-from-fixed" {
+		t.Fatalf("account: got %q, want %q", account, "acct-from-fixed")
+	}
+}
+
+func TestReverseProxy_ResolveReverseProxyAccount_BehaviorAccountHeaderRule(t *testing.T) {
+	rp := &ReverseProxy{
+		matcher: BuildAccountMatcher([]model.AccountHeaderRule{
+			{URLPrefix: "example.com/v1", Headers: []string{"Authorization"}},
+			{URLPrefix: "*", Headers: []string{"X-Fallback"}},
+		}),
+	}
+	plat := &platform.Platform{
+		ReverseProxyEmptyAccountBehavior: string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
+		ReverseProxyFixedAccountHeader:   "X-Account-Id",
+	}
+	parsed := &parsedPath{Host: "example.com", Path: "v1/users"}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("Authorization", "acct-from-rule")
+	req.Header.Set("X-Account-Id", "acct-from-fixed")
+
+	account, behavior := rp.resolveReverseProxyAccount(parsed, req, plat)
+	if behavior != platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule {
+		t.Fatalf("behavior: got %q, want %q", behavior, platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule)
+	}
+	if account != "acct-from-rule" {
+		t.Fatalf("account: got %q, want %q", account, "acct-from-rule")
+	}
+}
+
+func TestFixedAccountHeadersForPlatform(t *testing.T) {
+	plat := &platform.Platform{
+		ReverseProxyFixedAccountHeaders: []string{"Authorization", "X-Account-Id"},
+	}
+	got := fixedAccountHeadersForPlatform(plat)
+	if len(got) != 2 || got[0] != "Authorization" || got[1] != "X-Account-Id" {
+		t.Fatalf("headers: got %v, want %v", got, []string{"Authorization", "X-Account-Id"})
+	}
+	got[0] = "Mutated"
+	if plat.ReverseProxyFixedAccountHeaders[0] != "Authorization" {
+		t.Fatalf("platform headers should be immutable copy, got %v", plat.ReverseProxyFixedAccountHeaders)
+	}
+
+	plat = &platform.Platform{
+		ReverseProxyFixedAccountHeader: " authorization \nX-Account-Id\nx-account-id",
+	}
+	got = fixedAccountHeadersForPlatform(plat)
+	if len(got) != 2 || got[0] != "Authorization" || got[1] != "X-Account-Id" {
+		t.Fatalf("parsed headers: got %v, want %v", got, []string{"Authorization", "X-Account-Id"})
+	}
+
+	plat = &platform.Platform{
+		ReverseProxyFixedAccountHeader: "bad header",
+	}
+	got = fixedAccountHeadersForPlatform(plat)
+	if len(got) != 0 {
+		t.Fatalf("invalid raw headers should produce empty list, got %v", got)
+	}
+}
+
 type mockPlatformLookup struct {
 	platforms     map[string]*platform.Platform // keyed by ID
 	platformNames map[string]*platform.Platform // keyed by name
@@ -754,9 +885,10 @@ func TestReverseProxy_AccountRejection_EmptyPlatform(t *testing.T) {
 	// When PlatformName is empty and the default platform has REJECT,
 	// the request should be rejected with ACCOUNT_REJECTED.
 	defaultPlat := &platform.Platform{
-		ID:                     platform.DefaultPlatformID,
-		Name:                   platform.DefaultPlatformName,
-		ReverseProxyMissAction: "REJECT",
+		ID:                               platform.DefaultPlatformID,
+		Name:                             platform.DefaultPlatformName,
+		ReverseProxyMissAction:           "REJECT",
+		ReverseProxyEmptyAccountBehavior: string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
 	}
 
 	rp := &ReverseProxy{

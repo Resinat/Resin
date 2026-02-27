@@ -34,9 +34,12 @@ type Platform struct {
 	RegionFilters []string // lowercase ISO codes
 
 	// Other config fields.
-	StickyTTLNs            int64
-	ReverseProxyMissAction string
-	AllocationPolicy       AllocationPolicy
+	StickyTTLNs                      int64
+	ReverseProxyMissAction           string
+	ReverseProxyEmptyAccountBehavior string
+	ReverseProxyFixedAccountHeader   string
+	ReverseProxyFixedAccountHeaders  []string
+	AllocationPolicy                 AllocationPolicy
 
 	// Routable view & its lock.
 	// viewMu serializes both FullRebuild and NotifyDirty.

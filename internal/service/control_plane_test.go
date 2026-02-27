@@ -716,6 +716,8 @@ func TestDeletePlatform_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
 		nil,
 		platformRow.StickyTTLNs,
 		platformRow.ReverseProxyMissAction,
+		string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
+		"",
 		platformRow.AllocationPolicy,
 	))
 
@@ -776,6 +778,8 @@ func TestResetPlatformToDefault_SupportsBuiltInDefaultPlatform(t *testing.T) {
 		nil,
 		defaultRow.StickyTTLNs,
 		defaultRow.ReverseProxyMissAction,
+		string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
+		"",
 		defaultRow.AllocationPolicy,
 	))
 
@@ -915,6 +919,8 @@ func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *test
 		nil,
 		platformRow.StickyTTLNs,
 		platformRow.ReverseProxyMissAction,
+		string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
+		"",
 		platformRow.AllocationPolicy,
 	))
 

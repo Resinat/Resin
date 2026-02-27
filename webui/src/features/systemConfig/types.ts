@@ -32,6 +32,8 @@ export type EnvConfig = {
   default_platform_regex_filters: string[] | null;
   default_platform_region_filters: string[] | null;
   default_platform_reverse_proxy_miss_action: string;
+  default_platform_reverse_proxy_empty_account_behavior: string;
+  default_platform_reverse_proxy_fixed_account_header: string;
   default_platform_allocation_policy: string;
   probe_timeout: string;
   resource_fetch_timeout: string;

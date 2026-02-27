@@ -3,6 +3,7 @@ package platform
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/Resinat/Resin/internal/model"
 )
@@ -44,11 +45,21 @@ func NewConfiguredPlatform(
 	regionFilters []string,
 	stickyTTLNs int64,
 	missAction string,
+	emptyAccountBehavior string,
+	fixedAccountHeader string,
 	allocationPolicy string,
 ) *Platform {
+	normalizedFixedHeaders, fixedHeaders, err := NormalizeFixedAccountHeaders(fixedAccountHeader)
+	if err != nil {
+		normalizedFixedHeaders = strings.TrimSpace(fixedAccountHeader)
+		fixedHeaders = nil
+	}
 	plat := NewPlatform(id, name, regexFilters, regionFilters)
 	plat.StickyTTLNs = stickyTTLNs
 	plat.ReverseProxyMissAction = missAction
+	plat.ReverseProxyEmptyAccountBehavior = emptyAccountBehavior
+	plat.ReverseProxyFixedAccountHeader = normalizedFixedHeaders
+	plat.ReverseProxyFixedAccountHeaders = append([]string(nil), fixedHeaders...)
 	plat.AllocationPolicy = ParseAllocationPolicy(allocationPolicy)
 	return plat
 }
@@ -71,6 +82,21 @@ func BuildFromModel(mp model.Platform) (*Platform, error) {
 	if err := ValidateRegionFilters(mp.RegionFilters); err != nil {
 		return nil, err
 	}
+	emptyAccountBehavior := mp.ReverseProxyEmptyAccountBehavior
+	if !ReverseProxyEmptyAccountBehavior(emptyAccountBehavior).IsValid() {
+		emptyAccountBehavior = string(ReverseProxyEmptyAccountBehaviorRandom)
+	}
+	fixedHeader, _, err := NormalizeFixedAccountHeaders(mp.ReverseProxyFixedAccountHeader)
+	if err != nil {
+		return nil, fmt.Errorf("decode platform %s reverse_proxy_fixed_account_header: %w", mp.ID, err)
+	}
+	if emptyAccountBehavior == string(ReverseProxyEmptyAccountBehaviorFixedHeader) && fixedHeader == "" {
+		return nil, fmt.Errorf(
+			"decode platform %s reverse_proxy_fixed_account_header: required when reverse_proxy_empty_account_behavior is %s",
+			mp.ID,
+			ReverseProxyEmptyAccountBehaviorFixedHeader,
+		)
+	}
 
 	return NewConfiguredPlatform(
 		mp.ID,
@@ -79,6 +105,8 @@ func BuildFromModel(mp model.Platform) (*Platform, error) {
 		append([]string(nil), mp.RegionFilters...),
 		mp.StickyTTLNs,
 		mp.ReverseProxyMissAction,
+		emptyAccountBehavior,
+		fixedHeader,
 		mp.AllocationPolicy,
 	), nil
 }

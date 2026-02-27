@@ -54,6 +54,11 @@ func PersistenceBootstrap(stateDir, cacheDir string) (engine *StateEngine, close
 		cacheDB.Close()
 		return nil, nil, fmt.Errorf("init state.db: %w", err)
 	}
+	if err := EnsureStateSchemaMigrations(stateDB); err != nil {
+		stateDB.Close()
+		cacheDB.Close()
+		return nil, nil, fmt.Errorf("migrate state.db: %w", err)
+	}
 
 	if err := InitDB(cacheDB, CreateCacheDDL); err != nil {
 		stateDB.Close()

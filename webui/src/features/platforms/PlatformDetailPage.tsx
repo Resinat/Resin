@@ -17,27 +17,17 @@ import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatGoDuration, formatRelativeTime } from "../../lib/time";
 import { deletePlatform, getPlatform, rebuildPlatform, resetPlatform, updatePlatform } from "./api";
+import {
+  allocationPolicies,
+  allocationPolicyLabel,
+  emptyAccountBehaviorLabel,
+  emptyAccountBehaviors,
+  missActionLabel,
+  missActions,
+} from "./constants";
+import { parseHeaderLines, parseLinesToList } from "./formParsers";
 import { PlatformMonitorPanel } from "./PlatformMonitorPanel";
-import type { Platform, PlatformAllocationPolicy, PlatformMissAction } from "./types";
-
-const allocationPolicies: PlatformAllocationPolicy[] = [
-  "BALANCED",
-  "PREFER_LOW_LATENCY",
-  "PREFER_IDLE_IP",
-];
-
-const missActions: PlatformMissAction[] = ["RANDOM", "REJECT"];
-
-const allocationPolicyLabel: Record<PlatformAllocationPolicy, string> = {
-  BALANCED: "均衡",
-  PREFER_LOW_LATENCY: "优先低延迟",
-  PREFER_IDLE_IP: "优先空闲出口 IP",
-};
-
-const missActionLabel: Record<PlatformMissAction, string> = {
-  RANDOM: "随机选择节点",
-  REJECT: "拒绝代理请求",
-};
+import type { Platform } from "./types";
 
 const platformEditSchema = z.object({
   name: z.string().trim().min(1, "平台名称不能为空"),
@@ -45,7 +35,20 @@ const platformEditSchema = z.object({
   regex_filters_text: z.string().optional(),
   region_filters_text: z.string().optional(),
   reverse_proxy_miss_action: z.enum(missActions),
+  reverse_proxy_empty_account_behavior: z.enum(emptyAccountBehaviors),
+  reverse_proxy_fixed_account_header: z.string().optional(),
   allocation_policy: z.enum(allocationPolicies),
+}).superRefine((value, ctx) => {
+  if (
+    value.reverse_proxy_empty_account_behavior === "FIXED_HEADER" &&
+    parseHeaderLines(value.reverse_proxy_fixed_account_header).length === 0
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["reverse_proxy_fixed_account_header"],
+      message: "固定账号 Header 列表不能为空",
+    });
+  }
 });
 
 type PlatformEditForm = z.infer<typeof platformEditSchema>;
@@ -58,18 +61,6 @@ const DETAIL_TABS: Array<{ key: PlatformDetailTab; label: string; hint: string }
   { key: "ops", label: "运维", hint: "重建、重置、删除操作" },
 ];
 
-function parseLinesToList(input: string | undefined, normalize?: (value: string) => string): string[] {
-  if (!input) {
-    return [];
-  }
-
-  return input
-    .split(/\n/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .map((item) => (normalize ? normalize(item) : item));
-}
-
 function platformToEditForm(platform: Platform): PlatformEditForm {
   const regexFilters = Array.isArray(platform.regex_filters) ? platform.regex_filters : [];
   const regionFilters = Array.isArray(platform.region_filters) ? platform.region_filters : [];
@@ -80,6 +71,8 @@ function platformToEditForm(platform: Platform): PlatformEditForm {
     regex_filters_text: regexFilters.join("\n"),
     region_filters_text: regionFilters.join("\n"),
     reverse_proxy_miss_action: platform.reverse_proxy_miss_action,
+    reverse_proxy_empty_account_behavior: platform.reverse_proxy_empty_account_behavior,
+    reverse_proxy_fixed_account_header: platform.reverse_proxy_fixed_account_header,
     allocation_policy: platform.allocation_policy,
   };
 }
@@ -110,9 +103,12 @@ export function PlatformDetailPage() {
       regex_filters_text: "",
       region_filters_text: "",
       reverse_proxy_miss_action: "RANDOM",
+      reverse_proxy_empty_account_behavior: "ACCOUNT_HEADER_RULE",
+      reverse_proxy_fixed_account_header: "Authorization",
       allocation_policy: "BALANCED",
     },
   });
+  const detailEmptyAccountBehavior = editForm.watch("reverse_proxy_empty_account_behavior");
 
   useEffect(() => {
     if (!platform) {
@@ -140,6 +136,8 @@ export function PlatformDetailPage() {
         regex_filters: parseLinesToList(formData.regex_filters_text),
         region_filters: parseLinesToList(formData.region_filters_text, (value) => value.toLowerCase()),
         reverse_proxy_miss_action: formData.reverse_proxy_miss_action,
+        reverse_proxy_empty_account_behavior: formData.reverse_proxy_empty_account_behavior,
+        reverse_proxy_fixed_account_header: parseHeaderLines(formData.reverse_proxy_fixed_account_header).join("\n"),
         allocation_policy: formData.allocation_policy,
       });
     },
@@ -301,6 +299,10 @@ export function PlatformDetailPage() {
                   <span>{t("未命中策略")}</span>
                   <strong>{t(missActionLabel[platform.reverse_proxy_miss_action])}</strong>
                 </span>
+                <span className="platform-fact">
+                  <span>{t("空账号行为")}</span>
+                  <strong>{t(emptyAccountBehaviorLabel[platform.reverse_proxy_empty_account_behavior])}</strong>
+                </span>
               </div>
               <Link to={`/nodes?platform_id=${encodeURIComponent(platform.id)}`} className="platform-detail-node-link">
                 <Link2 size={14} />
@@ -401,6 +403,35 @@ export function PlatformDetailPage() {
                         </option>
                       ))}
                     </Select>
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="detail-edit-empty-account-behavior">
+                      {t("反向代理账号为空行为")}
+                    </label>
+                    <Select id="detail-edit-empty-account-behavior" {...editForm.register("reverse_proxy_empty_account_behavior")}>
+                      {emptyAccountBehaviors.map((item) => (
+                        <option key={item} value={item}>
+                          {t(emptyAccountBehaviorLabel[item])}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="detail-edit-fixed-account-header">
+                      {t("固定账号 Header 列表（仅固定 Header 模式）")}
+                    </label>
+                    <Textarea
+                      id="detail-edit-fixed-account-header"
+                      rows={4}
+                      placeholder={t("每行一个，例如 Authorization 或 X-Account-Id")}
+                      disabled={detailEmptyAccountBehavior !== "FIXED_HEADER"}
+                      {...editForm.register("reverse_proxy_fixed_account_header")}
+                    />
+                    {editForm.formState.errors.reverse_proxy_fixed_account_header?.message ? (
+                      <p className="field-error">{t(editForm.formState.errors.reverse_proxy_fixed_account_header.message)}</p>
+                    ) : null}
                   </div>
 
                   <div className="field-group">

@@ -224,6 +224,10 @@ Resin 是一个外部代理池，支持正向代理与反向代理两种接入�
 **反向代理调用规范：**
 * Resin 通过路径拼接的方式解析反向代理请求，格式为：`<resin_url>/Platform:Account/protocol/host/path?query`。
 * 其中 `Platform:Account` 必须是单个完整路径段；`protocol` 为 `http` 或 `https` 之一（代表目标服务使用的底层协议类型）；`host` 可以是域名或 IP，也可以携带端口。
+* 当路径里 `Account` 为空时，行为由该 Platform 的 `reverse_proxy_empty_account_behavior` 决定：
+  * `RANDOM`：直接走随机路由（不做 Header 提取）。
+  * `FIXED_HEADER`：按该 Platform 的 `reverse_proxy_fixed_account_header` 列表提取 Account（多行配置、每行一个 Header，按顺序取第一个非空值）。
+  * `ACCOUNT_HEADER_RULE`：按全局 Account Header Rules 做最长前缀匹配后提取 Account。
 * **HTTP 代理例子**：设 `resin_url` 值为 `http://127.0.0.1:2260/my-token`，你要用反代请求 `https://api.example.com/healthz` 且业务身份为 `Default:Tom`。则应直接向 `http://127.0.0.1:2260/my-token/Default:Tom/https/api.example.com/healthz` 发起请求即可，Resin 会自动分配对应粘性节点完成真实的请求。
 * **WebSocket 代理支持**：Resin 同样支持对 `ws` / `wss` 进行反向代理。注意两项强制约定：
   1. **从客户端连接到 Resin 的这一段只支持 `ws` 协议**。
