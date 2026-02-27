@@ -11,7 +11,7 @@ services:
       RESIN_PROXY_TOKEN: ${RESIN_PROXY_TOKEN}
       RESIN_LISTEN_ADDRESS: 0.0.0.0
       RESIN_PORT: 2260
-      TZ: ${TZ:-UTC}
+      # TZ: <Your Time Zone>
     ports:
       - "2260:2260"
     volumes:

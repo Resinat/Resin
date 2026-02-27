@@ -2029,16 +2029,16 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * `RESIN_RESOURCE_FETCH_TIMEOUT`：资源下载（订阅/GeoIP）单次尝试超时。默认 "30s"。
 
 日志相关配置：
-* RESIN_REQUEST_LOG_QUEUE_SIZE：日志写入队列大小。至少是 RESIN_REQUEST_LOG_QUEUE_FLUSH_BATCH_SIZE 的两倍。默认 8192。
-* RESIN_REQUEST_LOG_QUEUE_FLUSH_BATCH_SIZE：批量写入数据库的大小。默认 4096.
-* RESIN_REQUEST_LOG_QUEUE_FLUSH_INTERVAL：写库间隔。默认 "5m"。
-* RESIN_REQUEST_LOG_DB_MAX_MB：SQLite 当前活动日志数据库的最大字节数。默认 512。
-* RESIN_REQUEST_LOG_DB_RETAIN_COUNT：保留的历史日志数据库文件数量（滚动日志），默认 5。
+* `RESIN_REQUEST_LOG_QUEUE_SIZE`：日志写入队列大小。至少是 RESIN_REQUEST_LOG_QUEUE_FLUSH_BATCH_SIZE 的两倍。默认 8192。
+* `RESIN_REQUEST_LOG_QUEUE_FLUSH_BATCH_SIZE`：批量写入数据库的大小。默认 4096.
+* `RESIN_REQUEST_LOG_QUEUE_FLUSH_INTERVAL`：写库间隔。默认 "5m"。
+* `RESIN_REQUEST_LOG_DB_MAX_MB`：SQLite 当前活动日志数据库的最大字节数。默认 512。
+* `RESIN_REQUEST_LOG_DB_RETAIN_COUNT`：保留的历史日志数据库文件数量（滚动日志），默认 5。
 
 认证设置：
-* RESIN_ADMIN_TOKEN：访问 WebAPI 的认证 Token。环境变量必须定义；允许为空字符串。为空时关闭控制面鉴权。
-* RESIN_PROXY_TOKEN：访问代理的认证 Token。环境变量必须定义；允许为空字符串。为空时关闭正向/反向代理鉴权；非空时不能包含 : @ 符号，且不能取保留值 `api`、`healthz`、`ui`。
-* 当 Token 非空但强度较弱时（使用 zxcvbn-go 评分，`Score < 3`），WebUI 首页会显示安全告警条幅（不阻止启动）。
+* `RESIN_ADMIN_TOKEN`：访问 WebAPI 的认证 Token。环境变量必须定义；允许为空字符串。为空时关闭控制面鉴权。
+* `RESIN_PROXY_TOKEN`：访问代理的认证 Token。环境变量必须定义；允许为空字符串。为空时关闭正向/反向代理鉴权；非空时不能包含 : @ 符号，且不能取保留值 `api`、`healthz`、`ui`。
+* 当 Token 非空但强度较弱时，WebUI 首页会显示安全告警条幅（不阻止启动）。
 
 数据统计设置：
 * `RESIN_METRIC_THROUGHPUT_INTERVAL_SECONDS`：统计网速的时间间隔，默认 1s。
