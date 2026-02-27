@@ -919,6 +919,18 @@ export function SubscriptionPage() {
               )}
 
               <div className="field-group">
+                <label className="field-label" htmlFor="create-sub-ephemeral" style={{ visibility: "hidden" }}>
+                  {t("临时订阅")}
+                </label>
+                <div className="subscription-switch-item">
+                  <label className="subscription-switch-label" htmlFor="create-sub-ephemeral">
+                    {t("临时订阅")}
+                  </label>
+                  <Switch id="create-sub-ephemeral" {...createForm.register("ephemeral")} />
+                </div>
+              </div>
+
+              <div className="field-group">
                 <label className="field-label" htmlFor="create-sub-ephemeral-evict-delay">
                   {t("临时节点驱逐延迟")}
                 </label>
@@ -932,18 +944,6 @@ export function SubscriptionPage() {
                 {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
                   <p className="field-error">{t(createForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
                 ) : null}
-              </div>
-
-              <div className="field-group">
-                <label className="field-label" htmlFor="create-sub-ephemeral" style={{ visibility: "hidden" }}>
-                  {t("临时订阅")}
-                </label>
-                <div className="subscription-switch-item">
-                  <label className="subscription-switch-label" htmlFor="create-sub-ephemeral">
-                    {t("临时订阅")}
-                  </label>
-                  <Switch id="create-sub-ephemeral" {...createForm.register("ephemeral")} />
-                </div>
               </div>
 
               <div className="subscription-switch-item">
