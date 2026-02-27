@@ -19,14 +19,14 @@ func newTestStateRepo(t *testing.T) *StateRepo {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := InitDB(db, CreateStateDDL); err != nil {
+	if err := MigrateStateDB(db); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	return newStateRepo(db)
 }
 
-func TestEnsureStateSchemaMigrations_AddsPlatformColumns(t *testing.T) {
+func TestMigrateStateDB_UpgradesLegacyPlatformsColumns(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(dir + "/state.db")
 	if err != nil {
@@ -51,8 +51,8 @@ func TestEnsureStateSchemaMigrations_AddsPlatformColumns(t *testing.T) {
 		t.Fatalf("create legacy platforms table: %v", err)
 	}
 
-	if err := EnsureStateSchemaMigrations(db); err != nil {
-		t.Fatalf("EnsureStateSchemaMigrations: %v", err)
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
 	}
 
 	if ok, err := hasTableColumn(db, "platforms", "reverse_proxy_empty_account_behavior"); err != nil || !ok {
@@ -60,6 +60,50 @@ func TestEnsureStateSchemaMigrations_AddsPlatformColumns(t *testing.T) {
 	}
 	if ok, err := hasTableColumn(db, "platforms", "reverse_proxy_fixed_account_header"); err != nil || !ok {
 		t.Fatalf("expected migrated column reverse_proxy_fixed_account_header, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestMigrateStateDB_LegacyBaselineVersionIsPinned(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE platforms (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			sticky_ttl_ns INTEGER NOT NULL,
+			regex_filters_json TEXT NOT NULL DEFAULT '[]',
+			region_filters_json TEXT NOT NULL DEFAULT '[]',
+			reverse_proxy_miss_action TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_empty_account_behavior TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_fixed_account_header TEXT NOT NULL DEFAULT '',
+			allocation_policy TEXT NOT NULL DEFAULT 'BALANCED',
+			updated_at_ns INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy latest-like platforms table: %v", err)
+	}
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	var version int
+	var dirty bool
+	err = db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty)
+	if err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateLegacyBaselineVersion {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateLegacyBaselineVersion)
 	}
 }
 

@@ -22,7 +22,9 @@ func TestRepairConsistency_RemovesOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sdb.Close()
-	InitDB(sdb, CreateStateDDL)
+	if err := MigrateStateDB(sdb); err != nil {
+		t.Fatal(err)
+	}
 
 	stateRepo := newStateRepo(sdb)
 	stateRepo.UpsertPlatform(model.Platform{
@@ -43,7 +45,9 @@ func TestRepairConsistency_RemovesOrphans(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer cdb.Close()
-	InitDB(cdb, CreateCacheDDL)
+	if err := MigrateCacheDB(cdb); err != nil {
+		t.Fatal(err)
+	}
 
 	cacheRepo := newCacheRepo(cdb)
 
@@ -119,7 +123,9 @@ func TestRepairConsistency_ValidRecordsSurvive(t *testing.T) {
 
 	sdb, _ := OpenDB(stateDBPath)
 	defer sdb.Close()
-	InitDB(sdb, CreateStateDDL)
+	if err := MigrateStateDB(sdb); err != nil {
+		t.Fatal(err)
+	}
 
 	stateRepo := newStateRepo(sdb)
 	stateRepo.UpsertPlatform(model.Platform{
@@ -136,7 +142,9 @@ func TestRepairConsistency_ValidRecordsSurvive(t *testing.T) {
 
 	cdb, _ := OpenDB(cacheDBPath)
 	defer cdb.Close()
-	InitDB(cdb, CreateCacheDDL)
+	if err := MigrateCacheDB(cdb); err != nil {
+		t.Fatal(err)
+	}
 
 	cacheRepo := newCacheRepo(cdb)
 	cacheRepo.BulkUpsertNodesStatic([]model.NodeStatic{

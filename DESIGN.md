@@ -482,7 +482,7 @@ BootstrapLoader
 
 Resin 项目中所有的数据库都设计为单写，不会有多进程写入。
 
-现阶段不实现 migration。
+数据库 schema 使用 golang-migrate 做版本化 migration。
 
 ### SQLite 数据模型
 #### state.db

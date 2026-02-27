@@ -1,0 +1,1 @@
+-- Irreversible in SQLite without table rebuild.

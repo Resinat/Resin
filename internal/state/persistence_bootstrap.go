@@ -24,7 +24,7 @@ func (c *persistenceCloser) Close() error {
 //
 // Steps:
 //  1. Open/create state.db and cache.db with recommended pragmas.
-//  2. Run DDL on both databases.
+//  2. Run schema migrations on both databases.
 //  3. Run consistency repair (cross-db orphan cleanup).
 //  4. Construct and return StateEngine.
 func PersistenceBootstrap(stateDir, cacheDir string) (engine *StateEngine, closer io.Closer, err error) {
@@ -49,21 +49,16 @@ func PersistenceBootstrap(stateDir, cacheDir string) (engine *StateEngine, close
 		return nil, nil, fmt.Errorf("open cache.db: %w", err)
 	}
 
-	if err := InitDB(stateDB, CreateStateDDL); err != nil {
-		stateDB.Close()
-		cacheDB.Close()
-		return nil, nil, fmt.Errorf("init state.db: %w", err)
-	}
-	if err := EnsureStateSchemaMigrations(stateDB); err != nil {
+	if err := MigrateStateDB(stateDB); err != nil {
 		stateDB.Close()
 		cacheDB.Close()
 		return nil, nil, fmt.Errorf("migrate state.db: %w", err)
 	}
 
-	if err := InitDB(cacheDB, CreateCacheDDL); err != nil {
+	if err := MigrateCacheDB(cacheDB); err != nil {
 		stateDB.Close()
 		cacheDB.Close()
-		return nil, nil, fmt.Errorf("init cache.db: %w", err)
+		return nil, nil, fmt.Errorf("migrate cache.db: %w", err)
 	}
 
 	if err := RepairConsistency(stateDBPath, cacheDB); err != nil {

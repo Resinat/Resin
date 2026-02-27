@@ -15,7 +15,7 @@ func newTestCacheRepo(t *testing.T) *CacheRepo {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := InitDB(db, CreateCacheDDL); err != nil {
+	if err := MigrateCacheDB(db); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
