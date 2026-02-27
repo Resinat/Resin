@@ -63,6 +63,7 @@ services:
 1. 浏览器打开 `http://127.0.0.1:2260`（请替换为你的服务器 IP）。
 2. 输入刚才设置的 `RESIN_ADMIN_TOKEN` 登录后台。
 3. 在左侧菜单找到 **「订阅管理」**，添加你的节点订阅。
+4. 稍等片刻，等待节点池刷新出你的节点。
 
 ### 第三步：开始你的代理请求
 客户端接入方式参考接下来的章节。
@@ -147,6 +148,30 @@ URL 格式进阶为：`http://部署IP:2260/密码/平台:账号/协议/目标�
 curl "http://127.0.0.1:2260/my-token/Default:user_tom/https/cloudflare.com/cdn-cgi/trace"
 ```
 
+#### 方式三：反向代理接入 + 请求头规则（零侵入方案）
+
+如果你的客户端（或 SDK）非常死板，**不支持在反向代理 URL 里动态拼 `Account`**，怎么办？
+
+只要你的业务请求本身携带了某种身份凭证（例如发给目标网站的 API Key、Token、Cookie 等），Resin 就可以**直接“白嫖”你原有的业务请求头**，从中自动提取 Account！
+
+**这意味着业务侧通常只需要改一个静态的 `BaseURL`，不需要修改任何业务逻辑代码。**
+
+假设你的服务本来每次请求目标 API 时，都会携带 `Authorization` 请求头：
+
+1. 在管理页面修改 Platform 的配置，把 “反向代理账号为空行为” 修改为 “提取指定请求头作为 Account”。
+2. 在 “用于提取 Account 的 Headers” 输入 `Authorization`。
+
+此时，就算你在反向代理 URL 里不填 `Account`，Resin 也会在流量经过时，**顺手截获并解析**该 Header。例如：
+
+```bash
+curl "http://127.0.0.1:2260/my-token/MyPlatform:/https/api.example.com/v1/orders" \
+  -H "Authorization: sk-abc123"
+```
+
+上面的请求中，Resin 发现 sk-abc123 后，会将其作为 Account。后续只要是带着同一把 API Key 的请求，都会被 Resin 稳定绑定在同一个出口 IP 上。
+
+> 除了 Platform 请求头配置外，Resin 还支持更高级的根据 URL 前缀决定请求头的高级功能！尝试把当前文档与 [DESIGN.md](DESIGN.md) 扔给 AI，问它 “请使用简单易懂的语言，向我介绍 Resin 指定请求头提取规则的两种方式，尤其是根据 URL 前缀决定请求头的方式。”
+
 ---
 
 ## 🤖 接入第三方项目
@@ -219,8 +244,6 @@ RESIN_PORT=2260 \
 
 ## 🛠️ 常见错误 (FAQ)
 
-- **Q: 为什么代理请求总是连不上，拿不到可用出口？**
-  - **A**: 刚起步最容易踩的坑。请确保你先在管理后台导入了订阅，并确认面板上有 **健康** 的节点，再进行代理请求。
 - **Q: 启动失败提示 `RESIN_PROXY_TOKEN` 未定义？**
   - **A**: 就算你不打算启用代理密码，也必须显式配置它为空：`RESIN_PROXY_TOKEN=""`。
 - **Q: 使用反向代理 WebSocket 协议（如 ws/wss）怎么写路径？**
