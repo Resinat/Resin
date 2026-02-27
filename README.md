@@ -17,7 +17,7 @@
 - **业务友好的粘性代理**：让同一业务账号稳定绑定同一出口 IP，节点断线自动无感切换同 IP 节点，极致提升服务稳定性。
 - **双模接入**：同时支持标准正向代理（HTTP Proxy）与 URL 反向代理（Reverse Proxy）。
 - **可观测性**：提供详细的性能指标与日志记录，快速掌控全局（可视化 Web 管理后台）。包括完整的结构化请求日志，支持按平台、账号、目标站点等维度查询与审计。
-- **部署极简**：一个 `docker-compose.yaml`，或者单个可执行文件就能跑起来。
+- **简单与强大兼得**：开箱即用的默认配置与深度自定义功能。无论你是只需几分钟跑通简单场景的个人使用者，还是需要高并发与高可用性的企业级团队，Resin 都能游刃有余。
 - **跨订阅智能去重**：不同订阅中配置相同的节点自动合并，共享健康状态，避免重复探测。
 - **热更新**：更新常用配置不用重启，更新订阅节点不断连。
 - **状态持久化**：重启不丢失节点健康数据、延迟统计与租约绑定，生产环境无忧。
@@ -37,7 +37,7 @@
 
 ## 🚀 Quick Start
 
-只需简单三步，即可将你的闲杂节点转化为高可用代理池。
+只需简单三步，即可将你的节点订阅转化为高可用代理池。
 
 ### 第一步：一键部署启动
 推荐使用 Docker Compose 快速启动：
@@ -85,13 +85,13 @@ services:
 ```bash
 curl -x http://127.0.0.1:2260 \
   -U "my-token::" \
-  https://cloudflare.com/cdn-cgi/trace
+  https://api.ipify.org
 ```
 
-如果你的客户端支持修改服务的 `BASE_URL`，你也可以尝试反向代理接入。URL 格式为：`/令牌/Platform(可选):/协议/目标地址`。例如，你可以通过下面的 curl 命令通过 Resin 访问 `https://cloudflare.com/cdn-cgi/trace`。
+如果你的客户端支持修改服务的 `BASE_URL`，你也可以尝试反向代理接入。URL 格式为：`/令牌/Platform(可选):/协议/目标地址`。例如，你可以通过下面的 curl 命令通过 Resin 访问 `https://api.ipify.org`。
 
 ```bash
-curl http://127.0.0.1:2260/my-token/:/https/cloudflare.com/cdn-cgi/trace
+curl http://127.0.0.1:2260/my-token/:/https/api.ipify.org
 ```
 
 > 正向代理与反向代理的选择：如果条件允许，推荐尽量使用反向代理，对于可观测性更友好。如果您的客户端不支持修改 BaseURL，或者客户端需要 utls、非纯 WebAPI 请求这种反向代理不擅长的情况，请使用正向代理。
@@ -110,20 +110,20 @@ hk
 ```bash
 curl -x http://127.0.0.1:2260 \
   -U "my-token:MyPlatform:" \
-  https://cloudflare.com/cdn-cgi/trace
+  https://api.ipify.org
 ```
 
 对于反向代理，你可以在 URL 前缀中提供 Platform 信息。下面是一个使用 curl 的例子：
 
 ```
-curl http://127.0.0.1:2260/my-token/MyPlatform:/https/cloudflare.com/cdn-cgi/trace
+curl http://127.0.0.1:2260/my-token/MyPlatform:/https/api.ipify.org
 ```
 
 ---
 
 ## 📖 进阶使用：粘性代理 (Sticky Session)
 
-当业务遇到**对 IP 变化敏感**的网站，或者需要持续交互时，你需要使用 Resin 的核心特性：**粘性代理**。
+当业务遇到**对 IP 变化敏感**的服务，或者需要持续交互时，你需要使用 Resin 的核心特性：**粘性代理**。
 
 在此之前，先了解两个概念：
 
@@ -142,7 +142,7 @@ curl http://127.0.0.1:2260/my-token/MyPlatform:/https/cloudflare.com/cdn-cgi/tra
 # 指定一个业务账号 user_tom，Resin 会为其长期分配一个稳定的专属 IP
 curl -x http://127.0.0.1:2260 \
   -U "my-token:Default:user_tom" \
-  https://cloudflare.com/cdn-cgi/trace
+  https://api.ipify.org
 ```
 
 #### 方式二：反向代理接入 (Reverse Proxy)
@@ -151,7 +151,7 @@ URL 格式进阶为：`http://部署IP:2260/密码/平台:账号/协议/目标�
 
 ```bash
 # 例如让 user_tom 访问 https 协议的 cloudflare.com：
-curl "http://127.0.0.1:2260/my-token/Default:user_tom/https/cloudflare.com/cdn-cgi/trace"
+curl "http://127.0.0.1:2260/my-token/Default:user_tom/https/api.ipify.org"
 ```
 
 #### 方式三：反向代理接入 + 请求头规则（零侵入方案）
@@ -184,16 +184,23 @@ curl "http://127.0.0.1:2260/my-token/MyPlatform:/https/api.example.com/v1/orders
 
 各类第三方客户端使用 Resin 的方式有所不同，对于业务代码的侵入程度也不同，总结如下：
 
-| 需求侧 | 接入方式 | 代码侵入程度 | 说明 |
-| :--- | :--- | :--- | :--- |
-| **不需要粘性代理** | 接入正向代理 | 🟢 **零侵入** | 客户端填入代理地址 `http://127.0.0.1:2260` 及账号密码即可。 |
-| " | 接入反向代理 | 🟢 **零/低侵入** | 修改服务 BaseURL 即可接入，适配极易。 |
-| **需要粘性代理** | 接入正向代理 | 🟡 **中侵入** | 需稍微修改代码：为不同用户的请求附带不同 Account 后缀（如 `密码:平台:账号`）。 |
-| " | 接入反向代理 | 🟡 **中侵入** | 需稍微修改代码：动态拼接带有账号的反代 URL 路径。 |
-| " | 接入反向代理 + 请求头规则 | 🟢 **零/低侵入** | Resin 允许通过识别业务原始头（如 `Authorization`）自动提取 Account 并绑定 IP！就像普通反代一样简单！ |
+💡 **如果你不需要粘性代理**
+
+| 接入方式 | 代码侵入程度 | 说明 |
+| :--- | :--- | :--- |
+| 接入正向代理 | 🟢 **零侵入** | 客户端填入代理地址 `http://127.0.0.1:2260` 及账号密码即可。 |
+| 接入反向代理 | 🟢 **零/低侵入** | 修改服务 BaseURL 即可接入，适配极易。 |
+
+💡 **如果你需要粘性代理**
+
+| 接入方式 | 代码侵入程度 | 说明 |
+| :--- | :--- | :--- |
+| 接入正向代理 | 🟡 **中侵入** | 需稍微修改代码：为不同用户的请求附带不同认证信息（如 `密码:平台:账号）|
+| 接入反向代理 | 🟡 **中侵入** | 需稍微修改代码：动态拼接带有账号的反代 URL 路径。 |
+| 接入反向代理 + 请求头规则 | 🟢 **零/低侵入** | Resin 允许通过识别业务原始头（如 `Authorization`）自动提取 Account 并绑定 IP！就像非粘性反代一样简单！ |
 
 👉 **极速集成脚本/提示词（Prompt）：**  
-如果你需要使用原生代码接入粘性代理，你可以直接把下面这个模板喂给 AI 帮你写代码：
+如果你是开发者，想要修改现有项目原生接入 Resin 粘性代理，你可以直接把下面这个模板喂给 AI 帮你写代码：
 - [doc/integration-prompt.md](doc/integration-prompt.md)
 
 ---
