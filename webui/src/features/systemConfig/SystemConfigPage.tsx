@@ -86,9 +86,9 @@ const MISS_ACTION_LABELS: Record<string, string> = {
 };
 
 const EMPTY_ACCOUNT_BEHAVIOR_LABELS: Record<string, string> = {
-  RANDOM: "直接随机路由",
-  FIXED_HEADER: "按固定 Header 提取",
-  ACCOUNT_HEADER_RULE: "按 Account Header Rule 提取",
+  RANDOM: "随机路由",
+  FIXED_HEADER: "提取指定请求头作为 Account",
+  ACCOUNT_HEADER_RULE: "按照全局请求头规则提取 Account",
 };
 
 function configToForm(config: RuntimeConfig): RuntimeConfigForm {

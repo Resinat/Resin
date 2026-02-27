@@ -46,7 +46,7 @@ const platformCreateSchema = z.object({
     ctx.addIssue({
       code: "custom",
       path: ["reverse_proxy_fixed_account_header"],
-      message: "固定账号 Header 列表不能为空",
+      message: "用于提取 Account 的 Headers 不能为空",
     });
   }
 });
@@ -326,20 +326,24 @@ export function PlatformPage() {
                 </Select>
               </div>
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="create-fixed-account-header">
-                  {t("固定账号 Header 列表（仅固定 Header 模式）")}
-                </label>
-                <Textarea
-                  id="create-fixed-account-header"
-                  rows={3}
-                  placeholder={t("每行一个，例如 Authorization 或 X-Account-Id")}
-                  disabled={createEmptyAccountBehavior !== "FIXED_HEADER"}
-                  {...createForm.register("reverse_proxy_fixed_account_header")}
-                />
-                {createForm.formState.errors.reverse_proxy_fixed_account_header?.message ? (
-                  <p className="field-error">{t(createForm.formState.errors.reverse_proxy_fixed_account_header.message)}</p>
-                ) : null}
+              <div
+                className={`account-headers-collapse ${createEmptyAccountBehavior === "FIXED_HEADER" ? "account-headers-collapse-open" : ""}`}
+                aria-hidden={createEmptyAccountBehavior !== "FIXED_HEADER"}
+              >
+                <div className="field-group">
+                  <label className="field-label" htmlFor="create-fixed-account-header">
+                    {t("用于提取 Account 的 Headers（每行一个）")}
+                  </label>
+                  <Textarea
+                    id="create-fixed-account-header"
+                    rows={3}
+                    placeholder={t("每行一个，例如 Authorization 或 X-Account-Id")}
+                    {...createForm.register("reverse_proxy_fixed_account_header")}
+                  />
+                  {createForm.formState.errors.reverse_proxy_fixed_account_header?.message ? (
+                    <p className="field-error">{t(createForm.formState.errors.reverse_proxy_fixed_account_header.message)}</p>
+                  ) : null}
+                </div>
               </div>
 
               <div className="field-group">

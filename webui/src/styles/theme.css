@@ -1596,6 +1596,34 @@ a {
   gap: 6px;
 }
 
+.account-headers-collapse {
+  grid-column: 1 / -1;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    max-height 260ms ease,
+    opacity 180ms ease,
+    transform 180ms ease,
+    visibility 0s linear 260ms;
+}
+
+.account-headers-collapse-open {
+  max-height: 320px;
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    max-height 260ms ease,
+    opacity 180ms ease,
+    transform 180ms ease,
+    visibility 0s linear 0s;
+}
+
 .field-label {
   font-size: 13px;
   color: #3f4b63;

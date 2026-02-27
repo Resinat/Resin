@@ -13,9 +13,9 @@ export const allocationPolicies: PlatformAllocationPolicy[] = [
 export const missActions: PlatformMissAction[] = ["RANDOM", "REJECT"];
 
 export const emptyAccountBehaviors: PlatformEmptyAccountBehavior[] = [
-  "ACCOUNT_HEADER_RULE",
-  "FIXED_HEADER",
   "RANDOM",
+  "FIXED_HEADER",
+  "ACCOUNT_HEADER_RULE",
 ];
 
 export const allocationPolicyLabel: Record<PlatformAllocationPolicy, string> = {
@@ -30,7 +30,7 @@ export const missActionLabel: Record<PlatformMissAction, string> = {
 };
 
 export const emptyAccountBehaviorLabel: Record<PlatformEmptyAccountBehavior, string> = {
-  ACCOUNT_HEADER_RULE: "按 Account Header Rule 提取",
-  FIXED_HEADER: "按固定 Header 提取",
-  RANDOM: "直接随机路由",
+  RANDOM: "随机路由",
+  FIXED_HEADER: "提取指定请求头作为 Account",
+  ACCOUNT_HEADER_RULE: "按照全局请求头规则提取 Account",
 };

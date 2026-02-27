@@ -46,7 +46,7 @@ const platformEditSchema = z.object({
     ctx.addIssue({
       code: "custom",
       path: ["reverse_proxy_fixed_account_header"],
-      message: "固定账号 Header 列表不能为空",
+      message: "用于提取 Account 的 Headers 不能为空",
     });
   }
 });
@@ -418,20 +418,24 @@ export function PlatformDetailPage() {
                     </Select>
                   </div>
 
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="detail-edit-fixed-account-header">
-                      {t("固定账号 Header 列表（仅固定 Header 模式）")}
-                    </label>
-                    <Textarea
-                      id="detail-edit-fixed-account-header"
-                      rows={4}
-                      placeholder={t("每行一个，例如 Authorization 或 X-Account-Id")}
-                      disabled={detailEmptyAccountBehavior !== "FIXED_HEADER"}
-                      {...editForm.register("reverse_proxy_fixed_account_header")}
-                    />
-                    {editForm.formState.errors.reverse_proxy_fixed_account_header?.message ? (
-                      <p className="field-error">{t(editForm.formState.errors.reverse_proxy_fixed_account_header.message)}</p>
-                    ) : null}
+                  <div
+                    className={`account-headers-collapse ${detailEmptyAccountBehavior === "FIXED_HEADER" ? "account-headers-collapse-open" : ""}`}
+                    aria-hidden={detailEmptyAccountBehavior !== "FIXED_HEADER"}
+                  >
+                    <div className="field-group">
+                      <label className="field-label" htmlFor="detail-edit-fixed-account-header">
+                        {t("用于提取 Account 的 Headers（每行一个）")}
+                      </label>
+                      <Textarea
+                        id="detail-edit-fixed-account-header"
+                        rows={4}
+                        placeholder={t("每行一个，例如 Authorization 或 X-Account-Id")}
+                        {...editForm.register("reverse_proxy_fixed_account_header")}
+                      />
+                      {editForm.formState.errors.reverse_proxy_fixed_account_header?.message ? (
+                        <p className="field-error">{t(editForm.formState.errors.reverse_proxy_fixed_account_header.message)}</p>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="field-group">
