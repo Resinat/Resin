@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: resin:local
+    image: ghcr.io/resinat/resin:latest
     container_name: resin
     restart: unless-stopped
     environment:

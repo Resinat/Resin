@@ -1,105 +1,190 @@
 
 <div align="center">
-  <img src="webui/public/vite.svg" width="96" alt="Resin Logo" />
+  <img src="webui/public/vite.svg" width="48" alt="Resin Logo" />
   <h1>Resin</h1>
   <p><strong>把大量代理订阅，变成稳定、好用、可观测的代理池。</strong></p>
 </div>
 
 ---
 
-**Resin** 是一个专为接管 10k~100k 海量节点设计的**高性能智能代理池网关**。
+**Resin** 是一个专为接管海量节点设计的**高性能智能代理池网关**。
 
-当你手握几大量的代理节点，却苦于难以将它们稳定地分配给业务侧使用时，Resin 能够帮你彻底屏蔽底层节点的不稳定性，化繁为简，将它们聚合成一个支持 **“会话保持（粘性路由）”** 的超级 HTTP 流量网关。
+Resin 能够帮你彻底屏蔽底层节点的不稳定性，化繁为简，将它们聚合成一个支持 **“会话保持（粘性路由）”** 的超级 HTTP 流量网关。
 
-简单来说——你只需要告诉 Resin：“这是我的业务账号 Tom”。Resin 就会自动在这个账号有效期间内，一直为 Tom 分配稳定不变的低延迟出口 IP；哪怕背后使用的节点断线，Resin 也会无感地为 Tom 切换到同 IP 的健康节点，或者智能分配新的最佳节点。
+<!-- “这是我的业务账号 abc123@example.com”。Resin 就会自动在这个账号有效期间内，一直为 Tom 分配稳定不变的低延迟出口 IP；哪怕背后使用的节点断线，Resin 也会无感地为 Tom 切换到同 IP 的健康节点，或者智能分配新的最佳节点。 -->
 
 
 ## 💡 为什么选择 Resin？
 
 - **海量接管**：轻松管理十万级规模的代理节点。
-- **智能调度与熔断**：全自动的**被动+主动**节点健康探测、出口 IP 探测、延迟分析，坏节点剔除。
-- **业务友好的粘性路由**：让同一个业务账号（Account）不仅稳定使用同一个出口 IP，还能自动重试与切换，极大降低风控拦截或封号风险。
-- **正反向代理双模接入**：同时支持标准正向代理与 URL 反向代理，你的任何自动化程序或客户端怎么接都行！
+- **智能调度与熔断**：全自动的 **被动+主动** 节点健康探测、出口 IP 探测、延迟分析，坏节点剔除。
+- **业务友好的粘性路由**：让同一个业务账号不仅稳定使用同一个出口 IP，还能自动重试与切换，极大提升服务稳定性。
+- **正反向代理双模接入**：同时支持标准正向代理与 URL 反向代理。
+- **可观测性**：详细的性能指标与日志记录，快速掌握整体情况，排查故障原因。
+
+![](doc/images/dashboard.png)
 
 ---
 
-## 🎯 核心概念
+## 🚀 部署与运行
 
-Resin 抽象出了两个极简的业务概念：**Platform（平台）** 与 **Account（账号）**。
+### 方式一：运行预编译二进制文件
 
-### 1. Platform (平台)：节点隔离池
-Platform 可以看作是一个按特定规则筛选出的节点池。例如：
-- 建一个名为 `SearchEngine` 的 Platform，配置为：仅使用美国 (us)、日本 (jp) 地区，且延迟最低的节点。
-- 建一个名为 `VideoService` 的 Platform，配置为：仅使用英国 (gb) 的节点，且优先选择空闲 IP。
-
-### 2. Account (账号)：业务身份识别
-Account 用于标识业务侧的请求发起者（例如 `Tom`、`Alice`，或任意字符串）。
-当业务请求携带 `Account` 经过 Resin 时，系统会在指定的 Platform 中为其**锚定一个专属的高速出口节点**。
-在活跃期间，Resin 将保证该 `Account` 的流量始终使用同一个出口 IP，避免频繁变动。
-
----
-
-## 🚀 快速开始
-
-### 方式一：运行预编译二进制文件（推荐）
-
-前往项目的 Release 页面，下载适合您操作系统架构的程序包。解压后准备好配置文件，即可直接运行。
-
-### 方式二：源码编译
-
-前提条件：请确保环境中已安装 Go 1.21 或以上版本。
+前往项目的 [Release](https://github.com/Resinat/Resin/releases) 页面，下载适合您操作系统架构的程序包。解压得到单个二进制文件 `resin`。
 
 ```bash
-# 1. 下载 Resin 源码
-git clone https://github.com/your-org/resin.git
-cd resin
-
-# 2. 编译项目
-go build -tags "with_quic with_wireguard with_grpc with_utls with_embedded_tor with_naive_outbound" -o resin ./cmd/resin
-
-# 3. 运行程序
+RESIN_ADMIN_TOKEN=【管理面板密码】 \
+RESIN_PROXY_TOKEN=【代理密码】 \
+RESIN_STATE_DIR=./data/state \
+RESIN_CACHE_DIR=./data/cache \
+RESIN_LOG_DIR=./data/log \
+RESIN_LISTEN_ADDRESS=0.0.0.0 \
+RESIN_PORT=2260 \
 ./resin
 ```
 
-启动后，Resin 会在本地开启统一单端口服务（默认 `2260`）。WebUI 挂载在 `/ui/`，访问根路径 `/` 会自动重定向到 `/ui/`。
+### 方式二：Docker Compose
+```bash
+services:
+  resin:
+    image: ghcr.io/resinat/resin:latest
+    container_name: resin
+    restart: unless-stopped
+    environment:
+      RESIN_ADMIN_TOKEN: 【管理面板密码】
+      RESIN_PROXY_TOKEN: 【代理密码】
+      RESIN_LISTEN_ADDRESS: 0.0.0.0
+      RESIN_PORT: 2260
+    ports:
+      - "2260:2260"
+    volumes:
+      - ./data/cache:/var/cache/resin
+      - ./data/state:/var/lib/resin
+      - ./data/log:/var/log/resin
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2260/healthz >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+```
+
+### 方式三：源码编译
+
+前提条件：请确保环境中已安装 Go 1.25 或以上版本。
+
+```bash
+# 1. 下载 Resin 源码
+git clone https://github.com/Resinat/Resin.git
+
+# 2. 编译 WebUI
+cd Resin/webui
+npm install
+npm run build
+
+# 3. 编译 resin 核心
+cd ..
+go build -tags "with_quic with_wireguard with_grpc with_utls with_embedded_tor with_naive_outbound" -o resin ./cmd/resin
+
+# 4. 运行程序
+RESIN_ADMIN_TOKEN=【管理面板密码】 \
+RESIN_PROXY_TOKEN=【代理密码】 \
+RESIN_STATE_DIR=./data/state \
+RESIN_CACHE_DIR=./data/cache \
+RESIN_LOG_DIR=./data/log \
+RESIN_LISTEN_ADDRESS=0.0.0.0 \
+RESIN_PORT=2260 \
+./resin
+```
+
+启动后，Resin 会在本地开启统一单端口服务（默认 `2260`）。访问 http://[IP_ADDRESS]:2260 即可访问管理后台。
 
 ---
 
-## 🎮 快速上手示例
+## 🟢 基础使用（非粘性代理）
 
-以下是一个简单的范例，演示如何通过 Resin 发起稳定的代理请求：
+如果你只需要一个大容量、且会自动健康管理的通用代理池，Resin 开箱即用。
 
-**第一步：导入代理节点**
-通过 Resin 的管理后台或控制 API，添加您的代理订阅链接。Resin 会在后台自动完成节点下载、解析与测速。
 
-**第二步：准备 Platform**
-系统内置了一个名为 `Default` 的 Platform。您可以直接使用它，或根据需求创建新的平台。
 
-**第三步：发起请求**
+
+
+
+
+
+
+
+
+为了从海量不同区域、特征的节点中准确选取所需的线路，我们向您介绍第一个极简概念：
+
+### 🎯 概念一：Platform (平台)
+
+Platform 可以看作是一个**按特定规则筛选出的节点隔离池**。例如：
+- 建立一个名为 `SearchEngine` 的平台，配置规则：仅使用美国 (us)、日本 (jp) 地区，且延迟最低的节点。
+- 建立一个名为 `VideoService` 的平台，配置规则：仅使用英国 (gb) 的节点，且优先选择空闲 IP。
+
+系统内置了一个名为 `Default` 的平台（容纳所有测速通过的节点）。您无需配置就可以直接使用。
+
+### 发起普通请求
+
 您可以选择适合的代理方式。假设系统配置的网关安全令牌（Proxy Token）为 `my-token`：
 
-👉 **方式 A：正向代理 (HTTP Proxy)**
+👉 **方式 A：反向代理 (Reverse Proxy)**
+如果业务程序不支持配置 HTTP 代理，可直接通过 Resin 的反向代理协议进行网络请求。
+URL 格式为：`/令牌/平台/协议/目标地址`：
+
+```bash
+curl "http://127.0.0.1:2260/my-token/Default/https/api.example.com/ip"
+```
+*(通过这种方式，每次请求可能会从对应的 Platform 下分配到不同的健康出口)*
+
+👉 **方式 B：正向代理 (HTTP Proxy)**
 主流开发语言（如 Python requests、Golang）和终端工具（curl）均原生支持正向代理。
-请使用 `Proxy-Authorization` 头传递业务信息，格式为：`令牌:平台:账号`。
+请使用 `Proxy-Authorization` 头传递业务信息，格式为：`令牌:平台`：
+
+```bash
+curl -x http://127.0.0.1:2260 \
+  -U "my-token:Default" \
+  https://api.example.com/ip
+```
+
+---
+
+## 🟡 进阶使用（粘性代理）
+
+当业务遇到风控严格的目标网站，或者需要持续交互保持相同出口 IP 时，频繁变更 IP 会造成登录失效或验证码拦截。此时，您只需在基础规则上加入第二个微小概念，即可自动开启粘性代理：
+
+### 🎯 概念二：Account (账号)
+
+Account 用于标识**业务侧的请求发起者**（例如 `Tom`、`Alice`，或任意具有唯一性的字符串）。
+当业务请求携带了特定的 `Account` 经过 Resin 时，系统会在指定的 Platform 中为其**锚定一个专属的高速出口节点**。
+在活跃期间，Resin 保证该 `Account` 的流量始终绑定于该出口 IP。哪怕背后使用的节点发生意外断线，Resin 也将在后台无缝重试，切换至同 IP 的健康线路，或智能分配新的最佳节点，业务代码中无需再实现任何容错或选择逻辑！
+
+### 发起粘性请求
+
+只需要在基础使用的基础上，在所属平台后拼接冒号与账号名 `:账号` 即可：
+
+👉 **方式 A：反向代理 (Reverse Proxy)**
+URL 格式进阶为：`/令牌/平台:账号/协议/目标地址`：
+
+```bash
+curl "http://127.0.0.1:2260/my-token/Default:Tom/https/api.example.com/ip"
+```
+*（Resin 会全托管完成属于 `Tom` 的粘性连接并返回结果。）*
+
+👉 **方式 B：正向代理 (HTTP Proxy)**
+认证信息格式进阶为：`令牌:平台:账号`：
 
 ```bash
 curl -x http://127.0.0.1:2260 \
   -U "my-token:Default:Tom" \
   https://api.example.com/ip
 ```
-*（多次运行该命令，系统将始终为 Account `Tom` 返回稳定一致的出口 IP。）*
-
-👉 **方式 B：反向代理 (Reverse Proxy)**
-如果业务程序不支持配置 HTTP 代理，可直接通过 Resin 的反向代理协议进行网络请求。
-URL 格式为：`/令牌/平台:账号/协议/目标地址`：
-
-```bash
-curl "http://127.0.0.1:2260/my-token/Default:Tom/https/api.example.com/ip"
-```
-*（Resin 会通过绑定的固定 IP 向上游网站发起请求，并返回结果。）*
+*（多次运行该命令，系统将识别身份，并始终为 Account `Tom` 返回稳定一致的出口 IP。）*
 
 **总结**
-节点连通性检测、节点优选、出口 IP 的绑定与自动切换等繁杂流程，均由 Resin 在后台自动完成。业务代码中无需再实现复杂的连接重试与维护逻辑。
+
+节点连通性检测、节点优选、出口 IP 的绑定与自动重试等繁杂流程，均由 Resin 在网络底层自动完成。
 
 ---
 
