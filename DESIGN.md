@@ -1651,7 +1651,14 @@ Response：
 
 #### 列出租约（按平台）
 
-**GET** `/platforms/{platform_id}/leases?account=&limit=&offset=&sort_by=&sort_order=`
+**GET** `/platforms/{platform_id}/leases?account=&fuzzy=&limit=&offset=&sort_by=&sort_order=`
+
+Query（可选）：
+* `account`：账号过滤。默认精确匹配。
+* `fuzzy`：是否启用账号模糊匹配，取值仅支持 `true`/`false`。
+  * 当 `fuzzy=true` 时，`account` 按“大小写不敏感的包含匹配”过滤。
+  * 当未提供 `account` 时，`fuzzy` 不生效。
+  * `fuzzy` 非 `true/false` 时返回 `400 INVALID_ARGUMENT`。
 
 支持的 `sort_by`：`account`、`expiry`、`last_accessed`。默认按 `expiry` `asc` 排序。
 
