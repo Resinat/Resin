@@ -393,8 +393,8 @@ export function SubscriptionPage() {
           const s = info.row.original;
           if (s.source_type === "local") {
             return (
-              <p className="subscriptions-url-cell" title={t("本地订阅文本")}>
-                {t("本地文本")}
+              <p className="subscriptions-url-cell" title={t("本地订阅")}>
+                {t("本地订阅")}
               </p>
             );
           }
@@ -627,7 +627,7 @@ export function SubscriptionPage() {
                   <h4>{t("订阅配置")}</h4>
                   <p>
                     {editSourceType === "local"
-                      ? t("更新本地订阅文本、刷新周期与状态开关后点击保存。")
+                      ? t("更新本地订阅配置、刷新周期与状态开关后点击保存。")
                       : t("更新 URL、刷新周期与状态开关后点击保存。")}
                   </p>
                 </div>

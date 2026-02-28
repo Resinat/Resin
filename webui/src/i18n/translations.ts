@@ -141,8 +141,7 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "订阅内容": "Subscription content",
   "订阅内容不能为空": "Subscription content cannot be empty",
   "订阅源": "Subscription Source",
-  "本地文本": "Local text",
-  "本地订阅文本": "Local subscription text",
+  "本地订阅": "Local subscription",
   "远程": "Remote",
   "本地": "Local",
   "从 HTTP/HTTPS 订阅链接拉取内容": "Fetch content from HTTP/HTTPS subscription URL",
@@ -333,8 +332,8 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
     "Access latency distribution (latest historical bucket)",
   "更新 URL、刷新周期与状态开关后点击保存。":
     "Update URL, refresh interval, and enable switch, then save.",
-  "更新本地订阅文本、刷新周期与状态开关后点击保存。":
-    "Update local subscription text, refresh interval, and enable switch, then save.",
+  "更新本地订阅配置、刷新周期与状态开关后点击保存。":
+    "Update local subscription config, refresh interval, and enable switch, then save.",
   "缓存刷盘脏阈值": "Cache flush dirty threshold",
   "缓存异步刷盘间隔": "Async cache flush interval",
   "基础与健康检查": "Basics and health checks",
@@ -486,8 +485,8 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "例如 api.example.com/v1": "e.g. api.example.com/v1",
   "临时节点驱逐延迟不能为空": "Temporary node eviction delay cannot be empty",
   "模糊搜索": "Fuzzy search",
-  "内置平台": "Built-in platform",
-  "自定义平台": "Custom platform",
+  "内置平台": "Built-in",
+  "自定义平台": "Custom",
   "平台 / 账号": "Platform / Account",
   "平台不存在或已被删除": "Platform does not exist or has been deleted",
   "平台名称不能为空": "Platform name cannot be empty",
