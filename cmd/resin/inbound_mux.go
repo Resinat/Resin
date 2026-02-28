@@ -56,7 +56,7 @@ func shouldRouteForwardProxy(r *http.Request) bool {
 }
 
 func shouldRouteTokenAPI(r *http.Request, proxyToken string) bool {
-	if proxyToken == "" || r == nil {
+	if r == nil {
 		return false
 	}
 	segments := escapedPathSegments(r)
@@ -64,7 +64,10 @@ func shouldRouteTokenAPI(r *http.Request, proxyToken string) bool {
 		return false
 	}
 	token, ok := decodePathSegment(segments[0])
-	if !ok || token != proxyToken {
+	if !ok {
+		return false
+	}
+	if proxyToken != "" && token != proxyToken {
 		return false
 	}
 	apiSeg, ok := decodePathSegment(segments[1])

@@ -159,7 +159,43 @@ func TestInboundMux_RejectsReverseWhenTokenMissingOrWrong(t *testing.T) {
 	}
 }
 
-func TestInboundMux_EmptyProxyTokenDoesNotReserveTokenAPI(t *testing.T) {
+func TestInboundMux_EmptyProxyToken_AllowsDummyTokenForTokenAction(t *testing.T) {
+	mux := newInboundMux(
+		"",
+		tagHandler("forward", http.StatusOK),
+		tagHandler("reverse", http.StatusOK),
+		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/any-dummy-token/api/v1/Default/actions/inherit-lease", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Header().Get("X-Route") != "token-action" {
+		t.Fatalf("expected token-action route when proxy token empty, got %q", rec.Header().Get("X-Route"))
+	}
+}
+
+func TestInboundMux_EmptyProxyToken_AllowsEmptyTokenSegmentForTokenAction(t *testing.T) {
+	mux := newInboundMux(
+		"",
+		tagHandler("forward", http.StatusOK),
+		tagHandler("reverse", http.StatusOK),
+		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "//api/v1/Default/actions/inherit-lease", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Header().Get("X-Route") != "token-action" {
+		t.Fatalf("expected token-action route with empty token segment, got %q", rec.Header().Get("X-Route"))
+	}
+}
+
+func TestInboundMux_EmptyProxyToken_RoutesNonActionTokenNamespaceToTokenAction(t *testing.T) {
 	mux := newInboundMux(
 		"",
 		tagHandler("forward", http.StatusOK),
@@ -172,8 +208,8 @@ func TestInboundMux_EmptyProxyTokenDoesNotReserveTokenAPI(t *testing.T) {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	if rec.Header().Get("X-Route") != "reverse" {
-		t.Fatalf("expected reverse route when proxy token empty, got %q", rec.Header().Get("X-Route"))
+	if rec.Header().Get("X-Route") != "token-action" {
+		t.Fatalf("expected token-action route for non-action token namespace, got %q", rec.Header().Get("X-Route"))
 	}
 }
 
