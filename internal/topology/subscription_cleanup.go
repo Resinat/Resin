@@ -1,29 +1,32 @@
 package topology
 
 import (
-	"github.com/puzpuzpuz/xsync/v4"
-
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/subscription"
 )
 
-// CleanupSubscriptionNodesWithConfirmNoLock removes managed nodes of sub that
-// match shouldRemove, using two-pass confirmation to reduce TOCTOU issues.
+// CleanupSubscriptionNodesWithConfirmNoLock marks managed nodes as evicted when
+// they match shouldRemove, using two-pass confirmation to reduce TOCTOU issues.
 //
+// It keeps hashes in managed view, removes pool subscription references, and
+// returns newly-evicted hashes for persistence upsert compensation.
 // Caller must hold sub.WithOpLock while invoking this function.
 func CleanupSubscriptionNodesWithConfirmNoLock(
 	sub *subscription.Subscription,
 	pool *GlobalNodePool,
 	shouldRemove func(entry *node.NodeEntry) bool,
 	betweenScans func(),
-) int {
+) (int, []node.Hash) {
 	if sub == nil || pool == nil || shouldRemove == nil {
-		return 0
+		return 0, nil
 	}
 
 	currentManaged := sub.ManagedNodes()
 	removeCandidates := make(map[node.Hash]struct{})
-	currentManaged.Range(func(h node.Hash, _ []string) bool {
+	currentManaged.RangeNodes(func(h node.Hash, managed subscription.ManagedNode) bool {
+		if managed.Evicted {
+			return true
+		}
 		entry, ok := pool.GetEntry(h)
 		if !ok {
 			return true
@@ -34,7 +37,7 @@ func CleanupSubscriptionNodesWithConfirmNoLock(
 		return true
 	})
 	if len(removeCandidates) == 0 {
-		return 0
+		return 0, nil
 	}
 
 	if betweenScans != nil {
@@ -43,6 +46,10 @@ func CleanupSubscriptionNodesWithConfirmNoLock(
 
 	confirmedRemove := make(map[node.Hash]struct{})
 	for h := range removeCandidates {
+		managed, ok := currentManaged.LoadNode(h)
+		if !ok || managed.Evicted {
+			continue
+		}
 		entry, ok := pool.GetEntry(h)
 		if !ok {
 			continue
@@ -52,21 +59,26 @@ func CleanupSubscriptionNodesWithConfirmNoLock(
 		}
 	}
 	if len(confirmedRemove) == 0 {
-		return 0
+		return 0, nil
 	}
 
-	nextManaged := xsync.NewMap[node.Hash, []string]()
-	currentManaged.Range(func(h node.Hash, tags []string) bool {
-		if _, remove := confirmedRemove[h]; !remove {
-			nextManaged.Store(h, tags)
+	nextManaged := subscription.NewManagedNodes()
+	newlyEvicted := make([]node.Hash, 0, len(confirmedRemove))
+	currentManaged.RangeNodes(func(h node.Hash, managed subscription.ManagedNode) bool {
+		if _, remove := confirmedRemove[h]; remove {
+			if !managed.Evicted {
+				newlyEvicted = append(newlyEvicted, h)
+			}
+			managed.Evicted = true
 		}
+		nextManaged.StoreNode(h, managed)
 		return true
 	})
 	sub.SwapManagedNodes(nextManaged)
 
-	for h := range confirmedRemove {
+	for _, h := range newlyEvicted {
 		pool.RemoveNodeFromSub(h, sub.ID)
 	}
 
-	return len(confirmedRemove)
+	return len(newlyEvicted), newlyEvicted
 }

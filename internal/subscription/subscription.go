@@ -19,6 +19,78 @@ const (
 	SourceTypeLocal = "local"
 )
 
+// ManagedNode represents one hash entry in subscription managed nodes.
+type ManagedNode struct {
+	Tags    []string
+	Evicted bool
+}
+
+// ManagedNodes wraps hash->ManagedNode map.
+//
+// Maintenance rule:
+//   - StoreNode makes a defensive copy of input Tags.
+//   - LoadNode/RangeNodes return direct references to stored tag slices.
+//   - Callers must treat returned Tags as read-only and must not mutate them.
+//   - If mutation is needed, make an explicit copy first.
+type ManagedNodes struct {
+	m *xsync.Map[node.Hash, ManagedNode]
+}
+
+// NewManagedNodes creates an empty managed-node view.
+func NewManagedNodes() *ManagedNodes {
+	return &ManagedNodes{m: xsync.NewMap[node.Hash, ManagedNode]()}
+}
+
+// Size returns the count of hash entries (including evicted entries).
+func (mn *ManagedNodes) Size() int {
+	if mn == nil || mn.m == nil {
+		return 0
+	}
+	return mn.m.Size()
+}
+
+// LoadNode loads the full managed-node state for a hash.
+// Tags are returned as-is (no copy); treat them as read-only.
+func (mn *ManagedNodes) LoadNode(h node.Hash) (ManagedNode, bool) {
+	if mn == nil || mn.m == nil {
+		return ManagedNode{}, false
+	}
+	n, ok := mn.m.Load(h)
+	if !ok {
+		return ManagedNode{}, false
+	}
+	return n, true
+}
+
+// StoreNode stores the full managed-node state for a hash.
+// Tags are defensively copied on store.
+func (mn *ManagedNodes) StoreNode(h node.Hash, n ManagedNode) {
+	if mn == nil || mn.m == nil {
+		return
+	}
+	mn.m.Store(h, ManagedNode{
+		Tags:    cloneTags(n.Tags),
+		Evicted: n.Evicted,
+	})
+}
+
+// Delete deletes a hash entry.
+func (mn *ManagedNodes) Delete(h node.Hash) {
+	if mn == nil || mn.m == nil {
+		return
+	}
+	mn.m.Delete(h)
+}
+
+// RangeNodes iterates hash->ManagedNode entries.
+// ManagedNode.Tags is provided as-is (no copy); treat it as read-only.
+func (mn *ManagedNodes) RangeNodes(fn func(node.Hash, ManagedNode) bool) {
+	if mn == nil || mn.m == nil || fn == nil {
+		return
+	}
+	mn.m.Range(fn)
+}
+
 // Subscription represents a subscription's runtime state.
 // It has two synchronization layers:
 //   - mu protects mutable config fields
@@ -60,9 +132,9 @@ type Subscription struct {
 	LastUpdatedNs atomic.Int64
 	LastError     atomic.Pointer[string]
 
-	// managedNodes is the subscription's node view: Hash → Tags.
+	// managedNodes is the subscription's node view: Hash → ManagedNode.
 	// Swapped atomically on subscription update.
-	managedNodes atomic.Pointer[xsync.Map[node.Hash, []string]]
+	managedNodes atomic.Pointer[ManagedNodes]
 
 	// configVersion is incremented whenever refresh-input-related config changes
 	// (URL/source/content/update-interval). Scheduler uses it for stale-guard.
@@ -80,7 +152,7 @@ func NewSubscription(id, name, url string, enabled, ephemeral bool) *Subscriptio
 		ephemeral:                 ephemeral,
 		ephemeralNodeEvictDelayNs: defaultEphemeralNodeEvictDelayNs,
 	}
-	empty := xsync.NewMap[node.Hash, []string]()
+	empty := NewManagedNodes()
 	s.managedNodes.Store(empty)
 	emptyErr := ""
 	s.LastError.Store(&emptyErr)
@@ -224,23 +296,23 @@ func (s *Subscription) SetEphemeralNodeEvictDelayNs(v int64) {
 }
 
 // ManagedNodes returns the current node view via atomic load.
-func (s *Subscription) ManagedNodes() *xsync.Map[node.Hash, []string] {
+func (s *Subscription) ManagedNodes() *ManagedNodes {
 	return s.managedNodes.Load()
 }
 
 // SwapManagedNodes atomically replaces the managed nodes view.
-func (s *Subscription) SwapManagedNodes(m *xsync.Map[node.Hash, []string]) {
+func (s *Subscription) SwapManagedNodes(m *ManagedNodes) {
 	s.managedNodes.Store(m)
 }
 
 // DiffHashes computes the hash diff between old and new managed-nodes maps.
 // Returns slices of added, kept, and removed hashes.
 func DiffHashes(
-	oldMap, newMap *xsync.Map[node.Hash, []string],
+	oldMap, newMap *ManagedNodes,
 ) (added, kept, removed []node.Hash) {
 	// Hashes only in new → added. Hashes in both → kept.
-	newMap.Range(func(h node.Hash, _ []string) bool {
-		if _, ok := oldMap.Load(h); ok {
+	newMap.RangeNodes(func(h node.Hash, _ ManagedNode) bool {
+		if _, ok := oldMap.LoadNode(h); ok {
 			kept = append(kept, h)
 		} else {
 			added = append(added, h)
@@ -249,8 +321,8 @@ func DiffHashes(
 	})
 
 	// Hashes only in old → removed.
-	oldMap.Range(func(h node.Hash, _ []string) bool {
-		if _, ok := newMap.Load(h); !ok {
+	oldMap.RangeNodes(func(h node.Hash, _ ManagedNode) bool {
+		if _, ok := newMap.LoadNode(h); !ok {
 			removed = append(removed, h)
 		}
 		return true
@@ -266,4 +338,13 @@ func normalizeSourceType(sourceType string) string {
 	default:
 		return SourceTypeRemote
 	}
+}
+
+func cloneTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	cp := make([]string, len(tags))
+	copy(cp, tags)
+	return cp
 }

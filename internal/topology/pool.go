@@ -293,7 +293,8 @@ func (p *GlobalNodePool) MakeSubLookup() node.SubLookupFunc {
 		if sub == nil {
 			return "", false, nil, false
 		}
-		tags, _ := sub.ManagedNodes().Load(hash)
+		managed, _ := sub.ManagedNodes().LoadNode(hash)
+		tags := managed.Tags
 		return sub.Name(), sub.Enabled(), tags, true
 	}
 }
@@ -331,8 +332,12 @@ func (p *GlobalNodePool) ResolveNodeDisplayTag(hash node.Hash) string {
 			continue
 		}
 
-		tags, ok := sub.ManagedNodes().Load(hash)
-		if !ok || len(tags) == 0 {
+		managed, ok := sub.ManagedNodes().LoadNode(hash)
+		if !ok {
+			continue
+		}
+		tags := managed.Tags
+		if len(tags) == 0 {
 			continue
 		}
 

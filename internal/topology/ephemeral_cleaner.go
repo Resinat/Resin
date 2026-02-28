@@ -13,8 +13,9 @@ import (
 
 // EphemeralCleaner periodically removes unhealthy nodes from ephemeral subscriptions.
 type EphemeralCleaner struct {
-	subManager *SubscriptionManager
-	pool       *GlobalNodePool
+	subManager    *SubscriptionManager
+	pool          *GlobalNodePool
+	onNodeEvicted func(subID string, hash node.Hash)
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -31,6 +32,11 @@ func NewEphemeralCleaner(
 		pool:       pool,
 		stopCh:     make(chan struct{}),
 	}
+}
+
+// SetOnNodeEvicted sets callback invoked for each newly-evicted node.
+func (c *EphemeralCleaner) SetOnNodeEvicted(fn func(subID string, hash node.Hash)) {
+	c.onNodeEvicted = fn
 }
 
 // Start launches the background cleaner goroutine.
@@ -104,10 +110,13 @@ func (c *EphemeralCleaner) sweepOneSubscription(
 	now int64,
 	betweenScans func(),
 ) {
-	var evictCount int
+	var (
+		evictCount    int
+		evictedHashes []node.Hash
+	)
 	sub.WithOpLock(func() {
 		evictDelayNs := sub.EphemeralNodeEvictDelayNs()
-		evictCount = CleanupSubscriptionNodesWithConfirmNoLock(
+		evictCount, evictedHashes = CleanupSubscriptionNodesWithConfirmNoLock(
 			sub,
 			c.pool,
 			func(entry *node.NodeEntry) bool {
@@ -116,6 +125,11 @@ func (c *EphemeralCleaner) sweepOneSubscription(
 			betweenScans,
 		)
 	})
+	if c.onNodeEvicted != nil {
+		for _, h := range evictedHashes {
+			c.onNodeEvicted(id, h)
+		}
+	}
 
 	if evictCount > 0 {
 		log.Printf("[ephemeral] evicted %d nodes from sub %s", evictCount, id)

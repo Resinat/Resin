@@ -30,7 +30,7 @@ func addNodeForNodeListTestWithTag(
 
 	hash := node.HashFromRawOptions([]byte(raw))
 	cp.Pool.AddNodeFromSub(hash, []byte(raw), sub.ID)
-	sub.ManagedNodes().Store(hash, []string{tag})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{tag}})
 
 	if egressIP == "" {
 		return
@@ -224,7 +224,7 @@ func TestHandleProbeEgress_ReturnsRegion(t *testing.T) {
 	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
 	hash := node.HashFromRawOptions(raw)
 	cp.Pool.AddNodeFromSub(hash, raw, sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag"}})
 
 	entry, ok := cp.Pool.GetEntry(hash)
 	if !ok {

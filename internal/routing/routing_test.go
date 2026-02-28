@@ -32,7 +32,7 @@ func makeRoutableNode(t testing.TB, pool *topology.GlobalNodePool, subMgr *topol
 
 	// Ensure sub has the node in managed nodes.
 	sub, _ := subMgr.Get("sub-1")
-	sub.ManagedNodes().Store(h, []string{"tag"})
+	sub.ManagedNodes().StoreNode(h, subscription.ManagedNode{Tags: []string{"tag"}})
 
 	pool.AddNodeFromSub(h, rawOpts, "sub-1")
 

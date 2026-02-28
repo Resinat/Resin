@@ -12,8 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
-
 	"github.com/Resinat/Resin/internal/buildinfo"
 	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/geoip"
@@ -293,6 +291,9 @@ func newTopologyRuntime(
 		subManager,
 		pool,
 	)
+	ephemeralCleaner.SetOnNodeEvicted(func(subID string, hash node.Hash) {
+		engine.MarkSubscriptionNode(subID, hash.Hex())
+	})
 
 	return &topologyRuntime{
 		subManager:       subManager,
@@ -493,14 +494,15 @@ func newFlushReaders(
 			if sub == nil {
 				return nil
 			}
-			tags, ok := sub.ManagedNodes().Load(h)
+			managed, ok := sub.ManagedNodes().LoadNode(h)
 			if !ok {
 				return nil
 			}
 			return &model.SubscriptionNode{
 				SubscriptionID: key.SubscriptionID,
 				NodeHash:       key.NodeHash,
-				Tags:           append([]string(nil), tags...),
+				Tags:           append([]string(nil), managed.Tags...),
+				Evicted:        managed.Evicted,
 			}
 		},
 	}
@@ -740,16 +742,21 @@ func restoreBootstrapSubscriptionBindings(
 			log.Printf("[bootstrap] subscription %s not found, skipping %d node bindings", subID, len(nodes))
 			continue
 		}
-		managed := xsync.NewMap[node.Hash, []string]()
+		managed := subscription.NewManagedNodes()
 		for _, sn := range nodes {
 			hash, err := node.ParseHex(sn.NodeHash)
 			if err != nil {
 				continue
 			}
-			managed.Store(hash, append([]string(nil), sn.Tags...))
-			// Also set the node's subscription ID reference.
-			if entry, ok := pool.GetEntry(hash); ok {
-				entry.AddSubscriptionID(subID)
+			managed.StoreNode(hash, subscription.ManagedNode{
+				Tags:    append([]string(nil), sn.Tags...),
+				Evicted: sn.Evicted,
+			})
+			// Restore runtime hold references only for non-evicted rows.
+			if !sn.Evicted {
+				if entry, ok := pool.GetEntry(hash); ok {
+					entry.AddSubscriptionID(subID)
+				}
 			}
 		}
 		sub.SwapManagedNodes(managed)

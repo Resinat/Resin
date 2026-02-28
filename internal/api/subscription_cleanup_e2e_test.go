@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
 )
 
@@ -33,7 +34,7 @@ func TestAPIContract_SubscriptionCleanupAction_E2E(t *testing.T) {
 	circuitRaw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
 	circuitHash := node.HashFromRawOptions(circuitRaw)
 	cp.Pool.AddNodeFromSub(circuitHash, circuitRaw, subID)
-	sub.ManagedNodes().Store(circuitHash, []string{"circuit"})
+	sub.ManagedNodes().StoreNode(circuitHash, subscription.ManagedNode{Tags: []string{"circuit"}})
 	circuitEntry, ok := cp.Pool.GetEntry(circuitHash)
 	if !ok {
 		t.Fatalf("missing circuit node %s in pool", circuitHash.Hex())
@@ -43,7 +44,7 @@ func TestAPIContract_SubscriptionCleanupAction_E2E(t *testing.T) {
 	noOutboundErrRaw := []byte(`{"type":"ss","server":"2.2.2.2","port":443}`)
 	noOutboundErrHash := node.HashFromRawOptions(noOutboundErrRaw)
 	cp.Pool.AddNodeFromSub(noOutboundErrHash, noOutboundErrRaw, subID)
-	sub.ManagedNodes().Store(noOutboundErrHash, []string{"failed"})
+	sub.ManagedNodes().StoreNode(noOutboundErrHash, subscription.ManagedNode{Tags: []string{"failed"}})
 	noOutboundErrEntry, ok := cp.Pool.GetEntry(noOutboundErrHash)
 	if !ok {
 		t.Fatalf("missing no-outbound-error node %s in pool", noOutboundErrHash.Hex())
@@ -53,7 +54,7 @@ func TestAPIContract_SubscriptionCleanupAction_E2E(t *testing.T) {
 	healthyRaw := []byte(`{"type":"ss","server":"3.3.3.3","port":443}`)
 	healthyHash := node.HashFromRawOptions(healthyRaw)
 	cp.Pool.AddNodeFromSub(healthyHash, healthyRaw, subID)
-	sub.ManagedNodes().Store(healthyHash, []string{"healthy"})
+	sub.ManagedNodes().StoreNode(healthyHash, subscription.ManagedNode{Tags: []string{"healthy"}})
 	healthyEntry, ok := cp.Pool.GetEntry(healthyHash)
 	if !ok {
 		t.Fatalf("missing healthy node %s in pool", healthyHash.Hex())

@@ -48,7 +48,7 @@ func addRoutableNodeForSubscriptionWithTag(
 
 	hash := node.HashFromRawOptions(raw)
 	pool.AddNodeFromSub(hash, raw, sub.ID)
-	sub.ManagedNodes().Store(hash, []string{tag})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{tag}})
 
 	entry, ok := pool.GetEntry(hash)
 	if !ok {
@@ -123,7 +123,7 @@ func TestListNodes_SubscriptionFilterSkipsStaleManagedNodes(t *testing.T) {
 	subMgr.Register(sub)
 
 	staleHash := node.HashFromRawOptions([]byte(`{"type":"ss","server":"9.9.9.9","port":443}`))
-	sub.ManagedNodes().Store(staleHash, []string{"stale"})
+	sub.ManagedNodes().StoreNode(staleHash, subscription.ManagedNode{Tags: []string{"stale"}})
 
 	cp := &ControlPlaneService{
 		Pool:   pool,
@@ -159,6 +159,53 @@ func TestListNodes_SubscriptionFilterSkipsStaleManagedNodes(t *testing.T) {
 	}
 	if nodes[0].NodeHash != liveHash.Hex() {
 		t.Fatalf("live node hash = %q, want %q", nodes[0].NodeHash, liveHash.Hex())
+	}
+}
+
+func TestListNodes_SubscriptionFilterSkipsEvictedManagedNodes(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := newNodeListTestPool(subMgr)
+
+	subA := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subB := subscription.NewSubscription("sub-b", "sub-b", "https://example.com/b", true, false)
+	subMgr.Register(subA)
+	subMgr.Register(subB)
+
+	raw := []byte(`{"type":"ss","server":"7.7.7.7","port":443}`)
+	hash := addRoutableNodeForSubscriptionWithTag(t, pool, subA, raw, "203.0.113.40", "a-tag")
+	pool.AddNodeFromSub(hash, raw, subB.ID)
+	subB.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"b-tag"}})
+
+	managedA, ok := subA.ManagedNodes().LoadNode(hash)
+	if !ok {
+		t.Fatal("subA managed node missing before eviction")
+	}
+	managedA.Evicted = true
+	subA.ManagedNodes().StoreNode(hash, managedA)
+	pool.RemoveNodeFromSub(hash, subA.ID)
+
+	cp := &ControlPlaneService{
+		Pool:   pool,
+		SubMgr: subMgr,
+		GeoIP:  &geoip.Service{},
+	}
+
+	filtersA := NodeFilters{SubscriptionID: &subA.ID}
+	nodesA, err := cp.ListNodes(filtersA)
+	if err != nil {
+		t.Fatalf("ListNodes subA: %v", err)
+	}
+	if len(nodesA) != 0 {
+		t.Fatalf("subA filtered nodes = %d, want 0", len(nodesA))
+	}
+
+	filtersB := NodeFilters{SubscriptionID: &subB.ID}
+	nodesB, err := cp.ListNodes(filtersB)
+	if err != nil {
+		t.Fatalf("ListNodes subB: %v", err)
+	}
+	if len(nodesB) != 1 || nodesB[0].NodeHash != hash.Hex() {
+		t.Fatalf("subB filtered nodes = %+v, want [%s]", nodesB, hash.Hex())
 	}
 }
 

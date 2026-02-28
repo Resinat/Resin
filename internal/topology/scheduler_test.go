@@ -19,7 +19,6 @@ import (
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
-	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // makeMockFetcher returns a Fetcher that serves the given response.
@@ -75,7 +74,7 @@ func TestScheduler_UpdateSubscription_Success(t *testing.T) {
 
 	// Verify ManagedNodes.
 	count := 0
-	sub.ManagedNodes().Range(func(_ node.Hash, _ []string) bool {
+	sub.ManagedNodes().RangeNodes(func(_ node.Hash, _ subscription.ManagedNode) bool {
 		count++
 		return true
 	})
@@ -137,7 +136,7 @@ func TestScheduler_UpdateSubscription_DownloadViaHTTPServer(t *testing.T) {
 	}
 
 	hash := node.HashFromRawOptions([]byte(rawOutbound))
-	if _, ok := sub.ManagedNodes().Load(hash); !ok {
+	if _, ok := sub.ManagedNodes().LoadNode(hash); !ok {
 		t.Fatalf("managed nodes should contain %s", hash.Hex())
 	}
 	if _, ok := pool.GetEntry(hash); !ok {
@@ -270,10 +269,10 @@ func TestScheduler_UpdateSubscription_SwapBeforePoolMutation(t *testing.T) {
 	}
 
 	// ManagedNodes should only have new hash.
-	if _, ok := sub.ManagedNodes().Load(oldHash); ok {
+	if _, ok := sub.ManagedNodes().LoadNode(oldHash); ok {
 		t.Fatal("old hash should not be in ManagedNodes")
 	}
-	if _, ok := sub.ManagedNodes().Load(newHash); !ok {
+	if _, ok := sub.ManagedNodes().LoadNode(newHash); !ok {
 		t.Fatal("new hash should be in ManagedNodes")
 	}
 }
@@ -307,6 +306,53 @@ func TestScheduler_UpdateSubscription_Idempotent(t *testing.T) {
 	}
 }
 
+func TestScheduler_UpdateSubscription_KeepEvictedDoesNotReAddToPool(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "http://example.com", true, false)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	body := makeSubscriptionJSON(
+		`{"type":"shadowsocks","tag":"evicted-node","server":"1.1.1.1","server_port":443}`,
+	)
+	sched := newTestScheduler(subMgr, pool, makeMockFetcher(body, nil))
+	sched.UpdateSubscription(sub)
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"shadowsocks","tag":"evicted-node","server":"1.1.1.1","server_port":443}`))
+	if _, ok := pool.GetEntry(hash); !ok {
+		t.Fatal("node should exist in pool after initial refresh")
+	}
+
+	// Simulate eviction: keep hash in managed view, but remove runtime pool ref.
+	sub.WithOpLock(func() {
+		managed, ok := sub.ManagedNodes().LoadNode(hash)
+		if !ok {
+			t.Fatal("managed node should exist before eviction mark")
+		}
+		managed.Evicted = true
+		sub.ManagedNodes().StoreNode(hash, managed)
+		pool.RemoveNodeFromSub(hash, sub.ID)
+	})
+
+	if _, ok := pool.GetEntry(hash); ok {
+		t.Fatal("evicted node should be removed from pool")
+	}
+
+	// Same subscription content keeps the hash, but evicted keep must not be re-added.
+	sched.UpdateSubscription(sub)
+
+	managed, ok := sub.ManagedNodes().LoadNode(hash)
+	if !ok {
+		t.Fatal("evicted keep hash should remain in managed view")
+	}
+	if !managed.Evicted {
+		t.Fatal("evicted keep hash should preserve Evicted=true")
+	}
+	if _, ok := pool.GetEntry(hash); ok {
+		t.Fatal("evicted keep hash should not be re-added to pool on refresh")
+	}
+}
+
 // --- Test: Rename triggers re-filter ---
 
 func TestScheduler_RenameSubscription(t *testing.T) {
@@ -331,6 +377,42 @@ func TestScheduler_RenameSubscription(t *testing.T) {
 	// Pool should still have 1 node.
 	if pool.Size() != 1 {
 		t.Fatalf("expected 1 node after rename, got %d", pool.Size())
+	}
+}
+
+func TestScheduler_RenameSubscription_SkipsEvictedManagedNodes(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "OldName", "http://example.com", true, false)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	body := makeSubscriptionJSON(
+		`{"type":"shadowsocks","tag":"evicted-node","server":"1.1.1.1","server_port":443}`,
+	)
+	sched := newTestScheduler(subMgr, pool, makeMockFetcher(body, nil))
+	sched.UpdateSubscription(sub)
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"shadowsocks","tag":"evicted-node","server":"1.1.1.1","server_port":443}`))
+	sub.WithOpLock(func() {
+		managed, ok := sub.ManagedNodes().LoadNode(hash)
+		if !ok {
+			t.Fatal("managed node should exist before eviction mark")
+		}
+		managed.Evicted = true
+		sub.ManagedNodes().StoreNode(hash, managed)
+		pool.RemoveNodeFromSub(hash, sub.ID)
+	})
+	if _, ok := pool.GetEntry(hash); ok {
+		t.Fatal("evicted node should be removed before rename")
+	}
+
+	sched.RenameSubscription(sub, "NewName")
+
+	if sub.Name() != "NewName" {
+		t.Fatalf("expected NewName, got %s", sub.Name())
+	}
+	if _, ok := pool.GetEntry(hash); ok {
+		t.Fatal("rename should not re-add evicted managed nodes")
 	}
 }
 
@@ -424,7 +506,7 @@ func TestScheduler_StaleFailureDoesNotOverrideNewerSuccess(t *testing.T) {
 	}
 
 	h := node.HashFromRawOptions([]byte(`{"type":"shadowsocks","tag":"ok-node","server":"1.1.1.1","server_port":443}`))
-	if _, ok := sub.ManagedNodes().Load(h); !ok {
+	if _, ok := sub.ManagedNodes().LoadNode(h); !ok {
 		t.Fatal("managed nodes should contain hash from newer successful update")
 	}
 }
@@ -492,10 +574,10 @@ func TestScheduler_StaleSuccessDoesNotOverrideNewerSuccess(t *testing.T) {
 	if _, ok := pool.GetEntry(oldHash); ok {
 		t.Fatal("stale old success should not overwrite newer subscription state")
 	}
-	if _, ok := sub.ManagedNodes().Load(newHash); !ok {
+	if _, ok := sub.ManagedNodes().LoadNode(newHash); !ok {
 		t.Fatal("managed nodes should contain new hash")
 	}
-	if _, ok := sub.ManagedNodes().Load(oldHash); ok {
+	if _, ok := sub.ManagedNodes().LoadNode(oldHash); ok {
 		t.Fatal("managed nodes should not contain old hash after stale-success race")
 	}
 }
@@ -933,8 +1015,8 @@ func TestEphemeralCleaner_DisabledEphemeralStillEvicted(t *testing.T) {
 	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
 	h := node.HashFromRawOptions(raw)
 
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"node-1"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"node-1"}})
 	sub.SwapManagedNodes(mn)
 	pool.AddNodeFromSub(h, raw, "s1")
 
@@ -995,8 +1077,8 @@ func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews(t *testing.T) {
 	h := node.HashFromRawOptions(raw)
 
 	// Set up managed nodes and make the node fully routable.
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"us-node"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"us-node"}})
 	sub.SwapManagedNodes(mn)
 
 	pool.AddNodeFromSub(h, raw, "s1")
@@ -1052,8 +1134,8 @@ func TestScheduler_SetSubscriptionEnabled_RebuildsPlatformViews_EmptyRegex(t *te
 	raw := json.RawMessage(`{"type":"shadowsocks","server":"1.1.1.1","server_port":443}`)
 	h := node.HashFromRawOptions(raw)
 
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"node-a"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"node-a"}})
 	sub.SwapManagedNodes(mn)
 
 	pool.AddNodeFromSub(h, raw, "s1")

@@ -39,7 +39,7 @@ func TestCleanupSubscriptionCircuitOpenNodes_RemovesCircuitAndOutboundFailureNod
 	circuitRaw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
 	circuitHash := node.HashFromRawOptions(circuitRaw)
 	pool.AddNodeFromSub(circuitHash, circuitRaw, subA.ID)
-	subA.ManagedNodes().Store(circuitHash, []string{"circuit"})
+	subA.ManagedNodes().StoreNode(circuitHash, subscription.ManagedNode{Tags: []string{"circuit"}})
 	circuitEntry, ok := pool.GetEntry(circuitHash)
 	if !ok {
 		t.Fatalf("missing circuit node %s in pool", circuitHash.Hex())
@@ -49,7 +49,7 @@ func TestCleanupSubscriptionCircuitOpenNodes_RemovesCircuitAndOutboundFailureNod
 	noOutboundErrorRaw := []byte(`{"type":"ss","server":"2.2.2.2","port":443}`)
 	noOutboundErrorHash := node.HashFromRawOptions(noOutboundErrorRaw)
 	pool.AddNodeFromSub(noOutboundErrorHash, noOutboundErrorRaw, subA.ID)
-	subA.ManagedNodes().Store(noOutboundErrorHash, []string{"failed"})
+	subA.ManagedNodes().StoreNode(noOutboundErrorHash, subscription.ManagedNode{Tags: []string{"failed"}})
 	noOutboundErrorEntry, ok := pool.GetEntry(noOutboundErrorHash)
 	if !ok {
 		t.Fatalf("missing outbound failure node %s in pool", noOutboundErrorHash.Hex())
@@ -59,7 +59,7 @@ func TestCleanupSubscriptionCircuitOpenNodes_RemovesCircuitAndOutboundFailureNod
 	healthyRaw := []byte(`{"type":"ss","server":"3.3.3.3","port":443}`)
 	healthyHash := node.HashFromRawOptions(healthyRaw)
 	pool.AddNodeFromSub(healthyHash, healthyRaw, subA.ID)
-	subA.ManagedNodes().Store(healthyHash, []string{"healthy"})
+	subA.ManagedNodes().StoreNode(healthyHash, subscription.ManagedNode{Tags: []string{"healthy"}})
 	healthyEntry, ok := pool.GetEntry(healthyHash)
 	if !ok {
 		t.Fatalf("missing healthy node %s in pool", healthyHash.Hex())
@@ -72,8 +72,8 @@ func TestCleanupSubscriptionCircuitOpenNodes_RemovesCircuitAndOutboundFailureNod
 	sharedHash := node.HashFromRawOptions(sharedRaw)
 	pool.AddNodeFromSub(sharedHash, sharedRaw, subA.ID)
 	pool.AddNodeFromSub(sharedHash, sharedRaw, subB.ID)
-	subA.ManagedNodes().Store(sharedHash, []string{"shared-a"})
-	subB.ManagedNodes().Store(sharedHash, []string{"shared-b"})
+	subA.ManagedNodes().StoreNode(sharedHash, subscription.ManagedNode{Tags: []string{"shared-a"}})
+	subB.ManagedNodes().StoreNode(sharedHash, subscription.ManagedNode{Tags: []string{"shared-b"}})
 	sharedEntry, ok := pool.GetEntry(sharedHash)
 	if !ok {
 		t.Fatalf("missing shared node %s in pool", sharedHash.Hex())
@@ -88,17 +88,24 @@ func TestCleanupSubscriptionCircuitOpenNodes_RemovesCircuitAndOutboundFailureNod
 		t.Fatalf("cleaned_count = %d, want %d", cleanedCount, 3)
 	}
 
-	if _, ok := subA.ManagedNodes().Load(circuitHash); ok {
-		t.Fatal("circuit node should be removed from subA managed nodes")
+	circuitManaged, ok := subA.ManagedNodes().LoadNode(circuitHash)
+	if !ok || !circuitManaged.Evicted {
+		t.Fatal("circuit node should remain in subA managed nodes and be marked evicted")
 	}
-	if _, ok := subA.ManagedNodes().Load(noOutboundErrorHash); ok {
-		t.Fatal("no-outbound-error node should be removed from subA managed nodes")
+	failedManaged, ok := subA.ManagedNodes().LoadNode(noOutboundErrorHash)
+	if !ok || !failedManaged.Evicted {
+		t.Fatal("no-outbound-error node should remain in subA managed nodes and be marked evicted")
 	}
-	if _, ok := subA.ManagedNodes().Load(sharedHash); ok {
-		t.Fatal("shared node should be removed from subA managed nodes")
+	sharedManaged, ok := subA.ManagedNodes().LoadNode(sharedHash)
+	if !ok || !sharedManaged.Evicted {
+		t.Fatal("shared node should remain in subA managed nodes and be marked evicted")
 	}
-	if _, ok := subA.ManagedNodes().Load(healthyHash); !ok {
+	healthyManaged, ok := subA.ManagedNodes().LoadNode(healthyHash)
+	if !ok {
 		t.Fatal("healthy node should remain in subA managed nodes")
+	}
+	if healthyManaged.Evicted {
+		t.Fatal("healthy node should not be marked evicted")
 	}
 
 	if _, ok := pool.GetEntry(circuitHash); ok {
@@ -116,7 +123,7 @@ func TestCleanupSubscriptionCircuitOpenNodes_RemovesCircuitAndOutboundFailureNod
 	if len(sharedRefs) != 1 || sharedRefs[0] != subB.ID {
 		t.Fatalf("shared node refs = %v, want [%s]", sharedRefs, subB.ID)
 	}
-	if _, ok := subB.ManagedNodes().Load(sharedHash); !ok {
+	if _, ok := subB.ManagedNodes().LoadNode(sharedHash); !ok {
 		t.Fatal("shared node should remain in subB managed nodes")
 	}
 
@@ -138,7 +145,7 @@ func TestCleanupSubscriptionCircuitOpenNodes_SecondConfirmSkipsRecoveredNodes(t 
 	recoveredRaw := []byte(`{"type":"ss","server":"5.5.5.5","port":443}`)
 	recoveredHash := node.HashFromRawOptions(recoveredRaw)
 	pool.AddNodeFromSub(recoveredHash, recoveredRaw, sub.ID)
-	sub.ManagedNodes().Store(recoveredHash, []string{"recovering"})
+	sub.ManagedNodes().StoreNode(recoveredHash, subscription.ManagedNode{Tags: []string{"recovering"}})
 	recoveredEntry, ok := pool.GetEntry(recoveredHash)
 	if !ok {
 		t.Fatalf("missing recovering node %s in pool", recoveredHash.Hex())
@@ -148,7 +155,7 @@ func TestCleanupSubscriptionCircuitOpenNodes_SecondConfirmSkipsRecoveredNodes(t 
 	failedRaw := []byte(`{"type":"ss","server":"6.6.6.6","port":443}`)
 	failedHash := node.HashFromRawOptions(failedRaw)
 	pool.AddNodeFromSub(failedHash, failedRaw, sub.ID)
-	sub.ManagedNodes().Store(failedHash, []string{"failed"})
+	sub.ManagedNodes().StoreNode(failedHash, subscription.ManagedNode{Tags: []string{"failed"}})
 	failedEntry, ok := pool.GetEntry(failedHash)
 	if !ok {
 		t.Fatalf("missing failed node %s in pool", failedHash.Hex())
@@ -171,14 +178,18 @@ func TestCleanupSubscriptionCircuitOpenNodes_SecondConfirmSkipsRecoveredNodes(t 
 		t.Fatalf("cleaned_count = %d, want 1", cleanedCount)
 	}
 
-	if _, ok := sub.ManagedNodes().Load(recoveredHash); !ok {
+	if _, ok := sub.ManagedNodes().LoadNode(recoveredHash); !ok {
 		t.Fatal("recovered node should remain in managed nodes after second confirmation")
 	}
 	if _, ok := pool.GetEntry(recoveredHash); !ok {
 		t.Fatal("recovered node should remain in pool after second confirmation")
 	}
-	if _, ok := sub.ManagedNodes().Load(failedHash); ok {
-		t.Fatal("failed node should be removed from managed nodes")
+	failedManaged, ok := sub.ManagedNodes().LoadNode(failedHash)
+	if !ok {
+		t.Fatal("failed node should remain in managed nodes")
+	}
+	if !failedManaged.Evicted {
+		t.Fatal("failed node should be marked evicted")
 	}
 	if _, ok := pool.GetEntry(failedHash); ok {
 		t.Fatal("failed node should be removed from pool")

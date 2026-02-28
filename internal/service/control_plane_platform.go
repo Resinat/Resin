@@ -606,10 +606,11 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 		if sub == nil {
 			continue
 		}
-		tags, ok := sub.ManagedNodes().Load(h)
+		managed, ok := sub.ManagedNodes().LoadNode(h)
 		if !ok {
 			continue
 		}
+		tags := managed.Tags
 		for _, tag := range tags {
 			ns.Tags = append(ns.Tags, NodeTag{
 				SubscriptionID:          subID,

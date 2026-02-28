@@ -43,16 +43,19 @@ func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) Subs
 	nodeCount := 0
 	healthyNodeCount := 0
 	if managed := sub.ManagedNodes(); managed != nil {
-		nodeCount = managed.Size()
-		if s != nil && s.Pool != nil {
-			managed.Range(func(h node.Hash, _ []string) bool {
+		managed.RangeNodes(func(h node.Hash, n subscription.ManagedNode) bool {
+			if n.Evicted {
+				return true
+			}
+			nodeCount++
+			if s != nil && s.Pool != nil {
 				entry, ok := s.Pool.GetEntry(h)
 				if ok && entry.IsHealthy() {
 					healthyNodeCount++
 				}
-				return true
-			})
-		}
+			}
+			return true
+		})
 	}
 
 	resp := SubscriptionResponse{
@@ -403,7 +406,7 @@ func (s *ControlPlaneService) DeleteSubscription(id string) error {
 			return
 		}
 
-		lockedSub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {
+		lockedSub.ManagedNodes().RangeNodes(func(h node.Hash, _ subscription.ManagedNode) bool {
 			managedHashes = append(managedHashes, h)
 			return true
 		})
@@ -438,8 +441,8 @@ func (s *ControlPlaneService) RefreshSubscription(id string) error {
 }
 
 // CleanupSubscriptionCircuitOpenNodes removes problematic nodes from a subscription.
-// It removes nodes that are currently circuit-open, and nodes with no outbound while
-// carrying a non-empty last error.
+// It marks nodes as evicted (while keeping managed hashes) for nodes currently
+// circuit-open, and nodes with no outbound while carrying a non-empty last error.
 func (s *ControlPlaneService) CleanupSubscriptionCircuitOpenNodes(id string) (int, error) {
 	return s.cleanupSubscriptionCircuitOpenNodesWithHook(id, nil)
 }
@@ -458,6 +461,7 @@ func (s *ControlPlaneService) cleanupSubscriptionCircuitOpenNodesWithHook(
 
 	var (
 		cleanedCount int
+		evicted      []node.Hash
 		cleanupErr   error
 	)
 
@@ -470,15 +474,24 @@ func (s *ControlPlaneService) cleanupSubscriptionCircuitOpenNodesWithHook(
 			return
 		}
 
-		cleanedCount = topology.CleanupSubscriptionNodesWithConfirmNoLock(
+		cleanedCount, evicted = topology.CleanupSubscriptionNodesWithConfirmNoLock(
 			lockedSub,
 			s.Pool,
 			shouldCleanupSubscriptionNode,
 			betweenScans,
 		)
 	})
+	if cleanupErr != nil {
+		return 0, cleanupErr
+	}
 
-	return cleanedCount, cleanupErr
+	if s.Engine != nil {
+		for _, h := range evicted {
+			s.Engine.MarkSubscriptionNode(id, h.Hex())
+		}
+	}
+
+	return cleanedCount, nil
 }
 
 func shouldCleanupSubscriptionNode(entry *node.NodeEntry) bool {

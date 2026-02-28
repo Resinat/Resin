@@ -428,6 +428,69 @@ func TestBootstrapNodes_DynamicRecordOverridesDefaultCircuitOpen(t *testing.T) {
 	}
 }
 
+func TestBootstrapNodes_RestoreEvictedSubscriptionNodeWithoutPoolRef(t *testing.T) {
+	engine, closer, err := state.PersistenceBootstrap(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("PersistenceBootstrap: %v", err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+
+	const subID = "sub-bootstrap-evicted"
+	now := time.Now().UnixNano()
+	if err := engine.UpsertSubscription(model.Subscription{
+		ID:               subID,
+		Name:             "BootstrapSub",
+		URL:              "https://example.com/sub",
+		UpdateIntervalNs: int64(30 * time.Minute),
+		Enabled:          true,
+		Ephemeral:        false,
+		CreatedAtNs:      now,
+		UpdatedAtNs:      now,
+	}); err != nil {
+		t.Fatalf("UpsertSubscription: %v", err)
+	}
+
+	raw := []byte(`{"type":"stub","server":"198.51.100.199","server_port":443}`)
+	hash := node.HashFromRawOptions(raw)
+	if err := engine.BulkUpsertSubscriptionNodes([]model.SubscriptionNode{{
+		SubscriptionID: subID,
+		NodeHash:       hash.Hex(),
+		Tags:           []string{"evicted-tag"},
+		Evicted:        true,
+	}}); err != nil {
+		t.Fatalf("BulkUpsertSubscriptionNodes: %v", err)
+	}
+
+	runtimeCfg := config.NewDefaultRuntimeConfig()
+	envCfg := newDefaultPlatformEnvConfig()
+	envCfg.MaxLatencyTableEntries = 16
+	subManager, pool := newBootstrapTestRuntime(runtimeCfg)
+
+	if err := bootstrapTopology(engine, subManager, pool, envCfg); err != nil {
+		t.Fatalf("bootstrapTopology: %v", err)
+	}
+
+	outboundMgr := outbound.NewOutboundManager(pool, &testutil.StubOutboundBuilder{})
+	if err := bootstrapNodes(engine, pool, subManager, outboundMgr, envCfg); err != nil {
+		t.Fatalf("bootstrapNodes: %v", err)
+	}
+
+	sub, ok := subManager.Get(subID)
+	if !ok {
+		t.Fatalf("subscription %q missing after bootstrap", subID)
+	}
+	managed, ok := sub.ManagedNodes().LoadNode(hash)
+	if !ok {
+		t.Fatalf("evicted subscription node %s missing from managed view", hash.Hex())
+	}
+	if !managed.Evicted {
+		t.Fatal("restored subscription node should keep Evicted=true")
+	}
+	if _, ok := pool.GetEntry(hash); ok {
+		t.Fatal("evicted subscription node should not restore subscription hold in pool")
+	}
+}
+
 func TestMarkNodeRemovedDirty_DeletesStaticDynamicAndLatency(t *testing.T) {
 	engine, closer, err := state.PersistenceBootstrap(t.TempDir(), t.TempDir())
 	if err != nil {

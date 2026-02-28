@@ -528,7 +528,7 @@ func TestDeleteSubscription_PersistFailureDoesNotMutateRuntimeState(t *testing.T
 	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443,"tag":"s1"}`)
 	hash := node.HashFromRawOptions(raw)
 	pool.AddNodeFromSub(hash, raw, sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag-a"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag-a"}})
 
 	cp := &ControlPlaneService{
 		Engine: engine,
@@ -550,6 +550,74 @@ func TestDeleteSubscription_PersistFailureDoesNotMutateRuntimeState(t *testing.T
 
 	if _, ok := pool.GetEntry(hash); !ok {
 		t.Fatal("node should remain in pool on persist failure")
+	}
+}
+
+func TestGetSubscription_NodeCountExcludesEvictedManagedNodes(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := topology.NewGlobalNodePool(topology.PoolConfig{
+		SubLookup:              subMgr.Lookup,
+		GeoLookup:              func(netip.Addr) string { return "us" },
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+		LatencyDecayWindow:     func() time.Duration { return 10 * time.Minute },
+	})
+
+	subA := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subB := subscription.NewSubscription("sub-b", "sub-b", "https://example.com/b", true, false)
+	subMgr.Register(subA)
+	subMgr.Register(subB)
+
+	// Active node owned by subA.
+	activeRaw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
+	activeHash := node.HashFromRawOptions(activeRaw)
+	pool.AddNodeFromSub(activeHash, activeRaw, subA.ID)
+	subA.ManagedNodes().StoreNode(activeHash, subscription.ManagedNode{Tags: []string{"active"}})
+	activeEntry, ok := pool.GetEntry(activeHash)
+	if !ok {
+		t.Fatal("active entry missing")
+	}
+	activeOutbound := testutil.NewNoopOutbound()
+	activeEntry.Outbound.Store(&activeOutbound)
+	pool.RecordResult(activeHash, true)
+
+	// Shared node is marked evicted in subA but still healthy in pool via subB.
+	sharedRaw := []byte(`{"type":"ss","server":"2.2.2.2","port":443}`)
+	sharedHash := node.HashFromRawOptions(sharedRaw)
+	pool.AddNodeFromSub(sharedHash, sharedRaw, subA.ID)
+	pool.AddNodeFromSub(sharedHash, sharedRaw, subB.ID)
+	subA.ManagedNodes().StoreNode(sharedHash, subscription.ManagedNode{Tags: []string{"shared-a"}})
+	subB.ManagedNodes().StoreNode(sharedHash, subscription.ManagedNode{Tags: []string{"shared-b"}})
+	sharedEntry, ok := pool.GetEntry(sharedHash)
+	if !ok {
+		t.Fatal("shared entry missing")
+	}
+	sharedOutbound := testutil.NewNoopOutbound()
+	sharedEntry.Outbound.Store(&sharedOutbound)
+	pool.RecordResult(sharedHash, true)
+
+	evictedNode, ok := subA.ManagedNodes().LoadNode(sharedHash)
+	if !ok {
+		t.Fatal("subA shared managed node missing")
+	}
+	evictedNode.Evicted = true
+	subA.ManagedNodes().StoreNode(sharedHash, evictedNode)
+	pool.RemoveNodeFromSub(sharedHash, subA.ID)
+
+	cp := &ControlPlaneService{
+		Pool:   pool,
+		SubMgr: subMgr,
+	}
+
+	resp, err := cp.GetSubscription(subA.ID)
+	if err != nil {
+		t.Fatalf("GetSubscription: %v", err)
+	}
+	if resp.NodeCount != 1 {
+		t.Fatalf("node_count = %d, want 1", resp.NodeCount)
+	}
+	if resp.HealthyNodeCount != 1 {
+		t.Fatalf("healthy_node_count = %d, want 1", resp.HealthyNodeCount)
 	}
 }
 

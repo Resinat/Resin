@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/Resinat/Resin/internal/node"
-	"github.com/puzpuzpuz/xsync/v4"
 )
 
 func TestNewSubscription(t *testing.T) {
@@ -55,15 +54,55 @@ func TestSubscription_SwapManagedNodes(t *testing.T) {
 	h1 := node.HashFromRawOptions([]byte(`{"type":"ss","server":"1.1.1.1"}`))
 	h2 := node.HashFromRawOptions([]byte(`{"type":"ss","server":"2.2.2.2"}`))
 
-	newMap := xsync.NewMap[node.Hash, []string]()
-	newMap.Store(h1, []string{"tag-a"})
-	newMap.Store(h2, []string{"tag-b"})
+	newMap := NewManagedNodes()
+	newMap.StoreNode(h1, ManagedNode{Tags: []string{"tag-a"}})
+	newMap.StoreNode(h2, ManagedNode{Tags: []string{"tag-b"}})
 	s.SwapManagedNodes(newMap)
 
 	loaded := s.ManagedNodes()
-	tags, ok := loaded.Load(h1)
+	managed, ok := loaded.LoadNode(h1)
+	tags := managed.Tags
 	if !ok || len(tags) != 1 || tags[0] != "tag-a" {
 		t.Fatalf("unexpected tag for h1: ok=%v, tags=%v", ok, tags)
+	}
+}
+
+func TestManagedNodes_LoadNodeStoreNode(t *testing.T) {
+	m := NewManagedNodes()
+	h := node.HashFromRawOptions([]byte(`{"type":"ss","server":"1.1.1.1"}`))
+
+	m.StoreNode(h, ManagedNode{
+		Tags:    []string{"tag-a", "tag-b"},
+		Evicted: true,
+	})
+
+	got, ok := m.LoadNode(h)
+	if !ok {
+		t.Fatal("expected hash to exist")
+	}
+	if !got.Evicted {
+		t.Fatal("expected Evicted=true")
+	}
+	if len(got.Tags) != 2 || got.Tags[0] != "tag-a" || got.Tags[1] != "tag-b" {
+		t.Fatalf("unexpected tags: %+v", got.Tags)
+	}
+}
+
+func TestManagedNodes_StoreNodeCopiesInputTags(t *testing.T) {
+	m := NewManagedNodes()
+	h := node.HashFromRawOptions([]byte(`{"type":"ss","server":"8.8.8.8"}`))
+	input := []string{"tag-a", "tag-b"}
+
+	m.StoreNode(h, ManagedNode{Tags: input})
+	input[0] = "mutated"
+	input[1] = "changed"
+
+	got, ok := m.LoadNode(h)
+	if !ok {
+		t.Fatal("expected hash to exist")
+	}
+	if len(got.Tags) != 2 || got.Tags[0] != "tag-a" || got.Tags[1] != "tag-b" {
+		t.Fatalf("stored tags should not be affected by caller mutation: %+v", got.Tags)
 	}
 }
 
@@ -89,13 +128,13 @@ func TestDiffHashes(t *testing.T) {
 	h2 := node.HashFromRawOptions([]byte(`{"type":"ss","server":"2.2.2.2"}`))
 	h3 := node.HashFromRawOptions([]byte(`{"type":"ss","server":"3.3.3.3"}`))
 
-	oldMap := xsync.NewMap[node.Hash, []string]()
-	oldMap.Store(h1, []string{"a"})
-	oldMap.Store(h2, []string{"b"})
+	oldMap := NewManagedNodes()
+	oldMap.StoreNode(h1, ManagedNode{Tags: []string{"a"}})
+	oldMap.StoreNode(h2, ManagedNode{Tags: []string{"b"}})
 
-	newMap := xsync.NewMap[node.Hash, []string]()
-	newMap.Store(h2, []string{"b"})
-	newMap.Store(h3, []string{"c"})
+	newMap := NewManagedNodes()
+	newMap.StoreNode(h2, ManagedNode{Tags: []string{"b"}})
+	newMap.StoreNode(h3, ManagedNode{Tags: []string{"c"}})
 
 	added, kept, removed := DiffHashes(oldMap, newMap)
 
@@ -111,11 +150,11 @@ func TestDiffHashes(t *testing.T) {
 }
 
 func TestDiffHashes_Empty(t *testing.T) {
-	empty := xsync.NewMap[node.Hash, []string]()
+	empty := NewManagedNodes()
 	h1 := node.HashFromRawOptions([]byte(`{"type":"ss"}`))
 
-	full := xsync.NewMap[node.Hash, []string]()
-	full.Store(h1, []string{"t"})
+	full := NewManagedNodes()
+	full.StoreNode(h1, ManagedNode{Tags: []string{"t"}})
 
 	// All new.
 	added, kept, removed := DiffHashes(empty, full)

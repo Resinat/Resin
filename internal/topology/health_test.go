@@ -10,7 +10,6 @@ import (
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
-	"github.com/puzpuzpuz/xsync/v4"
 )
 
 func newHealthTestPool(maxFailures int) (*GlobalNodePool, *SubscriptionManager) {
@@ -29,8 +28,8 @@ func newHealthTestPool(maxFailures int) (*GlobalNodePool, *SubscriptionManager) 
 
 func addTestNode(pool *GlobalNodePool, sub *subscription.Subscription, raw string) node.Hash {
 	h := node.HashFromRawOptions([]byte(raw))
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"node"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"node"}})
 	sub.SwapManagedNodes(mn)
 	pool.AddNodeFromSub(h, []byte(raw), "s1")
 	return h

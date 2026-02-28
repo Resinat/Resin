@@ -11,7 +11,6 @@ import (
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/scanloop"
 	"github.com/Resinat/Resin/internal/subscription"
-	"github.com/puzpuzpuz/xsync/v4"
 )
 
 const schedulerLookahead = 15 * time.Second
@@ -215,13 +214,13 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 	}
 
 	// 3. Build new managed nodes map (lock-free, pure computation).
-	newManagedNodes := xsync.NewMap[node.Hash, []string]()
+	newManagedNodes := subscription.NewManagedNodes()
 	rawByHash := make(map[node.Hash][]byte)
 	for _, p := range parsed {
 		h := node.HashFromRawOptions(p.RawOptions)
-		existing, _ := newManagedNodes.Load(h)
-		existing = append(existing, p.Tag)
-		newManagedNodes.Store(h, existing)
+		existing, _ := newManagedNodes.LoadNode(h)
+		existing.Tags = append(existing.Tags, p.Tag)
+		newManagedNodes.StoreNode(h, existing)
 		if _, ok := rawByHash[h]; !ok {
 			rawByHash[h] = p.RawOptions
 		}
@@ -241,6 +240,21 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 		}
 
 		old := sub.ManagedNodes()
+
+		// Keep hashes inherit historical eviction state so refresh will not
+		// re-add previously evicted nodes back into pool.
+		old.RangeNodes(func(h node.Hash, oldNode subscription.ManagedNode) bool {
+			if !oldNode.Evicted {
+				return true
+			}
+			nextNode, ok := newManagedNodes.LoadNode(h)
+			if !ok {
+				return true
+			}
+			nextNode.Evicted = true
+			newManagedNodes.StoreNode(h, nextNode)
+			return true
+		})
 		added, kept, removed := subscription.DiffHashes(old, newManagedNodes)
 
 		sub.SwapManagedNodes(newManagedNodes)
@@ -249,6 +263,10 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 			s.pool.AddNodeFromSub(h, rawByHash[h], sub.ID)
 		}
 		for _, h := range kept {
+			managed, ok := newManagedNodes.LoadNode(h)
+			if ok && managed.Evicted {
+				continue
+			}
 			s.pool.AddNodeFromSub(h, rawByHash[h], sub.ID)
 		}
 		for _, h := range removed {
@@ -327,7 +345,10 @@ func (s *SubscriptionScheduler) RenameSubscription(sub *subscription.Subscriptio
 	sub.WithOpLock(func() {
 		sub.SetName(newName)
 		// Re-add all managed hashes to trigger platform re-filter.
-		sub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {
+		sub.ManagedNodes().RangeNodes(func(h node.Hash, managed subscription.ManagedNode) bool {
+			if managed.Evicted {
+				return true
+			}
 			entry, ok := s.pool.GetEntry(h)
 			if ok {
 				s.pool.AddNodeFromSub(h, entry.RawOptions, sub.ID)

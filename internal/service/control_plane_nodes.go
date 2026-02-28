@@ -6,6 +6,7 @@ import (
 
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/probe"
+	"github.com/Resinat/Resin/internal/subscription"
 )
 
 // ------------------------------------------------------------------
@@ -47,7 +48,10 @@ func (s *ControlPlaneService) ListNodes(filters NodeFilters) ([]NodeSummary, err
 			return nil, notFound("subscription not found")
 		}
 		subNodes = make(map[node.Hash]struct{})
-		sub.ManagedNodes().Range(func(h node.Hash, _ []string) bool {
+		sub.ManagedNodes().RangeNodes(func(h node.Hash, managed subscription.ManagedNode) bool {
+			if managed.Evicted {
+				return true
+			}
 			subNodes[h] = struct{}{}
 			return true
 		})
@@ -119,10 +123,11 @@ func (s *ControlPlaneService) nodeEntryMatchesFilters(entry *node.NodeEntry, fil
 				if sub == nil {
 					continue
 				}
-				tags, ok := sub.ManagedNodes().Load(entry.Hash)
+				managed, ok := sub.ManagedNodes().LoadNode(entry.Hash)
 				if !ok {
 					continue
 				}
+				tags := managed.Tags
 				for _, tag := range tags {
 					displayTag := sub.Name() + "/" + tag
 					if strings.Contains(strings.ToLower(displayTag), keyword) {

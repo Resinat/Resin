@@ -11,8 +11,8 @@ import (
 //
 // Cleanup order (by dependency):
 //  1. subscription_nodes: remove entries whose subscription_id is missing from
-//     state.subscriptions OR whose node_hash is missing from nodes_static.
-//  2. nodes_static: remove entries with no remaining reference in subscription_nodes.
+//     state.subscriptions OR (for non-evicted rows) whose node_hash is missing from nodes_static.
+//  2. nodes_static: remove entries with no remaining non-evicted reference in subscription_nodes.
 //  3. nodes_dynamic: remove entries whose hash is missing from nodes_static.
 //  4. node_latency: remove entries whose node_hash is missing from nodes_static.
 //  5. leases: remove entries whose platform_id is missing from state.platforms
@@ -35,11 +35,11 @@ func RepairConsistency(stateDBPath string, cacheDB *sql.DB) error {
 		// 1. subscription_nodes: orphan subscription or orphan node
 		`DELETE FROM subscription_nodes
 		 WHERE subscription_id NOT IN (SELECT id FROM state_db.subscriptions)
-		    OR node_hash NOT IN (SELECT hash FROM nodes_static)`,
+		    OR (evicted = 0 AND node_hash NOT IN (SELECT hash FROM nodes_static))`,
 
 		// 2. nodes_static: no subscription references
 		`DELETE FROM nodes_static
-		 WHERE hash NOT IN (SELECT node_hash FROM subscription_nodes)`,
+		 WHERE hash NOT IN (SELECT node_hash FROM subscription_nodes WHERE evicted = 0)`,
 
 		// 3. nodes_dynamic: orphan to nodes_static
 		`DELETE FROM nodes_dynamic

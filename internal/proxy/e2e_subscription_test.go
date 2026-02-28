@@ -58,7 +58,7 @@ func newProxyE2EEnvFromSubscriptionURL(t *testing.T, subURL string) *proxyE2EEnv
 
 	obMgr := outbound.NewOutboundManager(pool, &testutil.StubOutboundBuilder{})
 	nodeCount := 0
-	sub.ManagedNodes().Range(func(hash node.Hash, _ []string) bool {
+	sub.ManagedNodes().RangeNodes(func(hash node.Hash, _ subscription.ManagedNode) bool {
 		nodeCount++
 		obMgr.EnsureNodeOutbound(hash)
 

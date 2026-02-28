@@ -34,7 +34,7 @@ func TestEphemeralCleaner_TOCTOU_RecoveryBetweenScans(t *testing.T) {
 	pool.AddNodeFromSub(hash, []byte(`{"type":"toctou-node"}`), sub.ID)
 
 	// Populate subscription's managed nodes.
-	sub.ManagedNodes().Store(hash, []string{"tag1"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag1"}})
 
 	entry, ok := pool.GetEntry(hash)
 	if !ok {
@@ -62,7 +62,7 @@ func TestEphemeralCleaner_TOCTOU_RecoveryBetweenScans(t *testing.T) {
 	}
 
 	// The node should still be in the subscription's managed nodes.
-	_, still := sub.ManagedNodes().Load(hash)
+	_, still := sub.ManagedNodes().LoadNode(hash)
 	if !still {
 		t.Fatal("TOCTOU regression: recovered node was evicted from subscription")
 	}
@@ -89,7 +89,7 @@ func TestEphemeralCleaner_ConfirmedEviction(t *testing.T) {
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"evict-node"}`))
 	pool.AddNodeFromSub(hash, []byte(`{"type":"evict-node"}`), sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag1"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag1"}})
 
 	entry, ok := pool.GetEntry(hash)
 	if !ok {
@@ -102,9 +102,12 @@ func TestEphemeralCleaner_ConfirmedEviction(t *testing.T) {
 	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
-	_, still := sub.ManagedNodes().Load(hash)
-	if still {
-		t.Fatal("expected circuit-broken node to be evicted from subscription")
+	managed, still := sub.ManagedNodes().LoadNode(hash)
+	if !still {
+		t.Fatal("expected circuit-broken node to remain in subscription managed nodes")
+	}
+	if !managed.Evicted {
+		t.Fatal("expected circuit-broken node to be marked evicted")
 	}
 }
 
@@ -120,7 +123,7 @@ func TestEphemeralCleaner_NoOutboundErrorEvicted(t *testing.T) {
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"no-outbound-error-node"}`))
 	pool.AddNodeFromSub(hash, []byte(`{"type":"no-outbound-error-node"}`), sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag1"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag1"}})
 
 	entry, ok := pool.GetEntry(hash)
 	if !ok {
@@ -131,8 +134,12 @@ func TestEphemeralCleaner_NoOutboundErrorEvicted(t *testing.T) {
 	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
-	if _, still := sub.ManagedNodes().Load(hash); still {
-		t.Fatal("expected no-outbound error node to be evicted from subscription")
+	managed, still := sub.ManagedNodes().LoadNode(hash)
+	if !still {
+		t.Fatal("expected no-outbound error node to remain in subscription managed nodes")
+	}
+	if !managed.Evicted {
+		t.Fatal("expected no-outbound error node to be marked evicted")
 	}
 }
 
@@ -148,12 +155,12 @@ func TestEphemeralCleaner_NoOutboundWithoutErrorSkipped(t *testing.T) {
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"no-outbound-without-error-node"}`))
 	pool.AddNodeFromSub(hash, []byte(`{"type":"no-outbound-without-error-node"}`), sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag1"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag1"}})
 
 	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
-	if _, still := sub.ManagedNodes().Load(hash); !still {
+	if _, still := sub.ManagedNodes().LoadNode(hash); !still {
 		t.Fatal("node without outbound but no error should not be evicted")
 	}
 }
@@ -170,7 +177,7 @@ func TestEphemeralCleaner_TOCTOU_NoOutboundErrorRecoveredBetweenScans(t *testing
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"no-outbound-toctou-node"}`))
 	pool.AddNodeFromSub(hash, []byte(`{"type":"no-outbound-toctou-node"}`), sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag1"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag1"}})
 
 	entry, ok := pool.GetEntry(hash)
 	if !ok {
@@ -189,7 +196,7 @@ func TestEphemeralCleaner_TOCTOU_NoOutboundErrorRecoveredBetweenScans(t *testing
 	if !hookCalled {
 		t.Fatal("betweenScans hook was not called — node may not have been a candidate")
 	}
-	if _, still := sub.ManagedNodes().Load(hash); !still {
+	if _, still := sub.ManagedNodes().LoadNode(hash); !still {
 		t.Fatal("TOCTOU regression: recovered no-outbound error node was evicted")
 	}
 }
@@ -207,7 +214,7 @@ func TestEphemeralCleaner_NonEphemeralSkipped(t *testing.T) {
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"persistent-node"}`))
 	pool.AddNodeFromSub(hash, []byte(`{"type":"persistent-node"}`), sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag1"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag1"}})
 
 	entry, ok := pool.GetEntry(hash)
 	if !ok {
@@ -220,7 +227,7 @@ func TestEphemeralCleaner_NonEphemeralSkipped(t *testing.T) {
 	cleaner := NewEphemeralCleaner(subMgr, pool)
 	cleaner.sweep()
 
-	_, still := sub.ManagedNodes().Load(hash)
+	_, still := sub.ManagedNodes().LoadNode(hash)
 	if !still {
 		t.Fatal("non-ephemeral sub should not have nodes evicted")
 	}
@@ -238,7 +245,7 @@ func TestEphemeralCleaner_DynamicEvictDelayPulled(t *testing.T) {
 
 	hash := node.HashFromRawOptions([]byte(`{"type":"dynamic-node"}`))
 	pool.AddNodeFromSub(hash, []byte(`{"type":"dynamic-node"}`), sub.ID)
-	sub.ManagedNodes().Store(hash, []string{"tag1"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag1"}})
 
 	entry, ok := pool.GetEntry(hash)
 	if !ok {
@@ -251,15 +258,19 @@ func TestEphemeralCleaner_DynamicEvictDelayPulled(t *testing.T) {
 
 	// Delay too long: should not evict.
 	cleaner.sweep()
-	if _, still := sub.ManagedNodes().Load(hash); !still {
+	if _, still := sub.ManagedNodes().LoadNode(hash); !still {
 		t.Fatal("node should not be evicted with long evict delay")
 	}
 
 	// Shrink delay dynamically: next sweep should evict.
 	sub.SetEphemeralNodeEvictDelayNs(int64(30 * time.Second))
 	cleaner.sweep()
-	if _, still := sub.ManagedNodes().Load(hash); still {
-		t.Fatal("node should be evicted after evict delay shrinks")
+	managed, still := sub.ManagedNodes().LoadNode(hash)
+	if !still {
+		t.Fatal("node should remain in managed nodes after being evicted")
+	}
+	if !managed.Evicted {
+		t.Fatal("node should be marked evicted after evict delay shrinks")
 	}
 }
 
@@ -285,8 +296,8 @@ func TestEphemeralCleaner_SweepSubscriptionsInParallel(t *testing.T) {
 
 	pool.AddNodeFromSub(hash1, []byte(`{"type":"parallel-node-1"}`), sub1.ID)
 	pool.AddNodeFromSub(hash2, []byte(`{"type":"parallel-node-2"}`), sub2.ID)
-	sub1.ManagedNodes().Store(hash1, []string{"tag1"})
-	sub2.ManagedNodes().Store(hash2, []string{"tag2"})
+	sub1.ManagedNodes().StoreNode(hash1, subscription.ManagedNode{Tags: []string{"tag1"}})
+	sub2.ManagedNodes().StoreNode(hash2, subscription.ManagedNode{Tags: []string{"tag2"}})
 
 	entry1, ok := pool.GetEntry(hash1)
 	if !ok {

@@ -13,7 +13,6 @@ import (
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
 	"github.com/Resinat/Resin/internal/topology"
-	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // TestEndToEnd_NodeEnterRoutableView verifies the full lifecycle:
@@ -44,8 +43,8 @@ func TestEndToEnd_NodeEnterRoutableView(t *testing.T) {
 	// Register subscription and set its managed nodes.
 	sub := subscription.NewSubscription("sub-1", "Test Sub", "https://example.com/sub", true, false)
 	subMgr.Register(sub)
-	managedNodes := xsync.NewMap[node.Hash, []string]()
-	managedNodes.Store(hash, []string{"tag1"})
+	managedNodes := subscription.NewManagedNodes()
+	managedNodes.StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag1"}})
 	sub.SwapManagedNodes(managedNodes)
 
 	pool.AddNodeFromSub(hash, rawOpts, "sub-1")

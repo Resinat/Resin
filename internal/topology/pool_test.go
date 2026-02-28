@@ -15,7 +15,6 @@ import (
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
-	"github.com/puzpuzpuz/xsync/v4"
 )
 
 func newTestPool(subMgr *SubscriptionManager) *GlobalNodePool {
@@ -39,8 +38,8 @@ func TestPool_AddNodeFromSub_Idempotent(t *testing.T) {
 	h := node.HashFromRawOptions(raw)
 
 	// Set up managed nodes so MatchRegexs can see them.
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"us-node"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"us-node"}})
 	sub.SwapManagedNodes(mn)
 
 	// Add twice — should be idempotent.
@@ -230,8 +229,8 @@ func TestPool_PlatformNotifyOnAddRemove(t *testing.T) {
 	h := node.HashFromRawOptions(raw)
 
 	// Set managed nodes for sub.
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"node-1"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"node-1"}})
 	sub.SwapManagedNodes(mn)
 
 	// Create entry with all conditions met for routing.
@@ -290,8 +289,8 @@ func TestPool_NotifyNodeDirty_UpdatesPlatformsInParallel(t *testing.T) {
 
 	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
 	h := node.HashFromRawOptions(raw)
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"node-1"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"node-1"}})
 	sub.SwapManagedNodes(mn)
 
 	pool.AddNodeFromSub(h, raw, "s1")
@@ -368,8 +367,8 @@ func TestPool_RebuildAllPlatforms_UpdatesInParallel(t *testing.T) {
 
 	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
 	h := node.HashFromRawOptions(raw)
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"node-1"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"node-1"}})
 	sub.SwapManagedNodes(mn)
 
 	pool.AddNodeFromSub(h, raw, "s1")
@@ -440,9 +439,9 @@ func TestPool_RegexFilteredPlatform(t *testing.T) {
 	h2 := node.HashFromRawOptions([]byte(`{"type":"ss","n":"jp"}`))
 
 	// Setup managedNodes with appropriate tags.
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h1, []string{"us-node"})
-	mn.Store(h2, []string{"jp-node"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h1, subscription.ManagedNode{Tags: []string{"us-node"}})
+	mn.StoreNode(h2, subscription.ManagedNode{Tags: []string{"jp-node"}})
 	sub.SwapManagedNodes(mn)
 
 	// Make both fully routable.
@@ -508,12 +507,12 @@ func TestPool_ResolveNodeDisplayTag_EarliestSubscriptionThenMinTag(t *testing.T)
 	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
 	h := node.HashFromRawOptions(raw)
 
-	oldManaged := xsync.NewMap[node.Hash, []string]()
-	oldManaged.Store(h, []string{"zz", "aa"})
+	oldManaged := subscription.NewManagedNodes()
+	oldManaged.StoreNode(h, subscription.ManagedNode{Tags: []string{"zz", "aa"}})
 	older.SwapManagedNodes(oldManaged)
 
-	newManaged := xsync.NewMap[node.Hash, []string]()
-	newManaged.Store(h, []string{"00"})
+	newManaged := subscription.NewManagedNodes()
+	newManaged.StoreNode(h, subscription.ManagedNode{Tags: []string{"00"}})
 	newer.SwapManagedNodes(newManaged)
 
 	pool.AddNodeFromSub(h, raw, older.ID)
@@ -638,8 +637,8 @@ func TestPool_ReplacePlatform_RebuildsViewBeforePublish(t *testing.T) {
 	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
 	h := node.HashFromRawOptions(raw)
 
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"us-node"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"us-node"}})
 	sub.SwapManagedNodes(mn)
 
 	pool.AddNodeFromSub(h, raw, "s1")
@@ -761,8 +760,8 @@ func TestEphemeralCleaner_EvictsCircuitBroken(t *testing.T) {
 	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
 	h := node.HashFromRawOptions(raw)
 
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"node-1"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"node-1"}})
 	sub.SwapManagedNodes(mn)
 
 	pool.AddNodeFromSub(h, raw, "s1")
@@ -779,14 +778,13 @@ func TestEphemeralCleaner_EvictsCircuitBroken(t *testing.T) {
 		t.Fatal("circuit-broken node should be evicted from ephemeral sub")
 	}
 
-	// ManagedNodes should be empty.
-	count := 0
-	sub.ManagedNodes().Range(func(_ node.Hash, _ []string) bool {
-		count++
-		return true
-	})
-	if count != 0 {
-		t.Fatalf("expected 0 managed nodes, got %d", count)
+	// Managed node stays in view, but must be marked evicted.
+	managed, ok := sub.ManagedNodes().LoadNode(h)
+	if !ok {
+		t.Fatal("managed node should remain after eviction")
+	}
+	if !managed.Evicted {
+		t.Fatal("managed node should be marked evicted")
 	}
 }
 
@@ -799,8 +797,8 @@ func TestEphemeralCleaner_SkipsNonEphemeral(t *testing.T) {
 	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
 	h := node.HashFromRawOptions(raw)
 
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"node-1"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"node-1"}})
 	sub.SwapManagedNodes(mn)
 
 	pool.AddNodeFromSub(h, raw, "s1")
@@ -827,8 +825,8 @@ func TestEphemeralCleaner_SkipsRecentCircuitBreak(t *testing.T) {
 	raw := json.RawMessage(`{"type":"ss","server":"1.1.1.1"}`)
 	h := node.HashFromRawOptions(raw)
 
-	mn := xsync.NewMap[node.Hash, []string]()
-	mn.Store(h, []string{"node-1"})
+	mn := subscription.NewManagedNodes()
+	mn.StoreNode(h, subscription.ManagedNode{Tags: []string{"node-1"}})
 	sub.SwapManagedNodes(mn)
 
 	pool.AddNodeFromSub(h, raw, "s1")

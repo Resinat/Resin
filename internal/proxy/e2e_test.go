@@ -50,7 +50,7 @@ func newProxyE2EEnv(t *testing.T) *proxyE2EEnv {
 
 	raw := json.RawMessage(`{"type":"stub","server":"127.0.0.1","server_port":1}`)
 	hash := node.HashFromRawOptions(raw)
-	sub.ManagedNodes().Store(hash, []string{"tag"})
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag"}})
 	pool.AddNodeFromSub(hash, raw, sub.ID)
 
 	entry, ok := pool.GetEntry(hash)

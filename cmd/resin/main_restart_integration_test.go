@@ -18,6 +18,7 @@ import (
 	"github.com/Resinat/Resin/internal/requestlog"
 	"github.com/Resinat/Resin/internal/routing"
 	"github.com/Resinat/Resin/internal/state"
+	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
 )
 
@@ -88,7 +89,7 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 	if !ok {
 		t.Fatalf("subscription %q not loaded on first boot", subID)
 	}
-	sub1.ManagedNodes().Store(hash, []string{"restart-tag"})
+	sub1.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"restart-tag"}})
 
 	pool1.AddNodeFromSub(hash, raw, subID)
 	entry1, ok := pool1.GetEntry(hash)
@@ -212,10 +213,11 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 	if !ok {
 		t.Fatalf("subscription %q missing after restart", subID)
 	}
-	tags, ok := sub2.ManagedNodes().Load(hash)
+	managed, ok := sub2.ManagedNodes().LoadNode(hash)
 	if !ok {
 		t.Fatalf("subscription node binding for %s missing after restart", hash.Hex())
 	}
+	tags := managed.Tags
 	if !reflect.DeepEqual(tags, []string{"restart-tag"}) {
 		t.Fatalf("restored tags: got %v, want %v", tags, []string{"restart-tag"})
 	}
