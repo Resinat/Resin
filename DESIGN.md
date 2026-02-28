@@ -1674,7 +1674,14 @@ Response：
 
 #### 列出租约（按平台）
 
-**GET** `/platforms/{platform_id}/leases?account=&limit=&offset=&sort_by=&sort_order=`
+**GET** `/platforms/{platform_id}/leases?account=&fuzzy=&limit=&offset=&sort_by=&sort_order=`
+
+Query（可选）：
+* `account`：账号过滤。默认精确匹配。
+* `fuzzy`：是否启用账号模糊匹配，取值仅支持 `true`/`false`。
+  * 当 `fuzzy=true` 时，`account` 按“大小写不敏感的包含匹配”过滤。
+  * 当未提供 `account` 时，`fuzzy` 不生效。
+  * `fuzzy` 非 `true/false` 时返回 `400 INVALID_ARGUMENT`。
 
 支持的 `sort_by`：`account`、`expiry`、`last_accessed`。默认按 `expiry` `asc` 排序。
 
@@ -2318,7 +2325,7 @@ WebUI 分为登录态与控制台态。未登录时进入登录页；登录后�
 点击平台卡片，进入详细页面。主区域为 Tab：
 * 监控：展示平台级 KPI、趋势图、延迟分布、节点快照。
 * 配置：编辑平台策略与过滤规则并保存。
-* 运维：重建路由池、重置默认配置、删除平台。
+* 运维：重置默认配置、清除所有租约、删除平台。
 
 ## 订阅管理
 整体是“筛选工具栏 + 订阅表格 + 分页”。

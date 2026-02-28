@@ -507,6 +507,107 @@ func TestAPIContract_GetLease_IncludesNodeTag(t *testing.T) {
 	}
 }
 
+func TestAPIContract_ListLeases_AccountFuzzySearch(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	platformID := mustCreatePlatform(t, srv, "lease-account-fuzzy")
+	hash := node.HashFromRawOptions([]byte(`{"type":"ss","server":"203.0.113.10","port":443}`))
+	now := time.Now().UnixNano()
+	cp.Router.RestoreLeases([]model.Lease{
+		{
+			PlatformID:     platformID,
+			Account:        "alpha-user-01",
+			NodeHash:       hash.Hex(),
+			EgressIP:       "203.0.113.10",
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		},
+		{
+			PlatformID:     platformID,
+			Account:        "BETA-USER-02",
+			NodeHash:       hash.Hex(),
+			EgressIP:       "203.0.113.11",
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		},
+	})
+
+	exactRec := doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/platforms/"+platformID+"/leases?account=user",
+		nil,
+		true,
+	)
+	if exactRec.Code != http.StatusOK {
+		t.Fatalf("exact list leases status: got %d, want %d, body=%s", exactRec.Code, http.StatusOK, exactRec.Body.String())
+	}
+	exactBody := decodeJSONMap(t, exactRec)
+	exactItems, ok := exactBody["items"].([]any)
+	if !ok {
+		t.Fatalf("exact leases items type: got %T", exactBody["items"])
+	}
+	if len(exactItems) != 0 {
+		t.Fatalf("exact leases items len: got %d, want 0, body=%s", len(exactItems), exactRec.Body.String())
+	}
+
+	fuzzyRec := doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/platforms/"+platformID+"/leases?account=user&fuzzy=true",
+		nil,
+		true,
+	)
+	if fuzzyRec.Code != http.StatusOK {
+		t.Fatalf("fuzzy list leases status: got %d, want %d, body=%s", fuzzyRec.Code, http.StatusOK, fuzzyRec.Body.String())
+	}
+	fuzzyBody := decodeJSONMap(t, fuzzyRec)
+	fuzzyItems, ok := fuzzyBody["items"].([]any)
+	if !ok {
+		t.Fatalf("fuzzy leases items type: got %T", fuzzyBody["items"])
+	}
+	if len(fuzzyItems) != 2 {
+		t.Fatalf("fuzzy leases items len: got %d, want 2, body=%s", len(fuzzyItems), fuzzyRec.Body.String())
+	}
+	foundAlpha := false
+	foundBeta := false
+	for _, item := range fuzzyItems {
+		row, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("fuzzy lease item type: got %T", item)
+		}
+		switch row["account"] {
+		case "alpha-user-01":
+			foundAlpha = true
+		case "BETA-USER-02":
+			foundBeta = true
+		}
+	}
+	if !foundAlpha || !foundBeta {
+		t.Fatalf("fuzzy leases accounts missing expected items: foundAlpha=%v foundBeta=%v body=%s", foundAlpha, foundBeta, fuzzyRec.Body.String())
+	}
+}
+
+func TestAPIContract_ListLeases_FuzzyValidation(t *testing.T) {
+	srv, _, _ := newControlPlaneTestServer(t)
+	platformID := mustCreatePlatform(t, srv, "lease-fuzzy-validation")
+
+	rec := doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/platforms/"+platformID+"/leases?fuzzy=1",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("list leases fuzzy validation status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "INVALID_ARGUMENT")
+}
+
 func TestAPIContract_PaginationAndSorting(t *testing.T) {
 	srv, _, _ := newControlPlaneTestServer(t)
 

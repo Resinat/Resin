@@ -105,3 +105,9 @@ export async function rebuildPlatform(id: string): Promise<void> {
     method: "POST",
   });
 }
+
+export async function clearAllPlatformLeases(id: string): Promise<void> {
+  await apiRequest<void>(`${basePath}/${id}/leases`, {
+    method: "DELETE",
+  });
+}

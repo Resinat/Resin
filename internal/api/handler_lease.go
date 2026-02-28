@@ -61,7 +61,13 @@ func HandleListLeases(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 
-		// Optional exact-account filter.
+		fuzzy, ok := parseStrictBoolQuery(w, r, "fuzzy")
+		if !ok {
+			return
+		}
+		useFuzzyAccountMatch := fuzzy != nil && *fuzzy
+
+		// Optional account filter.
 		if raw := r.URL.Query().Get("account"); raw != "" {
 			account := strings.TrimSpace(raw)
 			if account == "" {
@@ -69,9 +75,18 @@ func HandleListLeases(cp *service.ControlPlaneService) http.HandlerFunc {
 				return
 			}
 			filtered := make([]service.LeaseResponse, 0, len(leases))
-			for _, l := range leases {
-				if l.Account == account {
-					filtered = append(filtered, l)
+			if useFuzzyAccountMatch {
+				accountLower := strings.ToLower(account)
+				for _, l := range leases {
+					if strings.Contains(strings.ToLower(l.Account), accountLower) {
+						filtered = append(filtered, l)
+					}
+				}
+			} else {
+				for _, l := range leases {
+					if l.Account == account {
+						filtered = append(filtered, l)
+					}
 				}
 			}
 			leases = filtered
