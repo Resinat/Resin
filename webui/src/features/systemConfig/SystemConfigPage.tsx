@@ -81,7 +81,7 @@ const ALLOCATION_POLICY_LABELS: Record<string, string> = {
 };
 
 const MISS_ACTION_LABELS: Record<string, string> = {
-  RANDOM: "随机选择节点",
+  TREAT_AS_EMPTY: "按空账号处理",
   REJECT: "拒绝代理请求",
 };
 

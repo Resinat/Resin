@@ -733,19 +733,23 @@ func TestEffectiveEmptyAccountBehavior_DefaultsToRandom(t *testing.T) {
 	}
 }
 
-func TestShouldRejectReverseProxyEmptyAccount(t *testing.T) {
+func TestShouldRejectReverseProxyAccountExtractionFailure(t *testing.T) {
 	plat := &platform.Platform{ReverseProxyMissAction: string(platform.ReverseProxyMissActionReject)}
-
-	if !shouldRejectReverseProxyEmptyAccount("", platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule, plat) {
-		t.Fatal("expected REJECT when account is empty, behavior needs extraction, and miss action is REJECT")
+	if !shouldRejectReverseProxyAccountExtractionFailure(true, plat) {
+		t.Fatal("expected REJECT when extraction failed and miss action is REJECT")
 	}
-	if shouldRejectReverseProxyEmptyAccount("", platform.ReverseProxyEmptyAccountBehaviorRandom, plat) {
-		t.Fatal("random behavior should bypass account rejection")
+	plat.ReverseProxyMissAction = string(platform.ReverseProxyMissActionTreatAsEmpty)
+	if shouldRejectReverseProxyAccountExtractionFailure(true, plat) {
+		t.Fatal("treat-as-empty miss action should not reject")
 	}
-	if shouldRejectReverseProxyEmptyAccount("acct", platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule, plat) {
-		t.Fatal("non-empty account should never be rejected")
+	plat.ReverseProxyMissAction = "RANDOM"
+	if shouldRejectReverseProxyAccountExtractionFailure(true, plat) {
+		t.Fatal("invalid miss action should not reject")
 	}
-	if shouldRejectReverseProxyEmptyAccount("", platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule, nil) {
+	if shouldRejectReverseProxyAccountExtractionFailure(false, plat) {
+		t.Fatal("no extraction failure should not reject")
+	}
+	if shouldRejectReverseProxyAccountExtractionFailure(true, nil) {
 		t.Fatal("missing platform should not trigger account rejection")
 	}
 }
@@ -765,12 +769,15 @@ func TestReverseProxy_ResolveReverseProxyAccount_BehaviorRandom(t *testing.T) {
 	req.Header.Set("Authorization", "acct-from-rule")
 	req.Header.Set("X-Account-Id", "acct-from-fixed")
 
-	account, behavior := rp.resolveReverseProxyAccount(parsed, req, plat)
+	account, behavior, extractionFailed := rp.resolveReverseProxyAccount(parsed, req, plat)
 	if behavior != platform.ReverseProxyEmptyAccountBehaviorRandom {
 		t.Fatalf("behavior: got %q, want %q", behavior, platform.ReverseProxyEmptyAccountBehaviorRandom)
 	}
 	if account != "" {
 		t.Fatalf("account: got %q, want empty", account)
+	}
+	if extractionFailed {
+		t.Fatal("random behavior should not mark extraction failure")
 	}
 }
 
@@ -789,12 +796,15 @@ func TestReverseProxy_ResolveReverseProxyAccount_BehaviorFixedHeader(t *testing.
 	req.Header.Set("Authorization", "acct-from-rule")
 	req.Header.Set("X-Account-Id", "acct-from-fixed")
 
-	account, behavior := rp.resolveReverseProxyAccount(parsed, req, plat)
+	account, behavior, extractionFailed := rp.resolveReverseProxyAccount(parsed, req, plat)
 	if behavior != platform.ReverseProxyEmptyAccountBehaviorFixedHeader {
 		t.Fatalf("behavior: got %q, want %q", behavior, platform.ReverseProxyEmptyAccountBehaviorFixedHeader)
 	}
 	if account != "acct-from-fixed" {
 		t.Fatalf("account: got %q, want %q", account, "acct-from-fixed")
+	}
+	if extractionFailed {
+		t.Fatal("successful fixed-header extraction should not fail")
 	}
 }
 
@@ -814,12 +824,15 @@ func TestReverseProxy_ResolveReverseProxyAccount_BehaviorAccountHeaderRule(t *te
 	req.Header.Set("Authorization", "acct-from-rule")
 	req.Header.Set("X-Account-Id", "acct-from-fixed")
 
-	account, behavior := rp.resolveReverseProxyAccount(parsed, req, plat)
+	account, behavior, extractionFailed := rp.resolveReverseProxyAccount(parsed, req, plat)
 	if behavior != platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule {
 		t.Fatalf("behavior: got %q, want %q", behavior, platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule)
 	}
 	if account != "acct-from-rule" {
 		t.Fatalf("account: got %q, want %q", account, "acct-from-rule")
+	}
+	if extractionFailed {
+		t.Fatal("successful rule extraction should not fail")
 	}
 }
 
@@ -995,7 +1008,7 @@ func TestAccountExtraction_InReverseProxy(t *testing.T) {
 		token: "tok",
 		platLook: &mockPlatformLookup{
 			platformNames: map[string]*platform.Platform{
-				"plat": {ID: "p1", Name: "plat", ReverseProxyMissAction: "RANDOM"},
+				"plat": {ID: "p1", Name: "plat", ReverseProxyMissAction: "TREAT_AS_EMPTY"},
 			},
 		},
 		events: NoOpEventEmitter{},

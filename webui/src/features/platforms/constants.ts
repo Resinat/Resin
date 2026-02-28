@@ -10,7 +10,7 @@ export const allocationPolicies: PlatformAllocationPolicy[] = [
   "PREFER_IDLE_IP",
 ];
 
-export const missActions: PlatformMissAction[] = ["RANDOM", "REJECT"];
+export const missActions: PlatformMissAction[] = ["TREAT_AS_EMPTY", "REJECT"];
 
 export const emptyAccountBehaviors: PlatformEmptyAccountBehavior[] = [
   "RANDOM",
@@ -25,7 +25,7 @@ export const allocationPolicyLabel: Record<PlatformAllocationPolicy, string> = {
 };
 
 export const missActionLabel: Record<PlatformMissAction, string> = {
-  RANDOM: "随机选择节点",
+  TREAT_AS_EMPTY: "按空账号处理",
   REJECT: "拒绝代理请求",
 };
 

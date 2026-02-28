@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS platforms (
 	sticky_ttl_ns             INTEGER NOT NULL,
 	regex_filters_json        TEXT NOT NULL DEFAULT '[]',
 	region_filters_json       TEXT NOT NULL DEFAULT '[]',
-	reverse_proxy_miss_action TEXT NOT NULL DEFAULT 'RANDOM',
+	reverse_proxy_miss_action TEXT NOT NULL DEFAULT 'TREAT_AS_EMPTY',
 	allocation_policy         TEXT NOT NULL DEFAULT 'BALANCED',
 	updated_at_ns             INTEGER NOT NULL
 );

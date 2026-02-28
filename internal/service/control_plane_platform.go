@@ -76,6 +76,14 @@ type platformConfig struct {
 	AllocationPolicy                 string
 }
 
+func normalizePlatformMissAction(raw string) string {
+	normalized := platform.NormalizeReverseProxyMissAction(raw)
+	if normalized == "" {
+		return ""
+	}
+	return string(normalized)
+}
+
 func normalizePlatformEmptyAccountBehavior(raw string) string {
 	if platform.ReverseProxyEmptyAccountBehavior(raw).IsValid() {
 		return raw
@@ -147,12 +155,12 @@ func (cfg platformConfig) toRuntime(id string) (*platform.Platform, error) {
 }
 
 func validatePlatformMissAction(raw string) *ServiceError {
-	if platform.ReverseProxyMissAction(raw).IsValid() {
+	if normalizePlatformMissAction(raw) != "" {
 		return nil
 	}
 	return invalidArg(fmt.Sprintf(
 		"reverse_proxy_miss_action: must be %s or %s",
-		platform.ReverseProxyMissActionRandom,
+		platform.ReverseProxyMissActionTreatAsEmpty,
 		platform.ReverseProxyMissActionReject,
 	))
 }
@@ -222,7 +230,7 @@ func setPlatformMissAction(cfg *platformConfig, missAction string) *ServiceError
 	if err := validatePlatformMissAction(missAction); err != nil {
 		return err
 	}
-	cfg.ReverseProxyMissAction = missAction
+	cfg.ReverseProxyMissAction = normalizePlatformMissAction(missAction)
 	return nil
 }
 

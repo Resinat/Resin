@@ -86,6 +86,14 @@ func BuildFromModel(mp model.Platform) (*Platform, error) {
 	if !ReverseProxyEmptyAccountBehavior(emptyAccountBehavior).IsValid() {
 		emptyAccountBehavior = string(ReverseProxyEmptyAccountBehaviorRandom)
 	}
+	missAction := NormalizeReverseProxyMissAction(mp.ReverseProxyMissAction)
+	if missAction == "" {
+		return nil, fmt.Errorf(
+			"decode platform %s reverse_proxy_miss_action: invalid value %q",
+			mp.ID,
+			mp.ReverseProxyMissAction,
+		)
+	}
 	fixedHeader, _, err := NormalizeFixedAccountHeaders(mp.ReverseProxyFixedAccountHeader)
 	if err != nil {
 		return nil, fmt.Errorf("decode platform %s reverse_proxy_fixed_account_header: %w", mp.ID, err)
@@ -104,7 +112,7 @@ func BuildFromModel(mp model.Platform) (*Platform, error) {
 		regexFilters,
 		append([]string(nil), mp.RegionFilters...),
 		mp.StickyTTLNs,
-		mp.ReverseProxyMissAction,
+		string(missAction),
 		emptyAccountBehavior,
 		fixedHeader,
 		mp.AllocationPolicy,

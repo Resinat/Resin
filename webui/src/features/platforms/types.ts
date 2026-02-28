@@ -1,4 +1,4 @@
-export type PlatformMissAction = "RANDOM" | "REJECT";
+export type PlatformMissAction = "TREAT_AS_EMPTY" | "REJECT";
 export type PlatformEmptyAccountBehavior = "RANDOM" | "FIXED_HEADER" | "ACCOUNT_HEADER_RULE";
 export type PlatformAllocationPolicy = "BALANCED" | "PREFER_LOW_LATENCY" | "PREFER_IDLE_IP";
 

@@ -38,7 +38,7 @@ func newDefaultPlatformEnvConfig() *config.EnvConfig {
 		DefaultPlatformStickyTTL:                        7 * 24 * time.Hour,
 		DefaultPlatformRegexFilters:                     []string{},
 		DefaultPlatformRegionFilters:                    []string{},
-		DefaultPlatformReverseProxyMissAction:           "RANDOM",
+		DefaultPlatformReverseProxyMissAction:           "TREAT_AS_EMPTY",
 		DefaultPlatformReverseProxyEmptyAccountBehavior: "ACCOUNT_HEADER_RULE",
 		DefaultPlatformReverseProxyFixedAccountHeader:   "Authorization",
 		DefaultPlatformAllocationPolicy:                 "BALANCED",
@@ -226,7 +226,7 @@ func TestBootstrapTopology_DefaultPlatformByNameDoesNotSatisfyDefaultID(t *testi
 		StickyTTLNs:            int64(time.Hour),
 		RegexFilters:           []string{},
 		RegionFilters:          []string{},
-		ReverseProxyMissAction: "RANDOM",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            now,
 	}); err != nil {
@@ -264,7 +264,7 @@ func TestBootstrapTopology_FailsFastOnCorruptPlatformFilters(t *testing.T) {
 		StickyTTLNs:            int64(time.Hour),
 		RegexFilters:           []string{`^ok$`},
 		RegionFilters:          []string{"us"},
-		ReverseProxyMissAction: "RANDOM",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            now,
 	}); err != nil {

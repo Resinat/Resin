@@ -138,7 +138,7 @@ func newMajorFlowHarness(t *testing.T, subscriptionUserAgent string) *majorFlowH
 			DefaultPlatformStickyTTL:              30 * time.Minute,
 			DefaultPlatformRegexFilters:           []string{},
 			DefaultPlatformRegionFilters:          []string{},
-			DefaultPlatformReverseProxyMissAction: "RANDOM",
+			DefaultPlatformReverseProxyMissAction: "TREAT_AS_EMPTY",
 			DefaultPlatformAllocationPolicy:       "BALANCED",
 		},
 	}

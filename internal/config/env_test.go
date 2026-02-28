@@ -48,7 +48,7 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	assertEqual(t, "DefaultPlatformStickyTTL", cfg.DefaultPlatformStickyTTL, 7*24*time.Hour)
 	assertEqual(t, "DefaultPlatformRegexFiltersLength", len(cfg.DefaultPlatformRegexFilters), 0)
 	assertEqual(t, "DefaultPlatformRegionFiltersLength", len(cfg.DefaultPlatformRegionFilters), 0)
-	assertEqual(t, "DefaultPlatformReverseProxyMissAction", cfg.DefaultPlatformReverseProxyMissAction, "RANDOM")
+	assertEqual(t, "DefaultPlatformReverseProxyMissAction", cfg.DefaultPlatformReverseProxyMissAction, "TREAT_AS_EMPTY")
 	assertEqual(
 		t,
 		"DefaultPlatformReverseProxyEmptyAccountBehavior",

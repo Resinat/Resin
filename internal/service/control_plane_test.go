@@ -462,7 +462,7 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 			DefaultPlatformStickyTTL:              30 * time.Minute,
 			DefaultPlatformRegexFilters:           []string{},
 			DefaultPlatformRegionFilters:          []string{},
-			DefaultPlatformReverseProxyMissAction: "RANDOM",
+			DefaultPlatformReverseProxyMissAction: "TREAT_AS_EMPTY",
 			DefaultPlatformAllocationPolicy:       "BALANCED",
 		},
 	}
@@ -571,7 +571,7 @@ func TestListPlatforms_FailsFastOnCorruptPersistedFiltersJSON(t *testing.T) {
 		StickyTTLNs:            int64(time.Hour),
 		RegexFilters:           []string{`^ok$`},
 		RegionFilters:          []string{"us"},
-		ReverseProxyMissAction: "RANDOM",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            now,
 	}
@@ -627,7 +627,7 @@ func TestGetPlatform_FailsFastOnCorruptPersistedFiltersJSON(t *testing.T) {
 		StickyTTLNs:            int64(time.Hour),
 		RegexFilters:           []string{`^ok$`},
 		RegionFilters:          []string{"us"},
-		ReverseProxyMissAction: "RANDOM",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            now,
 	}
@@ -682,7 +682,7 @@ func TestDeletePlatform_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
 		StickyTTLNs:            int64(time.Hour),
 		RegexFilters:           []string{`^ok$`},
 		RegionFilters:          []string{"us"},
-		ReverseProxyMissAction: "RANDOM",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            time.Now().UnixNano(),
 	}
@@ -756,7 +756,7 @@ func TestResetPlatformToDefault_SupportsBuiltInDefaultPlatform(t *testing.T) {
 		StickyTTLNs:            int64(2 * time.Hour),
 		RegexFilters:           []string{`^legacy-`},
 		RegionFilters:          []string{"us"},
-		ReverseProxyMissAction: string(platform.ReverseProxyMissActionRandom),
+		ReverseProxyMissAction: string(platform.ReverseProxyMissActionTreatAsEmpty),
 		AllocationPolicy:       string(platform.AllocationPolicyBalanced),
 		UpdatedAtNs:            time.Now().UnixNano(),
 	}
@@ -885,7 +885,7 @@ func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *test
 		StickyTTLNs:            int64(time.Hour),
 		RegexFilters:           []string{`^ok$`},
 		RegionFilters:          []string{"us"},
-		ReverseProxyMissAction: "RANDOM",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            time.Now().UnixNano(),
 	}

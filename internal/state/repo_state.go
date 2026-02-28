@@ -104,9 +104,11 @@ func (r *StateRepo) UpsertPlatform(p model.Platform) error {
 	if err := platform.ValidateRegionFilters(p.RegionFilters); err != nil {
 		return err
 	}
-	if !platform.ReverseProxyMissAction(p.ReverseProxyMissAction).IsValid() {
+	missAction := platform.NormalizeReverseProxyMissAction(p.ReverseProxyMissAction)
+	if missAction == "" {
 		return fmt.Errorf("reverse_proxy_miss_action: invalid value %q", p.ReverseProxyMissAction)
 	}
+	p.ReverseProxyMissAction = string(missAction)
 	if !platform.AllocationPolicy(p.AllocationPolicy).IsValid() {
 		return fmt.Errorf("allocation_policy: invalid value %q", p.AllocationPolicy)
 	}

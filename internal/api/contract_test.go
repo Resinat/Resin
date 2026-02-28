@@ -94,7 +94,7 @@ func newControlPlaneTestServerWithBodyLimit(
 			DefaultPlatformStickyTTL:                        30 * time.Minute,
 			DefaultPlatformRegexFilters:                     []string{},
 			DefaultPlatformRegionFilters:                    []string{},
-			DefaultPlatformReverseProxyMissAction:           "RANDOM",
+			DefaultPlatformReverseProxyMissAction:           "TREAT_AS_EMPTY",
 			DefaultPlatformReverseProxyEmptyAccountBehavior: "ACCOUNT_HEADER_RULE",
 			DefaultPlatformReverseProxyFixedAccountHeader:   "Authorization",
 			DefaultPlatformAllocationPolicy:                 "BALANCED",
@@ -553,7 +553,7 @@ func TestAPIContract_PlatformList_BuiltInFirstWithSortBy(t *testing.T) {
 		StickyTTLNs:            int64(30 * time.Minute),
 		RegexFilters:           []string{},
 		RegionFilters:          []string{},
-		ReverseProxyMissAction: string(platform.ReverseProxyMissActionRandom),
+		ReverseProxyMissAction: string(platform.ReverseProxyMissActionTreatAsEmpty),
 		AllocationPolicy:       string(platform.AllocationPolicyBalanced),
 		UpdatedAtNs:            time.Now().UnixNano(),
 	}); err != nil {
@@ -940,9 +940,9 @@ func TestAPIContract_SystemEnvConfigSnapshot(t *testing.T) {
 			cp.EnvCfg.DefaultPlatformStickyTTL.String(),
 		)
 	}
-	if body["default_platform_reverse_proxy_miss_action"] != "RANDOM" {
+	if body["default_platform_reverse_proxy_miss_action"] != "TREAT_AS_EMPTY" {
 		t.Fatalf(
-			"default_platform_reverse_proxy_miss_action: got %v, want RANDOM",
+			"default_platform_reverse_proxy_miss_action: got %v, want TREAT_AS_EMPTY",
 			body["default_platform_reverse_proxy_miss_action"],
 		)
 	}

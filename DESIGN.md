@@ -1065,7 +1065,7 @@ Body（partial patch 示例）：
   "regex_filters": ["^sub1/.*", ".*hk.*"],
   "region_filters": ["hk","us"],
   "routable_node_count": 123,
-  "reverse_proxy_miss_action": "RANDOM|REJECT",
+  "reverse_proxy_miss_action": "TREAT_AS_EMPTY|REJECT",
   "reverse_proxy_empty_account_behavior": "RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE",
   "reverse_proxy_fixed_account_header": "Authorization\nX-Account-Id",
   "allocation_policy": "BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP",
@@ -1089,7 +1089,7 @@ Body：
   "sticky_ttl": "168h",
   "regex_filters": ["^sub1/.*"],
   "region_filters": ["hk", "us"],
-  "reverse_proxy_miss_action": "RANDOM",
+  "reverse_proxy_miss_action": "TREAT_AS_EMPTY",
   "reverse_proxy_empty_account_behavior": "ACCOUNT_HEADER_RULE",
   "reverse_proxy_fixed_account_header": "Authorization\nX-Account-Id",
   "allocation_policy": "BALANCED"
@@ -1109,7 +1109,7 @@ Body：
 * `sticky_ttl`：合法 Go duration。
 * `regex_filters`：每项可被 regexp 编译。
 * `region_filters`：每项为 ISO 3166-1 alpha-2 小写代码。
-* 枚举字段：`reverse_proxy_miss_action` 仅 `RANDOM|REJECT`；`reverse_proxy_empty_account_behavior` 仅 `RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE`；`allocation_policy` 仅 `BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。
+* 枚举字段：`reverse_proxy_miss_action` 仅 `TREAT_AS_EMPTY|REJECT`；`reverse_proxy_empty_account_behavior` 仅 `RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE`；`allocation_policy` 仅 `BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。
 * 组合约束：当 `reverse_proxy_empty_account_behavior=FIXED_HEADER` 时，`reverse_proxy_fixed_account_header` 必填；其值支持多行，每行一个合法 HTTP Header 字段名（会按顺序尝试提取）。
 
 错误码映射（最小集）：
@@ -2048,7 +2048,7 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * `RESIN_DEFAULT_PLATFORM_STICKY_TTL`：默认平台粘性会话时长。默认 "168h"。
 * `RESIN_DEFAULT_PLATFORM_REGEX_FILTERS`：默认平台正则过滤器（JSON 字符串数组）。默认 `[]`。
 * `RESIN_DEFAULT_PLATFORM_REGION_FILTERS`：默认平台地区过滤器（JSON 字符串数组，小写 ISO 3166-1 alpha-2）。默认 `[]`。
-* `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION`：默认平台反代 miss 行为。枚举：`RANDOM|REJECT`。默认 `RANDOM`。
+* `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION`：默认平台反代 miss 行为。枚举：`TREAT_AS_EMPTY|REJECT`。默认 `TREAT_AS_EMPTY`。
 * `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR`：默认平台在反代 Account 为空时的行为。枚举：`RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE`。默认 `ACCOUNT_HEADER_RULE`。
 * `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER`：默认平台固定提取 Header 列表（多行，每行一个 Header）。仅当上项为 `FIXED_HEADER` 时必须至少提供一个合法 Header。默认 `Authorization`。
 * `RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY`：默认平台分配策略。枚举：`BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。默认 `BALANCED`。
