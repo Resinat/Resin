@@ -20,7 +20,7 @@
 
 **Resin** is a **high-performance intelligent proxy pool gateway** built for operating massive numbers of proxy nodes.
 
-It shields your services from unstable upstream proxies and aggregates them into a single HTTP gateway with **session stickiness (sticky routing)**.
+It helps shield your services from unstable upstream proxies and aggregates them into a single HTTP gateway with **session stickiness (sticky routing)**.
 
 ## 💡 Why Resin?
 
@@ -197,7 +197,10 @@ curl "http://127.0.0.1:2260/my-token/MyPlatform:/https/api.example.com/v1/orders
   -H "Authorization: sk-abc123"
 ```
 
-In this example, Resin uses `sk-abc123` as Account. Future requests with the same key will stay bound to the same outbound IP.
+In this example, Resin uses `sk-abc123` as Account. Future requests with the same key are intended to stay bound to the same outbound IP whenever routing conditions allow.
+
+> [!IMPORTANT]
+> Enable header-based Account extraction only when you have a valid legal basis (for example user authorization or contractual permission), and ensure your logging, retention, and access-control policies comply with applicable laws and target-service terms.
 
 > Beyond Platform header config, Resin also supports advanced rules that pick extraction headers by URL prefix. You can ask AI to explain both modes with this README and [DESIGN.md](DESIGN.md).
 
@@ -291,4 +294,8 @@ RESIN_PORT=2260 \
 ## ⚠️ License and Disclaimer
 
 - **License**: This project is licensed under the [MIT License](LICENSE).
-- **Disclaimer**: This open-source project is intended as an academic and technical research tool for proxy scheduling and management at scale. Users must comply with applicable laws and regulations in their jurisdiction and follow service providers' Terms of Service (ToS). The developers are not legally liable for any direct or indirect illegal use, contract violations, or losses arising from use of Resin. Use this project lawfully and responsibly.
+- **Use scope**: This project is provided for technical research and engineering practice in proxy scheduling and management. It does not constitute legal, compliance, audit, or security advice.
+- **Lawful use requirement**: You are responsible for ensuring your usage complies with applicable laws, regulations, target-service Terms of Service (ToS), and data-processing obligations, and for ensuring you have proper authorization for proxy nodes, target resources, and related data.
+- **Prohibited use**: You must not use this project for unauthorized access, control-evasion, fraud, attacks, abusive traffic generation, or other illegal or non-compliant activity.
+- **No warranty**: This project is provided on an "AS IS" basis, without express or implied warranties, including but not limited to merchantability, fitness for a particular purpose, and non-infringement.
+- **Limitation of liability**: To the maximum extent permitted by applicable law, authors and contributors are not liable for any direct, indirect, incidental, special, exemplary, or consequential damages arising from use of, or inability to use, this project.
