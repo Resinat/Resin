@@ -1024,6 +1024,16 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 }
 ```
 
+#### 获取环境变量配置快照（只读）
+
+**GET** `/system/config/env`
+
+返回启动时解析的环境变量配置快照（不受运行时 `PATCH /system/config` 影响），并包含以下安全状态字段：
+* `admin_token_set` / `proxy_token_set`：Token 是否已配置为非空。
+* `admin_token_weak` / `proxy_token_weak`：Token 是否为弱口令。
+
+说明：该接口不会返回 `RESIN_ADMIN_TOKEN` / `RESIN_PROXY_TOKEN` 明文。
+
 #### 更新全局配置
 
 **PATCH** `/system/config`
@@ -1240,7 +1250,9 @@ API 阻塞到重建完成为止。
 {
   "id": "uuid",
   "name": "sub-A",
+  "source_type": "remote",
   "url": "https://example.com/sub",
+  "content": "",
   "update_interval": "5m",
   "node_count": 1200,
   "healthy_node_count": 980,
@@ -1255,6 +1267,8 @@ API 阻塞到重建完成为止。
 ```
 
 `healthy_node_count` 规则：节点 `Outbound` 非空且节点未熔断。
+* `source_type=remote`：`url` 非空，`content` 为空字符串。
+* `source_type=local`：`content` 非空，`url` 为空字符串。
 
 #### 列出订阅
 
@@ -1271,6 +1285,7 @@ Body：
 ```json
 {
   "name": "sub-A",
+  "source_type": "remote",
   "url": "https://example.com/sub",
   "update_interval": "5m",
   "enabled": true,
@@ -1279,17 +1294,27 @@ Body：
 }
 ```
 
+```json
+{
+  "name": "sub-local",
+  "source_type": "local",
+  "content": "vmess://..."
+}
+```
+
 字段要求：
 
-* 必填字段：`name`、`url`
-* 可选字段：`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`
+* 必填字段：`name`，以及按 `source_type` 决定的源字段（`remote` 需要 `url`，`local` 需要 `content`）。
+* 可选字段：`source_type`、`url`、`content`、`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`
 * 不可传字段：`id`、`node_count`、`healthy_node_count`、`created_at`、`last_checked`、`last_updated`、`last_error`
 * 默认值：`update_interval="5m"`、`enabled=true`、`ephemeral=false`、`ephemeral_node_evict_delay="72h"`
 
 关键校验（最小集）：
 
 * `name`：trim 后非空。
-* `url`：`http/https` 绝对 URL。
+* `source_type`：枚举 `remote|local`，默认 `remote`。
+* `source_type=remote`：`url` 必填，且必须是 `http/https` 绝对 URL；`content` 不允许传非空值。
+* `source_type=local`：`content` 必填且 trim 后非空；`url` 不允许传非空值。
 * `update_interval`：合法 Go duration，且 `>=30s`。
 * `ephemeral_node_evict_delay`：合法 Go duration，且 `>=0s`。
 
@@ -1319,8 +1344,8 @@ Body（partial patch 示例）：
 字段要求：
 
 * 必填字段：无
-* 可改字段：`name`、`url`、`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`
-* 不可改字段：`id`、`node_count`、`healthy_node_count`、`created_at`、`last_checked`、`last_updated`、`last_error`
+* 可改字段：`name`、`url`、`content`、`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`
+* 不可改字段：`id`、`source_type`、`node_count`、`healthy_node_count`、`created_at`、`last_checked`、`last_updated`、`last_error`
 
 关键校验：与“创建订阅”一致。
 
@@ -1353,6 +1378,28 @@ API 阻塞到更新完成为止。
 错误码映射（最小集）：
 
 * `404 NOT_FOUND`：`subscription_id` 不存在。
+
+#### 清理订阅中的异常节点（Action）
+
+**POST** `/subscriptions/{subscription_id}/actions/cleanup-circuit-open-nodes`
+
+行为：
+* 清理该订阅内满足条件的节点：已熔断节点，或 `has_outbound=false` 且存在 `last_error` 的节点。
+
+请求体：无。
+
+错误码映射（最小集）：
+
+* `400 INVALID_ARGUMENT`：`subscription_id` 非法。
+* `404 NOT_FOUND`：`subscription_id` 不存在。
+
+返回：
+
+```json
+{
+  "cleaned_count": 12
+}
+```
 
 ### 反向代理 Account Header Rules
 
@@ -1460,7 +1507,14 @@ Body：
   "last_latency_probe_attempt": "2026-02-10T12:21:00Z",
   "last_authority_latency_probe_attempt": "2026-02-10T12:21:00Z",
   "last_egress_update_attempt": "2026-02-10T12:20:00Z",
-  "subscriptions": ["uuid1","uuid2"],
+  "reference_latency_ms": 123.4,
+  "tags": [
+    {
+      "subscription_id": "uuid1",
+      "subscription_name": "sub-A",
+      "tag": "sub-A/HK-01"
+    }
+  ],
   "last_error": "..."
 }
 ```
@@ -1588,6 +1642,7 @@ Response：
   "platform_id": "uuid",
   "account": "acc1",
   "node_hash": "....",
+  "node_tag": "sub-A/HK-01",
   "egress_ip": "1.2.3.4",
   "expiry": "2026-02-10T13:00:00Z",
   "last_accessed": "2026-02-10T12:59:50Z"
@@ -1762,6 +1817,25 @@ Query（建议）：
 }
 ```
 
+#### GeoIP 批量查询（调试）
+
+**POST** `/geoip/lookup`
+
+```json
+{
+  "ips": ["1.2.3.4", "8.8.8.8"]
+}
+```
+
+```json
+{
+  "results": [
+    { "ip": "1.2.3.4", "region": "us" },
+    { "ip": "8.8.8.8", "region": "us" }
+  ]
+}
+```
+
 #### 触发 GeoIP 立即更新（Action）
 
 **POST** `/geoip/actions/update-now`
@@ -1831,12 +1905,14 @@ API 阻塞到更新完成
 }
 ```
 
-##### 租约数量（Platform）
+##### 租约数量（全局/Platform）
 **GET** `/metrics/realtime/leases?platform_id=&from=&to=`
+
+* `platform_id` 可选：不传（或空字符串）返回全局聚合，传值返回指定平台。
 
 ```json
 {
-  "platform_id": "uuid",
+  "platform_id": "",
   "step_seconds": 5,
   "items": [
     {
@@ -1898,16 +1974,18 @@ API 阻塞到更新完成
       "bucket_end": "2026-02-12T12:00:00Z",
       "sample_count": 45678,
       "buckets": [
-        { "le_ms": 100, "count": 1000 },
-        { "le_ms": 200, "count": 2500 },
+        { "le_ms": 99, "count": 1000 },
+        { "le_ms": 199, "count": 2500 },
         ...
-        { "le_ms": 3000, "count": 42 }
+        { "le_ms": 2999, "count": 42 }
       ],
       "overflow_count": 8
     }
   ]
 }
 ```
+
+`le_ms` 为桶的闭区间上界（即 `(n+1)*bin_width_ms - 1`）；`>= overflow_ms` 的样本计入 `overflow_count`。
 
 ##### 主动探测次数（全局）
 **GET** `/metrics/history/probes?from=&to=`
@@ -1997,19 +2075,20 @@ API 阻塞到更新完成
 {
   "generated_at": "2026-02-12T12:00:00Z",
   "scope": "global|platform",
-  "platform_id": "uuid or null",
   "bin_width_ms": 100,
   "overflow_ms": 3000,
   "sample_count": 1400,
   "buckets": [
-    { "le_ms": 100, "count": 120 },
-    { "le_ms": 200, "count": 300 },
+    { "le_ms": 99, "count": 120 },
+    { "le_ms": 199, "count": 300 },
     ...
-    { "le_ms": 3000, "count": 40 }
+    { "le_ms": 2999, "count": 40 }
   ],
   "overflow_count": 6
 }
 ```
+
+* `platform_id` 仅在 `scope=platform` 时返回。
 
 #### Dashboard 端点与统计项映射
 * 吞吐（实时）：`GET /metrics/realtime/throughput`
