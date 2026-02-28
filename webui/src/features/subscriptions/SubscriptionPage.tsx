@@ -707,7 +707,7 @@ export function SubscriptionPage() {
                       <Textarea
                         id="edit-sub-content"
                         rows={8}
-                        placeholder={t("支持 sing-box JSON / Clash YAML / URI 列表")}
+                        placeholder={t("支持 sing-box JSON / Clash YAML / URI / IP:PORT 或 IP:PORT:USER:PASS 列表")}
                         invalid={Boolean(editForm.formState.errors.content)}
                         {...editForm.register("content")}
                       />
@@ -908,7 +908,7 @@ export function SubscriptionPage() {
                   <Textarea
                     id="create-sub-content"
                     rows={8}
-                    placeholder={t("支持 sing-box JSON / Clash YAML / URI 列表")}
+                    placeholder={t("支持 sing-box JSON / Clash YAML / URI / IP:PORT 或 IP:PORT:USER:PASS 列表")}
                     invalid={Boolean(createForm.formState.errors.content)}
                     {...createForm.register("content")}
                   />

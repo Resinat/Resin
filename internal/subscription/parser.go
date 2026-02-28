@@ -65,14 +65,10 @@ func NewGeneralSubscriptionParser() *GeneralSubscriptionParser {
 }
 
 // ParseGeneralSubscription parses sing-box JSON / Clash JSON|YAML / URI-line
-// subscriptions, with optional base64-wrapped content support.
+// subscriptions, plus plain HTTP proxy lines (IP:PORT or IP:PORT:USER:PASS),
+// with optional base64-wrapped content support.
 func ParseGeneralSubscription(data []byte) ([]ParsedNode, error) {
 	return NewGeneralSubscriptionParser().Parse(data)
-}
-
-// ParseSingboxSubscription is kept as a compatibility alias.
-func ParseSingboxSubscription(data []byte) ([]ParsedNode, error) {
-	return ParseGeneralSubscription(data)
 }
 
 // Parse parses subscription content and returns supported outbound nodes.
@@ -383,13 +379,85 @@ func parseURILineSubscription(text string) ([]ParsedNode, bool) {
 			recognized = true
 			node, ok = parseHysteria2URI(line)
 		default:
-			continue
+			node, ok = parsePlainHTTPProxyLine(line)
+			if ok {
+				recognized = true
+			}
 		}
 		if ok {
 			nodes = append(nodes, node)
 		}
 	}
 	return nodes, recognized
+}
+
+func parsePlainHTTPProxyLine(line string) (ParsedNode, bool) {
+	if strings.Contains(line, "://") {
+		return ParsedNode{}, false
+	}
+
+	if node, ok := parseHTTPProxyIPPortUserPass(line); ok {
+		return node, true
+	}
+	return parseHTTPProxyIPPort(line)
+}
+
+func parseHTTPProxyIPPort(line string) (ParsedNode, bool) {
+	server, port, ok := parseHostPort(line)
+	if !ok || net.ParseIP(server) == nil {
+		return ParsedNode{}, false
+	}
+
+	outbound := map[string]any{
+		"type":        "http",
+		"tag":         defaultTag("", "http", server, port),
+		"server":      server,
+		"server_port": port,
+	}
+	return buildParsedNode(outbound)
+}
+
+func parseHTTPProxyIPPortUserPass(line string) (ParsedNode, bool) {
+	server, port, username, password, ok := parseIPPortUserPass(line)
+	if !ok {
+		return ParsedNode{}, false
+	}
+
+	outbound := map[string]any{
+		"type":        "http",
+		"tag":         defaultTag("", "http", server, port),
+		"server":      server,
+		"server_port": port,
+		"username":    username,
+		"password":    password,
+	}
+	return buildParsedNode(outbound)
+}
+
+func parseIPPortUserPass(line string) (string, uint64, string, string, bool) {
+	parts := strings.Split(line, ":")
+	if len(parts) < 4 {
+		return "", 0, "", "", false
+	}
+
+	password := strings.TrimSpace(parts[len(parts)-1])
+	username := strings.TrimSpace(parts[len(parts)-2])
+	portRaw := strings.TrimSpace(parts[len(parts)-3])
+	hostRaw := strings.TrimSpace(strings.Join(parts[:len(parts)-3], ":"))
+	if hostRaw == "" || username == "" || password == "" || portRaw == "" {
+		return "", 0, "", "", false
+	}
+
+	port, err := strconv.ParseUint(portRaw, 10, 16)
+	if err != nil {
+		return "", 0, "", "", false
+	}
+
+	host := strings.Trim(strings.TrimSpace(hostRaw), "[]")
+	if net.ParseIP(host) == nil {
+		return "", 0, "", "", false
+	}
+	return host, port, username, password, true
 }
 
 func parseVmessURI(uri string) (ParsedNode, bool) {
@@ -804,8 +872,24 @@ func looksLikeJSON(data []byte) bool {
 		return false
 	}
 	switch data[0] {
-	case '{', '[':
+	case '{':
 		return true
+	case '[':
+		// Avoid misclassifying bracketed IPv6 proxy lines like:
+		// [2001:db8::1]:8080
+		idx := 1
+		for idx < len(data) {
+			switch data[idx] {
+			case ' ', '\t', '\r', '\n':
+				idx++
+				continue
+			case '{', ']':
+				return true
+			default:
+				return false
+			}
+		}
+		return false
 	default:
 		return false
 	}

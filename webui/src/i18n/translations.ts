@@ -145,7 +145,7 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "本地": "Local",
   "从 HTTP/HTTPS 订阅链接拉取内容": "Fetch content from HTTP/HTTPS subscription URL",
   "直接填写订阅文本，不经过网络拉取": "Provide subscription text directly without network fetch",
-  "支持 sing-box JSON / Clash YAML / URI 列表": "Supports sing-box JSON / Clash YAML / URI list",
+  "支持 sing-box JSON / Clash YAML / URI / IP:PORT 或 IP:PORT:USER:PASS 列表": "Supports sing-box JSON / Clash YAML / URI / IP:PORT or IP:PORT:USER:PASS list",
   "临时订阅": "Temporary Subscription",
   "临时节点驱逐延迟": "Temporary Node Eviction Delay",
   "平台列表": "Platform List",
