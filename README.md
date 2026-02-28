@@ -62,7 +62,7 @@ services:
 ```
 运行 `docker compose up -d` 启动服务。
 
-*(如果你不想使用 Docker，请跳转文末查看 [其他部署方式](#-其他部署方式))*
+*(如果你不想使用 Docker，请跳转文末查看 [其他部署方式](#其他部署方式))*
 
 ### 第二步：导入代理节点
 1. 浏览器打开 `http://127.0.0.1:2260`（请替换为你的服务器 IP）。
@@ -204,7 +204,7 @@ curl "http://127.0.0.1:2260/my-token/MyPlatform:/https/api.example.com/v1/orders
 
 ---
 
-## ⚙️ 其他部署方式
+## 其他部署方式
 
 <details>
 <summary><b>方式一：运行预编译二进制文件</b></summary>
