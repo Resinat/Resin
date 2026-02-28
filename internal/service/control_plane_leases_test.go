@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/routing"
+	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/topology"
 )
 
@@ -34,6 +36,7 @@ func newLeaseInheritanceTestService() (*ControlPlaneService, *platform.Platform)
 
 	return &ControlPlaneService{
 		Pool:   pool,
+		SubMgr: subMgr,
 		Router: router,
 	}, plat
 }
@@ -53,6 +56,120 @@ func assertServiceErrorCode(t *testing.T, err error, code string) {
 	}
 	if svcErr.Code != code {
 		t.Fatalf("error code: got %q, want %q", svcErr.Code, code)
+	}
+}
+
+func seedSharedNodeAcrossSubscriptions(
+	t *testing.T,
+	cp *ControlPlaneService,
+	hash node.Hash,
+	olderSubID string,
+	olderSubName string,
+	olderCreatedAtNs int64,
+	olderTags []string,
+	newerSubID string,
+	newerSubName string,
+	newerCreatedAtNs int64,
+	newerTags []string,
+) {
+	t.Helper()
+
+	older := subscription.NewSubscription(olderSubID, olderSubName, "https://example.com/"+olderSubID, true, false)
+	older.CreatedAtNs = olderCreatedAtNs
+	olderManaged := subscription.NewManagedNodes()
+	olderManaged.StoreNode(hash, subscription.ManagedNode{Tags: olderTags})
+	older.SwapManagedNodes(olderManaged)
+
+	newer := subscription.NewSubscription(newerSubID, newerSubName, "https://example.com/"+newerSubID, true, false)
+	newer.CreatedAtNs = newerCreatedAtNs
+	newerManaged := subscription.NewManagedNodes()
+	newerManaged.StoreNode(hash, subscription.ManagedNode{Tags: newerTags})
+	newer.SwapManagedNodes(newerManaged)
+
+	cp.SubMgr.Register(older)
+	cp.SubMgr.Register(newer)
+
+	raw := json.RawMessage(`{"type":"ss","server":"198.51.100.10","port":443}`)
+	cp.Pool.AddNodeFromSub(hash, raw, older.ID)
+	cp.Pool.AddNodeFromSub(hash, raw, newer.ID)
+}
+
+func TestGetLease_NodeTagUsesEarliestSubscriptionThenMinTag(t *testing.T) {
+	cp, plat := newLeaseInheritanceTestService()
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"ss","server":"198.51.100.10","port":443}`))
+	seedSharedNodeAcrossSubscriptions(
+		t,
+		cp,
+		hash,
+		"sub-old",
+		"Z-Provider",
+		100,
+		[]string{"zz", "aa"},
+		"sub-new",
+		"A-Provider",
+		200,
+		[]string{"00"},
+	)
+
+	now := time.Now().UnixNano()
+	seedLease(t, cp, model.Lease{
+		PlatformID:     plat.ID,
+		Account:        "alice",
+		NodeHash:       hash.Hex(),
+		EgressIP:       "203.0.113.10",
+		CreatedAtNs:    now - int64(time.Minute),
+		ExpiryNs:       now + int64(time.Minute),
+		LastAccessedNs: now,
+	})
+
+	got, err := cp.GetLease(plat.ID, "alice")
+	if err != nil {
+		t.Fatalf("GetLease: %v", err)
+	}
+	if got.NodeTag != "Z-Provider/aa" {
+		t.Fatalf("node_tag: got %q, want %q", got.NodeTag, "Z-Provider/aa")
+	}
+}
+
+func TestListLeases_NodeTagUsesEarliestSubscriptionThenMinTag(t *testing.T) {
+	cp, plat := newLeaseInheritanceTestService()
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"ss","server":"203.0.113.20","port":443}`))
+	seedSharedNodeAcrossSubscriptions(
+		t,
+		cp,
+		hash,
+		"sub-old-list",
+		"OldSub",
+		50,
+		[]string{"b", "a"},
+		"sub-new-list",
+		"NewSub",
+		60,
+		[]string{"0"},
+	)
+
+	now := time.Now().UnixNano()
+	seedLease(t, cp, model.Lease{
+		PlatformID:     plat.ID,
+		Account:        "bob",
+		NodeHash:       hash.Hex(),
+		EgressIP:       "198.51.100.3",
+		CreatedAtNs:    now - int64(time.Minute),
+		ExpiryNs:       now + int64(time.Minute),
+		LastAccessedNs: now,
+	})
+
+	leases, err := cp.ListLeases(plat.ID)
+	if err != nil {
+		t.Fatalf("ListLeases: %v", err)
+	}
+	if len(leases) != 1 {
+		t.Fatalf("leases len: got %d, want 1", len(leases))
+	}
+	if leases[0].NodeTag != "OldSub/a" {
+		t.Fatalf("node_tag: got %q, want %q", leases[0].NodeTag, "OldSub/a")
 	}
 }
 

@@ -451,6 +451,62 @@ func TestAPIContract_GetLease_AccountPathEncoding(t *testing.T) {
 	}
 }
 
+func TestAPIContract_GetLease_IncludesNodeTag(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	platformID := mustCreatePlatform(t, srv, "lease-node-tag")
+
+	older := subscription.NewSubscription("sub-old", "Z-Provider", "https://example.com/sub-old", true, false)
+	older.CreatedAtNs = 100
+	olderManaged := subscription.NewManagedNodes()
+
+	newer := subscription.NewSubscription("sub-new", "A-Provider", "https://example.com/sub-new", true, false)
+	newer.CreatedAtNs = 200
+	newerManaged := subscription.NewManagedNodes()
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"ss","server":"198.51.100.50","port":443}`))
+	olderManaged.StoreNode(hash, subscription.ManagedNode{Tags: []string{"zz", "aa"}})
+	newerManaged.StoreNode(hash, subscription.ManagedNode{Tags: []string{"00"}})
+	older.SwapManagedNodes(olderManaged)
+	newer.SwapManagedNodes(newerManaged)
+
+	cp.SubMgr.Register(older)
+	cp.SubMgr.Register(newer)
+
+	raw := json.RawMessage(`{"type":"ss","server":"198.51.100.50","port":443}`)
+	cp.Pool.AddNodeFromSub(hash, raw, older.ID)
+	cp.Pool.AddNodeFromSub(hash, raw, newer.ID)
+
+	now := time.Now().UnixNano()
+	cp.Router.RestoreLeases([]model.Lease{
+		{
+			PlatformID:     platformID,
+			Account:        "alice",
+			NodeHash:       hash.Hex(),
+			EgressIP:       "203.0.113.11",
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		},
+	})
+
+	rec := doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/platforms/"+platformID+"/leases/alice",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	body := decodeJSONMap(t, rec)
+	if body["node_tag"] != "Z-Provider/aa" {
+		t.Fatalf("node_tag: got %v, want %q", body["node_tag"], "Z-Provider/aa")
+	}
+}
+
 func TestAPIContract_PaginationAndSorting(t *testing.T) {
 	srv, _, _ := newControlPlaneTestServer(t)
 

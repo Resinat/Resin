@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/routing"
 )
 
@@ -17,20 +18,37 @@ type LeaseResponse struct {
 	PlatformID   string `json:"platform_id"`
 	Account      string `json:"account"`
 	NodeHash     string `json:"node_hash"`
+	NodeTag      string `json:"node_tag"`
 	EgressIP     string `json:"egress_ip"`
 	Expiry       string `json:"expiry"`
 	LastAccessed string `json:"last_accessed"`
 }
 
-func leaseToResponse(lease model.Lease) LeaseResponse {
+func leaseToResponse(lease model.Lease, nodeTag string) LeaseResponse {
 	return LeaseResponse{
 		PlatformID:   lease.PlatformID,
 		Account:      lease.Account,
 		NodeHash:     lease.NodeHash,
+		NodeTag:      nodeTag,
 		EgressIP:     lease.EgressIP,
 		Expiry:       time.Unix(0, lease.ExpiryNs).UTC().Format(time.RFC3339Nano),
 		LastAccessed: time.Unix(0, lease.LastAccessedNs).UTC().Format(time.RFC3339Nano),
 	}
+}
+
+func (s *ControlPlaneService) resolveLeaseNodeTag(hash node.Hash) string {
+	if s == nil || s.Pool == nil {
+		return ""
+	}
+	return s.Pool.ResolveNodeDisplayTag(hash)
+}
+
+func (s *ControlPlaneService) resolveLeaseNodeTagFromHex(hashHex string) string {
+	hash, err := node.ParseHex(hashHex)
+	if err != nil {
+		return ""
+	}
+	return s.resolveLeaseNodeTag(hash)
 }
 
 // ListLeases returns all leases for a platform.
@@ -47,7 +65,7 @@ func (s *ControlPlaneService) ListLeases(platformID string) ([]LeaseResponse, er
 			EgressIP:       lease.EgressIP.String(),
 			ExpiryNs:       lease.ExpiryNs,
 			LastAccessedNs: lease.LastAccessedNs,
-		}))
+		}, s.resolveLeaseNodeTag(lease.NodeHash)))
 		return true
 	})
 	if result == nil {
@@ -65,7 +83,7 @@ func (s *ControlPlaneService) GetLease(platformID, account string) (*LeaseRespon
 	if ml == nil {
 		return nil, notFound("lease not found")
 	}
-	resp := leaseToResponse(*ml)
+	resp := leaseToResponse(*ml, s.resolveLeaseNodeTagFromHex(ml.NodeHash))
 	return &resp, nil
 }
 

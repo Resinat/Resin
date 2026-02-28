@@ -300,7 +300,7 @@ func (p *GlobalNodePool) MakeSubLookup() node.SubLookupFunc {
 }
 
 // ResolveNodeDisplayTag resolves a node hash to its display tag for request logs.
-// Rule (DESIGN.md §601):
+// Rule (DESIGN.md):
 //  1. Among subscriptions that hold this node, choose the earliest-created one.
 //  2. Within that subscription, choose lexicographically smallest tag.
 //  3. Return "<SubscriptionName>/<Tag>".
