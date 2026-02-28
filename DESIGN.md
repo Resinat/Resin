@@ -919,7 +919,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 * `INTERNAL` (500)
 
 #### 分页
-* Query：`limit`（默认 50，最大 10000）、`offset`
+* Query：`limit`（默认 50，最大 100000）、`offset`
 * 响应：
 ```json
 {
@@ -1478,7 +1478,7 @@ Body：
 
 **GET** `/nodes`
 Query：
-* `limit`：默认 50，最大 10000
+* `limit`：默认 50，最大 100000
 * `offset`：分页偏移
 * `platform_id`：只列出该 Platform 的“可路由集合”内节点（可选）
 * `subscription_id`：只列出该订阅持有的节点（可选）
@@ -1662,7 +1662,7 @@ Response：
 Query（建议）：
 * `from`: 时间窗起始，可选，RFC3339Nano
 * `to`: 时间窗结束，可选，RFC3339Nano
-* `limit`: 分页大小，可选，默认 50，最大 10000
+* `limit`: 分页大小，可选，默认 50，最大 100000
 * `cursor`: 游标分页位置，可选。由上一页返回的 `next_cursor` 透传。
 * `platform_id`: 平台ID，可选
 * `platform_name`: 平台名称，可选（精确匹配）
@@ -1670,7 +1670,7 @@ Query（建议）：
 * `target_host`: 目标主机，可选
 * `egress_ip`: 出口IP，可选
 * `proxy_type`: 代理类型，可选，1/2
-* `net_ok`: 网络是否成功，可选，0/1
+* `net_ok`: 网络是否成功，可选，`true`/`false`
 * `http_status`: HTTP状态码，可选
 
 返回结果按照时间倒序排序。返回摘要（不含 payload）：
@@ -1695,12 +1695,12 @@ Query（建议）：
       "node_tag": "sub-A/HK-01",
       "egress_ip": "1.2.3.4",
       "duration_ms": 532,
-      "net_ok": 1,
+      "net_ok": true,
       "http_method": "GET",
       "http_status": 200,
       "ingress_bytes": 1024,
       "egress_bytes": 512,
-      "payload_present": 0,
+      "payload_present": false,
       "req_headers_len": 0,
       "req_body_len": 0,
       "resp_headers_len": 0,
@@ -2068,10 +2068,10 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * 当 Token 非空但强度较弱时，WebUI 首页会显示安全告警条幅（不阻止启动）。
 
 数据统计设置：
-* `RESIN_METRIC_THROUGHPUT_INTERVAL_SECONDS`：统计网速的时间间隔，默认 1s。
+* `RESIN_METRIC_THROUGHPUT_INTERVAL_SECONDS`：统计网速的时间间隔，默认 2s。
 * `RESIN_METRIC_THROUGHPUT_RETENTION_SECONDS`：保留网速统计数据的时间，默认 3600s。
 * `RESIN_METRIC_BUCKET_SECONDS`：统计窗口大小，默认 3600s。
-* `RESIN_METRIC_CONNECTIONS_INTERVAL_SECONDS`：统计连接数的时间间隔，默认 5s。
+* `RESIN_METRIC_CONNECTIONS_INTERVAL_SECONDS`：统计连接数的时间间隔，默认 15s。
 * `RESIN_METRIC_CONNECTIONS_RETENTION_SECONDS`：保留连接数统计数据的时间，默认 18000s。
 * `RESIN_METRIC_LEASES_INTERVAL_SECONDS`：统计租约数量的时间间隔，默认 5s。
 * `RESIN_METRIC_LEASES_RETENTION_SECONDS`：保留租约数量统计数据的时间，默认 18000s。
