@@ -263,7 +263,7 @@ npm install && npm run build
 cd ..
 
 # 3. Build Resin core
-go build -tags "with_quic with_wireguard with_grpc with_utls with_embedded_tor with_naive_outbound" -o resin ./cmd/resin
+go build -tags "with_quic with_wireguard with_grpc with_utls" -o resin ./cmd/resin
 
 # 4. Run
 RESIN_ADMIN_TOKEN=<admin-dashboard-password> \

@@ -248,7 +248,7 @@ npm install && npm run build
 cd ..
 
 # 3. 编译 resin 核心
-go build -tags "with_quic with_wireguard with_grpc with_utls with_embedded_tor with_naive_outbound" -o resin ./cmd/resin
+go build -tags "with_quic with_wireguard with_grpc with_utls" -o resin ./cmd/resin
 
 # 4. 运行程序
 RESIN_ADMIN_TOKEN=【管理面板密码】 \
