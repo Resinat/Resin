@@ -27,11 +27,8 @@
 
 ![](doc/images/dashboard.png)
 
-<div style="background-color: #edf7f2ff; padding: 15px; border-radius: 8px; border-left: 5px solid #539169ff; margin: 20px 0;">
-  <span style="font-size: 1.1em; font-weight: bold; color: #24292e;">
-    💡 提示：您可以把本文档与项目详细设计文档 <a href="DESIGN.md"><code>DESIGN.md</code></a> 丢给 AI，然后问它任何你感兴趣的问题！
-  </span>
-</div>
+> [!TIP]
+> 您可以把本文档与项目详细设计文档 [`DESIGN.md`](DESIGN.md) 丢给 AI，然后问它任何你感兴趣的问题！
 
 ---
 

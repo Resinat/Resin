@@ -8,7 +8,7 @@
 
 ## 设计理念与原则
 
-本项目虽然定位于解决 100k 规模节点的海量调度，并引入了复杂的平台隔离与会话保持机制，但这并不意味着 Resin 必须被设计成一台结构臃肿、依赖繁杂的“重型卡车”。
+本项目定位于解决 100k 规模节点的海量调度，并具有高级的平台隔离与会话保持机制，同时这并不意味着 Resin 必须被设计成一台结构臃肿、依赖繁杂的“重型卡车”。
 
 为了兼顾重度生产环境的严苛要求与个人/边缘场景的轻量化诉求，本系统的架构演进与模块实现必须严格遵循以下两方面原则：
 
@@ -873,6 +873,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 * Base URL：`http://<host>:${RESIN_PORT}/api/v1`
 * Content-Type：`application/json; charset=utf-8`
 * 鉴权：控制面 Admin Token
+* 例外：存在少量数据面运维接口使用 `/{proxy_token}/api/v1/...` 形式，不走控制面 Admin Token 头鉴权。
 
 实现 WebAPI 时，严禁在 API 层直接实现业务逻辑。
 
@@ -881,14 +882,15 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 * Header：`Authorization: Bearer <admin_token>`
 * 失败返回：`401 Unauthorized`
 
-除了 `/healthz`，所有的请求都需要鉴权。
+当 `RESIN_ADMIN_TOKEN` 非空时，除了 `/healthz`，所有 `/api/v1/*` 请求都需要鉴权。  
+当 `RESIN_ADMIN_TOKEN` 为空字符串时，控制面鉴权关闭。
 
 ### 通用约定
 
 #### ID 与类型
 
-* `platform_id`：UUID（不可变）
-* `subscription_id`：UUID（不可变）
+* `platform_id`：UUID（不可变；路径与 Query 参数校验为小写 canonical 形式）
+* `subscription_id`：UUID（不可变；路径与 Query 参数校验为小写 canonical 形式）
 * `node_hash`：128-bit xxHash，**hex 字符串**（32 字符，大小写均可，例如 `"9f2c...e1a0"`）
 * `egress_ip`：字符串（IPv4/IPv6）
 * `region`：ISO 3166-1 alpha-2 小写（如 `"us"`, `"hk"`）
@@ -916,6 +918,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 * `NOT_FOUND` (404)
 * `CONFLICT` (409) — 唯一约束冲突（如 platform name）
 * `UNAUTHORIZED` (401)
+* `PAYLOAD_TOO_LARGE` (413)
 * `INTERNAL` (500)
 
 #### 分页
@@ -923,7 +926,10 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 * 响应：
 ```json
 {
-  "items": [ ... ]
+  "items": [ ... ],
+  "total": 123,
+  "limit": 50,
+  "offset": 0
 }
 ```
 
@@ -1085,7 +1091,10 @@ Body（partial patch 示例）：
 
 #### 列出平台
 
-**GET** `/platforms?keyword=&limit=&offset=`
+**GET** `/platforms?keyword=&limit=&offset=&sort_by=&sort_order=`
+
+支持的 `sort_by`：`name`、`id`、`updated_at`。默认按 `name` `asc` 排序。  
+输出时内置 `Default` 平台固定置顶，其余平台按上述排序规则排列。
 
 #### 创建平台
 
@@ -1242,6 +1251,12 @@ API 阻塞到重建完成为止。
 
 * `404 NOT_FOUND`：`platform_id` 不存在。
 
+返回：
+
+```json
+{ "status": "ok" }
+```
+
 ### Subscription
 
 #### Subscription 模型
@@ -1379,6 +1394,12 @@ API 阻塞到更新完成为止。
 
 * `404 NOT_FOUND`：`subscription_id` 不存在。
 
+返回：
+
+```json
+{ "status": "ok" }
+```
+
 #### 清理订阅中的异常节点（Action）
 
 **POST** `/subscriptions/{subscription_id}/actions/cleanup-circuit-open-nodes`
@@ -1421,7 +1442,7 @@ API 阻塞到更新完成为止。
 
 #### Upsert 规则（幂等）
 
-**PUT** `/account-header-rules/{url_prefix}`
+**PUT** `/account-header-rules/{url_prefix...}`
 
 url_prefix 不允许包含查询部分与 ? 字符。由于 `url_prefix` 通过路径参数传输，调用方应按 URL Path 规则编码（例如 `api.example.com/v1` 传为 `api.example.com%2Fv1`），服务端解码后参与匹配。
 
@@ -1450,13 +1471,14 @@ Body：
 
 #### 删除规则
 
-**DELETE** `/account-header-rules/{url_prefix}`
+**DELETE** `/account-header-rules/{url_prefix...}`
 
 请求体：无。
 
 错误码映射（最小集）：
 
 * `400 INVALID_ARGUMENT`：`url_prefix` 非法。
+* `400 INVALID_ARGUMENT`：不允许删除兜底规则 `*`。
 * `404 NOT_FOUND`：规则不存在。
 
 返回：`204 No Content`
@@ -1536,6 +1558,7 @@ Query：
 * `offset`：分页偏移
 * `platform_id`：只列出该 Platform 的“可路由集合”内节点（可选）
 * `subscription_id`：只列出该订阅持有的节点（可选）
+* `tag_keyword`：按节点展示 Tag（`<subscription_name>/<tag>`）做不区分大小写子串匹配（可选）
 * `region`：hk/us/...（可选）
 * `circuit_open`：true|false（可选）
 * `has_outbound`：true|false（可选）
@@ -1614,7 +1637,7 @@ Response：
 * `400 INVALID_ARGUMENT`：`node_hash` 格式非法。
 * `404 NOT_FOUND`：节点不存在。
 
-返回 cloudflare.com 在 TD-EWMA 后的延迟 `latency_ewma_ms` 与出口 IP。
+返回 cloudflare.com 在 TD-EWMA 后的延迟 `latency_ewma_ms`、出口 IP `egress_ip` 与地区 `region`。
 
 #### 触发节点延迟探测（Action）
 
@@ -1702,11 +1725,54 @@ Response：
 
 ```json
 {
+  "total": 2,
+  "limit": 50,
+  "offset": 0,
   "items": [
     { "egress_ip": "1.2.3.4", "lease_count": 120 },
     { "egress_ip": "2.2.2.2", "lease_count": 98 }
-  ],
+  ]
 }
+```
+
+### Proxy Token Actions（数据面运维）
+
+说明：以下接口不使用 `Authorization: Bearer` 控制面鉴权，而是通过路径中的 `proxy_token` 鉴权。  
+当 `RESIN_PROXY_TOKEN` 为空时，该接口仍可用：`proxy_token` 路径段不做值校验（例如 `/any-dummy-token/api/v1/...` 或 `//api/v1/...` 都可命中该接口）。
+
+#### 继承租约（Action）
+
+**POST** `/{proxy_token}/api/v1/{platform_name}/actions/inherit-lease`
+
+Body：
+
+```json
+{
+  "parent_account": "acc-parent",
+  "new_account": "acc-child"
+}
+```
+
+字段要求：
+
+* 必填字段：`parent_account`、`new_account`
+* 路径字段：`platform_name` 为平台名称（非 UUID）
+
+关键校验（最小集）：
+
+* `platform_name`、`parent_account`、`new_account` trim 后必须非空。
+* `new_account` 必须与 `parent_account` 不同。
+* `parent_account` 必须存在有效租约，且租约未过期。
+
+错误码映射（最小集）：
+
+* `400 INVALID_ARGUMENT`：字段非法或校验失败。
+* `404 NOT_FOUND`：平台不存在，或父租约不存在/已过期。
+
+返回：
+
+```json
+{ "status": "ok" }
 ```
 
 ### Request Logs
@@ -1727,6 +1793,9 @@ Query（建议）：
 * `proxy_type`: 代理类型，可选，1/2
 * `net_ok`: 网络是否成功，可选，`true`/`false`
 * `http_status`: HTTP状态码，可选
+* `fuzzy`: 是否启用模糊匹配，可选，`true`/`false`
+
+`fuzzy=true` 时，`platform_id`、`platform_name`、`account`、`target_host` 使用不区分大小写的子串匹配；不传或 `false` 时为精确匹配。
 
 返回结果按照时间倒序排序。返回摘要（不含 payload）：
 
@@ -1753,6 +1822,11 @@ Query（建议）：
       "net_ok": true,
       "http_method": "GET",
       "http_status": 200,
+      "resin_error": "",
+      "upstream_stage": "",
+      "upstream_err_kind": "",
+      "upstream_errno": "",
+      "upstream_err_msg": "",
       "ingress_bytes": 1024,
       "egress_bytes": 512,
       "payload_present": false,
@@ -1846,6 +1920,12 @@ API 阻塞到更新完成
 错误码映射（最小集）：
 
 * `500 INTERNAL`：下载或校验失败。
+
+返回：
+
+```json
+{ "status": "ok" }
+```
 
 ### 数据统计（用于 Dashboard）
 
