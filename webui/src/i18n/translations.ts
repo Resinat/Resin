@@ -478,6 +478,8 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "过滤规则与分配策略": "Filtering rules and allocation policy",
   "禁用订阅后，节点不会进入各平台的路由池，但不会从全局节点池中删除。":
     "After disabling a subscription, nodes won't enter platform routing pools, but they will remain in the global node pool.",
+  "临时订阅的非健康节点会在一段时间后被自动删除。订阅本身不会被删除。":
+    "Unhealthy nodes in temporary subscriptions will be auto-removed after a delay. The subscription itself will not be deleted.",
   "开始测试": "Start test",
   "例如 12h": "e.g. 12h",
   "例如 168h": "e.g. 168h",
