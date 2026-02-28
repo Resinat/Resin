@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestParseSingboxSubscription_Basic(t *testing.T) {
+func TestParseGeneralSubscription_SingboxJSON_Basic(t *testing.T) {
 	data := []byte(`{
 		"outbounds": [
 			{"type": "shadowsocks", "tag": "ss-us", "server": "1.2.3.4", "server_port": 443},
@@ -18,7 +18,7 @@ func TestParseSingboxSubscription_Basic(t *testing.T) {
 		]
 	}`)
 
-	nodes, err := ParseSingboxSubscription(data)
+	nodes, err := ParseGeneralSubscription(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestParseSingboxSubscription_Basic(t *testing.T) {
 	}
 }
 
-func TestParseSingboxSubscription_AllSupportedTypes(t *testing.T) {
+func TestParseGeneralSubscription_SingboxJSON_AllSupportedTypes(t *testing.T) {
 	types := []string{
 		"socks", "http", "shadowsocks", "vmess", "trojan", "wireguard",
 		"hysteria", "vless", "shadowtls", "tuic", "hysteria2", "anytls",
@@ -55,7 +55,7 @@ func TestParseSingboxSubscription_AllSupportedTypes(t *testing.T) {
 
 	data := []byte(`{"outbounds":` + outbounds + `}`)
 
-	nodes, err := ParseSingboxSubscription(data)
+	nodes, err := ParseGeneralSubscription(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestParseSingboxSubscription_AllSupportedTypes(t *testing.T) {
 	}
 }
 
-func TestParseSingboxSubscription_UnsupportedTypesFiltered(t *testing.T) {
+func TestParseGeneralSubscription_SingboxJSON_UnsupportedTypesFiltered(t *testing.T) {
 	data := []byte(`{
 		"outbounds": [
 			{"type": "direct", "tag": "direct"},
@@ -75,7 +75,7 @@ func TestParseSingboxSubscription_UnsupportedTypesFiltered(t *testing.T) {
 		]
 	}`)
 
-	nodes, err := ParseSingboxSubscription(data)
+	nodes, err := ParseGeneralSubscription(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,9 +84,9 @@ func TestParseSingboxSubscription_UnsupportedTypesFiltered(t *testing.T) {
 	}
 }
 
-func TestParseSingboxSubscription_EmptyOutbounds(t *testing.T) {
+func TestParseGeneralSubscription_SingboxJSON_EmptyOutbounds(t *testing.T) {
 	data := []byte(`{"outbounds": []}`)
-	nodes, err := ParseSingboxSubscription(data)
+	nodes, err := ParseGeneralSubscription(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,17 +95,17 @@ func TestParseSingboxSubscription_EmptyOutbounds(t *testing.T) {
 	}
 }
 
-func TestParseSingboxSubscription_MalformedJSON(t *testing.T) {
-	_, err := ParseSingboxSubscription([]byte(`not json`))
+func TestParseGeneralSubscription_SingboxJSON_MalformedJSON(t *testing.T) {
+	_, err := ParseGeneralSubscription([]byte(`not json`))
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")
 	}
 }
 
-func TestParseSingboxSubscription_MalformedOutboundSkipped(t *testing.T) {
+func TestParseGeneralSubscription_SingboxJSON_MalformedOutboundSkipped(t *testing.T) {
 	// A bare number is not a valid JSON object for an outbound — should be skipped.
 	data := []byte(`{"outbounds": [123]}`)
-	nodes, err := ParseSingboxSubscription(data)
+	nodes, err := ParseGeneralSubscription(data)
 	if err != nil {
 		t.Fatalf("malformed individual outbound should be skipped, not fatal: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestParseSingboxSubscription_MalformedOutboundSkipped(t *testing.T) {
 	}
 }
 
-func TestParseSingboxSubscription_MixedGoodAndBadOutbounds(t *testing.T) {
+func TestParseGeneralSubscription_SingboxJSON_MixedGoodAndBadOutbounds(t *testing.T) {
 	data := []byte(`{
 		"outbounds": [
 			{"type": "shadowsocks", "tag": "good-node", "server": "1.2.3.4", "server_port": 443},
@@ -123,7 +123,7 @@ func TestParseSingboxSubscription_MixedGoodAndBadOutbounds(t *testing.T) {
 			{"type": "vmess", "tag": "also-good", "server": "5.6.7.8", "server_port": 443}
 		]
 	}`)
-	nodes, err := ParseSingboxSubscription(data)
+	nodes, err := ParseGeneralSubscription(data)
 	if err != nil {
 		t.Fatalf("should skip bad entries, not fail: %v", err)
 	}
@@ -135,14 +135,14 @@ func TestParseSingboxSubscription_MixedGoodAndBadOutbounds(t *testing.T) {
 	}
 }
 
-func TestParseSingboxSubscription_RawOptionsPreservesFullJSON(t *testing.T) {
+func TestParseGeneralSubscription_SingboxJSON_RawOptionsPreservesFullJSON(t *testing.T) {
 	data := []byte(`{
 		"outbounds": [
 			{"type": "shadowsocks", "tag": "ss", "server": "1.2.3.4", "server_port": 443, "method": "aes-256-gcm"}
 		]
 	}`)
 
-	nodes, err := ParseSingboxSubscription(data)
+	nodes, err := ParseGeneralSubscription(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,6 +243,100 @@ vless://26a1d547-b031-4139-9fc5-6671e1d0408a@example.com:443?type=tcp&security=t
 	second := parseNodeRaw(t, nodes[1].RawOptions)
 	if first["type"] != "trojan" || second["type"] != "vless" {
 		t.Fatalf("unexpected node types: %v, %v", first["type"], second["type"])
+	}
+}
+
+func TestParseGeneralSubscription_PlainHTTPProxyLines(t *testing.T) {
+	data := []byte(`
+1.2.3.4:8080
+5.6.7.8:3128:user-a:pass-a
+`)
+
+	nodes, err := ParseGeneralSubscription(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 parsed nodes, got %d", len(nodes))
+	}
+
+	first := parseNodeRaw(t, nodes[0].RawOptions)
+	second := parseNodeRaw(t, nodes[1].RawOptions)
+
+	if first["type"] != "http" {
+		t.Fatalf("expected first type http, got %v", first["type"])
+	}
+	if first["server"] != "1.2.3.4" {
+		t.Fatalf("expected first server 1.2.3.4, got %v", first["server"])
+	}
+	if first["server_port"] != float64(8080) {
+		t.Fatalf("expected first server_port 8080, got %v", first["server_port"])
+	}
+	if _, ok := first["username"]; ok {
+		t.Fatalf("expected first proxy without username, got %v", first["username"])
+	}
+	if _, ok := first["password"]; ok {
+		t.Fatalf("expected first proxy without password, got %v", first["password"])
+	}
+
+	if second["type"] != "http" {
+		t.Fatalf("expected second type http, got %v", second["type"])
+	}
+	if second["server"] != "5.6.7.8" {
+		t.Fatalf("expected second server 5.6.7.8, got %v", second["server"])
+	}
+	if second["server_port"] != float64(3128) {
+		t.Fatalf("expected second server_port 3128, got %v", second["server_port"])
+	}
+	if second["username"] != "user-a" {
+		t.Fatalf("expected second username user-a, got %v", second["username"])
+	}
+	if second["password"] != "pass-a" {
+		t.Fatalf("expected second password pass-a, got %v", second["password"])
+	}
+}
+
+func TestParseGeneralSubscription_PlainHTTPProxyLinesIPv6(t *testing.T) {
+	data := []byte(`
+[2001:db8::1]:8080
+2001:db8::2:3128:user-v6:pass-v6
+`)
+
+	nodes, err := ParseGeneralSubscription(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 parsed nodes, got %d", len(nodes))
+	}
+
+	first := parseNodeRaw(t, nodes[0].RawOptions)
+	second := parseNodeRaw(t, nodes[1].RawOptions)
+
+	if first["type"] != "http" {
+		t.Fatalf("expected first type http, got %v", first["type"])
+	}
+	if first["server"] != "2001:db8::1" {
+		t.Fatalf("expected first server 2001:db8::1, got %v", first["server"])
+	}
+	if first["server_port"] != float64(8080) {
+		t.Fatalf("expected first server_port 8080, got %v", first["server_port"])
+	}
+
+	if second["type"] != "http" {
+		t.Fatalf("expected second type http, got %v", second["type"])
+	}
+	if second["server"] != "2001:db8::2" {
+		t.Fatalf("expected second server 2001:db8::2, got %v", second["server"])
+	}
+	if second["server_port"] != float64(3128) {
+		t.Fatalf("expected second server_port 3128, got %v", second["server_port"])
+	}
+	if second["username"] != "user-v6" {
+		t.Fatalf("expected second username user-v6, got %v", second["username"])
+	}
+	if second["password"] != "pass-v6" {
+		t.Fatalf("expected second password pass-v6, got %v", second["password"])
 	}
 }
 
