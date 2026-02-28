@@ -25,10 +25,12 @@
 - **订阅热更新**：节点订阅刷新时增量同步，不中断现有连接。
 - **灵活的节点隔离**：通过 Platform 概念，按正则表达式、地区等规则筛选节点，为不同业务构建独立的代理池。
 
-![](doc/images/dashboard.png)
 
 > [!TIP]
 > 您可以把本文档与项目详细设计文档 [`DESIGN.md`](DESIGN.md) 丢给 AI，然后问它任何你感兴趣的问题！
+
+
+![](doc/images/dashboard_zh-cn.png)
 
 ---
 
