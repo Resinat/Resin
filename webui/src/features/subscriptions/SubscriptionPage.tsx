@@ -71,6 +71,7 @@ type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+const LOCAL_SOURCE_UPDATE_INTERVAL = "12h";
 const SUBSCRIPTION_DISABLE_HINT = "禁用订阅后，节点不会进入各平台的路由池，但不会从全局节点池中删除。";
 
 function extractHostname(url: string): string {
@@ -106,6 +107,13 @@ function parseEnabledFilter(value: EnabledFilter): boolean | undefined {
     return false;
   }
   return undefined;
+}
+
+function normalizeSubmitUpdateInterval(sourceType: SubscriptionSourceType, raw: string): string {
+  if (sourceType === "local") {
+    return LOCAL_SOURCE_UPDATE_INTERVAL;
+  }
+  return raw.trim();
 }
 
 export function SubscriptionPage() {
@@ -228,7 +236,7 @@ export function SubscriptionPage() {
         source_type: "remote",
         url: "",
         content: "",
-        update_interval: "12h",
+        update_interval: LOCAL_SOURCE_UPDATE_INTERVAL,
         ephemeral_node_evict_delay: "72h",
         enabled: true,
         ephemeral: false,
@@ -248,7 +256,7 @@ export function SubscriptionPage() {
 
       const payload = {
         name: formData.name.trim(),
-        update_interval: formData.update_interval.trim(),
+        update_interval: normalizeSubmitUpdateInterval(formData.source_type, formData.update_interval),
         ephemeral_node_evict_delay: formData.ephemeral_node_evict_delay.trim(),
         enabled: formData.enabled,
         ephemeral: formData.ephemeral,
@@ -326,7 +334,7 @@ export function SubscriptionPage() {
     const payload = {
       name: values.name.trim(),
       source_type: values.source_type,
-      update_interval: values.update_interval.trim(),
+      update_interval: normalizeSubmitUpdateInterval(values.source_type, values.update_interval),
       ephemeral_node_evict_delay: values.ephemeral_node_evict_delay.trim(),
       enabled: values.enabled,
       ephemeral: values.ephemeral,
@@ -674,31 +682,33 @@ export function SubscriptionPage() {
                     />
                   </div>
 
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-sub-interval">
-                      {t("更新间隔")}
-                    </label>
-                    <Input
-                      id="edit-sub-interval"
-                      placeholder={t("例如 12h")}
-                      invalid={Boolean(editForm.formState.errors.update_interval)}
-                      {...editForm.register("update_interval")}
-                    />
-                    {editForm.formState.errors.update_interval?.message ? (
-                      <p className="field-error">{t(editForm.formState.errors.update_interval.message)}</p>
-                    ) : null}
-                  </div>
-
                   {editSourceType === "remote" ? (
-                    <div className="field-group field-span-2">
-                      <label className="field-label" htmlFor="edit-sub-url">
-                        {t("订阅链接")}
-                      </label>
-                      <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
-                      {editForm.formState.errors.url?.message ? (
-                        <p className="field-error">{t(editForm.formState.errors.url.message)}</p>
-                      ) : null}
-                    </div>
+                    <>
+                      <div className="field-group field-span-2">
+                        <label className="field-label" htmlFor="edit-sub-interval">
+                          {t("更新间隔")}
+                        </label>
+                        <Input
+                          id="edit-sub-interval"
+                          placeholder={t("例如 12h")}
+                          invalid={Boolean(editForm.formState.errors.update_interval)}
+                          {...editForm.register("update_interval")}
+                        />
+                        {editForm.formState.errors.update_interval?.message ? (
+                          <p className="field-error">{t(editForm.formState.errors.update_interval.message)}</p>
+                        ) : null}
+                      </div>
+
+                      <div className="field-group field-span-2">
+                        <label className="field-label" htmlFor="edit-sub-url">
+                          {t("订阅链接")}
+                        </label>
+                        <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
+                        {editForm.formState.errors.url?.message ? (
+                          <p className="field-error">{t(editForm.formState.errors.url.message)}</p>
+                        ) : null}
+                      </div>
+                    </>
                   ) : (
                     <div className="field-group field-span-2">
                       <label className="field-label" htmlFor="edit-sub-content">
@@ -835,7 +845,7 @@ export function SubscriptionPage() {
             <form className="form-grid" onSubmit={onCreateSubmit}>
               <input type="hidden" {...createForm.register("source_type")} />
 
-              <div className="field-group">
+              <div className="field-group field-span-2">
                 <label className="field-label" htmlFor="create-sub-name">
                   {t("订阅名称")}
                 </label>
@@ -846,21 +856,6 @@ export function SubscriptionPage() {
                 />
                 {createForm.formState.errors.name?.message ? (
                   <p className="field-error">{t(createForm.formState.errors.name.message)}</p>
-                ) : null}
-              </div>
-
-              <div className="field-group">
-                <label className="field-label" htmlFor="create-sub-interval">
-                  {t("更新间隔")}
-                </label>
-                <Input
-                  id="create-sub-interval"
-                  placeholder={t("例如 12h")}
-                  invalid={Boolean(createForm.formState.errors.update_interval)}
-                  {...createForm.register("update_interval")}
-                />
-                {createForm.formState.errors.update_interval?.message ? (
-                  <p className="field-error">{t(createForm.formState.errors.update_interval.message)}</p>
                 ) : null}
               </div>
 
@@ -887,19 +882,36 @@ export function SubscriptionPage() {
               </div>
 
               {createSourceType === "remote" ? (
-                <div className="field-group field-span-2">
-                  <label className="field-label" htmlFor="create-sub-url">
-                    {t("订阅链接")}
-                  </label>
-                  <Input
-                    id="create-sub-url"
-                    invalid={Boolean(createForm.formState.errors.url)}
-                    {...createForm.register("url")}
-                  />
-                  {createForm.formState.errors.url?.message ? (
-                    <p className="field-error">{t(createForm.formState.errors.url.message)}</p>
-                  ) : null}
-                </div>
+                <>
+                  <div className="field-group field-span-2">
+                    <label className="field-label" htmlFor="create-sub-interval">
+                      {t("更新间隔")}
+                    </label>
+                    <Input
+                      id="create-sub-interval"
+                      placeholder={t("例如 12h")}
+                      invalid={Boolean(createForm.formState.errors.update_interval)}
+                      {...createForm.register("update_interval")}
+                    />
+                    {createForm.formState.errors.update_interval?.message ? (
+                      <p className="field-error">{t(createForm.formState.errors.update_interval.message)}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="field-group field-span-2">
+                    <label className="field-label" htmlFor="create-sub-url">
+                      {t("订阅链接")}
+                    </label>
+                    <Input
+                      id="create-sub-url"
+                      invalid={Boolean(createForm.formState.errors.url)}
+                      {...createForm.register("url")}
+                    />
+                    {createForm.formState.errors.url?.message ? (
+                      <p className="field-error">{t(createForm.formState.errors.url.message)}</p>
+                    ) : null}
+                  </div>
+                </>
               ) : (
                 <div className="field-group field-span-2">
                   <label className="field-label" htmlFor="create-sub-content">
