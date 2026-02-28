@@ -29,7 +29,7 @@ func newTestServer() *Server {
 		DefaultPlatformStickyTTL:              7 * 24 * time.Hour,
 		DefaultPlatformRegexFilters:           []string{"^Provider/.*"},
 		DefaultPlatformRegionFilters:          []string{"us", "hk"},
-		DefaultPlatformReverseProxyMissAction: "RANDOM",
+		DefaultPlatformReverseProxyMissAction: "TREAT_AS_EMPTY",
 		DefaultPlatformReverseProxyEmptyAccountBehavior: "ACCOUNT_HEADER_RULE",
 		DefaultPlatformReverseProxyFixedAccountHeader:   "Authorization",
 		DefaultPlatformAllocationPolicy:                 "BALANCED",

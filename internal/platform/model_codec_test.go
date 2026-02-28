@@ -87,13 +87,30 @@ func TestBuildFromModel_InvalidRegionFilters(t *testing.T) {
 	}
 }
 
+func TestBuildFromModel_InvalidMissAction(t *testing.T) {
+	_, err := BuildFromModel(model.Platform{
+		ID:                     "plat-1",
+		Name:                   "Platform-1",
+		RegexFilters:           []string{},
+		RegionFilters:          []string{},
+		ReverseProxyMissAction: "RANDOM",
+		AllocationPolicy:       "BALANCED",
+	})
+	if err == nil {
+		t.Fatal("expected reverse_proxy_miss_action decode error")
+	}
+	if !strings.Contains(err.Error(), "reverse_proxy_miss_action") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestBuildFromModel_InvalidEmptyAccountBehaviorFallsBackToRandom(t *testing.T) {
 	plat, err := BuildFromModel(model.Platform{
 		ID:                               "plat-1",
 		Name:                             "Platform-1",
 		RegexFilters:                     []string{},
 		RegionFilters:                    []string{},
-		ReverseProxyMissAction:           "RANDOM",
+		ReverseProxyMissAction:           "TREAT_AS_EMPTY",
 		ReverseProxyEmptyAccountBehavior: "INVALID",
 		AllocationPolicy:                 "BALANCED",
 	})
@@ -115,7 +132,7 @@ func TestBuildFromModel_FixedHeadersMultiLineNormalized(t *testing.T) {
 		Name:                             "Platform-1",
 		RegexFilters:                     []string{},
 		RegionFilters:                    []string{},
-		ReverseProxyMissAction:           "RANDOM",
+		ReverseProxyMissAction:           "TREAT_AS_EMPTY",
 		ReverseProxyEmptyAccountBehavior: "FIXED_HEADER",
 		ReverseProxyFixedAccountHeader:   " authorization \nX-Account-Id\nx-account-id",
 		AllocationPolicy:                 "BALANCED",
@@ -145,6 +162,7 @@ func TestBuildFromModel_FixedHeaderRequiresValidHeaderName(t *testing.T) {
 		ID:                               "plat-1",
 		RegexFilters:                     []string{},
 		RegionFilters:                    []string{},
+		ReverseProxyMissAction:           "TREAT_AS_EMPTY",
 		ReverseProxyEmptyAccountBehavior: "FIXED_HEADER",
 		ReverseProxyFixedAccountHeader:   "bad header",
 	})

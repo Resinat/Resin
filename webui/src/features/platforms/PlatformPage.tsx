@@ -4,7 +4,6 @@ import { AlertTriangle, Plus, RefreshCw, Search, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
-import { z } from "zod";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -26,32 +25,8 @@ import {
   missActionLabel,
   missActions,
 } from "./constants";
-import { parseHeaderLines, parseLinesToList } from "./formParsers";
+import { defaultPlatformFormValues, platformFormSchema, toPlatformCreateInput, type PlatformFormValues } from "./formModel";
 import type { Platform } from "./types";
-
-const platformCreateSchema = z.object({
-  name: z.string().trim().min(1, "平台名称不能为空"),
-  sticky_ttl: z.string().optional(),
-  regex_filters_text: z.string().optional(),
-  region_filters_text: z.string().optional(),
-  reverse_proxy_miss_action: z.enum(missActions),
-  reverse_proxy_empty_account_behavior: z.enum(emptyAccountBehaviors),
-  reverse_proxy_fixed_account_header: z.string().optional(),
-  allocation_policy: z.enum(allocationPolicies),
-}).superRefine((value, ctx) => {
-  if (
-    value.reverse_proxy_empty_account_behavior === "FIXED_HEADER" &&
-    parseHeaderLines(value.reverse_proxy_fixed_account_header).length === 0
-  ) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["reverse_proxy_fixed_account_header"],
-      message: "用于提取 Account 的 Headers 不能为空",
-    });
-  }
-});
-
-type PlatformCreateForm = z.infer<typeof platformCreateSchema>;
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const EMPTY_PLATFORMS: Platform[] = [];
@@ -86,18 +61,9 @@ export function PlatformPage() {
   const totalPages = Math.max(1, Math.ceil(totalPlatforms / pageSize));
   const currentPage = Math.min(page, totalPages - 1);
 
-  const createForm = useForm<PlatformCreateForm>({
-    resolver: zodResolver(platformCreateSchema),
-    defaultValues: {
-      name: "",
-      sticky_ttl: "",
-      regex_filters_text: "",
-      region_filters_text: "",
-      reverse_proxy_miss_action: "RANDOM",
-      reverse_proxy_empty_account_behavior: "ACCOUNT_HEADER_RULE",
-      reverse_proxy_fixed_account_header: "Authorization",
-      allocation_policy: "BALANCED",
-    },
+  const createForm = useForm<PlatformFormValues>({
+    resolver: zodResolver(platformFormSchema),
+    defaultValues: defaultPlatformFormValues,
   });
   const createEmptyAccountBehavior = createForm.watch("reverse_proxy_empty_account_behavior");
 
@@ -116,16 +82,7 @@ export function PlatformPage() {
   });
 
   const onCreateSubmit = createForm.handleSubmit(async (values) => {
-    await createMutation.mutateAsync({
-      name: values.name.trim(),
-      sticky_ttl: values.sticky_ttl?.trim() || undefined,
-      regex_filters: parseLinesToList(values.regex_filters_text),
-      region_filters: parseLinesToList(values.region_filters_text, (value) => value.toLowerCase()),
-      reverse_proxy_miss_action: values.reverse_proxy_miss_action,
-      reverse_proxy_empty_account_behavior: values.reverse_proxy_empty_account_behavior,
-      reverse_proxy_fixed_account_header: parseHeaderLines(values.reverse_proxy_fixed_account_header).join("\n"),
-      allocation_policy: values.allocation_policy,
-    });
+    await createMutation.mutateAsync(toPlatformCreateInput(values));
   });
 
   const changePageSize = (next: number) => {

@@ -7,13 +7,22 @@ type ApiPlatform = Omit<Platform, "regex_filters" | "region_filters"> & {
   regex_filters?: string[] | null;
   region_filters?: string[] | null;
   routable_node_count?: number | null;
+  reverse_proxy_miss_action?: Platform["reverse_proxy_miss_action"] | null;
   reverse_proxy_empty_account_behavior?: Platform["reverse_proxy_empty_account_behavior"] | null;
   reverse_proxy_fixed_account_header?: string | null;
 };
 
+function parseMissAction(raw: ApiPlatform["reverse_proxy_miss_action"]): Platform["reverse_proxy_miss_action"] {
+  if (raw === "TREAT_AS_EMPTY" || raw === "REJECT") {
+    return raw;
+  }
+  throw new Error(`invalid reverse_proxy_miss_action: ${String(raw)}`);
+}
+
 function normalizePlatform(raw: ApiPlatform): Platform {
   return {
     ...raw,
+    reverse_proxy_miss_action: parseMissAction(raw.reverse_proxy_miss_action),
     regex_filters: Array.isArray(raw.regex_filters) ? raw.regex_filters : [],
     region_filters: Array.isArray(raw.region_filters) ? raw.region_filters : [],
     routable_node_count: typeof raw.routable_node_count === "number" ? raw.routable_node_count : 0,

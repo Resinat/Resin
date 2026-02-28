@@ -30,7 +30,7 @@ func TestRepairConsistency_RemovesOrphans(t *testing.T) {
 	stateRepo.UpsertPlatform(model.Platform{
 		ID: "p1", Name: "P1", StickyTTLNs: 1000,
 		RegexFilters: []string{}, RegionFilters: []string{},
-		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: 1,
 	})
 	stateRepo.UpsertSubscription(model.Subscription{
@@ -147,7 +147,7 @@ func TestRepairConsistency_ValidRecordsSurvive(t *testing.T) {
 	stateRepo.UpsertPlatform(model.Platform{
 		ID: "p1", Name: "P1", StickyTTLNs: 1000,
 		RegexFilters: []string{}, RegionFilters: []string{},
-		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: 1,
 	})
 	stateRepo.UpsertSubscription(model.Subscription{

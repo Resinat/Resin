@@ -63,7 +63,7 @@ func TestMigrateStateDB_UpgradesLegacyPlatformsColumns(t *testing.T) {
 	}
 }
 
-func TestMigrateStateDB_LegacyBaselineVersionIsPinned(t *testing.T) {
+func TestMigrateStateDB_LegacyBaselineAdvancesToLatest(t *testing.T) {
 	dir := t.TempDir()
 	db, err := OpenDB(dir + "/state.db")
 	if err != nil {
@@ -102,8 +102,80 @@ func TestMigrateStateDB_LegacyBaselineVersionIsPinned(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateLegacyBaselineVersion {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateLegacyBaselineVersion)
+	if version != stateVersionNormalizeMissAction {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionNormalizeMissAction)
+	}
+}
+
+func TestMigrateStateDB_NormalizesLegacyRandomMissAction(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE platforms (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			sticky_ttl_ns INTEGER NOT NULL,
+			regex_filters_json TEXT NOT NULL DEFAULT '[]',
+			region_filters_json TEXT NOT NULL DEFAULT '[]',
+			reverse_proxy_miss_action TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_empty_account_behavior TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_fixed_account_header TEXT NOT NULL DEFAULT '',
+			allocation_policy TEXT NOT NULL DEFAULT 'BALANCED',
+			updated_at_ns INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy latest-like platforms table: %v", err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO platforms (
+			id, name, sticky_ttl_ns, regex_filters_json, region_filters_json,
+			reverse_proxy_miss_action, reverse_proxy_empty_account_behavior,
+			reverse_proxy_fixed_account_header, allocation_policy, updated_at_ns
+		)
+		VALUES
+			('p-random', 'LegacyRandom', 1, '[]', '[]', 'RANDOM', 'RANDOM', '', 'BALANCED', 1),
+			('p-reject', 'LegacyReject', 1, '[]', '[]', 'REJECT', 'RANDOM', '', 'BALANCED', 1)
+	`)
+	if err != nil {
+		t.Fatalf("seed legacy platforms: %v", err)
+	}
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	var randomMissAction string
+	if err := db.QueryRow(`SELECT reverse_proxy_miss_action FROM platforms WHERE id='p-random'`).Scan(&randomMissAction); err != nil {
+		t.Fatalf("query random miss action: %v", err)
+	}
+	if randomMissAction != "TREAT_AS_EMPTY" {
+		t.Fatalf("random miss action: got %q, want %q", randomMissAction, "TREAT_AS_EMPTY")
+	}
+
+	var rejectMissAction string
+	if err := db.QueryRow(`SELECT reverse_proxy_miss_action FROM platforms WHERE id='p-reject'`).Scan(&rejectMissAction); err != nil {
+		t.Fatalf("query reject miss action: %v", err)
+	}
+	if rejectMissAction != "REJECT" {
+		t.Fatalf("reject miss action: got %q, want %q", rejectMissAction, "REJECT")
+	}
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateVersionNormalizeMissAction {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionNormalizeMissAction)
 	}
 }
 
@@ -164,7 +236,7 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 	p := model.Platform{
 		ID: "plat-1", Name: "Default", StickyTTLNs: 1000,
 		RegexFilters: []string{}, RegionFilters: []string{},
-		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: now,
 	}
 	if err := repo.UpsertPlatform(p); err != nil {
@@ -231,7 +303,7 @@ func TestStateRepo_Platform_ValidationFixedHeaderBehavior(t *testing.T) {
 	base := model.Platform{
 		ID: "plat-fixed-header", Name: "FixedHeader", StickyTTLNs: 1000,
 		RegexFilters: []string{}, RegionFilters: []string{},
-		ReverseProxyMissAction:           "RANDOM",
+		ReverseProxyMissAction:           "TREAT_AS_EMPTY",
 		ReverseProxyEmptyAccountBehavior: "FIXED_HEADER",
 		AllocationPolicy:                 "BALANCED",
 		UpdatedAtNs:                      now,
@@ -266,7 +338,7 @@ func TestStateRepo_Platform_NameUniqueViolation(t *testing.T) {
 	p1 := model.Platform{
 		ID: "plat-1", Name: "SameName", StickyTTLNs: 1000,
 		RegexFilters: []string{}, RegionFilters: []string{},
-		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: now,
 	}
 	if err := repo.UpsertPlatform(p1); err != nil {
@@ -298,7 +370,7 @@ func TestStateRepo_Platform_ValidationRejectsInvalidRegex(t *testing.T) {
 	base := model.Platform{
 		ID: "plat-1", Name: "Test", StickyTTLNs: 1000,
 		RegexFilters: []string{}, RegionFilters: []string{},
-		ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY", AllocationPolicy: "BALANCED",
 		UpdatedAtNs: now,
 	}
 
@@ -574,7 +646,7 @@ func TestStateRepo_ConcurrentWrites(t *testing.T) {
 			p := model.Platform{
 				ID: "plat-" + itoa(i), Name: "Platform-" + itoa(i),
 				StickyTTLNs: 1000, RegexFilters: []string{}, RegionFilters: []string{},
-				ReverseProxyMissAction: "RANDOM", AllocationPolicy: "BALANCED",
+				ReverseProxyMissAction: "TREAT_AS_EMPTY", AllocationPolicy: "BALANCED",
 				UpdatedAtNs: now,
 			}
 			errs <- repo.UpsertPlatform(p)

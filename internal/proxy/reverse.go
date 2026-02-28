@@ -265,14 +265,15 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer lifecycle.finish()
 
-	// Resolve account from headers if not in path.
+	// Resolve account in three phases:
+	// 1) Use path account directly when present.
+	// 2) If extraction fails, apply miss-action (REJECT or treat-as-empty).
+	// 3) Continue routing with the resulting account (possibly empty).
 	behaviorPlatform := p.resolvePlatformForAccountBehavior(parsed.PlatformName)
-	account, emptyAccountBehavior := p.resolveReverseProxyAccount(parsed, r, behaviorPlatform)
+	account, _, extractionFailed := p.resolveReverseProxyAccount(parsed, r, behaviorPlatform)
 	lifecycle.setAccount(account)
 
-	// Check miss action if account still empty.
-	// RANDOM behavior intentionally keeps account empty and bypasses miss-action rejection.
-	if shouldRejectReverseProxyEmptyAccount(account, emptyAccountBehavior, behaviorPlatform) {
+	if shouldRejectReverseProxyAccountExtractionFailure(extractionFailed, behaviorPlatform) {
 		lifecycle.setProxyError(ErrAccountRejected)
 		lifecycle.setHTTPStatus(ErrAccountRejected.HTTPCode)
 		writeProxyError(w, ErrAccountRejected)
@@ -396,7 +397,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resolveDefaultPlatform looks up the default platform for REJECT/RANDOM
+// resolveDefaultPlatform looks up the default platform for reverse-proxy
 // miss-action checks when PlatformName is empty.
 func (p *ReverseProxy) resolveDefaultPlatform() *platform.Platform {
 	if plat, ok := p.platLook.GetPlatform(platform.DefaultPlatformID); ok {
@@ -433,46 +434,60 @@ func (p *ReverseProxy) resolveReverseProxyAccount(
 	parsed *parsedPath,
 	r *http.Request,
 	plat *platform.Platform,
-) (string, platform.ReverseProxyEmptyAccountBehavior) {
+) (string, platform.ReverseProxyEmptyAccountBehavior, bool) {
 	account := ""
 	if parsed != nil {
 		account = parsed.Account
 	}
 	behavior := effectiveEmptyAccountBehavior(plat)
 	if account != "" {
-		return account, behavior
+		return account, behavior, false
 	}
 	if r == nil {
-		return account, behavior
+		return account, behavior, behaviorRequiresAccountExtraction(behavior)
 	}
 
 	switch behavior {
 	case platform.ReverseProxyEmptyAccountBehaviorRandom:
-		// Keep account empty and use random routing directly.
+		return account, behavior, false
 	case platform.ReverseProxyEmptyAccountBehaviorFixedHeader:
-		if headers := fixedAccountHeadersForPlatform(plat); len(headers) > 0 {
-			account = extractAccountFromHeaders(r, headers)
+		headers := fixedAccountHeadersForPlatform(plat)
+		if len(headers) == 0 {
+			return account, behavior, true
 		}
+		account = extractAccountFromHeaders(r, headers)
+		return account, behavior, account == ""
 	case platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule:
-		if p != nil && p.matcher != nil && parsed != nil {
-			headers := p.matcher.Match(parsed.Host, parsed.Path)
-			if headers != nil {
-				account = extractAccountFromHeaders(r, headers)
-			}
+		if p == nil || p.matcher == nil || parsed == nil {
+			return account, behavior, true
 		}
+		headers := p.matcher.Match(parsed.Host, parsed.Path)
+		if len(headers) == 0 {
+			return account, behavior, true
+		}
+		account = extractAccountFromHeaders(r, headers)
+		return account, behavior, account == ""
 	}
-	return account, behavior
+	return account, behavior, false
 }
 
-func shouldRejectReverseProxyEmptyAccount(
-	account string,
-	behavior platform.ReverseProxyEmptyAccountBehavior,
-	plat *platform.Platform,
-) bool {
-	if account != "" || behavior == platform.ReverseProxyEmptyAccountBehaviorRandom || plat == nil {
+func behaviorRequiresAccountExtraction(behavior platform.ReverseProxyEmptyAccountBehavior) bool {
+	switch behavior {
+	case platform.ReverseProxyEmptyAccountBehaviorFixedHeader, platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule:
+		return true
+	default:
 		return false
 	}
-	return plat.ReverseProxyMissAction == string(platform.ReverseProxyMissActionReject)
+}
+
+func shouldRejectReverseProxyAccountExtractionFailure(
+	extractionFailed bool,
+	plat *platform.Platform,
+) bool {
+	if !extractionFailed || plat == nil {
+		return false
+	}
+	return platform.NormalizeReverseProxyMissAction(plat.ReverseProxyMissAction) == platform.ReverseProxyMissActionReject
 }
 
 func fixedAccountHeadersForPlatform(plat *platform.Platform) []string {

@@ -35,7 +35,7 @@ func newProxyE2EEnvFromSubscriptionURL(t *testing.T, subURL string) *proxyE2EEnv
 
 	plat := platform.NewPlatform("plat-id", "plat", nil, nil)
 	plat.StickyTTLNs = int64(time.Hour)
-	plat.ReverseProxyMissAction = "RANDOM"
+	plat.ReverseProxyMissAction = "TREAT_AS_EMPTY"
 	pool.RegisterPlatform(plat)
 
 	sub := subscription.NewSubscription("sub-1", "sub-1", subURL, true, false)

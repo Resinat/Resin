@@ -230,6 +230,7 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "正向代理": "Forward Proxy",
   "反向代理": "Reverse Proxy",
   "随机选择节点": "Select node randomly",
+  "按空账号处理": "Treat as empty account",
   "随机路由": "Route randomly",
   "直接随机路由": "Route randomly directly",
   "拒绝代理请求": "Reject proxy requests",

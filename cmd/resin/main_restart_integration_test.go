@@ -72,7 +72,7 @@ func TestBootstrapRestart_RecoversTopologyAndStickyLease(t *testing.T) {
 		StickyTTLNs:            int64(12 * time.Hour),
 		RegexFilters:           []string{},
 		RegionFilters:          []string{},
-		ReverseProxyMissAction: "RANDOM",
+		ReverseProxyMissAction: "TREAT_AS_EMPTY",
 		AllocationPolicy:       "BALANCED",
 		UpdatedAtNs:            now,
 	}); err != nil {

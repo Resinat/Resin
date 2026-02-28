@@ -93,7 +93,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.DefaultPlatformRegionFilters = envStringSlice("RESIN_DEFAULT_PLATFORM_REGION_FILTERS", []string{}, &errs)
 	cfg.DefaultPlatformReverseProxyMissAction = envStr(
 		"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION",
-		string(platform.ReverseProxyMissActionRandom),
+		string(platform.ReverseProxyMissActionTreatAsEmpty),
 	)
 	cfg.DefaultPlatformReverseProxyEmptyAccountBehavior = envStr(
 		"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR",
@@ -176,13 +176,16 @@ func LoadEnvConfig() (*EnvConfig, error) {
 			errs = append(errs, fmt.Sprintf("RESIN_DEFAULT_PLATFORM_REGION_FILTERS: invalid region %q (must be lowercase ISO 3166-1 alpha-2)", region))
 		}
 	}
-	if !platform.ReverseProxyMissAction(cfg.DefaultPlatformReverseProxyMissAction).IsValid() {
+	normalizedMissAction := platform.NormalizeReverseProxyMissAction(cfg.DefaultPlatformReverseProxyMissAction)
+	if normalizedMissAction == "" {
 		errs = append(errs, fmt.Sprintf(
 			"RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION: invalid value %q (allowed: %s, %s)",
 			cfg.DefaultPlatformReverseProxyMissAction,
-			platform.ReverseProxyMissActionRandom,
+			platform.ReverseProxyMissActionTreatAsEmpty,
 			platform.ReverseProxyMissActionReject,
 		))
+	} else {
+		cfg.DefaultPlatformReverseProxyMissAction = string(normalizedMissAction)
 	}
 	if !platform.ReverseProxyEmptyAccountBehavior(cfg.DefaultPlatformReverseProxyEmptyAccountBehavior).IsValid() {
 		errs = append(errs, fmt.Sprintf(
