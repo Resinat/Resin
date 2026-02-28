@@ -4,7 +4,6 @@ import { AlertTriangle, ArrowLeft, Link2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { z } from "zod";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -25,33 +24,15 @@ import {
   missActionLabel,
   missActions,
 } from "./constants";
-import { parseHeaderLines, parseLinesToList } from "./formParsers";
+import {
+  defaultPlatformFormValues,
+  platformFormSchema,
+  platformToFormValues,
+  toPlatformUpdateInput,
+  type PlatformFormValues,
+} from "./formModel";
 import { PlatformMonitorPanel } from "./PlatformMonitorPanel";
-import type { Platform } from "./types";
 
-const platformEditSchema = z.object({
-  name: z.string().trim().min(1, "平台名称不能为空"),
-  sticky_ttl: z.string().optional(),
-  regex_filters_text: z.string().optional(),
-  region_filters_text: z.string().optional(),
-  reverse_proxy_miss_action: z.enum(missActions),
-  reverse_proxy_empty_account_behavior: z.enum(emptyAccountBehaviors),
-  reverse_proxy_fixed_account_header: z.string().optional(),
-  allocation_policy: z.enum(allocationPolicies),
-}).superRefine((value, ctx) => {
-  if (
-    value.reverse_proxy_empty_account_behavior === "FIXED_HEADER" &&
-    parseHeaderLines(value.reverse_proxy_fixed_account_header).length === 0
-  ) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["reverse_proxy_fixed_account_header"],
-      message: "用于提取 Account 的 Headers 不能为空",
-    });
-  }
-});
-
-type PlatformEditForm = z.infer<typeof platformEditSchema>;
 type PlatformDetailTab = "monitor" | "config" | "ops";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
@@ -60,22 +41,6 @@ const DETAIL_TABS: Array<{ key: PlatformDetailTab; label: string; hint: string }
   { key: "config", label: "配置", hint: "过滤规则与分配策略" },
   { key: "ops", label: "运维", hint: "重建、重置、删除操作" },
 ];
-
-function platformToEditForm(platform: Platform): PlatformEditForm {
-  const regexFilters = Array.isArray(platform.regex_filters) ? platform.regex_filters : [];
-  const regionFilters = Array.isArray(platform.region_filters) ? platform.region_filters : [];
-
-  return {
-    name: platform.name,
-    sticky_ttl: platform.sticky_ttl,
-    regex_filters_text: regexFilters.join("\n"),
-    region_filters_text: regionFilters.join("\n"),
-    reverse_proxy_miss_action: platform.reverse_proxy_miss_action,
-    reverse_proxy_empty_account_behavior: platform.reverse_proxy_empty_account_behavior,
-    reverse_proxy_fixed_account_header: platform.reverse_proxy_fixed_account_header,
-    allocation_policy: platform.allocation_policy,
-  };
-}
 
 export function PlatformDetailPage() {
   const { t } = useI18n();
@@ -95,18 +60,9 @@ export function PlatformDetailPage() {
 
   const platform = platformQuery.data ?? null;
 
-  const editForm = useForm<PlatformEditForm>({
-    resolver: zodResolver(platformEditSchema),
-    defaultValues: {
-      name: "",
-      sticky_ttl: "",
-      regex_filters_text: "",
-      region_filters_text: "",
-      reverse_proxy_miss_action: "RANDOM",
-      reverse_proxy_empty_account_behavior: "ACCOUNT_HEADER_RULE",
-      reverse_proxy_fixed_account_header: "Authorization",
-      allocation_policy: "BALANCED",
-    },
+  const editForm = useForm<PlatformFormValues>({
+    resolver: zodResolver(platformFormSchema),
+    defaultValues: defaultPlatformFormValues,
   });
   const detailEmptyAccountBehavior = editForm.watch("reverse_proxy_empty_account_behavior");
 
@@ -114,7 +70,7 @@ export function PlatformDetailPage() {
     if (!platform) {
       return;
     }
-    editForm.reset(platformToEditForm(platform));
+    editForm.reset(platformToFormValues(platform));
   }, [platform, editForm]);
 
   const invalidatePlatform = async (id: string) => {
@@ -125,25 +81,16 @@ export function PlatformDetailPage() {
   };
 
   const updateMutation = useMutation({
-    mutationFn: async (formData: PlatformEditForm) => {
+    mutationFn: async (formData: PlatformFormValues) => {
       if (!platform) {
         throw new Error("平台不存在或已被删除");
       }
 
-      return updatePlatform(platform.id, {
-        name: formData.name.trim(),
-        sticky_ttl: formData.sticky_ttl?.trim() || "",
-        regex_filters: parseLinesToList(formData.regex_filters_text),
-        region_filters: parseLinesToList(formData.region_filters_text, (value) => value.toLowerCase()),
-        reverse_proxy_miss_action: formData.reverse_proxy_miss_action,
-        reverse_proxy_empty_account_behavior: formData.reverse_proxy_empty_account_behavior,
-        reverse_proxy_fixed_account_header: parseHeaderLines(formData.reverse_proxy_fixed_account_header).join("\n"),
-        allocation_policy: formData.allocation_policy,
-      });
+      return updatePlatform(platform.id, toPlatformUpdateInput(formData));
     },
     onSuccess: async (updated) => {
       await invalidatePlatform(updated.id);
-      editForm.reset(platformToEditForm(updated));
+      editForm.reset(platformToFormValues(updated));
       showToast("success", t("平台 {{name}} 已更新", { name: updated.name }));
     },
     onError: (error) => {
@@ -160,7 +107,7 @@ export function PlatformDetailPage() {
     },
     onSuccess: async (updated) => {
       await invalidatePlatform(updated.id);
-      editForm.reset(platformToEditForm(updated));
+      editForm.reset(platformToFormValues(updated));
       showToast("success", t("平台 {{name}} 已重置为默认配置", { name: updated.name }));
     },
     onError: (error) => {

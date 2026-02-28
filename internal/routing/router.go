@@ -203,7 +203,6 @@ func (r *Router) decideStickyLease(
 			return newLease, xsync.UpdateOp, rotatedResult, nil
 		}
 		invalidation = leaseInvalidationRemove
-		loaded = false
 	}
 
 	return r.createOrAbortStickyLease(

@@ -210,6 +210,65 @@ func validatePlatformAllocationPolicy(raw string) *ServiceError {
 	))
 }
 
+func setPlatformStickyTTL(cfg *platformConfig, d time.Duration) *ServiceError {
+	if d <= 0 {
+		return invalidArg("sticky_ttl: must be > 0")
+	}
+	cfg.StickyTTLNs = int64(d)
+	return nil
+}
+
+func setPlatformMissAction(cfg *platformConfig, missAction string) *ServiceError {
+	if err := validatePlatformMissAction(missAction); err != nil {
+		return err
+	}
+	cfg.ReverseProxyMissAction = missAction
+	return nil
+}
+
+func setPlatformEmptyAccountBehavior(cfg *platformConfig, behavior string) *ServiceError {
+	if err := validatePlatformEmptyAccountBehavior(behavior); err != nil {
+		return err
+	}
+	cfg.ReverseProxyEmptyAccountBehavior = behavior
+	return nil
+}
+
+func setPlatformAllocationPolicy(cfg *platformConfig, policy string) *ServiceError {
+	if err := validatePlatformAllocationPolicy(policy); err != nil {
+		return err
+	}
+	cfg.AllocationPolicy = policy
+	return nil
+}
+
+func validatePlatformConfig(cfg *platformConfig, validateRegionFilters bool) *ServiceError {
+	if validateRegionFilters {
+		if err := platform.ValidateRegionFilters(cfg.RegionFilters); err != nil {
+			return invalidArg(err.Error())
+		}
+	}
+	if err := validatePlatformEmptyAccountConfig(cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ControlPlaneService) compileAndUpsertPlatform(id string, cfg platformConfig) (model.Platform, *platform.Platform, *ServiceError) {
+	plat, err := cfg.toRuntime(id)
+	if err != nil {
+		return model.Platform{}, nil, invalidArg(err.Error())
+	}
+	mp := cfg.toModel(id, time.Now().UnixNano())
+	if err := s.Engine.UpsertPlatform(mp); err != nil {
+		if errors.Is(err, state.ErrConflict) {
+			return model.Platform{}, nil, conflict("platform name already exists")
+		}
+		return model.Platform{}, nil, internal("persist platform", err)
+	}
+	return mp, plat, nil
+}
+
 // ListPlatforms returns all platforms from the database.
 func (s *ControlPlaneService) ListPlatforms() ([]PlatformResponse, error) {
 	platforms, err := s.Engine.ListPlatforms()
@@ -274,10 +333,9 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 		if err != nil {
 			return nil, invalidArg("sticky_ttl: " + err.Error())
 		}
-		if d <= 0 {
-			return nil, invalidArg("sticky_ttl: must be > 0")
+		if err := setPlatformStickyTTL(&cfg, d); err != nil {
+			return nil, err
 		}
-		cfg.StickyTTLNs = int64(d)
 	}
 	if req.RegexFilters != nil {
 		cfg.RegexFilters = req.RegexFilters
@@ -286,45 +344,31 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 		cfg.RegionFilters = req.RegionFilters
 	}
 	if req.ReverseProxyMissAction != nil {
-		if err := validatePlatformMissAction(*req.ReverseProxyMissAction); err != nil {
+		if err := setPlatformMissAction(&cfg, *req.ReverseProxyMissAction); err != nil {
 			return nil, err
 		}
-		cfg.ReverseProxyMissAction = *req.ReverseProxyMissAction
 	}
 	if req.ReverseProxyEmptyAccountBehavior != nil {
-		if err := validatePlatformEmptyAccountBehavior(*req.ReverseProxyEmptyAccountBehavior); err != nil {
+		if err := setPlatformEmptyAccountBehavior(&cfg, *req.ReverseProxyEmptyAccountBehavior); err != nil {
 			return nil, err
 		}
-		cfg.ReverseProxyEmptyAccountBehavior = *req.ReverseProxyEmptyAccountBehavior
 	}
 	if req.ReverseProxyFixedAccountHeader != nil {
 		cfg.ReverseProxyFixedAccountHeader = *req.ReverseProxyFixedAccountHeader
 	}
 	if req.AllocationPolicy != nil {
-		if err := validatePlatformAllocationPolicy(*req.AllocationPolicy); err != nil {
+		if err := setPlatformAllocationPolicy(&cfg, *req.AllocationPolicy); err != nil {
 			return nil, err
 		}
-		cfg.AllocationPolicy = *req.AllocationPolicy
 	}
-	if err := validatePlatformEmptyAccountConfig(&cfg); err != nil {
+	if err := validatePlatformConfig(&cfg, true); err != nil {
 		return nil, err
-	}
-	if err := platform.ValidateRegionFilters(cfg.RegionFilters); err != nil {
-		return nil, invalidArg(err.Error())
 	}
 
 	id := uuid.New().String()
-	now := time.Now().UnixNano()
-	plat, err := cfg.toRuntime(id)
-	if err != nil {
-		return nil, invalidArg(err.Error())
-	}
-	mp := cfg.toModel(id, now)
-	if err := s.Engine.UpsertPlatform(mp); err != nil {
-		if errors.Is(err, state.ErrConflict) {
-			return nil, conflict("platform name already exists")
-		}
-		return nil, internal("persist platform", err)
+	mp, plat, svcErr := s.compileAndUpsertPlatform(id, cfg)
+	if svcErr != nil {
+		return nil, svcErr
 	}
 
 	// Register in topology pool.
@@ -380,10 +424,9 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	if d, ok, err := patch.optionalDurationString("sticky_ttl"); err != nil {
 		return nil, err
 	} else if ok {
-		if d <= 0 {
-			return nil, invalidArg("sticky_ttl: must be > 0")
+		if err := setPlatformStickyTTL(&cfg, d); err != nil {
+			return nil, err
 		}
-		cfg.StickyTTLNs = int64(d)
 	}
 
 	if filters, ok, err := patch.optionalStringSlice("regex_filters"); err != nil {
@@ -403,18 +446,16 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	if ma, ok, err := patch.optionalString("reverse_proxy_miss_action"); err != nil {
 		return nil, err
 	} else if ok {
-		if err := validatePlatformMissAction(ma); err != nil {
+		if err := setPlatformMissAction(&cfg, ma); err != nil {
 			return nil, err
 		}
-		cfg.ReverseProxyMissAction = ma
 	}
 	if behavior, ok, err := patch.optionalString("reverse_proxy_empty_account_behavior"); err != nil {
 		return nil, err
 	} else if ok {
-		if err := validatePlatformEmptyAccountBehavior(behavior); err != nil {
+		if err := setPlatformEmptyAccountBehavior(&cfg, behavior); err != nil {
 			return nil, err
 		}
-		cfg.ReverseProxyEmptyAccountBehavior = behavior
 	}
 	if fixedHeader, ok, err := patch.optionalString("reverse_proxy_fixed_account_header"); err != nil {
 		return nil, err
@@ -425,30 +466,17 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	if ap, ok, err := patch.optionalString("allocation_policy"); err != nil {
 		return nil, err
 	} else if ok {
-		if err := validatePlatformAllocationPolicy(ap); err != nil {
+		if err := setPlatformAllocationPolicy(&cfg, ap); err != nil {
 			return nil, err
 		}
-		cfg.AllocationPolicy = ap
 	}
-	if regionFiltersPatched {
-		if err := platform.ValidateRegionFilters(cfg.RegionFilters); err != nil {
-			return nil, invalidArg(err.Error())
-		}
-	}
-	if err := validatePlatformEmptyAccountConfig(&cfg); err != nil {
+	if err := validatePlatformConfig(&cfg, regionFiltersPatched); err != nil {
 		return nil, err
 	}
 
-	plat, err := cfg.toRuntime(id)
-	if err != nil {
-		return nil, invalidArg(err.Error())
-	}
-	mp := cfg.toModel(id, time.Now().UnixNano())
-	if err := s.Engine.UpsertPlatform(mp); err != nil {
-		if errors.Is(err, state.ErrConflict) {
-			return nil, conflict("platform name already exists")
-		}
-		return nil, internal("persist platform", err)
+	mp, plat, svcErr := s.compileAndUpsertPlatform(id, cfg)
+	if svcErr != nil {
+		return nil, svcErr
 	}
 
 	// Replace in topology pool.
