@@ -983,7 +983,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 ```json
 {
   "user_agent": "sing-box",
-  "request_log_enabled": false,
+  "request_log_enabled": true,
   "reverse_proxy_log_detail_enabled": false,
   "reverse_proxy_log_req_headers_max_bytes": 4096,
   "reverse_proxy_log_req_body_max_bytes": 1024,
@@ -1011,7 +1011,7 @@ Resin 需要做实事与历史的统计数据，用于 Dashboard 展示。
 ```json
 {
   "user_agent": "sing-box",
-  "request_log_enabled": false,
+  "request_log_enabled": true,
   "reverse_proxy_log_detail_enabled": false,
   "reverse_proxy_log_req_headers_max_bytes": 4096,
   "reverse_proxy_log_req_body_max_bytes": 1024,
@@ -2252,7 +2252,7 @@ Resin 支持通过 API (`PATCH /system/config`) 动态调整大部分全局运�
 * `UserAgent`: Resin 发起资源下载（订阅/GeoIP）HTTP 请求时使用的 User-Agent 头。默认 "sing-box"。
 
 #### 请求日志设置
-* `RequestLogEnabled`: 是否开启请求日志记录。此开关实时生效。默认 False。
+* `RequestLogEnabled`: 是否开启请求日志记录。此开关实时生效。默认 True。
 * `ReverseProxyLogDetailEnabled`: 是否记录反向代理的详细日志（请求/响应头与体）。默认 False。
 * `ReverseProxyLogReqHeadersMaxBytes`: 记录请求头的最大字节数。默认 4KB。
 * `ReverseProxyLogReqBodyMaxBytes`: 记录请求体的最大字节数。默认 1KB。

@@ -41,7 +41,7 @@ func NewDefaultRuntimeConfig() *RuntimeConfig {
 	return &RuntimeConfig{
 		UserAgent: "sing-box",
 
-		RequestLogEnabled:                  false,
+		RequestLogEnabled:                  true,
 		ReverseProxyLogDetailEnabled:       false,
 		ReverseProxyLogReqHeadersMaxBytes:  4096,
 		ReverseProxyLogReqBodyMaxBytes:     1024,

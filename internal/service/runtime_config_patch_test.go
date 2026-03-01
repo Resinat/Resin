@@ -290,7 +290,7 @@ func TestPatchRuntimeConfig_DistributesToConfigAwareEventEmitter(t *testing.T) {
 		},
 	}
 
-	// Default config has request_log_enabled=false, so no event should pass through.
+	// Default config has request_log_enabled=true but reverse detail capture disabled.
 	emitter.EmitRequestLog(proxy.RequestLogEntry{
 		ProxyType:   proxy.ProxyTypeReverse,
 		ReqHeaders:  []byte("0123456789"),
@@ -298,11 +298,33 @@ func TestPatchRuntimeConfig_DistributesToConfigAwareEventEmitter(t *testing.T) {
 		RespHeaders: []byte("zyxwvutsrq"),
 		RespBody:    []byte("ok!"),
 	})
-	if base.logs != 0 {
-		t.Fatalf("logs before enabling request_log = %d, want 0", base.logs)
+	if base.logs != 1 {
+		t.Fatalf("logs with default request_log = %d, want 1", base.logs)
+	}
+	if base.last.ReqHeaders != nil || base.last.ReqHeadersLen != 0 || base.last.ReqHeadersTruncated {
+		t.Fatalf("default reverse detail should be cleared, got headers=%q len=%d truncated=%v",
+			string(base.last.ReqHeaders), base.last.ReqHeadersLen, base.last.ReqHeadersTruncated)
 	}
 
 	_, err := h.cp.PatchRuntimeConfig([]byte(`{
+		"request_log_enabled": false
+	}`))
+	if err != nil {
+		t.Fatalf("PatchRuntimeConfig(disable request_log): %v", err)
+	}
+
+	emitter.EmitRequestLog(proxy.RequestLogEntry{
+		ProxyType:   proxy.ProxyTypeReverse,
+		ReqHeaders:  []byte("0123456789"),
+		ReqBody:     []byte("abcdef"),
+		RespHeaders: []byte("zyxwvutsrq"),
+		RespBody:    []byte("ok!"),
+	})
+	if base.logs != 1 {
+		t.Fatalf("logs after disabling request_log = %d, want 1", base.logs)
+	}
+
+	_, err = h.cp.PatchRuntimeConfig([]byte(`{
 		"request_log_enabled": true,
 		"reverse_proxy_log_detail_enabled": true,
 		"reverse_proxy_log_req_headers_max_bytes": 3,
@@ -321,8 +343,8 @@ func TestPatchRuntimeConfig_DistributesToConfigAwareEventEmitter(t *testing.T) {
 		RespHeaders: []byte("zyxwvutsrq"),
 		RespBody:    []byte("ok!"),
 	})
-	if base.logs != 1 {
-		t.Fatalf("logs after enabling request_log = %d, want 1", base.logs)
+	if base.logs != 2 {
+		t.Fatalf("logs after re-enabling request_log = %d, want 2", base.logs)
 	}
 	if base.last.ReqHeadersLen != 10 {
 		t.Fatalf("ReqHeadersLen = %d, want 10", base.last.ReqHeadersLen)
@@ -363,8 +385,8 @@ func TestPatchRuntimeConfig_DistributesToConfigAwareEventEmitter(t *testing.T) {
 		RespHeaders: []byte("zyxwvutsrq"),
 		RespBody:    []byte("ok!"),
 	})
-	if base.logs != 2 {
-		t.Fatalf("logs after threshold up = %d, want 2", base.logs)
+	if base.logs != 3 {
+		t.Fatalf("logs after threshold up = %d, want 3", base.logs)
 	}
 	if base.last.ReqHeadersTruncated {
 		t.Fatal("ReqHeadersTruncated after threshold up = true, want false")

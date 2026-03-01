@@ -12,8 +12,8 @@ func TestNewDefaultRuntimeConfig(t *testing.T) {
 	if cfg.UserAgent != "sing-box" {
 		t.Errorf("UserAgent: got %q, want %q", cfg.UserAgent, "sing-box")
 	}
-	if cfg.RequestLogEnabled != false {
-		t.Errorf("RequestLogEnabled: got %v, want false", cfg.RequestLogEnabled)
+	if cfg.RequestLogEnabled != true {
+		t.Errorf("RequestLogEnabled: got %v, want true", cfg.RequestLogEnabled)
 	}
 	if cfg.MaxConsecutiveFailures != 3 {
 		t.Errorf("MaxConsecutiveFailures: got %d, want 3", cfg.MaxConsecutiveFailures)

@@ -229,8 +229,8 @@ func TestSystemConfig_OK(t *testing.T) {
 	if body["user_agent"] != "sing-box" {
 		t.Errorf("user_agent: got %q, want %q", body["user_agent"], "sing-box")
 	}
-	if body["request_log_enabled"] != false {
-		t.Errorf("request_log_enabled: got %v, want false", body["request_log_enabled"])
+	if body["request_log_enabled"] != true {
+		t.Errorf("request_log_enabled: got %v, want true", body["request_log_enabled"])
 	}
 
 	// JSON numbers are float64
@@ -378,8 +378,8 @@ func TestSystemDefaultConfig_OK(t *testing.T) {
 	if body["user_agent"] != "sing-box" {
 		t.Errorf("user_agent: got %q, want %q", body["user_agent"], "sing-box")
 	}
-	if body["request_log_enabled"] != false {
-		t.Errorf("request_log_enabled: got %v, want false", body["request_log_enabled"])
+	if body["request_log_enabled"] != true {
+		t.Errorf("request_log_enabled: got %v, want true", body["request_log_enabled"])
 	}
 	if maxFail, ok := body["max_consecutive_failures"].(float64); !ok || maxFail != 3 {
 		t.Errorf("max_consecutive_failures: got %v, want 3", body["max_consecutive_failures"])

@@ -1059,8 +1059,8 @@ func TestAPIContract_SystemDefaultConfigSnapshot(t *testing.T) {
 	if defaultBody["user_agent"] != "sing-box" {
 		t.Fatalf("default user_agent: got %v, want sing-box", defaultBody["user_agent"])
 	}
-	if defaultBody["request_log_enabled"] != false {
-		t.Fatalf("default request_log_enabled: got %v, want false", defaultBody["request_log_enabled"])
+	if defaultBody["request_log_enabled"] != true {
+		t.Fatalf("default request_log_enabled: got %v, want true", defaultBody["request_log_enabled"])
 	}
 	if defaultBody["max_consecutive_failures"] != float64(3) {
 		t.Fatalf("default max_consecutive_failures: got %v, want 3", defaultBody["max_consecutive_failures"])

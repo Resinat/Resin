@@ -5,7 +5,7 @@ const path = "/api/v1/system/config";
 
 const DEFAULT_CONFIG: RuntimeConfig = {
   user_agent: "",
-  request_log_enabled: false,
+  request_log_enabled: true,
   reverse_proxy_log_detail_enabled: false,
   reverse_proxy_log_req_headers_max_bytes: 0,
   reverse_proxy_log_req_body_max_bytes: 0,
