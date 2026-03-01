@@ -1,7 +1,7 @@
 <div align="center">
   <img src="webui/public/vite.svg" width="48" alt="Resin Logo" />
   <h1>Resin</h1>
-  <p><strong>将大量的代理订阅转化为一个稳定、智能、可观测且支持会话保持的网络。</strong></p>
+  <p><strong>将大量的代理订阅转化为一个稳定、智能、可观测且支持会话保持的网络代理池。</strong></p>
 </div>
 
 <p align="center">
@@ -127,6 +127,32 @@ curl -x http://127.0.0.1:2260 \
 ```
 curl http://127.0.0.1:2260/my-token/MyPlatform:/https/api.ipify.org
 ```
+
+## 🔌 支持协议与订阅格式
+
+### 接入协议
+
+- 正向代理入站：HTTP Proxy，支持普通 HTTP 请求和通过 `CONNECT` 建立 HTTPS 隧道。
+- 反向代理入站：URL 模式 `/令牌/平台:账号/协议/目标主机/路径`，其中 `协议` 当前支持 `http`、`https`。
+- 反向代理中的 WebSocket：支持 `ws`/`wss` 升级，但 URL 中的 `协议` 字段仍需使用 `http`（对应 `ws`）或 `https`（对应 `wss`）。
+
+### 订阅来源
+
+- 远程订阅 URL：`http://` 或 `https://`。
+- 本地订阅内容：在 UI/API 中直接粘贴订阅内容。
+
+### 订阅内容格式
+
+- sing-box JSON：`{"outbounds":[...]}` 或原始出站数组 `[...]`。
+- Clash JSON/YAML：`{"proxies":[...]}` 或 YAML `proxies:`。
+- URI 行格式（每行一个节点）：`vmess://`、`vless://`、`trojan://`、`ss://`、`hysteria2://`。
+- 纯 HTTP 代理行：`IP:PORT` 或 `IP:PORT:USER:PASS`（支持 IPv4 和 IPv6）。
+- Base64 包裹的文本订阅（例如 URI 行或纯文本节点列表）。
+
+### 支持的出站节点协议类型
+
+- 对于 sing-box JSON/原始 outbounds：`socks`、`http`、`shadowsocks`、`vmess`、`trojan`、`wireguard`、`hysteria`、`vless`、`shadowtls`、`tuic`、`hysteria2`、`anytls`、`ssh`。
+- 对于 Clash 转换：`ss`/`shadowsocks`、`vmess`、`vless`、`trojan`、`hysteria2`/`hy2`。
 
 ---
 

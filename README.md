@@ -139,6 +139,32 @@ For reverse proxy, include Platform in the URL prefix:
 curl http://127.0.0.1:2260/my-token/MyPlatform:/https/api.ipify.org
 ```
 
+## 🔌 Supported Protocols and Subscription Formats
+
+### Access protocols
+
+- Forward proxy inbound: HTTP proxy, including regular HTTP requests and HTTPS tunneling via `CONNECT`.
+- Reverse proxy inbound: URL mode `/token/platform:account/protocol/host/path`, where `protocol` supports `http` and `https`.
+- WebSocket in reverse mode: `ws`/`wss` upgrades are supported, but the URL `protocol` segment must still be `http` (for `ws`) or `https` (for `wss`).
+
+### Subscription sources
+
+- Remote subscription URL: `http://` or `https://`.
+- Local subscription content: paste subscription content directly in the UI/API.
+
+### Subscription content formats
+
+- sing-box JSON: `{"outbounds":[...]}` or raw outbound array `[...]`.
+- Clash JSON/YAML: `{"proxies":[...]}` or YAML `proxies:`.
+- URI line format (one node per line): `vmess://`, `vless://`, `trojan://`, `ss://`, `hysteria2://`.
+- Plain HTTP proxy lines: `IP:PORT` or `IP:PORT:USER:PASS` (IPv4 and IPv6).
+- Base64-wrapped text subscriptions (for URI lines/plain-text node lists).
+
+### Supported outbound node types
+
+- For sing-box JSON/raw outbounds: `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `wireguard`, `hysteria`, `vless`, `shadowtls`, `tuic`, `hysteria2`, `anytls`, `ssh`.
+- For Clash conversion: `ss`/`shadowsocks`, `vmess`, `vless`, `trojan`, `hysteria2`/`hy2`.
+
 ---
 
 ## 📖 Advanced Usage: Sticky Session Proxy
