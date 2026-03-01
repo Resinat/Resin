@@ -810,7 +810,7 @@ export function SubscriptionPage() {
                   <div className="platform-op-item">
                     <div className="platform-op-copy">
                       <h5>{t("清理失效节点")}</h5>
-                      <p className="platform-op-hint">{t("立即清理当前熔断，或出错错误的节点。（订阅更新后节点可能会被重新添加）")}</p>
+                      <p className="platform-op-hint">{t("立即清理当前熔断，或出错的节点。")}</p>
                     </div>
                     <Button
                       variant="secondary"

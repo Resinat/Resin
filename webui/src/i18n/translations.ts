@@ -367,8 +367,8 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "历史探测总次数": "Total historical probe count",
   "历史延迟衰减窗口": "Historical latency decay window",
   "历史租约时长统计": "Historical lease duration stats",
-  "立即清理当前熔断，或出错错误的节点。（订阅更新后节点可能会被重新添加）":
-    "Immediately clean circuit-open or errored nodes. (They may be re-added after subscription refresh.)",
+  "立即清理当前熔断，或出错的节点。":
+    "Immediately clean circuit-open or errored nodes.",
   "立即刷新订阅并同步节点。": "Refresh subscription immediately and sync nodes.",
   "连接数保留时间": "Connection retention window",
   "连接数抽样间隔": "Connection sampling interval",
