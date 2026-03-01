@@ -5,12 +5,16 @@ on:
     tags:
       - 'v*' # Trigger on tags starting with v, e.g., v1.0.0, v1.0.0-rc.1
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-binaries:
-    name: Build & Release Binaries
+    name: Build Binaries
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     strategy:
       matrix:
         include:
@@ -80,12 +84,44 @@ jobs:
           
           if [ "$GOOS" = "windows" ]; then
             zip resin-${GOOS}-${GOARCH}.zip ${SIMPLE_NAME}
+            PACKAGE_NAME="resin-${GOOS}-${GOARCH}.zip"
           else
             tar -czvf resin-${GOOS}-${GOARCH}.tar.gz ${SIMPLE_NAME}
+            PACKAGE_NAME="resin-${GOOS}-${GOARCH}.tar.gz"
           fi
           
           # Remove simple name copy to avoid confusion
           rm ${SIMPLE_NAME}
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
+
+      - name: Upload Release Package Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: build/${{ env.PACKAGE_NAME }}
+          retention-days: 1
+
+      - name: Upload Linux bin for Docker
+        if: matrix.goos == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: build/${{ env.OUTPUT_NAME }}
+          retention-days: 1
+
+  publish-release:
+    name: Publish Release
+    runs-on: ubuntu-latest
+    needs: build-binaries
+    permissions:
+      contents: write
+    steps:
+      - name: Download Release Package Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: build
+          merge-multiple: true
 
       - name: Check if Pre-release
         id: check_prerelease
@@ -99,38 +135,9 @@ jobs:
       - name: Publish Release Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            build/*.zip
-            build/*.tar.gz
-          prerelease: ${{ steps.check_prerelease.outputs.is_prerelease == 'true' }}
-
-      - name: Upload Linux bin for Docker
-        if: matrix.goos == 'linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: build/${{ env.OUTPUT_NAME }}
-          retention-days: 1
-
-  release-notes:
-    name: Generate Release Notes
-    runs-on: ubuntu-latest
-    needs: build-binaries
-    permissions:
-      contents: write
-    steps:
-      - name: Check if Pre-release
-        id: check_prerelease
-        run: |
-          if [[ "${GITHUB_REF_NAME}" == *"-"* ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
-          fi
-          
-      - name: Generate Notes
-        uses: softprops/action-gh-release@v2
-        with:
+          files: build/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
           generate_release_notes: true
           prerelease: ${{ steps.check_prerelease.outputs.is_prerelease == 'true' }}
 
