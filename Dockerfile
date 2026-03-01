@@ -30,16 +30,18 @@ RUN CGO_ENABLED=0 go build -trimpath -tags "with_quic with_wireguard with_grpc w
   -o /out/resin ./cmd/resin
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata \
+RUN apk add --no-cache ca-certificates tzdata su-exec \
   && addgroup -S resin \
   && adduser -S -G resin -h /var/lib/resin resin \
   && mkdir -p /var/cache/resin /var/lib/resin /var/log/resin \
   && chown -R resin:resin /var/cache/resin /var/lib/resin /var/log/resin
 
 COPY --from=go-builder /out/resin /usr/local/bin/resin
+COPY docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-USER resin
 EXPOSE 2260
 VOLUME ["/var/cache/resin", "/var/lib/resin", "/var/log/resin"]
 
-ENTRYPOINT ["/usr/local/bin/resin"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["/usr/local/bin/resin"]
