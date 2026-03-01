@@ -357,13 +357,14 @@ export function RequestLogsPage() {
   const logsQuery = useQuery({
     queryKey: ["request-logs", activeFilters, cursor],
     queryFn: () => listRequestLogs({ ...activeFilters, cursor }),
-    refetchInterval: 15_000,
+    refetchInterval: pageIndex === 0 ? 15_000 : false,
     placeholderData: (prev) => prev,
   });
 
   const logs = logsQuery.data?.items ?? EMPTY_LOGS;
+  const isPageTransitioning = logsQuery.isFetching && logsQuery.isPlaceholderData;
 
-  const visibleLogs = logs;
+  const visibleLogs = isPageTransitioning ? EMPTY_LOGS : logs;
 
   const selectedLog = useMemo(() => {
     if (!selectedLogId) {
@@ -429,6 +430,10 @@ export function RequestLogsPage() {
   };
 
   const moveNext = () => {
+    if (isPageTransitioning) {
+      return;
+    }
+
     const nextCursor = logsQuery.data?.next_cursor;
     if (!nextCursor) {
       return;
@@ -447,6 +452,10 @@ export function RequestLogsPage() {
   };
 
   const movePrev = () => {
+    if (isPageTransitioning) {
+      return;
+    }
+
     setPageIndex((prev) => Math.max(0, prev - 1));
     setSelectedLogId("");
     setDrawerOpen(false);
@@ -799,7 +808,7 @@ export function RequestLogsPage() {
       </Card>
 
       <Card className="nodes-table-card platform-cards-container subscriptions-table-card">
-        {logsQuery.isLoading ? <p className="muted">{t("正在加载日志...")}</p> : null}
+        {logsQuery.isLoading || isPageTransitioning ? <p className="muted">{t("正在加载日志...")}</p> : null}
 
         {logsQuery.isError ? (
           <div className="callout callout-error">
@@ -808,7 +817,7 @@ export function RequestLogsPage() {
           </div>
         ) : null}
 
-        {!logsQuery.isLoading && !visibleLogs.length ? (
+        {!logsQuery.isLoading && !isPageTransitioning && !visibleLogs.length ? (
           <div className="empty-box">
             <Sparkles size={16} />
             <p>{t("没有匹配日志")}</p>
@@ -831,6 +840,7 @@ export function RequestLogsPage() {
           hasMore={hasMore}
           pageSize={filters.limit}
           pageSizeOptions={PAGE_SIZE_OPTIONS}
+          disabled={isPageTransitioning}
           onPageSizeChange={(limit) => updateFilter("limit", limit)}
           onPrev={movePrev}
           onNext={moveNext}

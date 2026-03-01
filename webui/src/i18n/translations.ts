@@ -57,7 +57,7 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "页": "Page",
   "选择页码": "Select page",
   "无更多数据": "No more data",
-  "存在下一页": "More pages available",
+  "有更多数据": "More data available",
   "成功": "Success",
   "失败": "Failed",
   "未知错误": "Unknown error",
@@ -537,7 +537,7 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "登录失败：{{message}}": "Login failed: {{message}}",
   "第 {{page}} / {{pages}} 页 · 显示 {{start}}-{{end}} / {{total}}":
     "Page {{page}} / {{pages}} · Showing {{start}}-{{end}} / {{total}}",
-  "第 {{page}} 页 · 存在下一页": "Page {{page}} · More pages available",
+  "第 {{page}} 页 · 有更多数据": "Page {{page}} · More data available",
   "第 {{page}} 页 · 无更多数据": "Page {{page}} · No more data",
   "订阅 {{name}} 创建成功": "Subscription {{name}} created",
   "订阅 {{name}} 没有可清理的熔断或异常节点":
