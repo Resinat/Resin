@@ -33,7 +33,7 @@ export const defaultPlatformFormValues: PlatformFormValues = {
   regex_filters_text: "",
   region_filters_text: "",
   reverse_proxy_miss_action: "TREAT_AS_EMPTY",
-  reverse_proxy_empty_account_behavior: "ACCOUNT_HEADER_RULE",
+  reverse_proxy_empty_account_behavior: "RANDOM",
   reverse_proxy_fixed_account_header: "Authorization",
   allocation_policy: "BALANCED",
 };
