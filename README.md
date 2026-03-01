@@ -40,7 +40,7 @@ It helps shield your services from unstable upstream proxies and aggregates them
 > [!TIP]
 > You can feed this README and [`DESIGN.md`](DESIGN.md) to AI and ask it anything about the project.
 
-![](doc/images/dashboard_zh-cn.png)
+![](doc/images/dashboard_en-us.png)
 
 ---
 
