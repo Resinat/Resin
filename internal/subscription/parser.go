@@ -343,6 +343,36 @@ func convertClashProxyToNode(proxy map[string]any) (ParsedNode, bool) {
 			"tls":         tls,
 		}
 		return buildParsedNode(outbound)
+	case "http":
+		outbound := map[string]any{
+			"type":        "http",
+			"tag":         defaultTag(tag, "http", server, port),
+			"server":      server,
+			"server_port": port,
+		}
+		if username := strings.TrimSpace(getString(proxy, "username")); username != "" {
+			outbound["username"] = username
+		}
+		if password := strings.TrimSpace(getString(proxy, "password")); password != "" {
+			outbound["password"] = password
+		}
+		setTLSFromClash(outbound, proxy, "tls")
+		return buildParsedNode(outbound)
+	case "socks5", "socks":
+		outbound := map[string]any{
+			"type":        "socks",
+			"tag":         defaultTag(tag, "socks", server, port),
+			"server":      server,
+			"server_port": port,
+		}
+		if username := strings.TrimSpace(getString(proxy, "username")); username != "" {
+			outbound["username"] = username
+		}
+		if password := strings.TrimSpace(getString(proxy, "password")); password != "" {
+			outbound["password"] = password
+		}
+		setTLSFromClash(outbound, proxy, "tls")
+		return buildParsedNode(outbound)
 	default:
 		return ParsedNode{}, false
 	}
@@ -378,6 +408,9 @@ func parseURILineSubscription(text string) ([]ParsedNode, bool) {
 		case strings.HasPrefix(lower, "hysteria2://"):
 			recognized = true
 			node, ok = parseHysteria2URI(line)
+		case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"):
+			recognized = true
+			node, ok = parseHTTPURI(line)
 		default:
 			node, ok = parsePlainHTTPProxyLine(line)
 			if ok {
@@ -430,6 +463,47 @@ func parseHTTPProxyIPPortUserPass(line string) (ParsedNode, bool) {
 		"server_port": port,
 		"username":    username,
 		"password":    password,
+	}
+	return buildParsedNode(outbound)
+}
+
+func parseHTTPURI(uri string) (ParsedNode, bool) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return ParsedNode{}, false
+	}
+	server := strings.TrimSpace(u.Hostname())
+	if server == "" {
+		return ParsedNode{}, false
+	}
+
+	defaultPort := uint64(80)
+	if strings.EqualFold(u.Scheme, "https") {
+		defaultPort = 443
+	}
+	port := uriPortOrDefault(u, defaultPort)
+
+	tag := decodeTag(u.Fragment)
+	if tag == "" {
+		tag = defaultTag("", "http", server, port)
+	}
+
+	outbound := map[string]any{
+		"type":        "http",
+		"tag":         tag,
+		"server":      server,
+		"server_port": port,
+	}
+	if u.User != nil {
+		if username := strings.TrimSpace(u.User.Username()); username != "" {
+			outbound["username"] = username
+		}
+		if password, hasPass := u.User.Password(); hasPass {
+			outbound["password"] = strings.TrimSpace(password)
+		}
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		outbound["tls"] = map[string]any{"enabled": true}
 	}
 	return buildParsedNode(outbound)
 }

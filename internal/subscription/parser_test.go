@@ -170,10 +170,57 @@ func TestParseGeneralSubscription_ClashJSON(t *testing.T) {
 				"password": "pass"
 			},
 			{
-				"name": "ignored-http",
+				"name": "http-proxy",
 				"type": "http",
 				"server": "2.2.2.2",
 				"port": 8080
+			}
+		]
+	}`)
+
+	nodes, err := ParseGeneralSubscription(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 parsed nodes, got %d", len(nodes))
+	}
+
+	first := parseNodeRaw(t, nodes[0].RawOptions)
+	if got := first["type"]; got != "shadowsocks" {
+		t.Fatalf("expected type shadowsocks, got %v", got)
+	}
+	if got := first["tag"]; got != "ss-test" {
+		t.Fatalf("expected tag ss-test, got %v", got)
+	}
+
+	second := parseNodeRaw(t, nodes[1].RawOptions)
+	if got := second["type"]; got != "http" {
+		t.Fatalf("expected type http, got %v", got)
+	}
+	if got := second["tag"]; got != "http-proxy" {
+		t.Fatalf("expected tag http-proxy, got %v", got)
+	}
+	if got := second["server"]; got != "2.2.2.2" {
+		t.Fatalf("expected server 2.2.2.2, got %v", got)
+	}
+	if got := second["server_port"]; got != float64(8080) {
+		t.Fatalf("expected server_port 8080, got %v", got)
+	}
+}
+
+func TestParseGeneralSubscription_ClashJSON_HTTPWithAuth(t *testing.T) {
+	data := []byte(`{
+		"proxies": [
+			{
+				"name": "http-auth",
+				"type": "http",
+				"server": "10.0.0.1",
+				"port": 3128,
+				"username": "admin",
+				"password": "secret",
+				"tls": true,
+				"sni": "proxy.example.com"
 			}
 		]
 	}`)
@@ -187,11 +234,120 @@ func TestParseGeneralSubscription_ClashJSON(t *testing.T) {
 	}
 
 	obj := parseNodeRaw(t, nodes[0].RawOptions)
-	if got := obj["type"]; got != "shadowsocks" {
-		t.Fatalf("expected type shadowsocks, got %v", got)
+	if got := obj["type"]; got != "http" {
+		t.Fatalf("expected type http, got %v", got)
 	}
-	if got := obj["tag"]; got != "ss-test" {
-		t.Fatalf("expected tag ss-test, got %v", got)
+	if got := obj["username"]; got != "admin" {
+		t.Fatalf("expected username admin, got %v", got)
+	}
+	if got := obj["password"]; got != "secret" {
+		t.Fatalf("expected password secret, got %v", got)
+	}
+	tls, ok := obj["tls"].(map[string]any)
+	if !ok {
+		t.Fatal("expected tls object")
+	}
+	if tls["enabled"] != true {
+		t.Fatalf("expected tls enabled, got %v", tls["enabled"])
+	}
+}
+
+func TestParseGeneralSubscription_ClashJSON_Socks5(t *testing.T) {
+	data := []byte(`{
+		"proxies": [
+			{
+				"name": "socks-proxy",
+				"type": "socks5",
+				"server": "10.0.0.2",
+				"port": 1080,
+				"username": "user",
+				"password": "pass"
+			}
+		]
+	}`)
+
+	nodes, err := ParseGeneralSubscription(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 parsed node, got %d", len(nodes))
+	}
+
+	obj := parseNodeRaw(t, nodes[0].RawOptions)
+	if got := obj["type"]; got != "socks" {
+		t.Fatalf("expected type socks, got %v", got)
+	}
+	if got := obj["tag"]; got != "socks-proxy" {
+		t.Fatalf("expected tag socks-proxy, got %v", got)
+	}
+	if got := obj["username"]; got != "user" {
+		t.Fatalf("expected username user, got %v", got)
+	}
+}
+
+func TestParseGeneralSubscription_HTTPURILines(t *testing.T) {
+	data := []byte(`
+http://user:pass@1.2.3.4:8080#HTTP%20Proxy
+https://admin:secret@5.6.7.8:443#HTTPS%20Proxy
+http://9.9.9.9:3128
+`)
+
+	nodes, err := ParseGeneralSubscription(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 parsed nodes, got %d", len(nodes))
+	}
+
+	first := parseNodeRaw(t, nodes[0].RawOptions)
+	if first["type"] != "http" {
+		t.Fatalf("expected first type http, got %v", first["type"])
+	}
+	if first["tag"] != "HTTP Proxy" {
+		t.Fatalf("expected first tag 'HTTP Proxy', got %v", first["tag"])
+	}
+	if first["server"] != "1.2.3.4" {
+		t.Fatalf("expected first server 1.2.3.4, got %v", first["server"])
+	}
+	if first["server_port"] != float64(8080) {
+		t.Fatalf("expected first server_port 8080, got %v", first["server_port"])
+	}
+	if first["username"] != "user" {
+		t.Fatalf("expected first username user, got %v", first["username"])
+	}
+	if first["password"] != "pass" {
+		t.Fatalf("expected first password pass, got %v", first["password"])
+	}
+	if _, ok := first["tls"]; ok {
+		t.Fatal("expected no tls for http:// URI")
+	}
+
+	second := parseNodeRaw(t, nodes[1].RawOptions)
+	if second["type"] != "http" {
+		t.Fatalf("expected second type http, got %v", second["type"])
+	}
+	if second["tag"] != "HTTPS Proxy" {
+		t.Fatalf("expected second tag 'HTTPS Proxy', got %v", second["tag"])
+	}
+	if second["server_port"] != float64(443) {
+		t.Fatalf("expected second server_port 443, got %v", second["server_port"])
+	}
+	tls, ok := second["tls"].(map[string]any)
+	if !ok {
+		t.Fatal("expected tls object for https:// URI")
+	}
+	if tls["enabled"] != true {
+		t.Fatalf("expected tls enabled, got %v", tls["enabled"])
+	}
+
+	third := parseNodeRaw(t, nodes[2].RawOptions)
+	if third["type"] != "http" {
+		t.Fatalf("expected third type http, got %v", third["type"])
+	}
+	if third["server_port"] != float64(3128) {
+		t.Fatalf("expected third server_port 3128, got %v", third["server_port"])
 	}
 }
 
