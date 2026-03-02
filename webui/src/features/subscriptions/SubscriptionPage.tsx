@@ -131,21 +131,15 @@ export function SubscriptionPage() {
   const queryClient = useQueryClient();
   const enabledValue = parseEnabledFilter(enabledFilter);
   const subscriptionContentPlaceholder = [
-    t("支持格式（每行一个样例）："),
-    `{"outbounds":[{"type":"shadowsocks","server":"1.2.3.4","server_port":443,"method":"aes-256-gcm","password":"pass"}]}`,
-    "proxies:",
-    "- { name: node-1, type: vmess, server: 1.2.3.4, port: 443, uuid: 26a1d547-b031-4139-9fc5-6671e1d0408a }",
-    "vmess://...",
-    "vless://...",
-    "trojan://...",
-    "ss://...",
-    "hysteria2://...",
-    "http://user:pass@1.2.3.4:8080",
-    "https://user:pass@example.com:8443?sni=example.com",
-    "socks5://user:pass@1.2.3.4:1080",
-    "socks5h://user:pass@example.com:1080",
-    "1.2.3.4:8080",
-    "1.2.3.4:8080:user:pass",
+    t("支持格式："),
+    t("sing-box / Clash|Mihomo / URI（vmess:// vless:// trojan:// ss:// ...）或他们的 base64 格式"),
+    "",
+    t("HTTP/HTTPS/SOCKS 示例："),
+    t("1.2.3.4:8080:user:pass （HTTP 认证代理）"),
+    t("http://user:pass@1.2.3.4:8080（HTTP 认证代理）"),
+    t("https://user:pass@example.com:8443?sni=example.com（HTTPS + SNI）"),
+    t("socks5://user:pass@1.2.3.4:1080"),
+    t("socks5h://user:pass@example.com:1080"),
   ].join("\n");
 
   const subscriptionsQuery = useQuery({

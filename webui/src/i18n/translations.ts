@@ -147,6 +147,27 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "从 HTTP/HTTPS 订阅链接拉取内容": "Fetch content from HTTP/HTTPS subscription URL",
   "直接填写订阅文本，不经过网络拉取": "Provide subscription text directly without network fetch",
   "支持格式（每行一个样例）：": "Supported formats (one example per line):",
+  "支持格式：": "Supported formats:",
+  "sing-box / Clash|Mihomo / URI（vmess:// vless:// trojan:// ss:// ...）或他们的 base64 格式":
+    "sing-box / Clash|Mihomo / URI (vmess:// vless:// trojan:// ss:// ...) or their base64 form",
+  "HTTP/HTTPS/SOCKS 示例：": "HTTP/HTTPS/SOCKS examples:",
+  "1.2.3.4:8080:user:pass （HTTP 认证代理）": "1.2.3.4:8080:user:pass (HTTP authenticated proxy)",
+  "socks5://user:pass@1.2.3.4:1080": "socks5://user:pass@1.2.3.4:1080",
+  "socks5h://user:pass@example.com:1080": "socks5h://user:pass@example.com:1080",
+  "支持格式（简版）：": "Supported formats (simple):",
+  "sing-box JSON / Clash YAML|JSON / URI（vmess:// vless:// trojan:// ss:// ...）":
+    "sing-box JSON / Clash YAML|JSON / URI (vmess:// vless:// trojan:// ss:// ...)",
+  "Base64（以上文本整体编码）也支持": "Base64 (entire text encoded) is also supported",
+  "HTTP/HTTPS/SOCKS 示例（建议按示例）：": "HTTP/HTTPS/SOCKS examples (recommended):",
+  "http://user:pass@1.2.3.4:8080（HTTP 认证代理）":
+    "http://user:pass@1.2.3.4:8080 (HTTP authenticated proxy)",
+  "https://user:pass@example.com:8443?sni=example.com（HTTPS + SNI）":
+    "https://user:pass@example.com:8443?sni=example.com (HTTPS + SNI)",
+  "socks5://user:pass@1.2.3.4:1080（SOCKS5 代理）":
+    "socks5://user:pass@1.2.3.4:1080 (SOCKS5 proxy)",
+  "socks5h://user:pass@example.com:1080（SOCKS5 + 远程 DNS）":
+    "socks5h://user:pass@example.com:1080 (SOCKS5 + remote DNS)",
+  "1.2.3.4:8080:user:pass（兼容简写）": "1.2.3.4:8080:user:pass (compat shorthand)",
   "临时订阅": "Temporary Subscription",
   "临时节点驱逐延迟": "Temporary Node Eviction Delay",
   "平台列表": "Platform List",
