@@ -271,6 +271,23 @@ export function PlatformPage() {
               </div>
 
               <div className="field-group">
+                <label className="field-label" htmlFor="create-max-retries">
+                  {t("失败自动重试次数")}
+                </label>
+                <Input
+                  id="create-max-retries"
+                  type="number"
+                  min={0}
+                  placeholder="0"
+                  invalid={Boolean(createForm.formState.errors.max_retries)}
+                  {...createForm.register("max_retries", { valueAsNumber: true })}
+                />
+                {createForm.formState.errors.max_retries?.message ? (
+                  <p className="field-error">{t(createForm.formState.errors.max_retries.message)}</p>
+                ) : null}
+              </div>
+
+              <div className="field-group">
                 <label className="field-label" htmlFor="create-empty-account-behavior">
                   {t("反向代理账号为空行为")}
                 </label>

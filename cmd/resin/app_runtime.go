@@ -397,6 +397,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		ProxyToken:        a.envCfg.ProxyToken,
 		Router:            a.topoRuntime.router,
 		Pool:              a.topoRuntime.pool,
+		PlatformLookup:    a.topoRuntime.pool,
 		Health:            a.topoRuntime.pool,
 		Events:            proxyEvents,
 		MetricsSink:       a.metricsManager,

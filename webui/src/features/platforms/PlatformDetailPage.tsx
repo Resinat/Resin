@@ -369,6 +369,23 @@ export function PlatformDetailPage() {
                   </div>
 
                   <div className="field-group">
+                    <label className="field-label" htmlFor="detail-edit-max-retries">
+                      {t("失败自动重试次数")}
+                    </label>
+                    <Input
+                      id="detail-edit-max-retries"
+                      type="number"
+                      min={0}
+                      placeholder="0"
+                      invalid={Boolean(editForm.formState.errors.max_retries)}
+                      {...editForm.register("max_retries", { valueAsNumber: true })}
+                    />
+                    {editForm.formState.errors.max_retries?.message ? (
+                      <p className="field-error">{t(editForm.formState.errors.max_retries.message)}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="field-group">
                     <label className="field-label" htmlFor="detail-edit-empty-account-behavior">
                       {t("反向代理账号为空行为")}
                     </label>

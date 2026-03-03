@@ -24,6 +24,7 @@ type ForwardProxyConfig struct {
 	ProxyToken        string
 	Router            *routing.Router
 	Pool              outbound.PoolAccessor
+	PlatformLookup    PlatformLookup
 	Health            HealthRecorder
 	Events            EventEmitter
 	MetricsSink       MetricsEventSink
@@ -37,6 +38,7 @@ type ForwardProxy struct {
 	token             string
 	router            *routing.Router
 	pool              outbound.PoolAccessor
+	platLook          PlatformLookup
 	health            HealthRecorder
 	events            EventEmitter
 	metricsSink       MetricsEventSink
@@ -60,6 +62,7 @@ func NewForwardProxy(cfg ForwardProxyConfig) *ForwardProxy {
 		token:           cfg.ProxyToken,
 		router:          cfg.Router,
 		pool:            cfg.Pool,
+		platLook:        cfg.PlatformLookup,
 		health:          cfg.Health,
 		events:          ev,
 		metricsSink:     cfg.MetricsSink,
@@ -240,71 +243,105 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeForward, false)
 	lifecycle.setTarget(r.Host, r.URL.String())
-	defer lifecycle.finish()
 	lifecycle.setAccount(account)
 
-	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, platName, account, r.Host)
-	if routeErr != nil {
-		lifecycle.setProxyError(routeErr)
-		lifecycle.setHTTPStatus(routeErr.HTTPCode)
-		writeProxyError(w, routeErr)
-		return
-	}
-	lifecycle.setRouteResult(routed.Route)
-	go p.health.RecordLatency(routed.Route.NodeHash, netutil.ExtractDomain(r.Host), nil)
+	maxRetries := platformMaxRetries(p.platLook, platName)
+	var finalAttempt int
+	defer func() {
+		lifecycle.setRetryAttempts(finalAttempt)
+		lifecycle.finish()
+	}()
 
-	transport := p.outboundHTTPTransport(routed)
-	outReq := prepareForwardOutboundRequest(r)
-	lifecycle.addEgressBytes(headerWireLen(outReq.Header))
-	var egressBodyCounter *countingReadCloser
-	if outReq.Body != nil && outReq.Body != http.NoBody {
-		egressBodyCounter = newCountingReadCloser(outReq.Body)
-		outReq.Body = egressBodyCounter
-	}
-
-	// Forward the request.
-	resp, err := transport.RoundTrip(outReq)
-	if egressBodyCounter != nil {
-		lifecycle.addEgressBytes(egressBodyCounter.Total())
-	}
-	if err != nil {
-		proxyErr := classifyUpstreamError(err)
-		if proxyErr == nil {
-			// context.Canceled — skip health recording, close silently.
-			// Request ended due to client-side cancellation before upstream
-			// response; treat as net-ok in request log semantics.
-			lifecycle.setNetOK(true)
+	// Buffer request body upfront so it can be replayed on retry.
+	var bodyBytes []byte
+	if maxRetries > 0 && r.Body != nil && r.Body != http.NoBody {
+		var err error
+		bodyBytes, err = io.ReadAll(r.Body)
+		r.Body.Close()
+		if err != nil {
+			lifecycle.setProxyError(ErrInternalError)
+			lifecycle.setHTTPStatus(ErrInternalError.HTTPCode)
+			writeProxyError(w, ErrInternalError)
 			return
 		}
-		lifecycle.setProxyError(proxyErr)
-		lifecycle.setUpstreamError("forward_roundtrip", err)
-		lifecycle.setHTTPStatus(proxyErr.HTTPCode)
-		go p.health.RecordResult(routed.Route.NodeHash, false)
-		writeProxyError(w, proxyErr)
-		return
+		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		r.ContentLength = int64(len(bodyBytes))
 	}
-	defer resp.Body.Close()
 
-	lifecycle.setHTTPStatus(resp.StatusCode)
-	lifecycle.setNetOK(true)
-
-	// Copy end-to-end response headers and body.
-	lifecycle.addIngressBytes(copyEndToEndHeaders(w.Header(), resp.Header))
-	w.WriteHeader(resp.StatusCode)
-	copiedBytes, copyErr := io.Copy(w, resp.Body)
-	lifecycle.addIngressBytes(copiedBytes)
-	if copyErr != nil {
-		if shouldRecordForwardCopyFailure(r, copyErr) {
-			lifecycle.setProxyError(ErrUpstreamRequestFailed)
-			lifecycle.setUpstreamError("forward_upstream_to_client_copy", copyErr)
-			lifecycle.setNetOK(false)
-			go p.health.RecordResult(routed.Route.NodeHash, false)
+	for attempt := 0; ; attempt++ {
+		finalAttempt = attempt
+		routed, routeErr := resolveRoutedOutbound(p.router, p.pool, platName, account, r.Host)
+		if routeErr != nil {
+			lifecycle.setProxyError(routeErr)
+			lifecycle.setHTTPStatus(routeErr.HTTPCode)
+			writeProxyError(w, routeErr)
+			return
 		}
+		lifecycle.setRouteResult(routed.Route)
+		go p.health.RecordLatency(routed.Route.NodeHash, netutil.ExtractDomain(r.Host), nil)
+
+		transport := p.outboundHTTPTransport(routed)
+		outReq := prepareForwardOutboundRequest(r)
+		if attempt > 0 && bodyBytes != nil {
+			outReq.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			outReq.ContentLength = int64(len(bodyBytes))
+		}
+		lifecycle.addEgressBytes(headerWireLen(outReq.Header))
+		var egressBodyCounter *countingReadCloser
+		if outReq.Body != nil && outReq.Body != http.NoBody {
+			egressBodyCounter = newCountingReadCloser(outReq.Body)
+			outReq.Body = egressBodyCounter
+		}
+
+		resp, err := transport.RoundTrip(outReq)
+		if egressBodyCounter != nil {
+			lifecycle.addEgressBytes(egressBodyCounter.Total())
+		}
+		if err != nil {
+			proxyErr := classifyUpstreamError(err)
+			if proxyErr == nil {
+				lifecycle.setNetOK(true)
+				return
+			}
+			go p.health.RecordResult(routed.Route.NodeHash, false)
+
+			if attempt < maxRetries && isRetryableUpstreamError(proxyErr) {
+				detail := summarizeUpstreamError(err)
+				lifecycle.addRetryDetail(routed.Route.NodeHash.Hex(), routed.Route.NodeTag, detail.Kind, detail.Message)
+				if bodyBytes != nil {
+					r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				}
+				continue
+			}
+
+			lifecycle.setProxyError(proxyErr)
+			lifecycle.setUpstreamError("forward_roundtrip", err)
+			lifecycle.setHTTPStatus(proxyErr.HTTPCode)
+			writeProxyError(w, proxyErr)
+			return
+		}
+		defer resp.Body.Close()
+
+		lifecycle.setHTTPStatus(resp.StatusCode)
+		lifecycle.setNetOK(true)
+
+		lifecycle.addIngressBytes(copyEndToEndHeaders(w.Header(), resp.Header))
+		w.WriteHeader(resp.StatusCode)
+		copiedBytes, copyErr := io.Copy(w, resp.Body)
+		lifecycle.addIngressBytes(copiedBytes)
+		if copyErr != nil {
+			if shouldRecordForwardCopyFailure(r, copyErr) {
+				lifecycle.setProxyError(ErrUpstreamRequestFailed)
+				lifecycle.setUpstreamError("forward_upstream_to_client_copy", copyErr)
+				lifecycle.setNetOK(false)
+				go p.health.RecordResult(routed.Route.NodeHash, false)
+			}
+			return
+		}
+
+		go p.health.RecordResult(routed.Route.NodeHash, true)
 		return
 	}
-
-	// Full body transfer succeeded — count as network success even for 5xx HTTP.
-	go p.health.RecordResult(routed.Route.NodeHash, true)
 }
 
 func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
@@ -317,39 +354,57 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 
 	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeForward, true)
 	lifecycle.setTarget(target, "")
-	defer lifecycle.finish()
 	lifecycle.setAccount(account)
 
-	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, platName, account, target)
-	if routeErr != nil {
-		lifecycle.setProxyError(routeErr)
-		lifecycle.setHTTPStatus(routeErr.HTTPCode)
-		writeProxyError(w, routeErr)
-		return
-	}
-	lifecycle.setRouteResult(routed.Route)
-
-	// Wrap the dialed connection with tlsLatencyConn for passive TLS latency.
+	maxRetries := platformMaxRetries(p.platLook, platName)
 	domain := netutil.ExtractDomain(target)
-	nodeHashRaw := routed.Route.NodeHash
-	go p.health.RecordLatency(nodeHashRaw, domain, nil)
+	var finalAttempt int
+	defer func() {
+		lifecycle.setRetryAttempts(finalAttempt)
+		lifecycle.finish()
+	}()
 
-	rawConn, err := routed.Outbound.DialContext(r.Context(), "tcp", M.ParseSocksaddr(target))
-	if err != nil {
-		proxyErr := classifyConnectError(err)
-		if proxyErr == nil {
-			// context.Canceled before CONNECT response — no health penalty,
-			// but mark log as net-ok.
-			lifecycle.setNetOK(true)
+	var routed routedOutbound
+	var rawConn net.Conn
+	for attempt := 0; ; attempt++ {
+		finalAttempt = attempt
+		var routeErr *ProxyError
+		routed, routeErr = resolveRoutedOutbound(p.router, p.pool, platName, account, target)
+		if routeErr != nil {
+			lifecycle.setProxyError(routeErr)
+			lifecycle.setHTTPStatus(routeErr.HTTPCode)
+			writeProxyError(w, routeErr)
 			return
 		}
-		lifecycle.setProxyError(proxyErr)
-		lifecycle.setUpstreamError("connect_dial", err)
-		lifecycle.setHTTPStatus(proxyErr.HTTPCode)
-		go p.health.RecordResult(nodeHashRaw, false)
-		writeProxyError(w, proxyErr)
-		return
+		lifecycle.setRouteResult(routed.Route)
+		go p.health.RecordLatency(routed.Route.NodeHash, domain, nil)
+
+		var err error
+		rawConn, err = routed.Outbound.DialContext(r.Context(), "tcp", M.ParseSocksaddr(target))
+		if err != nil {
+			proxyErr := classifyConnectError(err)
+			if proxyErr == nil {
+				lifecycle.setNetOK(true)
+				return
+			}
+			go p.health.RecordResult(routed.Route.NodeHash, false)
+
+			if attempt < maxRetries && isRetryableUpstreamError(proxyErr) {
+				detail := summarizeUpstreamError(err)
+				lifecycle.addRetryDetail(routed.Route.NodeHash.Hex(), routed.Route.NodeTag, detail.Kind, detail.Message)
+				continue
+			}
+
+			lifecycle.setProxyError(proxyErr)
+			lifecycle.setUpstreamError("connect_dial", err)
+			lifecycle.setHTTPStatus(proxyErr.HTTPCode)
+			writeProxyError(w, proxyErr)
+			return
+		}
+		break
 	}
+
+	nodeHashRaw := routed.Route.NodeHash
 	recordConnectResult := func(ok bool) {
 		lifecycle.setNetOK(ok)
 		go p.health.RecordResult(nodeHashRaw, ok)

@@ -577,11 +577,21 @@ export function RequestLogsPage() {
 
       col.accessor("net_ok", {
         header: t("网络"),
-        cell: (info) => (
-          <Badge variant={info.getValue() ? "success" : "warning"}>
-            {info.getValue() ? t("成功") : t("失败")}
-          </Badge>
-        ),
+        cell: (info) => {
+          const row = info.row.original;
+          return (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+              <Badge variant={info.getValue() ? "success" : "warning"}>
+                {info.getValue() ? t("成功") : t("失败")}
+              </Badge>
+              {row.retry_attempts > 0 && (
+                <Badge variant="warning" title={t("重试 {n} 次", { n: row.retry_attempts })}>
+                  ↻{row.retry_attempts}
+                </Badge>
+              )}
+            </span>
+          );
+        },
       }),
       col.accessor("duration_ms", {
         header: t("耗时"),
@@ -926,6 +936,10 @@ export function RequestLogsPage() {
                     <span>{t("客户端 IP")}</span>
                     <p>{detailLog.client_ip || "-"}</p>
                   </div>
+                  <div>
+                    <span>{t("重试次数")}</span>
+                    <p>{detailLog.retry_attempts || "-"}</p>
+                  </div>
                 </div>
               </section>
 
@@ -934,59 +948,120 @@ export function RequestLogsPage() {
                   <h4>{t("诊断")}</h4>
                   <p>{t("异常排查与连接状态分析。")}</p>
                 </div>
-                <div style={{
-                  backgroundColor: "var(--surface)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "12px",
-                  padding: "16px",
-                  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-                  fontSize: "13px",
-                  color: "var(--text-secondary)",
-                  lineHeight: "1.6",
-                }}>
-                  {(detailLog.resin_error || detailLog.upstream_stage || detailLog.upstream_err_kind || detailLog.upstream_errno || detailLog.upstream_err_msg) ? (
-                    <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                      <tbody>
-                        {detailLog.resin_error ? (
-                          <tr>
-                            <td style={{ color: "var(--danger)", fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("Resin 错误:")}</td>
-                            <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.resin_error}</td>
-                          </tr>
-                        ) : null}
-                        {detailLog.upstream_stage ? (
-                          <tr>
-                            <td style={{ color: "var(--warning)", fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("失败阶段:")}</td>
-                            <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_stage}</td>
-                          </tr>
-                        ) : null}
-                        {detailLog.upstream_err_kind ? (
-                          <tr>
-                            <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("错误类型:")}</td>
-                            <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_err_kind}</td>
-                          </tr>
-                        ) : null}
-                        {detailLog.upstream_errno ? (
-                          <tr>
-                            <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>Errno:</td>
-                            <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_errno}</td>
-                          </tr>
-                        ) : null}
-                        {detailLog.upstream_err_msg ? (
-                          <tr>
-                            <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("错误详情:")}</td>
-                            <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_err_msg}</td>
-                          </tr>
-                        ) : null}
-                      </tbody>
-                    </table>
-                  ) : null}
-                  {!detailLog.resin_error && !detailLog.upstream_stage && !detailLog.upstream_err_kind && !detailLog.upstream_err_msg ? (
-                    <div style={{ color: "var(--success)", display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--success)" }}></span>
-                      {t("当前请求未产生异常诊断信息")}
+                {(() => {
+                  const hasRetryDetails = detailLog.retry_details && detailLog.retry_details.length > 0;
+                  const hasFinalError = detailLog.resin_error || detailLog.upstream_stage || detailLog.upstream_err_kind || detailLog.upstream_errno || detailLog.upstream_err_msg;
+
+                  if (!hasFinalError && !hasRetryDetails) {
+                    return (
+                      <div style={{
+                        backgroundColor: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "12px",
+                        padding: "16px",
+                        fontSize: "13px",
+                      }}>
+                        <div style={{ color: "var(--success)", display: "flex", alignItems: "center", gap: "6px" }}>
+                          <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--success)" }}></span>
+                          {t("当前请求未产生异常诊断信息")}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                      {hasRetryDetails && detailLog.retry_details!.map((rd, idx) => (
+                        <div key={idx} style={{
+                          backgroundColor: "var(--surface)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "12px",
+                          padding: "14px 16px",
+                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                          fontSize: "13px",
+                          lineHeight: "1.6",
+                        }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                            <Badge variant="warning">{t(`第 ${idx + 1} 次尝试`)}</Badge>
+                            <span style={{ color: "var(--text-muted)", fontSize: "12px" }}>{t("失败")}</span>
+                          </div>
+                          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                            <tbody>
+                              <tr>
+                                <td style={{ fontWeight: 600, paddingBottom: "4px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%", color: "var(--text-secondary)" }}>{t("节点:")}</td>
+                                <td style={{ color: "var(--text)", paddingBottom: "4px", wordBreak: "break-all", verticalAlign: "top" }}>{rd.node_tag || rd.node_hash || "-"}</td>
+                              </tr>
+                              {rd.err_kind && (
+                                <tr>
+                                  <td style={{ fontWeight: 600, paddingBottom: "4px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%", color: "var(--text-secondary)" }}>{t("错误类型:")}</td>
+                                  <td style={{ color: "var(--text)", paddingBottom: "4px", wordBreak: "break-all", verticalAlign: "top" }}>{rd.err_kind}</td>
+                                </tr>
+                              )}
+                              {rd.err_msg && (
+                                <tr>
+                                  <td style={{ fontWeight: 600, paddingBottom: "4px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%", color: "var(--text-secondary)" }}>{t("错误详情:")}</td>
+                                  <td style={{ color: "var(--text)", paddingBottom: "4px", wordBreak: "break-all", verticalAlign: "top" }}>{rd.err_msg}</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      ))}
+
+                      {hasFinalError && (
+                        <div style={{
+                          backgroundColor: "var(--surface)",
+                          border: "1px solid color-mix(in srgb, var(--danger) 40%, var(--border))",
+                          borderRadius: "12px",
+                          padding: "14px 16px",
+                          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                          fontSize: "13px",
+                          lineHeight: "1.6",
+                        }}>
+                          {hasRetryDetails && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                              <Badge variant="danger">{t("最终结果")}</Badge>
+                            </div>
+                          )}
+                          <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                            <tbody>
+                              {detailLog.resin_error ? (
+                                <tr>
+                                  <td style={{ color: "var(--danger)", fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("Resin 错误:")}</td>
+                                  <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.resin_error}</td>
+                                </tr>
+                              ) : null}
+                              {detailLog.upstream_stage ? (
+                                <tr>
+                                  <td style={{ color: "var(--warning)", fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("失败阶段:")}</td>
+                                  <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_stage}</td>
+                                </tr>
+                              ) : null}
+                              {detailLog.upstream_err_kind ? (
+                                <tr>
+                                  <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("错误类型:")}</td>
+                                  <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_err_kind}</td>
+                                </tr>
+                              ) : null}
+                              {detailLog.upstream_errno ? (
+                                <tr>
+                                  <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>Errno:</td>
+                                  <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_errno}</td>
+                                </tr>
+                              ) : null}
+                              {detailLog.upstream_err_msg ? (
+                                <tr>
+                                  <td style={{ fontWeight: 600, paddingBottom: "8px", paddingRight: "16px", whiteSpace: "nowrap", verticalAlign: "top", width: "1%" }}>{t("错误详情:")}</td>
+                                  <td style={{ color: "var(--text)", paddingBottom: "8px", wordBreak: "break-all", verticalAlign: "top" }}>{detailLog.upstream_err_msg}</td>
+                                </tr>
+                              ) : null}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
-                  ) : null}
-                </div>
+                  );
+                })()}
               </section>
 
               <section className="platform-drawer-section">

@@ -48,6 +48,7 @@ func NewConfiguredPlatform(
 	emptyAccountBehavior string,
 	fixedAccountHeader string,
 	allocationPolicy string,
+	maxRetries int,
 ) *Platform {
 	normalizedFixedHeaders, fixedHeaders, err := NormalizeFixedAccountHeaders(fixedAccountHeader)
 	if err != nil {
@@ -61,6 +62,7 @@ func NewConfiguredPlatform(
 	plat.ReverseProxyFixedAccountHeader = normalizedFixedHeaders
 	plat.ReverseProxyFixedAccountHeaders = append([]string(nil), fixedHeaders...)
 	plat.AllocationPolicy = ParseAllocationPolicy(allocationPolicy)
+	plat.MaxRetries = maxRetries
 	return plat
 }
 
@@ -116,5 +118,6 @@ func BuildFromModel(mp model.Platform) (*Platform, error) {
 		emptyAccountBehavior,
 		fixedHeader,
 		mp.AllocationPolicy,
+		mp.MaxRetries,
 	), nil
 }

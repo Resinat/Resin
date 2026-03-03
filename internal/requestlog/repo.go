@@ -2,6 +2,7 @@ package requestlog
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -18,7 +19,7 @@ import (
 	"github.com/Resinat/Resin/internal/state"
 )
 
-const logSummarySelectColumns = "id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, duration_ns, net_ok, http_method, http_status, resin_error, upstream_stage, upstream_err_kind, upstream_errno, upstream_err_msg, ingress_bytes, egress_bytes, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated"
+const logSummarySelectColumns = "id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, duration_ns, net_ok, http_method, http_status, resin_error, upstream_stage, upstream_err_kind, upstream_errno, upstream_err_msg, ingress_bytes, egress_bytes, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated, retry_attempts, retry_details"
 
 // Repo manages rolling SQLite databases for request logs.
 // Each DB is named request_logs-<unix_ms>.db and lives in logDir.
@@ -118,8 +119,9 @@ func (r *Repo) InsertBatch(entries []proxy.RequestLogEntry) (int, error) {
 		ingress_bytes, egress_bytes,
 		payload_present,
 		req_headers_len, req_body_len, resp_headers_len, resp_body_len,
-		req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated
-	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+		req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated,
+		retry_attempts, retry_details
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return 0, fmt.Errorf("requestlog repo prepare log: %w", err)
 	}
@@ -149,6 +151,13 @@ func (r *Repo) InsertBatch(entries []proxy.RequestLogEntry) (int, error) {
 			hasPayload = 1
 		}
 
+		retryDetailsJSON := ""
+		if len(e.RetryDetails) > 0 {
+			if b, jerr := json.Marshal(e.RetryDetails); jerr == nil {
+				retryDetailsJSON = string(b)
+			}
+		}
+
 		_, err := insertLog.Exec(
 			id, e.StartedAtNs, int(e.ProxyType), e.ClientIP,
 			e.PlatformID, e.PlatformName, e.Account,
@@ -160,6 +169,7 @@ func (r *Repo) InsertBatch(entries []proxy.RequestLogEntry) (int, error) {
 			e.ReqHeadersLen, e.ReqBodyLen, e.RespHeadersLen, e.RespBodyLen,
 			boolToInt(e.ReqHeadersTruncated), boolToInt(e.ReqBodyTruncated),
 			boolToInt(e.RespHeadersTruncated), boolToInt(e.RespBodyTruncated),
+			e.RetryAttempts, retryDetailsJSON,
 		)
 		if err != nil {
 			log.Printf("[requestlog] warning: skip log row id=%q insert failed: %v", id, err)
@@ -230,8 +240,10 @@ type LogSummary struct {
 	RespBodyLen          int  `json:"resp_body_len"`
 	ReqHeadersTruncated  bool `json:"req_headers_truncated"`
 	ReqBodyTruncated     bool `json:"req_body_truncated"`
-	RespHeadersTruncated bool `json:"resp_headers_truncated"`
-	RespBodyTruncated    bool `json:"resp_body_truncated"`
+	RespHeadersTruncated bool                `json:"resp_headers_truncated"`
+	RespBodyTruncated    bool                `json:"resp_body_truncated"`
+	RetryAttempts        int                 `json:"retry_attempts"`
+	RetryDetails         []proxy.RetryDetail `json:"retry_details"`
 }
 
 // PayloadRow holds the payload data for a single log entry.
@@ -420,6 +432,13 @@ func (r *Repo) runReadBarrier() {
 
 // --- internal helpers ---
 
+// migrateSchema adds columns introduced after the initial schema.
+// It is safe to call on databases that already have the columns.
+func migrateSchema(db *sql.DB) {
+	db.Exec("ALTER TABLE request_logs ADD COLUMN retry_attempts INTEGER NOT NULL DEFAULT 0")  //nolint:errcheck
+	db.Exec("ALTER TABLE request_logs ADD COLUMN retry_details TEXT NOT NULL DEFAULT ''")      //nolint:errcheck
+}
+
 func (r *Repo) openDB(path string) error {
 	db, err := state.OpenDB(path)
 	if err != nil {
@@ -429,6 +448,7 @@ func (r *Repo) openDB(path string) error {
 		db.Close()
 		return err
 	}
+	migrateSchema(db)
 	r.activeDB = db
 	r.activePath = path
 	return nil
@@ -501,12 +521,12 @@ func (r *Repo) listDBFiles() ([]string, error) {
 }
 
 func (r *Repo) openReadOnly(path string) (*sql.DB, error) {
-	dsn := path + "?mode=ro"
-	db, err := sql.Open("sqlite", dsn)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	migrateSchema(db)
 	return db, nil
 }
 
@@ -636,6 +656,7 @@ type rowScanner interface {
 func scanLogSummary(s rowScanner) (LogSummary, error) {
 	var row LogSummary
 	var netOK, payloadPresent, rht, rbt, rsht, rsbt int
+	var retryDetailsRaw string
 	err := s.Scan(
 		&row.ID, &row.TsNs, &row.ProxyType, &row.ClientIP,
 		&row.PlatformID, &row.PlatformName, &row.Account,
@@ -646,9 +667,13 @@ func scanLogSummary(s rowScanner) (LogSummary, error) {
 		&payloadPresent,
 		&row.ReqHeadersLen, &row.ReqBodyLen, &row.RespHeadersLen, &row.RespBodyLen,
 		&rht, &rbt, &rsht, &rsbt,
+		&row.RetryAttempts, &retryDetailsRaw,
 	)
 	if err != nil {
 		return LogSummary{}, err
+	}
+	if retryDetailsRaw != "" {
+		json.Unmarshal([]byte(retryDetailsRaw), &row.RetryDetails) //nolint:errcheck
 	}
 	row.NetOK = netOK != 0
 	row.PayloadPresent = payloadPresent != 0

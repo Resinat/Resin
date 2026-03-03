@@ -1,0 +1,1 @@
+ALTER TABLE platforms ADD COLUMN max_retries INTEGER NOT NULL DEFAULT 0;

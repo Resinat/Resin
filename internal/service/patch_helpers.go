@@ -76,6 +76,28 @@ func (p mergePatch) optionalBool(field string) (bool, bool, *ServiceError) {
 	return value, true, nil
 }
 
+func (p mergePatch) optionalInt(field string) (int, bool, *ServiceError) {
+	raw, ok := p[field]
+	if !ok {
+		return 0, false, nil
+	}
+	switch v := raw.(type) {
+	case float64:
+		if v != float64(int(v)) {
+			return 0, true, invalidArg(fmt.Sprintf("%s: must be an integer", field))
+		}
+		return int(v), true, nil
+	case json.Number:
+		n, err := v.Int64()
+		if err != nil {
+			return 0, true, invalidArg(fmt.Sprintf("%s: must be an integer", field))
+		}
+		return int(n), true, nil
+	default:
+		return 0, true, invalidArg(fmt.Sprintf("%s: must be an integer", field))
+	}
+}
+
 func (p mergePatch) optionalStringSlice(field string) ([]string, bool, *ServiceError) {
 	raw, ok := p[field]
 	if !ok {

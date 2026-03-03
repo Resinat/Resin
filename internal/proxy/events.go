@@ -39,6 +39,14 @@ type RequestFinishedEvent struct {
 	DurationNs int64
 }
 
+// RetryDetail records the outcome of a single failed retry attempt.
+type RetryDetail struct {
+	NodeHash string `json:"node_hash"`
+	NodeTag  string `json:"node_tag"`
+	ErrKind  string `json:"err_kind"`
+	ErrMsg   string `json:"err_msg"`
+}
+
 // RequestLogEntry captures per-request details for the structured request log.
 // Used by the requestlog subsystem (Phase 8).
 type RequestLogEntry struct {
@@ -63,7 +71,9 @@ type RequestLogEntry struct {
 	UpstreamErrKind string // normalized error family
 	UpstreamErrno   string // normalized errno, when available
 	UpstreamErrMsg  string // sanitized upstream error message
-	IngressBytes    int64  // bytes from upstream to client (header + body)
+	RetryAttempts   int           // number of upstream retry attempts (0 = no retry)
+	RetryDetails    []RetryDetail // per-attempt failure details (len == RetryAttempts)
+	IngressBytes    int64         // bytes from upstream to client (header + body)
 	EgressBytes     int64  // bytes from client to upstream (header + body)
 
 	// Optional detail payload (mainly for reverse proxy request logging).

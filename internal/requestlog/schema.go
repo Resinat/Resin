@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS request_logs (
 	req_headers_truncated  INTEGER NOT NULL DEFAULT 0,
 	req_body_truncated     INTEGER NOT NULL DEFAULT 0,
 	resp_headers_truncated INTEGER NOT NULL DEFAULT 0,
-	resp_body_truncated    INTEGER NOT NULL DEFAULT 0
+	resp_body_truncated    INTEGER NOT NULL DEFAULT 0,
+	retry_attempts         INTEGER NOT NULL DEFAULT 0,
+	retry_details          TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS request_log_payloads (
