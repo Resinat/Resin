@@ -44,6 +44,27 @@ It helps shield your services from unstable upstream proxies and aggregates them
 
 ---
 
+## 🔌 Supported Protocols and Subscription Formats
+
+### Subscription sources
+
+- Remote subscription URL: `http://` or `https://`.
+- Local subscription content: paste subscription content directly in the UI/API.
+
+### Subscription content formats
+
+- sing-box JSON: `{"outbounds":[...]}` or raw outbound array `[...]`.
+- Clash JSON/YAML: `{"proxies":[...]}` or YAML `proxies:`.
+- URI line format (one node per line): `vmess://`, `vless://`, `trojan://`, `ss://`, `hysteria2://`, `http://`, `https://`, `socks5://`, `socks5h://`.
+  For `http://`, `https://`, `socks5://`, `socks5h://`, use `scheme://[user:pass@]host:port` (optional `#tag`; `https` also supports `sni`/`servername`/`peer` and `allowInsecure`/`insecure` query parameters).
+- Plain HTTP proxy lines: `IP:PORT` or `IP:PORT:USER:PASS` (IPv4 and IPv6).
+- Base64-wrapped text subscriptions (for URI lines/plain-text node lists).
+
+### Supported outbound node types
+
+- For sing-box JSON/raw outbounds: `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `wireguard`, `hysteria`, `vless`, `shadowtls`, `tuic`, `hysteria2`, `anytls`, `ssh`.
+- For Clash conversion: `ss`/`shadowsocks`, `socks`/`socks4`/`socks4a`/`socks5`, `http`, `vmess`, `vless`, `trojan`, `wireguard`/`wg`, `hysteria`, `hysteria2`/`hy2`, `tuic`, `anytls`, `ssh`.
+
 ## 🚀 Quick Start
 
 In just three steps, you can turn your proxy subscriptions into a highly available proxy pool.
@@ -140,35 +161,6 @@ For reverse proxy, include Platform in the URL prefix:
 curl http://127.0.0.1:2260/my-token/MyPlatform/https/api.ipify.org
 ```
 
-## 🔌 Supported Protocols and Subscription Formats
-
-### Access protocols
-
-- Forward proxy inbound: HTTP proxy, including regular HTTP requests and HTTPS tunneling via `CONNECT`.
-- Reverse proxy inbound: URL mode `/token/platform.account/protocol/host/path`, where `protocol` supports `http` and `https`.
-- WebSocket in reverse mode: `ws`/`wss` upgrades are supported, but the URL `protocol` segment must still be `http` (for `ws`) or `https` (for `wss`).
-
-### Subscription sources
-
-- Remote subscription URL: `http://` or `https://`.
-- Local subscription content: paste subscription content directly in the UI/API.
-
-### Subscription content formats
-
-- sing-box JSON: `{"outbounds":[...]}` or raw outbound array `[...]`.
-- Clash JSON/YAML: `{"proxies":[...]}` or YAML `proxies:`.
-- URI line format (one node per line): `vmess://`, `vless://`, `trojan://`, `ss://`, `hysteria2://`, `http://`, `https://`, `socks5://`, `socks5h://`.
-  For `http://`, `https://`, `socks5://`, `socks5h://`, use `scheme://[user:pass@]host:port` (optional `#tag`; `https` also supports `sni`/`servername`/`peer` and `allowInsecure`/`insecure` query parameters).
-- Plain HTTP proxy lines: `IP:PORT` or `IP:PORT:USER:PASS` (IPv4 and IPv6).
-- Base64-wrapped text subscriptions (for URI lines/plain-text node lists).
-
-### Supported outbound node types
-
-- For sing-box JSON/raw outbounds: `socks`, `http`, `shadowsocks`, `vmess`, `trojan`, `wireguard`, `hysteria`, `vless`, `shadowtls`, `tuic`, `hysteria2`, `anytls`, `ssh`.
-- For Clash conversion: `ss`/`shadowsocks`, `socks`/`socks4`/`socks4a`/`socks5`, `http`, `vmess`, `vless`, `trojan`, `wireguard`/`wg`, `hysteria`, `hysteria2`/`hy2`, `tuic`, `anytls`, `ssh`.
-
----
-
 ## 📖 Advanced Usage: Sticky Session Proxy
 
 When your business depends on IP continuity or long-lived interactions, use Resin's core feature: **sticky proxying**.
@@ -180,14 +172,13 @@ First, understand two core concepts:
 - **Platform**: An isolated node pool. You can build it with filters (for example, only US nodes). Resin provides a default `Default` platform containing all available nodes.
 - **Account**: A unique business identity (for example `Tom` or `user_1`). For requests carrying an Account, Resin anchors traffic to a dedicated high-quality outbound node. If that node fails, Resin retries seamlessly and switches to another node with the same IP.
 
-### Sticky auth format
-
-Across all access protocols, with `RESIN_AUTH_VERSION=V1` the identity format is: `Platform.Account:RESIN_PROXY_TOKEN`.
-During migration, set `RESIN_AUTH_VERSION=LEGACY_V0` to keep the legacy shape `RESIN_PROXY_TOKEN:Platform:Account`.
-Platform names cannot be `api` (case-insensitive), and cannot contain `.:|/\\@?#%~` or whitespace controls.
-To enable sticky routing, provide `Account`.
+### Sticky proxy access formats
 
 #### Method 1: Forward proxy (HTTP Proxy)
+
+With `RESIN_AUTH_VERSION=V1`, the identity format is: `Platform.Account:RESIN_PROXY_TOKEN`.
+
+> To keep the legacy V0 format, set `RESIN_AUTH_VERSION=LEGACY_V0` and continue using `RESIN_PROXY_TOKEN:Platform:Account`.
 
 Write identity directly in proxy auth username:
 
@@ -212,13 +203,12 @@ curl "http://127.0.0.1:2260/my-token/Default.user_tom/https/api.ipify.org"
 > The URL Account segment is designed for quick use and manual debugging.
 > For long-running production integrations, prefer passing Account by header (`X-Resin-Account`).
 
-#### Method 3: Reverse proxy + headers (recommended integration path)
+#### Method 3: Reverse proxy + `X-Resin-Account` header (recommended production integration)
 
 If your client/SDK supports custom request headers, pass Account explicitly with `X-Resin-Account`.
 This is the recommended and most stable method.
 
-Account source priority is:
-`X-Resin-Account` header > Account in reverse-proxy URL > header extraction rules.
+Account source priority: `X-Resin-Account` header > Account in reverse-proxy URL > header extraction rules.
 
 Example:
 
@@ -226,6 +216,8 @@ Example:
 curl "http://127.0.0.1:2260/my-token/MyPlatform/https/api.example.com/v1/orders" \
   -H "X-Resin-Account: user_tom"
 ```
+
+#### Method 4: Reverse proxy + header rules (zero/low-intrusion integration)
 
 If your client cannot set `X-Resin-Account`, Resin can still extract Account from existing business headers (for example API Key, Token, Cookie) via header rules.
 
@@ -243,10 +235,10 @@ curl "http://127.0.0.1:2260/my-token/MyPlatform/https/api.example.com/v1/orders"
 
 In this example, Resin uses `sk-abc123` as Account. Future requests with the same key are intended to stay bound to the same outbound IP whenever routing conditions allow.
 
-> [!IMPORTANT]
-> Enable header-based Account extraction only when you have a valid legal basis (for example user authorization or contractual permission), and ensure your logging, retention, and access-control policies comply with applicable laws and target-service terms.
-
+> [!TIP]
 > Beyond Platform header config, Resin also supports advanced rules that pick extraction headers by URL prefix. You can ask AI to explain both modes with this README and [DESIGN.md](DESIGN.md).
+
+> Enable header-based Account extraction only when you have a valid legal basis (for example user authorization or contractual permission), and ensure your logging, retention, and access-control policies comply with applicable laws and target-service terms.
 
 ---
 

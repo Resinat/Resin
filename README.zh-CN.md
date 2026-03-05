@@ -44,6 +44,28 @@
 
 ---
 
+## 🔌 支持协议与订阅格式
+
+### 订阅来源
+
+- 远程订阅 URL：`http://` 或 `https://`。
+- 本地订阅内容：在 UI/API 中直接粘贴订阅内容。
+
+### 订阅内容格式
+
+- sing-box JSON：`{"outbounds":[...]}` 或原始出站数组 `[...]`。
+- Clash JSON/YAML：`{"proxies":[...]}` 或 YAML `proxies:`。
+- URI 行格式（每行一个节点）：`vmess://`、`vless://`、`trojan://`、`ss://`、`hysteria2://`、`http://`、`https://`、`socks5://`、`socks5h://`。
+  其中 `http://`、`https://`、`socks5://`、`socks5h://` 需使用 `scheme://[user:pass@]host:port` 形式（可选 `#tag`；`https` 额外支持 `sni`/`servername`/`peer` 与 `allowInsecure`/`insecure` 查询参数）。
+- 纯 HTTP 代理行：`IP:PORT` 或 `IP:PORT:USER:PASS`（支持 IPv4 和 IPv6）。
+- Base64 包裹的文本订阅（例如 URI 行或纯文本节点列表）。
+
+### 支持的出站节点协议类型
+
+- 对于 sing-box JSON/原始 outbounds：`socks`、`http`、`shadowsocks`、`vmess`、`trojan`、`wireguard`、`hysteria`、`vless`、`shadowtls`、`tuic`、`hysteria2`、`anytls`、`ssh`。
+- 对于 Clash 转换：`ss`/`shadowsocks`、`socks`/`socks4`/`socks4a`/`socks5`、`http`、`vmess`、`vless`、`trojan`、`wireguard`/`wg`、`hysteria`、`hysteria2`/`hy2`、`tuic`、`anytls`、`ssh`。
+
+
 ## 🚀 Quick Start
 
 只需简单三步，即可将你的节点订阅转化为高可用代理池。
@@ -129,36 +151,7 @@ curl -x http://127.0.0.1:2260 \
 curl http://127.0.0.1:2260/my-token/MyPlatform/https/api.ipify.org
 ```
 
-## 🔌 支持协议与订阅格式
-
-### 接入协议
-
-- 正向代理入站：HTTP Proxy，支持普通 HTTP 请求和通过 `CONNECT` 建立 HTTPS 隧道。
-- 反向代理入站：URL 模式 `/令牌/平台:账号/协议/目标主机/路径`，其中 `协议` 当前支持 `http`、`https`。
-- 反向代理中的 WebSocket：支持 `ws`/`wss` 升级，但 URL 中的 `协议` 字段仍需使用 `http`（对应 `ws`）或 `https`（对应 `wss`）。
-
-### 订阅来源
-
-- 远程订阅 URL：`http://` 或 `https://`。
-- 本地订阅内容：在 UI/API 中直接粘贴订阅内容。
-
-### 订阅内容格式
-
-- sing-box JSON：`{"outbounds":[...]}` 或原始出站数组 `[...]`。
-- Clash JSON/YAML：`{"proxies":[...]}` 或 YAML `proxies:`。
-- URI 行格式（每行一个节点）：`vmess://`、`vless://`、`trojan://`、`ss://`、`hysteria2://`、`http://`、`https://`、`socks5://`、`socks5h://`。
-  其中 `http://`、`https://`、`socks5://`、`socks5h://` 需使用 `scheme://[user:pass@]host:port` 形式（可选 `#tag`；`https` 额外支持 `sni`/`servername`/`peer` 与 `allowInsecure`/`insecure` 查询参数）。
-- 纯 HTTP 代理行：`IP:PORT` 或 `IP:PORT:USER:PASS`（支持 IPv4 和 IPv6）。
-- Base64 包裹的文本订阅（例如 URI 行或纯文本节点列表）。
-
-### 支持的出站节点协议类型
-
-- 对于 sing-box JSON/原始 outbounds：`socks`、`http`、`shadowsocks`、`vmess`、`trojan`、`wireguard`、`hysteria`、`vless`、`shadowtls`、`tuic`、`hysteria2`、`anytls`、`ssh`。
-- 对于 Clash 转换：`ss`/`shadowsocks`、`socks`/`socks4`/`socks4a`/`socks5`、`http`、`vmess`、`vless`、`trojan`、`wireguard`/`wg`、`hysteria`、`hysteria2`/`hy2`、`tuic`、`anytls`、`ssh`。
-
----
-
-## 📖 进阶使用：粘性代理 (Sticky Session)
+## 📖 进阶使用：粘性代理
 
 当业务遇到**对 IP 变化敏感**的服务，或者需要持续交互时，你需要使用 Resin 的核心特性：**粘性代理**。
 
@@ -171,9 +164,9 @@ curl http://127.0.0.1:2260/my-token/MyPlatform/https/api.ipify.org
 ### 粘性代理接入格式
 
 #### 方式一：正向代理接入 (HTTP Proxy)
-当 `RESIN_AUTH_VERSION=V1` 时，认证身份核心格式为：`Platform.Account:RESIN_PROXY_TOKEN`。  
+当 `RESIN_AUTH_VERSION=V1` 时，认证身份格式为：`Platform.Account:RESIN_PROXY_TOKEN`。  
 
-> 如需旧格式，可设置 `RESIN_AUTH_VERSION=LEGACY_V0`，继续使用 `RESIN_PROXY_TOKEN:Platform:Account`。  
+> 如需 V0 旧格式，可设置 `RESIN_AUTH_VERSION=LEGACY_V0`，继续使用 `RESIN_PROXY_TOKEN:Platform:Account`。  
 
 直接将身份信息写入 Proxy Auth（代理用户名）中：
 
@@ -196,12 +189,11 @@ curl "http://127.0.0.1:2260/my-token/Default.user_tom/https/api.ipify.org"
 > URL 中携带 Account 的模式定位是“简单使用 / 手动调试”。
 > 生产环境长期集成，推荐优先使用请求头 `X-Resin-Account` 传递 Account。
 
-#### 方式三：反向代理接入 + 请求头（推荐正式集成）
+#### 方式三：反向代理接入 + `X-Resin-Account` 请求头（推荐正式集成）
 
 如果你的客户端（或 SDK）支持自定义请求头，建议直接使用 `X-Resin-Account` 显式传递 Account，这是最稳定的方式。
 
-Account 来源优先级如下：  
-`X-Resin-Account` 请求头 > 反向代理 URL 中的 Account > 请求头提取规则。
+Account 来源优先级：`X-Resin-Account` 请求头 > 反向代理 URL 中的 Account > 请求头提取规则。
 
 示例：
 
@@ -210,6 +202,7 @@ curl "http://127.0.0.1:2260/my-token/MyPlatform/https/api.example.com/v1/orders"
   -H "X-Resin-Account: user_tom"
 ```
 
+#### 方式四：反向代理接入 + 请求头规则（零侵入/低侵入集成）
 如果你的客户端不方便设置 `X-Resin-Account`，但业务请求本身已经有稳定身份头（例如发给目标网站的 API Key、Token、Cookie 等），Resin 也可以通过“请求头提取规则”自动提取 Account。
 
 假设你的服务本来每次请求目标 API 时，都会携带 `Authorization` 请求头：
@@ -226,10 +219,10 @@ curl "http://127.0.0.1:2260/my-token/MyPlatform/https/api.example.com/v1/orders"
 
 上面的请求中，Resin 发现 sk-abc123 后，会将其作为 Account。后续只要带着同一把 API Key 的请求，会优先保持在同一个出口 IP 上。
 
-> 请仅在具备合法处理依据（如用户授权、合同约定或其他适用法律基础）时启用请求头提取，并确保你的日志留存与访问控制策略符合所在地法律法规及目标服务条款。
-
 > [!TIP]
 > 除了 Platform 请求头配置外，Resin 还支持更高级的根据 URL 前缀决定请求头的高级功能！尝试把当前文档与 [DESIGN.md](DESIGN.md) 扔给 AI，问它 “请使用简单易懂的语言，向我介绍 Resin 指定请求头提取规则的两种方式，尤其是根据 URL 前缀决定请求头的方式。”
+
+> 请仅在具备合法处理依据（如用户授权、合同约定或其他适用法律基础）时启用请求头提取，并确保你的日志留存与访问控制策略符合所在地法律法规及目标服务条款。
 
 ---
 
