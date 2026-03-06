@@ -14,6 +14,7 @@ type Platform struct {
 	ReverseProxyEmptyAccountBehavior string `json:"reverse_proxy_empty_account_behavior"`
 	ReverseProxyFixedAccountHeader   string `json:"reverse_proxy_fixed_account_header"`
 	AllocationPolicy                 string `json:"allocation_policy"`
+	MaxRetries                       int    `json:"max_retries"`
 	UpdatedAtNs                      int64  `json:"updated_at_ns"`
 }
 

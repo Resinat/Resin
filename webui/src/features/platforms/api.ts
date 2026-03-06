@@ -10,6 +10,7 @@ type ApiPlatform = Omit<Platform, "regex_filters" | "region_filters"> & {
   reverse_proxy_miss_action?: Platform["reverse_proxy_miss_action"] | null;
   reverse_proxy_empty_account_behavior?: Platform["reverse_proxy_empty_account_behavior"] | null;
   reverse_proxy_fixed_account_header?: string | null;
+  max_retries?: number | null;
 };
 
 function parseMissAction(raw: ApiPlatform["reverse_proxy_miss_action"]): Platform["reverse_proxy_miss_action"] {
@@ -34,6 +35,7 @@ function normalizePlatform(raw: ApiPlatform): Platform {
         : "RANDOM",
     reverse_proxy_fixed_account_header:
       typeof raw.reverse_proxy_fixed_account_header === "string" ? raw.reverse_proxy_fixed_account_header : "",
+    max_retries: typeof raw.max_retries === "number" ? raw.max_retries : 0,
   };
 }
 

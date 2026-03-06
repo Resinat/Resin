@@ -40,6 +40,7 @@ type Platform struct {
 	ReverseProxyFixedAccountHeader   string
 	ReverseProxyFixedAccountHeaders  []string
 	AllocationPolicy                 AllocationPolicy
+	MaxRetries                       int
 
 	// Routable view & its lock.
 	// viewMu serializes both FullRebuild and NotifyDirty.

@@ -111,6 +111,19 @@ func (l *requestLifecycle) addEgressBytes(n int64) {
 	}
 }
 
+func (l *requestLifecycle) setRetryAttempts(n int) {
+	l.log.RetryAttempts = n
+}
+
+func (l *requestLifecycle) addRetryDetail(nodeHash, nodeTag, errKind, errMsg string) {
+	l.log.RetryDetails = append(l.log.RetryDetails, RetryDetail{
+		NodeHash: nodeHash,
+		NodeTag:  nodeTag,
+		ErrKind:  errKind,
+		ErrMsg:   errMsg,
+	})
+}
+
 func (l *requestLifecycle) setNetOK(ok bool) {
 	l.finished.NetOK = ok
 	l.log.NetOK = ok

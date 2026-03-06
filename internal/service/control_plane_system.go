@@ -99,6 +99,7 @@ var platformPatchAllowedFields = map[string]bool{
 	"reverse_proxy_empty_account_behavior": true,
 	"reverse_proxy_fixed_account_header":   true,
 	"allocation_policy":                    true,
+	"max_retries":                         true,
 }
 
 var subscriptionPatchAllowedFields = map[string]bool{

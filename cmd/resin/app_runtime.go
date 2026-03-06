@@ -408,6 +408,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		AuthVersion:       string(a.envCfg.AuthVersion),
 		Router:            a.topoRuntime.router,
 		Pool:              a.topoRuntime.pool,
+		PlatformLookup:    a.topoRuntime.pool,
 		Health:            a.topoRuntime.pool,
 		Events:            proxyEvents,
 		MetricsSink:       a.metricsManager,

@@ -103,8 +103,8 @@ func TestMigrateStateDB_LegacyBaselineAdvancesToLatest(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionNormalizeMissAction {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionNormalizeMissAction)
+	if version != stateVersionAddMaxRetries {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddMaxRetries)
 	}
 }
 
@@ -175,8 +175,8 @@ func TestMigrateStateDB_NormalizesLegacyRandomMissAction(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionNormalizeMissAction {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionNormalizeMissAction)
+	if version != stateVersionAddMaxRetries {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddMaxRetries)
 	}
 }
 

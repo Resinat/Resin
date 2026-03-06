@@ -1,3 +1,10 @@
+export type RetryDetail = {
+  node_hash: string;
+  node_tag: string;
+  err_kind: string;
+  err_msg: string;
+};
+
 export type RequestLogItem = {
   id: string;
   ts: string;
@@ -31,6 +38,8 @@ export type RequestLogItem = {
   req_body_truncated: boolean;
   resp_headers_truncated: boolean;
   resp_body_truncated: boolean;
+  retry_attempts: number;
+  retry_details: RetryDetail[] | null;
 };
 
 export type RequestLogListResponse = {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Resinat/Resin/internal/proxy"
 	"github.com/Resinat/Resin/internal/requestlog"
 )
 
@@ -309,8 +310,10 @@ type logListItem struct {
 	RespBodyLen          int    `json:"resp_body_len"`
 	ReqHeadersTruncated  bool   `json:"req_headers_truncated"`
 	ReqBodyTruncated     bool   `json:"req_body_truncated"`
-	RespHeadersTruncated bool   `json:"resp_headers_truncated"`
-	RespBodyTruncated    bool   `json:"resp_body_truncated"`
+	RespHeadersTruncated bool                `json:"resp_headers_truncated"`
+	RespBodyTruncated    bool                `json:"resp_body_truncated"`
+	RetryAttempts        int                 `json:"retry_attempts"`
+	RetryDetails         []proxy.RetryDetail `json:"retry_details"`
 }
 
 func toLogListItem(s requestlog.LogSummary) logListItem {
@@ -347,6 +350,8 @@ func toLogListItem(s requestlog.LogSummary) logListItem {
 		ReqBodyTruncated:     s.ReqBodyTruncated,
 		RespHeadersTruncated: s.RespHeadersTruncated,
 		RespBodyTruncated:    s.RespBodyTruncated,
+		RetryAttempts:        s.RetryAttempts,
+		RetryDetails:         s.RetryDetails,
 	}
 }
 

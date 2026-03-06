@@ -39,6 +39,7 @@ type EnvConfig struct {
 	DefaultPlatformReverseProxyEmptyAccountBehavior string
 	DefaultPlatformReverseProxyFixedAccountHeader   string
 	DefaultPlatformAllocationPolicy                 string
+	DefaultPlatformMaxRetries                       int
 	ProbeTimeout                                    time.Duration
 	ResourceFetchTimeout                            time.Duration
 	ProxyTransportMaxIdleConns                      int
@@ -108,6 +109,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 		"RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY",
 		string(platform.AllocationPolicyBalanced),
 	)
+	cfg.DefaultPlatformMaxRetries = envInt("RESIN_DEFAULT_PLATFORM_MAX_RETRIES", 0, &errs)
 	cfg.ProbeTimeout = envDuration("RESIN_PROBE_TIMEOUT", 15*time.Second, &errs)
 	cfg.ResourceFetchTimeout = envDuration("RESIN_RESOURCE_FETCH_TIMEOUT", 30*time.Second, &errs)
 	cfg.ProxyTransportMaxIdleConns = envInt("RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS", 1024, &errs)
@@ -275,6 +277,9 @@ func LoadEnvConfig() (*EnvConfig, error) {
 			platform.AllocationPolicyPreferLowLatency,
 			platform.AllocationPolicyPreferIdleIP,
 		))
+	}
+	if cfg.DefaultPlatformMaxRetries < 0 {
+		errs = append(errs, "RESIN_DEFAULT_PLATFORM_MAX_RETRIES must be >= 0")
 	}
 	if cfg.ProbeTimeout <= 0 {
 		errs = append(errs, "RESIN_PROBE_TIMEOUT must be positive")

@@ -32,6 +32,7 @@ type PlatformResponse struct {
 	ReverseProxyEmptyAccountBehavior string   `json:"reverse_proxy_empty_account_behavior"`
 	ReverseProxyFixedAccountHeader   string   `json:"reverse_proxy_fixed_account_header"`
 	AllocationPolicy                 string   `json:"allocation_policy"`
+	MaxRetries                       int      `json:"max_retries"`
 	UpdatedAt                        string   `json:"updated_at"`
 }
 
@@ -49,6 +50,7 @@ func platformToResponse(p model.Platform) PlatformResponse {
 		ReverseProxyEmptyAccountBehavior: behavior,
 		ReverseProxyFixedAccountHeader:   fixedHeader,
 		AllocationPolicy:                 p.AllocationPolicy,
+		MaxRetries:                       p.MaxRetries,
 		UpdatedAt:                        time.Unix(0, p.UpdatedAtNs).UTC().Format(time.RFC3339Nano),
 	}
 }
@@ -74,6 +76,7 @@ type platformConfig struct {
 	ReverseProxyEmptyAccountBehavior string
 	ReverseProxyFixedAccountHeader   string
 	AllocationPolicy                 string
+	MaxRetries                       int
 }
 
 func normalizePlatformMissAction(raw string) string {
@@ -105,6 +108,7 @@ func (s *ControlPlaneService) defaultPlatformConfig(name string) platformConfig 
 			s.EnvCfg.DefaultPlatformReverseProxyFixedAccountHeader,
 		),
 		AllocationPolicy: s.EnvCfg.DefaultPlatformAllocationPolicy,
+		MaxRetries:       s.EnvCfg.DefaultPlatformMaxRetries,
 	}
 }
 
@@ -118,6 +122,7 @@ func platformConfigFromModel(mp model.Platform) platformConfig {
 		ReverseProxyEmptyAccountBehavior: normalizePlatformEmptyAccountBehavior(mp.ReverseProxyEmptyAccountBehavior),
 		ReverseProxyFixedAccountHeader:   normalizeHeaderFieldName(mp.ReverseProxyFixedAccountHeader),
 		AllocationPolicy:                 mp.AllocationPolicy,
+		MaxRetries:                       mp.MaxRetries,
 	}
 }
 
@@ -132,6 +137,7 @@ func (cfg platformConfig) toModel(id string, updatedAtNs int64) model.Platform {
 		ReverseProxyEmptyAccountBehavior: cfg.ReverseProxyEmptyAccountBehavior,
 		ReverseProxyFixedAccountHeader:   cfg.ReverseProxyFixedAccountHeader,
 		AllocationPolicy:                 cfg.AllocationPolicy,
+		MaxRetries:                       cfg.MaxRetries,
 		UpdatedAtNs:                      updatedAtNs,
 	}
 }
@@ -151,6 +157,7 @@ func (cfg platformConfig) toRuntime(id string) (*platform.Platform, error) {
 		cfg.ReverseProxyEmptyAccountBehavior,
 		cfg.ReverseProxyFixedAccountHeader,
 		cfg.AllocationPolicy,
+		cfg.MaxRetries,
 	), nil
 }
 
@@ -328,6 +335,7 @@ type CreatePlatformRequest struct {
 	ReverseProxyEmptyAccountBehavior *string  `json:"reverse_proxy_empty_account_behavior"`
 	ReverseProxyFixedAccountHeader   *string  `json:"reverse_proxy_fixed_account_header"`
 	AllocationPolicy                 *string  `json:"allocation_policy"`
+	MaxRetries                       *int     `json:"max_retries"`
 }
 
 // CreatePlatform creates a new platform.
@@ -381,6 +389,12 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 		if err := setPlatformAllocationPolicy(&cfg, *req.AllocationPolicy); err != nil {
 			return nil, err
 		}
+	}
+	if req.MaxRetries != nil {
+		if *req.MaxRetries < 0 {
+			return nil, invalidArg("max_retries: must be >= 0")
+		}
+		cfg.MaxRetries = *req.MaxRetries
 	}
 	if err := validatePlatformConfig(&cfg, true); err != nil {
 		return nil, err
@@ -493,6 +507,14 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		if err := setPlatformAllocationPolicy(&cfg, ap); err != nil {
 			return nil, err
 		}
+	}
+	if retries, ok, err := patch.optionalInt("max_retries"); err != nil {
+		return nil, err
+	} else if ok {
+		if retries < 0 {
+			return nil, invalidArg("max_retries: must be >= 0")
+		}
+		cfg.MaxRetries = retries
 	}
 	if err := validatePlatformConfig(&cfg, regionFiltersPatched); err != nil {
 		return nil, err

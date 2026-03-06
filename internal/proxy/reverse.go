@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptrace"
@@ -347,6 +348,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeReverse, false)
 	lifecycle.setTarget(parsed.Host, "")
+	var finalAttempt int
 	var egressBodyCounter *countingReadCloser
 	var ingressBodyCounter *countingReadCloser
 	var upgradedStreamCounter *countingReadWriteCloser
@@ -364,7 +366,10 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		egressBodyCounter = newCountingReadCloser(body)
 		r.Body = egressBodyCounter
 	}
-	defer lifecycle.finish()
+	defer func() {
+		lifecycle.setRetryAttempts(finalAttempt)
+		lifecycle.finish()
+	}()
 
 	// Resolve account in three phases:
 	// 1) Use path account directly when present.
@@ -381,19 +386,6 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, parsed.PlatformName, account, parsed.Host)
-	if routeErr != nil {
-		lifecycle.setProxyError(routeErr)
-		lifecycle.setHTTPStatus(routeErr.HTTPCode)
-		writeProxyError(w, routeErr)
-		return
-	}
-	lifecycle.setRouteResult(routed.Route)
-
-	nodeHashRaw := routed.Route.NodeHash
-	domain := netutil.ExtractDomain(parsed.Host)
-	go p.health.RecordLatency(nodeHashRaw, domain, nil)
-
 	target, targetErr := buildReverseTargetURL(parsed, r.URL.RawQuery)
 	if targetErr != nil {
 		lifecycle.setProxyError(targetErr)
@@ -403,89 +395,126 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	lifecycle.setTarget(parsed.Host, target.String())
 
-	transport := p.outboundHTTPTransport(routed)
+	maxRetries := platformMaxRetries(p.platLook, parsed.PlatformName)
 
-	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL = target
-			req.Host = parsed.Host
-			stripForwardingIdentityHeaders(req.Header)
-			lifecycle.addEgressBytes(headerWireLen(req.Header))
+	// Buffer request body for potential retry.
+	var bodyBytes []byte
+	if maxRetries > 0 && r.Body != nil && r.Body != http.NoBody {
+		raw, readErr := io.ReadAll(r.Body)
+		r.Body.Close()
+		if readErr != nil {
+			lifecycle.setProxyError(ErrInternalError)
+			lifecycle.setHTTPStatus(ErrInternalError.HTTPCode)
+			writeProxyError(w, ErrInternalError)
+			return
+		}
+		bodyBytes = raw
+		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		r.ContentLength = int64(len(bodyBytes))
+	}
 
-			// Add httptrace for TLS latency measurement on HTTPS.
-			if parsed.Protocol == "https" {
-				reporter := newReverseLatencyReporter(p.health, nodeHashRaw, domain)
-				reqCtx := httptrace.WithClientTrace(req.Context(), reporter.clientTrace())
-				*req = *req.WithContext(reqCtx)
-			}
-		},
-		Transport: transport,
-		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
-			proxyErr := classifyUpstreamError(err)
-			if proxyErr == nil {
-				// context.Canceled — no health recording, silently close.
-				// Treat as net-ok for request-log semantics when canceled
-				// before upstream response.
-				lifecycle.setNetOK(true)
-				return
-			}
-			lifecycle.setProxyError(proxyErr)
-			lifecycle.setUpstreamError("reverse_roundtrip", err)
-			lifecycle.setNetOK(false)
-			lifecycle.setHTTPStatus(proxyErr.HTTPCode)
-			go p.health.RecordResult(nodeHashRaw, false)
-			writeProxyError(rw, proxyErr)
-		},
-		ModifyResponse: func(resp *http.Response) error {
-			lifecycle.setHTTPStatus(resp.StatusCode)
-			lifecycle.addIngressBytes(headerWireLen(resp.Header))
-			if resp.StatusCode == http.StatusSwitchingProtocols {
-				// 101 upgrade responses require a writable backend body
-				// (io.ReadWriteCloser). Do not wrap resp.Body here; wrapping with a
-				// read-only wrapper breaks websocket/h2c upgrade tunneling in
-				// net/http/httputil.ReverseProxy.
-				//
-				// We can still account upgrade-session traffic by wrapping with a
-				// read-write counter that preserves io.ReadWriteCloser semantics.
-				if rwc, ok := resp.Body.(io.ReadWriteCloser); ok {
-					upgradedStreamCounter = newCountingReadWriteCloser(rwc)
-					resp.Body = upgradedStreamCounter
+	domain := netutil.ExtractDomain(parsed.Host)
+
+	for attempt := 0; ; attempt++ {
+		finalAttempt = attempt
+		routed, routeErr := resolveRoutedOutbound(p.router, p.pool, parsed.PlatformName, account, parsed.Host)
+		if routeErr != nil {
+			lifecycle.setProxyError(routeErr)
+			lifecycle.setHTTPStatus(routeErr.HTTPCode)
+			writeProxyError(w, routeErr)
+			return
+		}
+		lifecycle.setRouteResult(routed.Route)
+
+		nodeHashRaw := routed.Route.NodeHash
+		go p.health.RecordLatency(nodeHashRaw, domain, nil)
+
+		transport := p.outboundHTTPTransport(routed)
+
+		var retryNeeded bool
+		proxy := &httputil.ReverseProxy{
+			Director: func(req *http.Request) {
+				req.URL = target
+				req.Host = parsed.Host
+				stripForwardingIdentityHeaders(req.Header)
+				lifecycle.addEgressBytes(headerWireLen(req.Header))
+
+				if parsed.Protocol == "https" {
+					reporter := newReverseLatencyReporter(p.health, nodeHashRaw, domain)
+					reqCtx := httptrace.WithClientTrace(req.Context(), reporter.clientTrace())
+					*req = *req.WithContext(reqCtx)
 				}
-				if detailCfg.Enabled {
+			},
+			Transport: transport,
+			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
+				proxyErr := classifyUpstreamError(err)
+				if proxyErr == nil {
+					lifecycle.setNetOK(true)
+					return
+				}
+				go p.health.RecordResult(nodeHashRaw, false)
+
+				if attempt < maxRetries && isRetryableUpstreamError(proxyErr) {
+					detail := summarizeUpstreamError(err)
+					lifecycle.addRetryDetail(routed.Route.NodeHash.Hex(), routed.Route.NodeTag, detail.Kind, detail.Message)
+					retryNeeded = true
+					return
+				}
+
+				lifecycle.setProxyError(proxyErr)
+				lifecycle.setUpstreamError("reverse_roundtrip", err)
+				lifecycle.setNetOK(false)
+				lifecycle.setHTTPStatus(proxyErr.HTTPCode)
+				writeProxyError(rw, proxyErr)
+			},
+			ModifyResponse: func(resp *http.Response) error {
+				lifecycle.setHTTPStatus(resp.StatusCode)
+				lifecycle.addIngressBytes(headerWireLen(resp.Header))
+				if resp.StatusCode == http.StatusSwitchingProtocols {
+					if rwc, ok := resp.Body.(io.ReadWriteCloser); ok {
+						upgradedStreamCounter = newCountingReadWriteCloser(rwc)
+						resp.Body = upgradedStreamCounter
+					}
+					if detailCfg.Enabled {
+						respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
+						lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
+					}
+					lifecycle.setNetOK(true)
+					go p.health.RecordResult(nodeHashRaw, true)
+					return nil
+				}
+				if resp.Body != nil && resp.Body != http.NoBody {
+					body := resp.Body
+					if detailCfg.Enabled {
+						respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
+						lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
+						respBodyCapture := newPayloadCaptureReadCloser(body, detailCfg.RespBodyMaxBytes)
+						body = respBodyCapture
+						lifecycle.setRespBodyCapture(respBodyCapture)
+					}
+					ingressBodyCounter = newCountingReadCloser(body)
+					resp.Body = ingressBodyCounter
+				} else if detailCfg.Enabled {
 					respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
 					lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
 				}
 				lifecycle.setNetOK(true)
 				go p.health.RecordResult(nodeHashRaw, true)
 				return nil
-			}
-			if resp.Body != nil && resp.Body != http.NoBody {
-				body := resp.Body
-				if detailCfg.Enabled {
-					respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
-					lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
-					respBodyCapture := newPayloadCaptureReadCloser(body, detailCfg.RespBodyMaxBytes)
-					body = respBodyCapture
-					lifecycle.setRespBodyCapture(respBodyCapture)
-				}
-				ingressBodyCounter = newCountingReadCloser(body)
-				resp.Body = ingressBodyCounter
-			} else if detailCfg.Enabled {
-				respHeaders, respHeadersLen, respHeadersTruncated := captureHeadersWithLimit(resp.Header, detailCfg.RespHeadersMaxBytes)
-				lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
-			}
-			// Intentional coarse-grained policy:
-			// mark node success once upstream response headers arrive.
-			// Further attribution for mid-body stream failures is expensive and noisy
-			// (client abort vs upstream reset vs network blip), and the added
-			// complexity is not worth it for the current phase.
-			lifecycle.setNetOK(true)
-			go p.health.RecordResult(nodeHashRaw, true)
-			return nil
-		},
-	}
+			},
+		}
 
-	proxy.ServeHTTP(w, r)
+		proxy.ServeHTTP(w, r)
+
+		if !retryNeeded {
+			break
+		}
+		// Reset request body for next attempt.
+		if bodyBytes != nil {
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			r.ContentLength = int64(len(bodyBytes))
+		}
+	}
 	if egressBodyCounter != nil {
 		lifecycle.addEgressBytes(egressBodyCounter.Total())
 	}
