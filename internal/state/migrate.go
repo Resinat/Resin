@@ -23,6 +23,7 @@ const (
 	stateVersionAddEmptyAccountBehavior = 2
 	stateVersionAddFixedAccountHeader   = 3
 	stateVersionNormalizeMissAction     = 4
+	stateVersionAddSubscriptionUpstream = 5
 	stateLegacyBaselineVersion          = stateVersionAddFixedAccountHeader
 )
 

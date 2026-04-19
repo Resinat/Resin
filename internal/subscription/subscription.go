@@ -2,6 +2,7 @@
 package subscription
 
 import (
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -113,6 +114,7 @@ type Subscription struct {
 	url        string
 	sourceType string
 	content    string
+	upstreamSubscriptionID string
 	// updateIntervalNs is the configured subscription refresh interval.
 	updateIntervalNs int64
 	name             string
@@ -137,7 +139,7 @@ type Subscription struct {
 	managedNodes atomic.Pointer[ManagedNodes]
 
 	// configVersion is incremented whenever refresh-input-related config changes
-	// (URL/source/content/update-interval). Scheduler uses it for stale-guard.
+	// (URL/source/content/update-interval/upstream-subscription). Scheduler uses it for stale-guard.
 	configVersion atomic.Int64
 }
 
@@ -194,6 +196,13 @@ func (s *Subscription) Content() string {
 	return s.content
 }
 
+// UpstreamSubscriptionID returns the configured upstream subscription ID.
+func (s *Subscription) UpstreamSubscriptionID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.upstreamSubscriptionID
+}
+
 // ConfigVersion returns the scheduler input config version.
 func (s *Subscription) ConfigVersion() int64 {
 	return s.configVersion.Load()
@@ -234,6 +243,17 @@ func (s *Subscription) SetContent(content string) {
 	s.mu.Lock()
 	if s.content != content {
 		s.content = content
+		s.configVersion.Add(1)
+	}
+	s.mu.Unlock()
+}
+
+// SetUpstreamSubscriptionID updates upstream subscription ID (thread-safe).
+func (s *Subscription) SetUpstreamSubscriptionID(id string) {
+	id = strings.TrimSpace(id)
+	s.mu.Lock()
+	if s.upstreamSubscriptionID != id {
+		s.upstreamSubscriptionID = id
 		s.configVersion.Add(1)
 	}
 	s.mu.Unlock()

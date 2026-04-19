@@ -4,8 +4,10 @@
 package topology
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/netip"
 	"runtime"
 	"strings"
@@ -39,6 +41,7 @@ type GlobalNodePool struct {
 	// Persistence callbacks (optional, nil in tests without persistence).
 	onNodeAdded      func(hash node.Hash)                        // called after a new node is created
 	onNodeRemoved    func(hash node.Hash, entry *node.NodeEntry) // called after a node is deleted from pool
+	onNodeUpdated    func(hash node.Hash)                        // called after an existing node raw options are replaced
 	onSubNodeChanged func(subID string, hash node.Hash, added bool)
 
 	// Health callbacks (optional).
@@ -58,6 +61,7 @@ type PoolConfig struct {
 	GeoLookup              platform.GeoLookupFunc
 	OnNodeAdded            func(hash node.Hash)
 	OnNodeRemoved          func(hash node.Hash, entry *node.NodeEntry)
+	OnNodeUpdated          func(hash node.Hash)
 	OnSubNodeChanged       func(subID string, hash node.Hash, added bool)
 	OnNodeDynamicChanged   func(hash node.Hash)
 	OnNodeLatencyChanged   func(hash node.Hash, domain string)
@@ -87,6 +91,7 @@ func NewGlobalNodePool(cfg PoolConfig) *GlobalNodePool {
 		geoLookup:              cfg.GeoLookup,
 		onNodeAdded:            cfg.OnNodeAdded,
 		onNodeRemoved:          cfg.OnNodeRemoved,
+		onNodeUpdated:          cfg.OnNodeUpdated,
 		onSubNodeChanged:       cfg.OnSubNodeChanged,
 		onNodeDynamicChanged:   cfg.OnNodeDynamicChanged,
 		onNodeLatencyChanged:   cfg.OnNodeLatencyChanged,
@@ -105,6 +110,7 @@ func NewGlobalNodePool(cfg PoolConfig) *GlobalNodePool {
 // After mutation, notifies all platforms to re-evaluate the node.
 func (p *GlobalNodePool) AddNodeFromSub(hash node.Hash, rawOpts json.RawMessage, subID string) {
 	isNew := false
+	rawChanged := false
 	p.nodes.Compute(hash, func(entry *node.NodeEntry, loaded bool) (*node.NodeEntry, xsync.ComputeOp) {
 		if !loaded {
 			createdAt := time.Now()
@@ -112,6 +118,15 @@ func (p *GlobalNodePool) AddNodeFromSub(hash node.Hash, rawOpts json.RawMessage,
 			// New subscription nodes start as circuit-open and must be proven healthy by probes.
 			entry.CircuitOpenSince.Store(createdAt.UnixNano())
 			isNew = true
+		} else if !bytes.Equal(entry.RawOptions, rawOpts) {
+			oldOutbound := entry.Outbound.Swap(nil)
+			if oldOutbound != nil {
+				if c, ok := (*oldOutbound).(io.Closer); ok {
+					_ = c.Close()
+				}
+			}
+			entry.RawOptions = append(json.RawMessage(nil), rawOpts...)
+			rawChanged = true
 		}
 		entry.AddSubscriptionID(subID)
 		return entry, xsync.UpdateOp
@@ -119,6 +134,9 @@ func (p *GlobalNodePool) AddNodeFromSub(hash node.Hash, rawOpts json.RawMessage,
 
 	if isNew && p.onNodeAdded != nil {
 		p.onNodeAdded(hash)
+	}
+	if rawChanged && p.onNodeUpdated != nil {
+		p.onNodeUpdated(hash)
 	}
 	if p.onSubNodeChanged != nil {
 		p.onSubNodeChanged(subID, hash, true)
@@ -497,6 +515,12 @@ func (p *GlobalNodePool) RebuildPlatform(plat *platform.Platform) {
 // Must be called before any background workers are started.
 func (p *GlobalNodePool) SetOnNodeAdded(fn func(hash node.Hash)) {
 	p.onNodeAdded = fn
+}
+
+// SetOnNodeUpdated sets the callback fired when an existing node's raw options are replaced.
+// Must be called before any background workers are started.
+func (p *GlobalNodePool) SetOnNodeUpdated(fn func(hash node.Hash)) {
+	p.onNodeUpdated = fn
 }
 
 // SetOnNodeRemoved sets the callback fired when a node is removed from the pool.

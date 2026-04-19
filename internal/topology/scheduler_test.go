@@ -212,6 +212,46 @@ func TestScheduler_UpdateSubscription_LocalSubscription_SuccessWithoutFetcher(t 
 	}
 }
 
+func TestScheduler_UpdateSubscription_ChainInjectsDetour(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	upstream := subscription.NewSubscription("upstream", "Upstream", "http://example.com/up", true, false)
+	downstream := subscription.NewSubscription("downstream", "Downstream", "http://example.com/down", true, false)
+	downstream.SetUpstreamSubscriptionID(upstream.ID)
+	subMgr.Register(upstream)
+	subMgr.Register(downstream)
+
+	pool := newTestPool(subMgr)
+
+	upstreamRaw := json.RawMessage(`{"type":"shadowsocks","tag":"upstream-node","server":"1.1.1.1","server_port":443}`)
+	upstreamHash := node.HashFromRawOptions(upstreamRaw)
+	upstreamManaged := subscription.NewManagedNodes()
+	upstreamManaged.StoreNode(upstreamHash, subscription.ManagedNode{Tags: []string{"up"}})
+	upstream.SwapManagedNodes(upstreamManaged)
+	pool.AddNodeFromSub(upstreamHash, upstreamRaw, upstream.ID)
+
+	downstreamBody := makeSubscriptionJSON(
+		`{"type":"vmess","tag":"down-node","server":"2.2.2.2","server_port":443}`,
+	)
+	sched := newTestScheduler(subMgr, pool, makeMockFetcher(downstreamBody, nil))
+	sched.UpdateSubscription(downstream)
+
+	downstreamHash := node.HashFromRawOptions([]byte(`{"type":"vmess","tag":"down-node","server":"2.2.2.2","server_port":443}`))
+	entry, ok := pool.GetEntry(downstreamHash)
+	if !ok {
+		t.Fatal("expected downstream node in pool")
+	}
+
+	var outbound map[string]any
+	if err := json.Unmarshal(entry.RawOptions, &outbound); err != nil {
+		t.Fatalf("decode downstream outbound: %v", err)
+	}
+	detour, _ := outbound["detour"].(string)
+	wantDetour := chainedOutboundTagPrefix + upstreamHash.Hex()
+	if detour != wantDetour {
+		t.Fatalf("downstream detour: got %q, want %q", detour, wantDetour)
+	}
+}
+
 func TestScheduler_UpdateSubscription_LocalSubscription_ParseFailure(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	sub := subscription.NewSubscription("s1", "LocalSub", "", true, false)

@@ -108,6 +108,7 @@ var subscriptionPatchAllowedFields = map[string]bool{
 	"enabled":                    true,
 	"ephemeral":                  true,
 	"ephemeral_node_evict_delay": true,
+	"upstream_subscription_id":   true,
 }
 
 func parseRuntimeConfigPatch(patchJSON json.RawMessage, out *config.RuntimeConfig) *ServiceError {

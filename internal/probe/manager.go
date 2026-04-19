@@ -740,6 +740,7 @@ func (m *ProbeManager) probeEgress(hash node.Hash, entry *node.NodeEntry) {
 	}
 
 	if entry.Outbound.Load() == nil {
+		log.Printf("[probe] skip egress for %s: outbound not ready", hash.Hex())
 		return
 	}
 
@@ -767,6 +768,7 @@ func (m *ProbeManager) probeLatency(hash node.Hash, entry *node.NodeEntry, testU
 	}
 
 	if entry.Outbound.Load() == nil {
+		log.Printf("[probe] skip latency for %s: outbound not ready", hash.Hex())
 		return
 	}
 

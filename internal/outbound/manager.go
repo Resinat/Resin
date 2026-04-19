@@ -2,8 +2,11 @@ package outbound
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"time"
 
 	"github.com/Resinat/Resin/internal/netutil"
@@ -45,6 +48,10 @@ func (m *OutboundManager) isLiveEntry(hash node.Hash, entry *node.NodeEntry) boo
 // Uses CompareAndSwap(nil, &wrapped) to guarantee only one goroutine's build
 // result is stored. Losers discard their result (stage 6 adds io.Closer release).
 func (m *OutboundManager) EnsureNodeOutbound(hash node.Hash) {
+	m.ensureNodeOutbound(hash, map[node.Hash]struct{}{})
+}
+
+func (m *OutboundManager) ensureNodeOutbound(hash node.Hash, visiting map[node.Hash]struct{}) {
 	entry, ok := m.pool.GetEntry(hash)
 	if !ok {
 		return
@@ -53,12 +60,37 @@ func (m *OutboundManager) EnsureNodeOutbound(hash node.Hash) {
 	if entry.Outbound.Load() != nil {
 		return
 	}
+	if _, exists := visiting[hash]; exists {
+		entry.SetLastError("outbound build: detour cycle detected")
+		return
+	}
+	visiting[hash] = struct{}{}
+	defer delete(visiting, hash)
+
+	if detourTag, ok := parseOutboundDetourTag(entry.RawOptions); ok {
+		log.Printf("[outbound] ensure node=%s detour=%s", hash.Hex(), detourTag)
+		detourHash, found := m.findHashByOutboundTag(detourTag)
+		if !found {
+			log.Printf("[outbound] detour target missing node=%s detour=%s", hash.Hex(), detourTag)
+			entry.SetLastError("outbound build: detour target not found: " + detourTag)
+			return
+		}
+		m.ensureNodeOutbound(detourHash, visiting)
+		detourEntry, ok := m.pool.GetEntry(detourHash)
+		if !ok || detourEntry.Outbound.Load() == nil {
+			log.Printf("[outbound] detour target not ready node=%s detour=%s detour_hash=%s", hash.Hex(), detourTag, detourHash.Hex())
+			entry.SetLastError("outbound build: detour target not ready: " + detourTag)
+			return
+		}
+		log.Printf("[outbound] detour target ready node=%s detour=%s detour_hash=%s", hash.Hex(), detourTag, detourHash.Hex())
+	}
 
 	ob, err := m.builder.Build(entry.RawOptions)
 	if err != nil {
 		entry.SetLastError("outbound build: " + err.Error())
 		return
 	}
+	entry.SetLastError("")
 
 	// Build can race with node deletion/replacement. If this entry is no longer
 	// the pool's live value for the hash, discard the build result.
@@ -131,4 +163,57 @@ func (m *OutboundManager) FetchWithUserAgent(
 		RequireStatusOK: true,
 		UserAgent:       userAgent,
 	})
+}
+
+func parseOutboundDetourTag(raw json.RawMessage) (string, bool) {
+	var outbound map[string]any
+	if err := json.Unmarshal(raw, &outbound); err != nil {
+		return "", false
+	}
+	rawDetour, ok := outbound["detour"]
+	if !ok {
+		return "", false
+	}
+	detour, ok := rawDetour.(string)
+	if !ok || detour == "" {
+		return "", false
+	}
+	return detour, true
+}
+
+func parseOutboundTag(raw json.RawMessage) (string, error) {
+	var outbound map[string]any
+	if err := json.Unmarshal(raw, &outbound); err != nil {
+		return "", fmt.Errorf("parse outbound: %w", err)
+	}
+	rawTag, ok := outbound["tag"]
+	if !ok {
+		return "", errors.New("tag missing")
+	}
+	tag, ok := rawTag.(string)
+	if !ok || tag == "" {
+		return "", errors.New("tag invalid")
+	}
+	return tag, nil
+}
+
+func (m *OutboundManager) findHashByOutboundTag(tag string) (node.Hash, bool) {
+	found := node.Zero
+	matched := false
+	m.pool.RangeNodes(func(h node.Hash, entry *node.NodeEntry) bool {
+		if entry == nil {
+			return true
+		}
+		outboundTag, err := parseOutboundTag(entry.RawOptions)
+		if err != nil {
+			return true
+		}
+		if outboundTag == tag {
+			found = h
+			matched = true
+			return false
+		}
+		return true
+	})
+	return found, matched
 }

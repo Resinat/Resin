@@ -300,8 +300,8 @@ func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
 
 	_, err := r.db.Exec(`
 		INSERT INTO subscriptions (id, name, source_type, url, content, update_interval_ns, enabled,
-		                           ephemeral, ephemeral_node_evict_delay_ns, created_at_ns, updated_at_ns)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                           ephemeral, ephemeral_node_evict_delay_ns, upstream_subscription_id, created_at_ns, updated_at_ns)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name               = excluded.name,
 			source_type        = excluded.source_type,
@@ -311,9 +311,10 @@ func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
 			enabled            = excluded.enabled,
 			ephemeral          = excluded.ephemeral,
 			ephemeral_node_evict_delay_ns = excluded.ephemeral_node_evict_delay_ns,
+			upstream_subscription_id = excluded.upstream_subscription_id,
 			updated_at_ns      = excluded.updated_at_ns
 	`, s.ID, s.Name, s.SourceType, s.URL, s.Content, s.UpdateIntervalNs, s.Enabled,
-		s.Ephemeral, s.EphemeralNodeEvictDelayNs, s.CreatedAtNs, s.UpdatedAtNs)
+		s.Ephemeral, s.EphemeralNodeEvictDelayNs, s.UpstreamSubscriptionID, s.CreatedAtNs, s.UpdatedAtNs)
 	return err
 }
 
@@ -336,7 +337,7 @@ func (r *StateRepo) DeleteSubscription(id string) error {
 // ListSubscriptions returns all subscriptions.
 func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 	rows, err := r.db.Query(`SELECT id, name, source_type, url, content, update_interval_ns, enabled,
-		ephemeral, ephemeral_node_evict_delay_ns, created_at_ns, updated_at_ns FROM subscriptions`)
+		ephemeral, ephemeral_node_evict_delay_ns, upstream_subscription_id, created_at_ns, updated_at_ns FROM subscriptions`)
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +347,7 @@ func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 	for rows.Next() {
 		var s model.Subscription
 		if err := rows.Scan(&s.ID, &s.Name, &s.SourceType, &s.URL, &s.Content, &s.UpdateIntervalNs, &s.Enabled,
-			&s.Ephemeral, &s.EphemeralNodeEvictDelayNs, &s.CreatedAtNs, &s.UpdatedAtNs); err != nil {
+			&s.Ephemeral, &s.EphemeralNodeEvictDelayNs, &s.UpstreamSubscriptionID, &s.CreatedAtNs, &s.UpdatedAtNs); err != nil {
 			return nil, err
 		}
 		if s.SourceType == "" {

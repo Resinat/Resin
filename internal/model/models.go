@@ -28,6 +28,7 @@ type Subscription struct {
 	Enabled                   bool   `json:"enabled"`
 	Ephemeral                 bool   `json:"ephemeral"`
 	EphemeralNodeEvictDelayNs int64  `json:"ephemeral_node_evict_delay_ns"`
+	UpstreamSubscriptionID    string `json:"upstream_subscription_id"`
 	CreatedAtNs               int64  `json:"created_at_ns"`
 	UpdatedAtNs               int64  `json:"updated_at_ns"`
 }

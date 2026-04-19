@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	stdlog "log"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/endpoint"
@@ -32,9 +33,10 @@ type OutboundBuilder interface {
 // It holds a fully-wired context with DNS services so that domain-based
 // outbound servers can be resolved.
 type SingboxBuilder struct {
-	registry            *sbOutbound.Registry
-	ctx                 context.Context
-	logFactory          log.Factory
+	outboundManager *sbOutbound.Manager
+	ctx             context.Context
+	logFactory      log.Factory
+
 	dnsTransportManager *dns.TransportManager
 	dnsRouter           *dns.Router
 }
@@ -102,10 +104,8 @@ func NewSingboxBuilder() (*SingboxBuilder, error) {
 		return nil, fmt.Errorf("singbox builder: start DNS router: %w", err)
 	}
 
-	registry := service.FromContext[adapter.OutboundRegistry](ctx).(*sbOutbound.Registry)
-
 	return &SingboxBuilder{
-		registry:            registry,
+		outboundManager:     outboundMgr,
 		ctx:                 ctx,
 		logFactory:          logFactory,
 		dnsTransportManager: dnsTransportMgr,
@@ -123,19 +123,25 @@ func (b *SingboxBuilder) Build(rawOptions json.RawMessage) (adapter.Outbound, er
 	if err := sJson.UnmarshalContext(b.ctx, rawOptions, &outboundConfig); err != nil {
 		return nil, fmt.Errorf("parse outbound options: %w", err)
 	}
+	fmt.Printf("[outbound] raw=%s\n", string(rawOptions))
+	stdlog.Printf("[outbound] raw=%s", string(rawOptions))
 
-	// 2. Create the outbound instance via the registry.
+	// 2. Create the outbound instance via manager.Create so detour dependencies
+	// can be resolved against a shared outbound manager registry.
 	logger := b.logFactory.NewLogger("outbound/" + outboundConfig.Type)
-	ob, err := b.registry.CreateOutbound(
+	if err := b.outboundManager.Create(
 		b.ctx,
 		nil, // router — not needed for simple dialing
 		logger,
 		outboundConfig.Tag,
 		outboundConfig.Type,
 		outboundConfig.Options,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, fmt.Errorf("create outbound [%s]: %w", outboundConfig.Type, err)
+	}
+	ob, ok := b.outboundManager.Outbound(outboundConfig.Tag)
+	if !ok {
+		return nil, fmt.Errorf("create outbound [%s]: created outbound not found by tag %s", outboundConfig.Type, outboundConfig.Tag)
 	}
 
 	// 3. Run lifecycle start stages. On failure, close and return error.

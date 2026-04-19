@@ -2,8 +2,11 @@ package topology
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"runtime"
+	"sort"
 	"sync"
 	"time"
 
@@ -13,7 +16,10 @@ import (
 	"github.com/Resinat/Resin/internal/subscription"
 )
 
-const schedulerLookahead = 15 * time.Second
+const (
+	schedulerLookahead      = 15 * time.Second
+	chainedOutboundTagPrefix = "resin-node-"
+)
 
 // SubscriptionScheduler manages periodic subscription updates.
 type SubscriptionScheduler struct {
@@ -220,15 +226,28 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 	}
 
 	// 3. Build new managed nodes map (lock-free, pure computation).
+	upstreamDetourTag, err := s.resolveUpstreamDetourTag(sub.UpstreamSubscriptionID())
+	if err != nil {
+		s.handleUpdateFailure(sub, attemptStartedNs, attemptConfigVersion, "chain", err)
+		return
+	}
+	log.Printf("[scheduler] subscription=%s upstream=%s detour=%s", sub.ID, sub.UpstreamSubscriptionID(), upstreamDetourTag)
+
 	newManagedNodes := subscription.NewManagedNodes()
 	rawByHash := make(map[node.Hash][]byte)
 	for _, p := range parsed {
-		h := node.HashFromRawOptions(p.RawOptions)
-		existing, _ := newManagedNodes.LoadNode(h)
+		rawOptions, hash, err := rewriteParsedOutboundRaw(p.RawOptions, upstreamDetourTag)
+		if err != nil {
+			s.handleUpdateFailure(sub, attemptStartedNs, attemptConfigVersion, "rewrite", err)
+			return
+		}
+		log.Printf("[scheduler] subscription=%s node=%s tag=%s detour=%s", sub.ID, hash.Hex(), p.Tag, upstreamDetourTag)
+
+		existing, _ := newManagedNodes.LoadNode(hash)
 		existing.Tags = append(existing.Tags, p.Tag)
-		newManagedNodes.StoreNode(h, existing)
-		if _, ok := rawByHash[h]; !ok {
-			rawByHash[h] = p.RawOptions
+		newManagedNodes.StoreNode(hash, existing)
+		if _, ok := rawByHash[hash]; !ok {
+			rawByHash[hash] = rawOptions
 		}
 	}
 
@@ -241,7 +260,7 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 		}
 		// Stale success guard: if a newer successful update has already landed,
 		// discard this older attempt to avoid rolling state backward.
-		if sub.LastUpdatedNs.Load() > attemptStartedNs {
+		if sub.LastUpdatedNs.Load() >= attemptStartedNs {
 			return
 		}
 
@@ -294,6 +313,7 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 	if s.onSubUpdated != nil {
 		s.onSubUpdated(sub)
 	}
+	s.refreshDownstreamSubscriptions(sub.ID)
 }
 
 // handleUpdateFailure applies a fetch/parse failure to subscription state.
@@ -312,7 +332,7 @@ func (s *SubscriptionScheduler) handleUpdateFailure(
 		if sub.ConfigVersion() != attemptConfigVersion {
 			return
 		}
-		if sub.LastUpdatedNs.Load() > attemptStartedNs {
+		if sub.LastUpdatedNs.Load() >= attemptStartedNs {
 			return
 		}
 		now := time.Now().UnixNano()
@@ -399,4 +419,78 @@ func (s *SubscriptionScheduler) RenameSubscription(sub *subscription.Subscriptio
 
 func (s *SubscriptionScheduler) fetchViaDownloader(url string) ([]byte, error) {
 	return s.downloader.Download(s.downloadCtx, url)
+}
+
+func (s *SubscriptionScheduler) resolveUpstreamDetourTag(upstreamSubID string) (string, error) {
+	if upstreamSubID == "" {
+		return "", nil
+	}
+	upstreamSub := s.subManager.Lookup(upstreamSubID)
+	if upstreamSub == nil {
+		return "", fmt.Errorf("upstream subscription %s not found", upstreamSubID)
+	}
+
+	hashes := make([]node.Hash, 0)
+	upstreamSub.ManagedNodes().RangeNodes(func(h node.Hash, managed subscription.ManagedNode) bool {
+		if managed.Evicted {
+			return true
+		}
+		if _, ok := s.pool.GetEntry(h); !ok {
+			return true
+		}
+		hashes = append(hashes, h)
+		return true
+	})
+	if len(hashes) == 0 {
+		return "", fmt.Errorf("upstream subscription %s has no active nodes in pool", upstreamSubID)
+	}
+	sort.Slice(hashes, func(i, j int) bool {
+		return hashes[i].Hex() < hashes[j].Hex()
+	})
+	return chainedOutboundTagPrefix + hashes[0].Hex(), nil
+}
+
+func (s *SubscriptionScheduler) refreshDownstreamSubscriptions(upstreamSubID string) {
+	if upstreamSubID == "" {
+		return
+	}
+	queue := []string{upstreamSubID}
+	visited := map[string]struct{}{upstreamSubID: {}}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		s.subManager.Range(func(_ string, sub *subscription.Subscription) bool {
+			if sub.UpstreamSubscriptionID() != current {
+				return true
+			}
+			if _, ok := visited[sub.ID]; ok {
+				return true
+			}
+			visited[sub.ID] = struct{}{}
+			if sub.Enabled() {
+				go s.UpdateSubscription(sub)
+			}
+			queue = append(queue, sub.ID)
+			return true
+		})
+	}
+}
+
+func rewriteParsedOutboundRaw(raw []byte, detourTag string) ([]byte, node.Hash, error) {
+	var outbound map[string]any
+	if err := json.Unmarshal(raw, &outbound); err != nil {
+		return nil, node.Zero, fmt.Errorf("decode outbound: %w", err)
+	}
+	hash := node.HashFromRawOptions(raw)
+	outbound["tag"] = chainedOutboundTagPrefix + hash.Hex()
+	if detourTag != "" {
+		outbound["detour"] = detourTag
+	} else {
+		delete(outbound, "detour")
+	}
+	rewritten, err := json.Marshal(outbound)
+	if err != nil {
+		return nil, node.Zero, fmt.Errorf("encode outbound: %w", err)
+	}
+	return rewritten, hash, nil
 }

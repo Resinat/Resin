@@ -89,6 +89,24 @@ func TestMigrateStateDB_LegacyBaselineAdvancesToLatest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create legacy latest-like platforms table: %v", err)
 	}
+	_, err = db.Exec(`
+		CREATE TABLE subscriptions (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			source_type TEXT NOT NULL DEFAULT 'remote',
+			url TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			update_interval_ns INTEGER NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			ephemeral INTEGER NOT NULL DEFAULT 0,
+			ephemeral_node_evict_delay_ns INTEGER NOT NULL,
+			created_at_ns INTEGER NOT NULL,
+			updated_at_ns INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy subscriptions table: %v", err)
+	}
 
 	if err := MigrateStateDB(db); err != nil {
 		t.Fatalf("MigrateStateDB: %v", err)
@@ -132,6 +150,24 @@ func TestMigrateStateDB_NormalizesLegacyRandomMissAction(t *testing.T) {
 	`)
 	if err != nil {
 		t.Fatalf("create legacy latest-like platforms table: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE subscriptions (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			source_type TEXT NOT NULL DEFAULT 'remote',
+			url TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			update_interval_ns INTEGER NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			ephemeral INTEGER NOT NULL DEFAULT 0,
+			ephemeral_node_evict_delay_ns INTEGER NOT NULL,
+			created_at_ns INTEGER NOT NULL,
+			updated_at_ns INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy subscriptions table: %v", err)
 	}
 	_, err = db.Exec(`
 		INSERT INTO platforms (
@@ -435,9 +471,16 @@ func TestStateRepo_Subscriptions_CRUD(t *testing.T) {
 	now := time.Now().UnixNano()
 
 	s := model.Subscription{
-		ID: "sub-1", Name: "MySub", URL: "https://example.com/sub",
-		UpdateIntervalNs: int64(30 * time.Second), Enabled: true,
-		Ephemeral: false, EphemeralNodeEvictDelayNs: int64(72 * time.Hour), CreatedAtNs: now, UpdatedAtNs: now,
+		ID:                     "sub-1",
+		Name:                   "MySub",
+		URL:                    "https://example.com/sub",
+		UpdateIntervalNs:       int64(30 * time.Second),
+		Enabled:                true,
+		Ephemeral:              false,
+		EphemeralNodeEvictDelayNs: int64(72 * time.Hour),
+		UpstreamSubscriptionID: "upstream-sub",
+		CreatedAtNs:            now,
+		UpdatedAtNs:            now,
 	}
 	if err := repo.UpsertSubscription(s); err != nil {
 		t.Fatal(err)

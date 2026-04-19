@@ -45,6 +45,7 @@ const subscriptionCreateSchema = z.object({
   content: z.string(),
   update_interval: z.string().trim().min(1, "更新间隔不能为空"),
   ephemeral_node_evict_delay: z.string().trim().min(1, "临时节点驱逐延迟不能为空"),
+  upstream_subscription_id: z.string(),
   enabled: z.boolean(),
   ephemeral: z.boolean(),
 }).superRefine((value, ctx) => {
@@ -91,6 +92,7 @@ function subscriptionToEditForm(subscription: Subscription): SubscriptionEditFor
     content: subscription.content ?? "",
     update_interval: subscription.update_interval,
     ephemeral_node_evict_delay: subscription.ephemeral_node_evict_delay,
+    upstream_subscription_id: subscription.upstream_subscription_id || "",
     enabled: subscription.enabled,
     ephemeral: subscription.ephemeral,
   };
@@ -170,6 +172,12 @@ export function SubscriptionPage() {
     return subscriptions.find((item) => item.id === selectedSubscriptionId) ?? null;
   }, [selectedSubscriptionId, subscriptions]);
 
+  const upstreamOptions = useMemo(() => {
+    return subscriptions
+      .map((item) => ({ id: item.id, name: item.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [subscriptions]);
+
   const drawerVisible = drawerOpen && Boolean(selectedSubscription);
 
   const createForm = useForm<SubscriptionCreateForm>({
@@ -181,6 +189,7 @@ export function SubscriptionPage() {
       content: "",
       update_interval: "12h",
       ephemeral_node_evict_delay: "72h",
+      upstream_subscription_id: "",
       enabled: true,
       ephemeral: false,
     },
@@ -198,6 +207,7 @@ export function SubscriptionPage() {
       content: "",
       update_interval: "12h",
       ephemeral_node_evict_delay: "72h",
+      upstream_subscription_id: "",
       enabled: true,
       ephemeral: false,
     },
@@ -252,6 +262,7 @@ export function SubscriptionPage() {
         content: "",
         update_interval: LOCAL_SOURCE_UPDATE_INTERVAL,
         ephemeral_node_evict_delay: "72h",
+        upstream_subscription_id: "",
         enabled: true,
         ephemeral: false,
       });
@@ -272,6 +283,7 @@ export function SubscriptionPage() {
         name: formData.name.trim(),
         update_interval: normalizeSubmitUpdateInterval(formData.source_type, formData.update_interval),
         ephemeral_node_evict_delay: formData.ephemeral_node_evict_delay.trim(),
+        upstream_subscription_id: formData.upstream_subscription_id.trim(),
         enabled: formData.enabled,
         ephemeral: formData.ephemeral,
         ...(formData.source_type === "remote"
@@ -372,6 +384,7 @@ export function SubscriptionPage() {
       source_type: values.source_type,
       update_interval: normalizeSubmitUpdateInterval(values.source_type, values.update_interval),
       ephemeral_node_evict_delay: values.ephemeral_node_evict_delay.trim(),
+      upstream_subscription_id: values.upstream_subscription_id.trim(),
       enabled: values.enabled,
       ephemeral: values.ephemeral,
       ...(values.source_type === "remote"
@@ -808,6 +821,20 @@ export function SubscriptionPage() {
                     ) : null}
                   </div>
 
+                  <div className="field-group field-span-2">
+                    <label className="field-label" htmlFor="edit-sub-upstream">
+                      {t("上游订阅")}
+                    </label>
+                    <Select id="edit-sub-upstream" {...editForm.register("upstream_subscription_id")}>
+                      <option value="">{t("无上游订阅")}</option>
+                      {upstreamOptions.map((option) => (
+                        <option key={option.id} value={option.id} disabled={option.id === selectedSubscription.id}>
+                          {option.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
                   <div className="subscription-switch-item">
                     <label className="subscription-switch-label" htmlFor="edit-sub-enabled">
                       <span>{t("启用")}</span>
@@ -1017,6 +1044,20 @@ export function SubscriptionPage() {
                 {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
                   <p className="field-error">{t(createForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
                 ) : null}
+              </div>
+
+              <div className="field-group field-span-2">
+                <label className="field-label" htmlFor="create-sub-upstream">
+                  {t("上游订阅")}
+                </label>
+                <Select id="create-sub-upstream" {...createForm.register("upstream_subscription_id")}>
+                  <option value="">{t("无上游订阅")}</option>
+                  {upstreamOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name}
+                    </option>
+                  ))}
+                </Select>
               </div>
 
               <div className="subscription-switch-item">

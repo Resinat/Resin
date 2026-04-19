@@ -170,6 +170,8 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "1.2.3.4:8080:user:pass（兼容简写）": "1.2.3.4:8080:user:pass (compat shorthand)",
   "临时订阅": "Temporary Subscription",
   "临时节点驱逐延迟": "Temporary Node Eviction Delay",
+  "上游订阅": "Upstream Subscription",
+  "无上游订阅": "No Upstream Subscription",
   "平台列表": "Platform List",
   "平台详情": "Platform Details",
   "返回列表": "Back to List",

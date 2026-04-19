@@ -1,6 +1,9 @@
 package proxy
 
 import (
+	"encoding/json"
+	"log"
+
 	"github.com/Resinat/Resin/internal/outbound"
 	"github.com/Resinat/Resin/internal/routing"
 	"github.com/sagernet/sing-box/adapter"
@@ -29,7 +32,15 @@ func resolveRoutedOutbound(
 	}
 	obPtr := entry.Outbound.Load()
 	if obPtr == nil {
+		log.Printf("[proxy] route node=%s outbound=nil", result.NodeHash.Hex())
 		return routedOutbound{}, ErrNoAvailableNodes
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(entry.RawOptions, &raw); err == nil {
+		tag, _ := raw["tag"].(string)
+		detour, _ := raw["detour"].(string)
+		log.Printf("[proxy] route node=%s tag=%s detour=%s", result.NodeHash.Hex(), tag, detour)
 	}
 
 	return routedOutbound{

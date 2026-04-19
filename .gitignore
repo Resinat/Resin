@@ -3,3 +3,7 @@ sing-box-reference
 .agents
 .devcontainer
 start-instance.sh
+data/
+start.bat
+resin.exe
+.gitignore

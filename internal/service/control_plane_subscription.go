@@ -37,6 +37,7 @@ type SubscriptionResponse struct {
 	LastChecked             string `json:"last_checked,omitempty"`
 	LastUpdated             string `json:"last_updated,omitempty"`
 	LastError               string `json:"last_error,omitempty"`
+	UpstreamSubscriptionID  string `json:"upstream_subscription_id"`
 }
 
 func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) SubscriptionResponse {
@@ -83,6 +84,7 @@ func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) Subs
 		resp.LastUpdated = time.Unix(0, lu).UTC().Format(time.RFC3339Nano)
 	}
 	resp.LastError = sub.GetLastError()
+	resp.UpstreamSubscriptionID = sub.UpstreamSubscriptionID()
 	return resp
 }
 
@@ -122,6 +124,7 @@ type CreateSubscriptionRequest struct {
 	Enabled                 *bool   `json:"enabled"`
 	Ephemeral               *bool   `json:"ephemeral"`
 	EphemeralNodeEvictDelay *string `json:"ephemeral_node_evict_delay"`
+	UpstreamSubscriptionID  *string `json:"upstream_subscription_id"`
 }
 
 const minSubscriptionUpdateInterval = 30 * time.Second
@@ -213,6 +216,14 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 	id := uuid.New().String()
 	now := time.Now().UnixNano()
 
+	upstreamSubscriptionID := ""
+	if req.UpstreamSubscriptionID != nil {
+		upstreamSubscriptionID = strings.TrimSpace(*req.UpstreamSubscriptionID)
+	}
+	if verr := s.validateSubscriptionUpstream(id, upstreamSubscriptionID); verr != nil {
+		return nil, verr
+	}
+
 	ms := model.Subscription{
 		ID:                        id,
 		Name:                      name,
@@ -223,6 +234,7 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 		Enabled:                   enabled,
 		Ephemeral:                 ephemeral,
 		EphemeralNodeEvictDelayNs: int64(ephemeralNodeEvictDelay),
+		UpstreamSubscriptionID:    upstreamSubscriptionID,
 		CreatedAtNs:               now,
 		UpdatedAtNs:               now,
 	}
@@ -234,6 +246,7 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 	sub.SetFetchConfig(subURL, int64(updateInterval))
 	sub.SetSourceType(sourceType)
 	sub.SetContent(content)
+	sub.SetUpstreamSubscriptionID(upstreamSubscriptionID)
 	sub.SetEphemeralNodeEvictDelayNs(int64(ephemeralNodeEvictDelay))
 	sub.CreatedAtNs = now
 	sub.UpdatedAtNs = now
@@ -267,6 +280,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	enabledChanged := false
 	urlChanged := false
 	contentChanged := false
+	upstreamChanged := false
 	sourceType := sub.SourceType()
 
 	newName := sub.Name()
@@ -348,6 +362,20 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 		newEphemeralNodeEvictDelay = int64(d)
 	}
 
+	newUpstreamSubscriptionID := sub.UpstreamSubscriptionID()
+	if upstreamID, ok, err := patch.optionalString("upstream_subscription_id"); err != nil {
+		return nil, err
+	} else if ok {
+		nextUpstream := strings.TrimSpace(upstreamID)
+		if nextUpstream != newUpstreamSubscriptionID {
+			upstreamChanged = true
+		}
+		newUpstreamSubscriptionID = nextUpstream
+	}
+	if verr := s.validateSubscriptionUpstream(id, newUpstreamSubscriptionID); verr != nil {
+		return nil, verr
+	}
+
 	now := time.Now().UnixNano()
 	ms := model.Subscription{
 		ID:                        id,
@@ -359,6 +387,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 		Enabled:                   newEnabled,
 		Ephemeral:                 newEphemeral,
 		EphemeralNodeEvictDelayNs: newEphemeralNodeEvictDelay,
+		UpstreamSubscriptionID:    newUpstreamSubscriptionID,
 		CreatedAtNs:               sub.CreatedAtNs,
 		UpdatedAtNs:               now,
 	}
@@ -369,6 +398,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	// Apply side-effects via scheduler.
 	sub.SetFetchConfig(newURL, newInterval)
 	sub.SetContent(newContent)
+	sub.SetUpstreamSubscriptionID(newUpstreamSubscriptionID)
 	sub.SetEphemeral(newEphemeral)
 	sub.SetEphemeralNodeEvictDelayNs(newEphemeralNodeEvictDelay)
 	sub.UpdatedAtNs = now
@@ -379,7 +409,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 	if enabledChanged {
 		s.Scheduler.SetSubscriptionEnabled(sub, newEnabled)
 	}
-	if urlChanged || contentChanged {
+	if urlChanged || contentChanged || upstreamChanged {
 		go s.Scheduler.UpdateSubscription(sub)
 	}
 
@@ -503,4 +533,34 @@ func shouldCleanupSubscriptionNode(entry *node.NodeEntry) bool {
 		return false
 	}
 	return entry.IsCircuitOpen() || (!entry.HasOutbound() && entry.GetLastError() != "")
+}
+
+func (s *ControlPlaneService) validateSubscriptionUpstream(currentID, upstreamID string) *ServiceError {
+	if upstreamID == "" {
+		return nil
+	}
+	if upstreamID == currentID {
+		return invalidArg("upstream_subscription_id: cannot reference itself")
+	}
+	if s.SubMgr.Lookup(upstreamID) == nil {
+		return invalidArg("upstream_subscription_id: subscription not found")
+	}
+
+	visited := map[string]struct{}{}
+	nextID := upstreamID
+	for nextID != "" {
+		if nextID == currentID {
+			return invalidArg("upstream_subscription_id: cycle detected")
+		}
+		if _, ok := visited[nextID]; ok {
+			return invalidArg("upstream_subscription_id: cycle detected")
+		}
+		visited[nextID] = struct{}{}
+		nextSub := s.SubMgr.Lookup(nextID)
+		if nextSub == nil {
+			return invalidArg("upstream_subscription_id: subscription not found")
+		}
+		nextID = nextSub.UpstreamSubscriptionID()
+	}
+	return nil
 }
