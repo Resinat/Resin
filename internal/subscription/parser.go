@@ -3816,11 +3816,31 @@ func applyTLSCertificateFromClash(tls map[string]any, proxy map[string]any) {
 }
 
 func setSSPluginFromClash(outbound map[string]any, proxy map[string]any) {
-	plugin := strings.TrimSpace(getString(proxy, "plugin"))
+	pluginRaw := strings.TrimSpace(getString(proxy, "plugin"))
+	plugin := pluginRaw
 	pluginOpts := strings.TrimSpace(getString(proxy, "plugin-opts-string", "plugin_opts_string", "plugin-opts", "plugin_opts"))
+	var optsMap map[string]any
 	if pluginOpts == "" {
-		if optsMap, ok := getMap(proxy, "plugin-opts", "plugin_opts"); ok && len(optsMap) > 0 {
-			pluginOpts = buildPluginOptionsString(optsMap)
+		if value, ok := getMap(proxy, "plugin-opts", "plugin_opts"); ok && len(value) > 0 {
+			optsMap = value
+		}
+	}
+
+	if plugin == "obfs" {
+		plugin = "obfs-local"
+	}
+
+	if plugin == "obfs-local" {
+		if pluginOpts == "" && len(optsMap) > 0 {
+			if normalized := buildObfsPluginOptionsFromMap(optsMap); normalized != "" {
+				pluginOpts = normalized
+			} else {
+				pluginOpts = buildPluginOptionsString(optsMap)
+			}
+		} else if pluginOpts != "" {
+			if normalized := buildObfsPluginOptionsFromString(pluginOpts); normalized != "" {
+				pluginOpts = normalized
+			}
 		}
 	}
 
@@ -3843,6 +3863,73 @@ func setSSPluginFromClash(outbound map[string]any, proxy map[string]any) {
 	if pluginOpts != "" {
 		outbound["plugin_opts"] = pluginOpts
 	}
+}
+
+func buildObfsPluginOptionsFromMap(opts map[string]any) string {
+	if len(opts) == 0 {
+		return ""
+	}
+	getOpt := func(key string) string {
+		if value, ok := opts[key]; ok && value != nil {
+			return strings.TrimSpace(fmt.Sprint(value))
+		}
+		return ""
+	}
+	mode := strings.ToLower(firstNonEmpty(getOpt("mode"), getOpt("obfs")))
+	host := firstNonEmpty(getOpt("host"), getOpt("obfs-host"), getOpt("obfs_host"))
+	if mode == "" && host == "" {
+		return ""
+	}
+	parts := make([]string, 0, 2)
+	if mode != "" {
+		parts = append(parts, "obfs="+mode)
+	}
+	if host != "" {
+		parts = append(parts, "obfs-host="+host)
+	}
+	return strings.Join(parts, ";")
+}
+
+func buildObfsPluginOptionsFromString(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if strings.Contains(trimmed, "obfs=") {
+		return trimmed
+	}
+	parts := strings.Split(trimmed, ";")
+	var mode string
+	var host string
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		kv := strings.SplitN(part, "=", 2)
+		key := strings.ToLower(strings.TrimSpace(kv[0]))
+		value := ""
+		if len(kv) == 2 {
+			value = strings.TrimSpace(kv[1])
+		}
+		switch key {
+		case "mode", "obfs":
+			mode = value
+		case "host", "obfs-host", "obfs_host":
+			host = value
+		}
+	}
+	if mode == "" && host == "" {
+		return ""
+	}
+	out := make([]string, 0, 2)
+	if mode != "" {
+		out = append(out, "obfs="+strings.ToLower(mode))
+	}
+	if host != "" {
+		out = append(out, "obfs-host="+host)
+	}
+	return strings.Join(out, ";")
 }
 
 func buildPluginOptionsString(opts map[string]any) string {
