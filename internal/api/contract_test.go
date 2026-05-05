@@ -163,6 +163,33 @@ func assertErrorCode(t *testing.T, rec *httptest.ResponseRecorder, code string) 
 	}
 }
 
+func decodeCreatedSubscriptionItems(t *testing.T, rec *httptest.ResponseRecorder) []map[string]any {
+	t.Helper()
+	body := decodeJSONMap(t, rec)
+	rawItems, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("create subscription response items type: got %T, body=%s", body["items"], rec.Body.String())
+	}
+	items := make([]map[string]any, 0, len(rawItems))
+	for i := range rawItems {
+		item, ok := rawItems[i].(map[string]any)
+		if !ok {
+			t.Fatalf("create subscription response items[%d] type: got %T", i, rawItems[i])
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+func decodeCreatedSubscriptionFirstItem(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	items := decodeCreatedSubscriptionItems(t, rec)
+	if len(items) == 0 {
+		t.Fatalf("create subscription response items is empty, body=%s", rec.Body.String())
+	}
+	return items[0]
+}
+
 func mustCreatePlatform(t *testing.T, srv *Server, name string) string {
 	t.Helper()
 
@@ -803,14 +830,14 @@ func TestAPIContract_KeywordFilteringOnListEndpoints(t *testing.T) {
 
 	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "Apple Feed",
-		"url":  "https://example.com/apple",
+		"urls": []string{"https://example.com/apple"},
 	}, true)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create subscription apple status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
 	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "Banana Feed",
-		"url":  "https://example.com/banana",
+		"urls": []string{"https://example.com/banana"},
 	}, true)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create subscription banana status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
@@ -1179,7 +1206,7 @@ func TestAPIContract_ModuleAndActionEndpoints(t *testing.T) {
 	// subscriptions
 	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "sub-a",
-		"url":  "https://example.com/sub",
+		"urls": []string{"https://example.com/sub"},
 	}, true)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create subscription status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
@@ -1319,7 +1346,7 @@ func TestAPIContract_SubscriptionUpdateIntervalMinimum(t *testing.T) {
 
 	rec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name":            "too-fast",
-		"url":             "https://example.com/sub-fast",
+		"urls":            []string{"https://example.com/sub-fast"},
 		"update_interval": "10s",
 	}, true)
 	if rec.Code != http.StatusBadRequest {
@@ -1329,12 +1356,12 @@ func TestAPIContract_SubscriptionUpdateIntervalMinimum(t *testing.T) {
 
 	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "normal-sub",
-		"url":  "https://example.com/sub-normal",
+		"urls": []string{"https://example.com/sub-normal"},
 	}, true)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create subscription status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
-	body := decodeJSONMap(t, rec)
+	body := decodeCreatedSubscriptionFirstItem(t, rec)
 	subID, _ := body["id"].(string)
 	if subID == "" {
 		t.Fatalf("create subscription missing id: body=%s", rec.Body.String())
@@ -1354,12 +1381,12 @@ func TestAPIContract_SubscriptionEphemeralEvictDelay_DefaultAndCustom(t *testing
 
 	defaultRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "default-evict-delay-sub",
-		"url":  "https://example.com/sub-default-evict-delay",
+		"urls": []string{"https://example.com/sub-default-evict-delay"},
 	}, true)
 	if defaultRec.Code != http.StatusCreated {
 		t.Fatalf("create default delay subscription status: got %d, want %d, body=%s", defaultRec.Code, http.StatusCreated, defaultRec.Body.String())
 	}
-	defaultBody := decodeJSONMap(t, defaultRec)
+	defaultBody := decodeCreatedSubscriptionFirstItem(t, defaultRec)
 	if defaultBody["ephemeral_node_evict_delay"] != "72h0m0s" {
 		t.Fatalf(
 			"default ephemeral_node_evict_delay: got %v, want %q",
@@ -1370,13 +1397,13 @@ func TestAPIContract_SubscriptionEphemeralEvictDelay_DefaultAndCustom(t *testing
 
 	customRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name":                       "custom-evict-delay-sub",
-		"url":                        "https://example.com/sub-custom-evict-delay",
+		"urls":                       []string{"https://example.com/sub-custom-evict-delay"},
 		"ephemeral_node_evict_delay": "30m",
 	}, true)
 	if customRec.Code != http.StatusCreated {
 		t.Fatalf("create custom delay subscription status: got %d, want %d, body=%s", customRec.Code, http.StatusCreated, customRec.Body.String())
 	}
-	customBody := decodeJSONMap(t, customRec)
+	customBody := decodeCreatedSubscriptionFirstItem(t, customRec)
 	if customBody["ephemeral_node_evict_delay"] != "30m0s" {
 		t.Fatalf(
 			"custom ephemeral_node_evict_delay: got %v, want %q",
@@ -1391,12 +1418,12 @@ func TestAPIContract_SubscriptionEphemeralEvictDelayPatchValidation(t *testing.T
 
 	createRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "patch-evict-delay-sub",
-		"url":  "https://example.com/sub-patch-evict-delay",
+		"urls": []string{"https://example.com/sub-patch-evict-delay"},
 	}, true)
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create subscription status: got %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
 	}
-	createBody := decodeJSONMap(t, createRec)
+	createBody := decodeCreatedSubscriptionFirstItem(t, createRec)
 	subID, _ := createBody["id"].(string)
 	if subID == "" {
 		t.Fatalf("create subscription missing id: body=%s", createRec.Body.String())

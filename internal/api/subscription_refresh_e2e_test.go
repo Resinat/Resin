@@ -44,12 +44,12 @@ func TestAPIContract_SubscriptionRefreshAction_E2EHTTPSource(t *testing.T) {
 
 	createRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "sub-e2e",
-		"url":  subscriptionSource.URL + "/sub",
+		"urls": []string{subscriptionSource.URL + "/sub"},
 	}, true)
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create subscription status: got %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
 	}
-	createBody := decodeJSONMap(t, createRec)
+	createBody := decodeCreatedSubscriptionFirstItem(t, createRec)
 	subID, _ := createBody["id"].(string)
 	if subID == "" {
 		t.Fatalf("create subscription missing id: body=%s", createRec.Body.String())
@@ -146,7 +146,7 @@ func TestAPIContract_SubscriptionRefreshAction_E2ELocalSource(t *testing.T) {
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create local subscription status: got %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
 	}
-	createBody := decodeJSONMap(t, createRec)
+	createBody := decodeCreatedSubscriptionFirstItem(t, createRec)
 	subID, _ := createBody["id"].(string)
 	if subID == "" {
 		t.Fatalf("create local subscription missing id: body=%s", createRec.Body.String())

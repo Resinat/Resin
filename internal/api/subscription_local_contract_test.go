@@ -34,12 +34,12 @@ func TestAPIContract_SubscriptionSourceTypeReadOnlyOnPatch(t *testing.T) {
 
 	createRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "sub-remote",
-		"url":  "https://example.com/sub",
+		"urls": []string{"https://example.com/sub"},
 	}, true)
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create remote subscription status: got %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
 	}
-	body := decodeJSONMap(t, createRec)
+	body := decodeCreatedSubscriptionFirstItem(t, createRec)
 	subID, _ := body["id"].(string)
 	if subID == "" {
 		t.Fatalf("create remote subscription missing id: body=%s", createRec.Body.String())

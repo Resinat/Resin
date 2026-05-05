@@ -3,6 +3,7 @@ import type {
   PageResponse,
   Subscription,
   SubscriptionCreateInput,
+  SubscriptionCreateResult,
   SubscriptionUpdateInput,
 } from "./types";
 
@@ -34,6 +35,11 @@ function normalizeSubscriptionPage(raw: PageResponse<ApiSubscription>): PageResp
   };
 }
 
+type ApiSubscriptionCreateResult = {
+  items: ApiSubscription[];
+  created_count?: number;
+};
+
 export type ListSubscriptionsInput = {
   enabled?: boolean;
   limit?: number;
@@ -61,12 +67,15 @@ export async function listSubscriptions(input: ListSubscriptionsInput = {}): Pro
   return normalizeSubscriptionPage(data);
 }
 
-export async function createSubscription(input: SubscriptionCreateInput): Promise<Subscription> {
-  const data = await apiRequest<ApiSubscription>(basePath, {
+export async function createSubscription(input: SubscriptionCreateInput): Promise<SubscriptionCreateResult> {
+  const data = await apiRequest<ApiSubscriptionCreateResult>(basePath, {
     method: "POST",
     body: input,
   });
-  return normalizeSubscription(data);
+  return {
+    items: data.items.map(normalizeSubscription),
+    created_count: data.created_count ?? data.items.length,
+  };
 }
 
 export async function updateSubscription(id: string, input: SubscriptionUpdateInput): Promise<Subscription> {

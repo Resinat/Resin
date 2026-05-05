@@ -15,12 +15,12 @@ func TestAPIContract_SubscriptionCleanupAction_E2E(t *testing.T) {
 
 	createRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "sub-cleanup-e2e",
-		"url":  "https://example.com/sub",
+		"urls": []string{"https://example.com/sub"},
 	}, true)
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create subscription status: got %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
 	}
-	createBody := decodeJSONMap(t, createRec)
+	createBody := decodeCreatedSubscriptionFirstItem(t, createRec)
 	subID, _ := createBody["id"].(string)
 	if subID == "" {
 		t.Fatalf("create subscription missing id: body=%s", createRec.Body.String())

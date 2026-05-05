@@ -280,9 +280,23 @@ func (r *StateRepo) ListPlatforms() ([]model.Platform, error) {
 
 // --- subscriptions ---
 
-// UpsertSubscription inserts or updates a subscription by ID.
-// On update, created_at_ns is preserved (not overwritten).
-func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
+const upsertSubscriptionSQL = `
+	INSERT INTO subscriptions (id, name, source_type, url, content, update_interval_ns, enabled,
+	                           ephemeral, ephemeral_node_evict_delay_ns, created_at_ns, updated_at_ns)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		name               = excluded.name,
+		source_type        = excluded.source_type,
+		url                = excluded.url,
+		content            = excluded.content,
+		update_interval_ns = excluded.update_interval_ns,
+		enabled            = excluded.enabled,
+		ephemeral          = excluded.ephemeral,
+		ephemeral_node_evict_delay_ns = excluded.ephemeral_node_evict_delay_ns,
+		updated_at_ns      = excluded.updated_at_ns
+`
+
+func normalizeSubscriptionForPersist(s *model.Subscription) error {
 	// Validate minimum update interval (30 seconds).
 	const minInterval = int64(30 * time.Second)
 	if s.UpdateIntervalNs < minInterval {
@@ -294,27 +308,76 @@ func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
 	if s.SourceType != "remote" && s.SourceType != "local" {
 		return fmt.Errorf("source_type: must be remote or local, got %q", s.SourceType)
 	}
+	return nil
+}
+
+func execUpsertSubscription(
+	execer interface {
+		Exec(query string, args ...any) (sql.Result, error)
+	},
+	s model.Subscription,
+) error {
+	_, err := execer.Exec(
+		upsertSubscriptionSQL,
+		s.ID,
+		s.Name,
+		s.SourceType,
+		s.URL,
+		s.Content,
+		s.UpdateIntervalNs,
+		s.Enabled,
+		s.Ephemeral,
+		s.EphemeralNodeEvictDelayNs,
+		s.CreatedAtNs,
+		s.UpdatedAtNs,
+	)
+	return err
+}
+
+// UpsertSubscription inserts or updates a subscription by ID.
+// On update, created_at_ns is preserved (not overwritten).
+func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
+	if err := normalizeSubscriptionForPersist(&s); err != nil {
+		return err
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	_, err := r.db.Exec(`
-		INSERT INTO subscriptions (id, name, source_type, url, content, update_interval_ns, enabled,
-		                           ephemeral, ephemeral_node_evict_delay_ns, created_at_ns, updated_at_ns)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			name               = excluded.name,
-			source_type        = excluded.source_type,
-			url                = excluded.url,
-			content            = excluded.content,
-			update_interval_ns = excluded.update_interval_ns,
-			enabled            = excluded.enabled,
-			ephemeral          = excluded.ephemeral,
-			ephemeral_node_evict_delay_ns = excluded.ephemeral_node_evict_delay_ns,
-			updated_at_ns      = excluded.updated_at_ns
-	`, s.ID, s.Name, s.SourceType, s.URL, s.Content, s.UpdateIntervalNs, s.Enabled,
-		s.Ephemeral, s.EphemeralNodeEvictDelayNs, s.CreatedAtNs, s.UpdatedAtNs)
-	return err
+	return execUpsertSubscription(r.db, s)
+}
+
+// UpsertSubscriptions inserts or updates multiple subscriptions in one
+// transaction. Either all rows are persisted, or none are.
+func (r *StateRepo) UpsertSubscriptions(subs []model.Subscription) error {
+	if len(subs) == 0 {
+		return nil
+	}
+
+	normalized := make([]model.Subscription, len(subs))
+	for i := range subs {
+		normalized[i] = subs[i]
+		if err := normalizeSubscriptionForPersist(&normalized[i]); err != nil {
+			return err
+		}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for i := range normalized {
+		if err := execUpsertSubscription(tx, normalized[i]); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 // DeleteSubscription removes a subscription by ID.

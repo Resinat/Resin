@@ -227,12 +227,12 @@ func TestMajorFlow_E2E_LocalProxyAndSubscriptionProvider(t *testing.T) {
 
 	createSubRec := doJSONRequest(t, h.apiServer, http.MethodPost, "/api/v1/subscriptions", map[string]any{
 		"name": "sub-major",
-		"url":  subSource.URL + "/sub",
+		"urls": []string{subSource.URL + "/sub"},
 	}, true)
 	if createSubRec.Code != http.StatusCreated {
 		t.Fatalf("create subscription status: got %d, want %d, body=%s", createSubRec.Code, http.StatusCreated, createSubRec.Body.String())
 	}
-	subBody := decodeJSONMap(t, createSubRec)
+	subBody := decodeCreatedSubscriptionFirstItem(t, createSubRec)
 	subID, _ := subBody["id"].(string)
 	if subID == "" {
 		t.Fatalf("create subscription missing id: body=%s", createSubRec.Body.String())

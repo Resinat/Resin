@@ -26,12 +26,17 @@ export type PageResponse<T> = {
 export type SubscriptionCreateInput = {
   name: string;
   source_type?: "remote" | "local";
-  url?: string;
+  urls?: string[];
   content?: string;
   update_interval?: string;
   enabled?: boolean;
   ephemeral?: boolean;
   ephemeral_node_evict_delay?: string;
+};
+
+export type SubscriptionCreateResult = {
+  items: Subscription[];
+  created_count: number;
 };
 
 export type SubscriptionUpdateInput = {

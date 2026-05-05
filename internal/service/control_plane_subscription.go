@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/state"
 	"github.com/Resinat/Resin/internal/subscription"
@@ -114,14 +115,19 @@ func (s *ControlPlaneService) GetSubscription(id string) (*SubscriptionResponse,
 
 // CreateSubscriptionRequest holds create subscription parameters.
 type CreateSubscriptionRequest struct {
-	Name                    *string `json:"name"`
-	SourceType              *string `json:"source_type"`
-	URL                     *string `json:"url"`
-	Content                 *string `json:"content"`
-	UpdateInterval          *string `json:"update_interval"`
-	Enabled                 *bool   `json:"enabled"`
-	Ephemeral               *bool   `json:"ephemeral"`
-	EphemeralNodeEvictDelay *string `json:"ephemeral_node_evict_delay"`
+	Name                    *string  `json:"name"`
+	SourceType              *string  `json:"source_type"`
+	URLs                    []string `json:"urls"`
+	Content                 *string  `json:"content"`
+	UpdateInterval          *string  `json:"update_interval"`
+	Enabled                 *bool    `json:"enabled"`
+	Ephemeral               *bool    `json:"ephemeral"`
+	EphemeralNodeEvictDelay *string  `json:"ephemeral_node_evict_delay"`
+}
+
+type CreateSubscriptionResponse struct {
+	Items        []SubscriptionResponse `json:"items"`
+	CreatedCount int                    `json:"created_count"`
 }
 
 const minSubscriptionUpdateInterval = 30 * time.Second
@@ -140,8 +146,45 @@ func parseSubscriptionSourceType(raw *string) (string, *ServiceError) {
 	}
 }
 
+func normalizeRemoteURLs(raw []string) ([]string, *ServiceError) {
+	if len(raw) == 0 {
+		return nil, invalidArg("urls is required for remote subscription")
+	}
+	normalized := make([]string, 0, len(raw))
+	for i := range raw {
+		urlStr := strings.TrimSpace(raw[i])
+		if urlStr == "" {
+			return nil, invalidArg(fmt.Sprintf("urls[%d]: must be a non-empty string", i))
+		}
+		if _, verr := parseHTTPAbsoluteURL(fmt.Sprintf("urls[%d]", i), urlStr); verr != nil {
+			return nil, verr
+		}
+		normalized = append(normalized, urlStr)
+	}
+	return normalized, nil
+}
+
+func buildRemoteSubscriptionNames(baseName string, urls []string) []string {
+	if len(urls) <= 1 {
+		return []string{baseName}
+	}
+	result := make([]string, 0, len(urls))
+	seen := make(map[string]int, len(urls))
+	for i := range urls {
+		domain := netutil.ExtractDomain(urls[i])
+		candidate := baseName + "-" + domain
+		seen[candidate]++
+		if seen[candidate] == 1 {
+			result = append(result, candidate)
+			continue
+		}
+		result = append(result, fmt.Sprintf("%s-%d", candidate, seen[candidate]))
+	}
+	return result
+}
+
 // CreateSubscription creates a new subscription.
-func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) (*SubscriptionResponse, error) {
+func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) (*CreateSubscriptionResponse, error) {
 	if req.Name == nil || strings.TrimSpace(*req.Name) == "" {
 		return nil, invalidArg("name is required")
 	}
@@ -152,27 +195,25 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 		return nil, verr
 	}
 
-	subURL := ""
+	remoteURLs := []string{}
 	content := ""
 	switch sourceType {
 	case subscription.SourceTypeRemote:
-		if req.URL == nil || strings.TrimSpace(*req.URL) == "" {
-			return nil, invalidArg("url is required for remote subscription")
-		}
-		subURL = strings.TrimSpace(*req.URL)
-		if _, verr := parseHTTPAbsoluteURL("url", subURL); verr != nil {
-			return nil, verr
-		}
 		if req.Content != nil && strings.TrimSpace(*req.Content) != "" {
 			return nil, invalidArg("content is not allowed for remote subscription")
 		}
+		urls, verr := normalizeRemoteURLs(req.URLs)
+		if verr != nil {
+			return nil, verr
+		}
+		remoteURLs = urls
 	case subscription.SourceTypeLocal:
 		if req.Content == nil || strings.TrimSpace(*req.Content) == "" {
 			return nil, invalidArg("content is required for local subscription")
 		}
 		content = *req.Content
-		if req.URL != nil && strings.TrimSpace(*req.URL) != "" {
-			return nil, invalidArg("url is not allowed for local subscription")
+		if len(req.URLs) > 0 {
+			return nil, invalidArg("urls is not allowed for local subscription")
 		}
 	default:
 		return nil, invalidArg("source_type: must be remote or local")
@@ -210,37 +251,76 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 		ephemeralNodeEvictDelay = d
 	}
 
-	id := uuid.New().String()
+	createCount := 1
+	if sourceType == subscription.SourceTypeRemote {
+		createCount = len(remoteURLs)
+	}
+	names := []string{name}
+	if sourceType == subscription.SourceTypeRemote {
+		names = buildRemoteSubscriptionNames(name, remoteURLs)
+	}
+
 	now := time.Now().UnixNano()
+	modelSubs := make([]model.Subscription, 0, createCount)
+	runtimeSubs := make([]*subscription.Subscription, 0, createCount)
 
-	ms := model.Subscription{
-		ID:                        id,
-		Name:                      name,
-		SourceType:                sourceType,
-		URL:                       subURL,
-		Content:                   content,
-		UpdateIntervalNs:          int64(updateInterval),
-		Enabled:                   enabled,
-		Ephemeral:                 ephemeral,
-		EphemeralNodeEvictDelayNs: int64(ephemeralNodeEvictDelay),
-		CreatedAtNs:               now,
-		UpdatedAtNs:               now,
+	for i := 0; i < createCount; i++ {
+		subURL := ""
+		subName := name
+		subContent := content
+		if sourceType == subscription.SourceTypeRemote {
+			subURL = remoteURLs[i]
+			subName = names[i]
+			subContent = ""
+		}
+
+		id := uuid.New().String()
+		subNow := now + int64(i)
+
+		modelSubs = append(modelSubs, model.Subscription{
+			ID:                        id,
+			Name:                      subName,
+			SourceType:                sourceType,
+			URL:                       subURL,
+			Content:                   subContent,
+			UpdateIntervalNs:          int64(updateInterval),
+			Enabled:                   enabled,
+			Ephemeral:                 ephemeral,
+			EphemeralNodeEvictDelayNs: int64(ephemeralNodeEvictDelay),
+			CreatedAtNs:               subNow,
+			UpdatedAtNs:               subNow,
+		})
+
+		sub := subscription.NewSubscription(id, subName, subURL, enabled, ephemeral)
+		sub.SetFetchConfig(subURL, int64(updateInterval))
+		sub.SetSourceType(sourceType)
+		sub.SetContent(subContent)
+		sub.SetEphemeralNodeEvictDelayNs(int64(ephemeralNodeEvictDelay))
+		sub.CreatedAtNs = subNow
+		sub.UpdatedAtNs = subNow
+		runtimeSubs = append(runtimeSubs, sub)
 	}
-	if err := s.Engine.UpsertSubscription(ms); err != nil {
-		return nil, internal("persist subscription", err)
+
+	if len(modelSubs) == 1 {
+		if err := s.Engine.UpsertSubscription(modelSubs[0]); err != nil {
+			return nil, internal("persist subscription", err)
+		}
+	} else {
+		if err := s.Engine.UpsertSubscriptions(modelSubs); err != nil {
+			return nil, internal("persist subscriptions", err)
+		}
 	}
 
-	sub := subscription.NewSubscription(id, name, subURL, enabled, ephemeral)
-	sub.SetFetchConfig(subURL, int64(updateInterval))
-	sub.SetSourceType(sourceType)
-	sub.SetContent(content)
-	sub.SetEphemeralNodeEvictDelayNs(int64(ephemeralNodeEvictDelay))
-	sub.CreatedAtNs = now
-	sub.UpdatedAtNs = now
-	s.SubMgr.Register(sub)
-
-	r := s.subToResponse(sub)
-	return &r, nil
+	items := make([]SubscriptionResponse, 0, len(runtimeSubs))
+	for i := range runtimeSubs {
+		sub := runtimeSubs[i]
+		s.SubMgr.Register(sub)
+		items = append(items, s.subToResponse(sub))
+	}
+	return &CreateSubscriptionResponse{
+		Items:        items,
+		CreatedCount: len(items),
+	}, nil
 }
 
 // UpdateSubscription applies a constrained partial patch to a subscription.

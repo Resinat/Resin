@@ -41,6 +41,40 @@ const SUBSCRIPTION_SOURCE_TABS: Array<{ key: SubscriptionSourceType; label: stri
 const subscriptionCreateSchema = z.object({
   name: z.string().trim().min(1, "订阅名称不能为空"),
   source_type: z.enum(["remote", "local"]),
+  urls_text: z.string(),
+  content: z.string(),
+  update_interval: z.string().trim().min(1, "更新间隔不能为空"),
+  ephemeral_node_evict_delay: z.string().trim().min(1, "临时节点驱逐延迟不能为空"),
+  enabled: z.boolean(),
+  ephemeral: z.boolean(),
+}).superRefine((value, ctx) => {
+  const content = value.content.trim();
+  if (value.source_type === "remote") {
+    const urls = splitRemoteURLs(value.urls_text);
+    if (!urls.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["urls_text"], message: "至少填写一个 URL" });
+      return;
+    }
+    for (let i = 0; i < urls.length; i += 1) {
+      if (!isValidHTTPURL(urls[i])) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["urls_text"],
+          message: `第 ${i + 1} 行 URL 必须是 http/https 地址`,
+        });
+        return;
+      }
+    }
+    return;
+  }
+  if (!content) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["content"], message: "订阅内容不能为空" });
+  }
+});
+
+const subscriptionEditSchema = z.object({
+  name: z.string().trim().min(1, "订阅名称不能为空"),
+  source_type: z.enum(["remote", "local"]),
   url: z.string(),
   content: z.string(),
   update_interval: z.string().trim().min(1, "更新间隔不能为空"),
@@ -55,7 +89,7 @@ const subscriptionCreateSchema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["url"], message: "URL 不能为空" });
       return;
     }
-    if (!(url.startsWith("http://") || url.startsWith("https://"))) {
+    if (!isValidHTTPURL(url)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["url"], message: "URL 必须是 http/https 地址" });
     }
     return;
@@ -65,8 +99,6 @@ const subscriptionCreateSchema = z.object({
   }
 });
 
-const subscriptionEditSchema = subscriptionCreateSchema;
-
 type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
@@ -74,6 +106,22 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const LOCAL_SOURCE_UPDATE_INTERVAL = "12h";
 const SUBSCRIPTION_DISABLE_HINT = "禁用订阅后，相关节点不会参与平台路由、健康统计或自动探测。";
 const SUBSCRIPTION_EPHEMERAL_HINT = "临时订阅的非健康节点会在一段时间后被自动删除。订阅本身不会被删除。";
+
+function splitRemoteURLs(raw: string): string[] {
+  return raw
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
+function isValidHTTPURL(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 function extractHostname(url: string): string {
   try {
@@ -177,7 +225,7 @@ export function SubscriptionPage() {
     defaultValues: {
       name: "",
       source_type: "remote",
-      url: "",
+      urls_text: "",
       content: "",
       update_interval: "12h",
       ephemeral_node_evict_delay: "72h",
@@ -248,14 +296,19 @@ export function SubscriptionPage() {
       createForm.reset({
         name: "",
         source_type: "remote",
-        url: "",
+        urls_text: "",
         content: "",
         update_interval: LOCAL_SOURCE_UPDATE_INTERVAL,
         ephemeral_node_evict_delay: "72h",
         enabled: true,
         ephemeral: false,
       });
-      showToast("success", t("订阅 {{name}} 创建成功", { name: created.name }));
+      if (created.items.length <= 1) {
+        const createdName = created.items[0]?.name ?? "";
+        showToast("success", t("订阅 {{name}} 创建成功", { name: createdName }));
+        return;
+      }
+      showToast("success", t("已批量创建 {{count}} 个订阅", { count: created.items.length }));
     },
     onError: (error) => {
       showToast("error", formatApiErrorMessage(error, t));
@@ -367,6 +420,7 @@ export function SubscriptionPage() {
   });
 
   const onCreateSubmit = createForm.handleSubmit(async (values) => {
+    const urls = values.source_type === "remote" ? splitRemoteURLs(values.urls_text) : [];
     const payload = {
       name: values.name.trim(),
       source_type: values.source_type,
@@ -375,7 +429,7 @@ export function SubscriptionPage() {
       enabled: values.enabled,
       ephemeral: values.ephemeral,
       ...(values.source_type === "remote"
-        ? { url: values.url.trim() }
+        ? { urls }
         : { content: values.content }),
     };
     await createMutation.mutateAsync(payload);
@@ -952,16 +1006,18 @@ export function SubscriptionPage() {
                   </div>
 
                   <div className="field-group field-span-2">
-                    <label className="field-label" htmlFor="create-sub-url">
-                      {t("订阅链接")}
+                    <label className="field-label" htmlFor="create-sub-urls-text">
+                      {t("订阅链接（每行一个）")}
                     </label>
-                    <Input
-                      id="create-sub-url"
-                      invalid={Boolean(createForm.formState.errors.url)}
-                      {...createForm.register("url")}
+                    <Textarea
+                      id="create-sub-urls-text"
+                      rows={6}
+                      placeholder={t("每行一个 http/https 订阅链接")}
+                      invalid={Boolean(createForm.formState.errors.urls_text)}
+                      {...createForm.register("urls_text")}
                     />
-                    {createForm.formState.errors.url?.message ? (
-                      <p className="field-error">{t(createForm.formState.errors.url.message)}</p>
+                    {createForm.formState.errors.urls_text?.message ? (
+                      <p className="field-error">{t(createForm.formState.errors.urls_text.message)}</p>
                     ) : null}
                   </div>
                 </>
