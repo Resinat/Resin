@@ -9,8 +9,9 @@ func TestAPIContract_SubscriptionLocalCreateValidation(t *testing.T) {
 	srv, _, _ := newControlPlaneTestServer(t)
 
 	rec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
-		"name":        "sub-local",
-		"source_type": "local",
+		"name":                    "sub-local",
+		"source_type":             "local",
+		"incremental_alive_nodes": true,
 	}, true)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("create local without content status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())

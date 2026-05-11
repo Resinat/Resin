@@ -3,8 +3,9 @@ package proxy
 type ProxyType int
 
 const (
-	ProxyTypeForward ProxyType = 1
-	ProxyTypeReverse ProxyType = 2
+	ProxyTypeForward       ProxyType = 1
+	ProxyTypeReverse       ProxyType = 2
+	ProxyTypeSocks5Forward ProxyType = 3
 )
 
 // ConnectionDirection indicates inbound vs outbound connection flow.
@@ -33,7 +34,7 @@ type ConnectionLifecycleEvent struct {
 // Used by the metrics subsystem (Phase 8).
 type RequestFinishedEvent struct {
 	PlatformID string
-	ProxyType  ProxyType // 1=forward, 2=reverse
+	ProxyType  ProxyType // 1=http forward, 2=reverse, 3=socks5 forward
 	IsConnect  bool
 	NetOK      bool
 	DurationNs int64
@@ -44,7 +45,7 @@ type RequestFinishedEvent struct {
 type RequestLogEntry struct {
 	ID              string    // optional stable ID; repo generates one when empty
 	StartedAtNs     int64     // request start time (Unix nano), used as ts_ns in DB
-	ProxyType       ProxyType // 1=forward, 2=reverse
+	ProxyType       ProxyType // 1=http forward, 2=reverse, 3=socks5 forward
 	ClientIP        string
 	PlatformID      string
 	PlatformName    string

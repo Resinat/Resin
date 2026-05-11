@@ -103,8 +103,72 @@ func TestMigrateStateDB_LegacyBaselineAdvancesToLatest(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionNormalizeMissAction {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionNormalizeMissAction)
+	if version != stateVersionAddIncrementalAliveNodes {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddIncrementalAliveNodes)
+	}
+	if ok, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes"); err != nil || !ok {
+		t.Fatalf("expected migrated column subscriptions.incremental_alive_nodes, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestMigrateStateDB_AddsIncrementalAliveNodesToLegacySubscriptions(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE platforms (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			sticky_ttl_ns INTEGER NOT NULL,
+			regex_filters_json TEXT NOT NULL DEFAULT '[]',
+			region_filters_json TEXT NOT NULL DEFAULT '[]',
+			reverse_proxy_miss_action TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_empty_account_behavior TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_fixed_account_header TEXT NOT NULL DEFAULT '',
+			allocation_policy TEXT NOT NULL DEFAULT 'BALANCED',
+			updated_at_ns INTEGER NOT NULL
+		);
+
+		CREATE TABLE subscriptions (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			source_type TEXT NOT NULL DEFAULT 'remote',
+			url TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			update_interval_ns INTEGER NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			ephemeral INTEGER NOT NULL DEFAULT 0,
+			ephemeral_node_evict_delay_ns INTEGER NOT NULL,
+			created_at_ns INTEGER NOT NULL,
+			updated_at_ns INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy platforms and subscriptions tables: %v", err)
+	}
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	if ok, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes"); err != nil || !ok {
+		t.Fatalf("expected migrated column subscriptions.incremental_alive_nodes, ok=%v err=%v", ok, err)
+	}
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateVersionAddIncrementalAliveNodes {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddIncrementalAliveNodes)
 	}
 }
 
@@ -175,8 +239,11 @@ func TestMigrateStateDB_NormalizesLegacyRandomMissAction(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionNormalizeMissAction {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionNormalizeMissAction)
+	if version != stateVersionAddIncrementalAliveNodes {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddIncrementalAliveNodes)
+	}
+	if ok, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes"); err != nil || !ok {
+		t.Fatalf("expected migrated column subscriptions.incremental_alive_nodes, ok=%v err=%v", ok, err)
 	}
 }
 

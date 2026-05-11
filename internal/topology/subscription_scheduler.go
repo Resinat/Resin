@@ -192,6 +192,7 @@ func (s *SubscriptionScheduler) runUpdatesWithWorkerLimit(subs []*subscription.S
 // (no I/O under lock) while still preventing concurrent diff/apply races.
 func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscription) {
 	attemptStartedNs := time.Now().UnixNano()
+	attemptSeq := sub.NextAttemptSeq()
 	attemptURL := sub.URL()
 	attemptSourceType := sub.SourceType()
 	attemptContent := sub.Content()
@@ -207,7 +208,7 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 	} else {
 		body, err = s.Fetcher(attemptURL)
 		if err != nil {
-			s.handleUpdateFailure(sub, attemptStartedNs, attemptConfigVersion, "fetch", err)
+			s.handleUpdateFailure(sub, attemptStartedNs, attemptSeq, attemptConfigVersion, "fetch", err)
 			return
 		}
 	}
@@ -215,18 +216,18 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 	// 2. Parse (lock-free).
 	parsed, err := subscription.ParseGeneralSubscription(body)
 	if err != nil {
-		s.handleUpdateFailure(sub, attemptStartedNs, attemptConfigVersion, "parse", err)
+		s.handleUpdateFailure(sub, attemptStartedNs, attemptSeq, attemptConfigVersion, "parse", err)
 		return
 	}
 
-	// 3. Build new managed nodes map (lock-free, pure computation).
-	newManagedNodes := subscription.NewManagedNodes()
+	// 3. Build refreshed managed nodes map (lock-free, pure computation).
+	refreshedManagedNodes := subscription.NewManagedNodes()
 	rawByHash := make(map[node.Hash][]byte)
 	for _, p := range parsed {
 		h := node.HashFromRawOptions(p.RawOptions)
-		existing, _ := newManagedNodes.LoadNode(h)
+		existing, _ := refreshedManagedNodes.LoadNode(h)
 		existing.Tags = append(existing.Tags, p.Tag)
-		newManagedNodes.StoreNode(h, existing)
+		refreshedManagedNodes.StoreNode(h, existing)
 		if _, ok := rawByHash[h]; !ok {
 			rawByHash[h] = p.RawOptions
 		}
@@ -241,11 +242,29 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 		}
 		// Stale success guard: if a newer successful update has already landed,
 		// discard this older attempt to avoid rolling state backward.
-		if sub.LastUpdatedNs.Load() > attemptStartedNs {
+		if sub.LastAppliedSeq() > attemptSeq {
 			return
 		}
 
 		old := sub.ManagedNodes()
+		mergedManagedNodes := refreshedManagedNodes
+		if sub.IncrementalAliveNodes() {
+			mergedManagedNodes = subscription.NewManagedNodes()
+			old.RangeNodes(func(h node.Hash, oldNode subscription.ManagedNode) bool {
+				if oldNode.Evicted {
+					mergedManagedNodes.StoreNode(h, oldNode)
+					return true
+				}
+				if entry, ok := s.pool.GetEntry(h); ok && !shouldRemoveUnhealthyNodeForIncrementalMode(entry) {
+					mergedManagedNodes.StoreNode(h, oldNode)
+				}
+				return true
+			})
+			refreshedManagedNodes.RangeNodes(func(h node.Hash, refreshedNode subscription.ManagedNode) bool {
+				mergedManagedNodes.StoreNode(h, refreshedNode)
+				return true
+			})
+		}
 
 		// Keep hashes inherit historical eviction state so refresh will not
 		// re-add previously evicted nodes back into pool.
@@ -253,36 +272,58 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 			if !oldNode.Evicted {
 				return true
 			}
-			nextNode, ok := newManagedNodes.LoadNode(h)
+			nextNode, ok := mergedManagedNodes.LoadNode(h)
 			if !ok {
 				return true
 			}
 			nextNode.Evicted = true
-			newManagedNodes.StoreNode(h, nextNode)
+			mergedManagedNodes.StoreNode(h, nextNode)
 			return true
 		})
-		added, kept, removed := subscription.DiffHashes(old, newManagedNodes)
+		added, kept, removed := subscription.DiffHashes(old, mergedManagedNodes)
 
-		sub.SwapManagedNodes(newManagedNodes)
+		sub.SwapManagedNodes(mergedManagedNodes)
 
 		for _, h := range added {
-			s.pool.AddNodeFromSub(h, rawByHash[h], sub.ID)
-		}
-		for _, h := range kept {
-			managed, ok := newManagedNodes.LoadNode(h)
+			managed, ok := mergedManagedNodes.LoadNode(h)
 			if ok && managed.Evicted {
 				continue
 			}
-			s.pool.AddNodeFromSub(h, rawByHash[h], sub.ID)
+			raw := rawByHash[h]
+			if len(raw) == 0 {
+				if entry, ok := s.pool.GetEntry(h); ok {
+					raw = entry.RawOptions
+				}
+			}
+			if len(raw) == 0 {
+				continue
+			}
+			s.pool.AddNodeFromSub(h, raw, sub.ID)
+		}
+		for _, h := range kept {
+			managed, ok := mergedManagedNodes.LoadNode(h)
+			if ok && managed.Evicted {
+				continue
+			}
+			raw := rawByHash[h]
+			if len(raw) == 0 {
+				if entry, ok := s.pool.GetEntry(h); ok {
+					raw = entry.RawOptions
+				}
+			}
+			if len(raw) == 0 {
+				continue
+			}
+			s.pool.AddNodeFromSub(h, raw, sub.ID)
 		}
 		for _, h := range removed {
 			s.pool.RemoveNodeFromSub(h, sub.ID)
 		}
-
 		// 5. Update timestamps (inside lock, using current time).
 		now := time.Now().UnixNano()
 		sub.LastCheckedNs.Store(now)
 		sub.LastUpdatedNs.Store(now)
+		sub.MarkAppliedAttempt(attemptSeq)
 		sub.SetLastError("")
 		applied = true
 	})
@@ -299,9 +340,18 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 // handleUpdateFailure applies a fetch/parse failure to subscription state.
 // It ignores stale failures from an outdated attempt (config-version guard +
 // LastUpdatedNs stale-success guard).
+
+func shouldRemoveUnhealthyNodeForIncrementalMode(entry *node.NodeEntry) bool {
+	if entry == nil {
+		return false
+	}
+	return entry.IsCircuitOpen() || (!entry.HasOutbound() && entry.GetLastError() != "")
+}
+
 func (s *SubscriptionScheduler) handleUpdateFailure(
 	sub *subscription.Subscription,
 	attemptStartedNs int64,
+	attemptSeq int64,
 	attemptConfigVersion int64,
 	stage string,
 	err error,
@@ -312,7 +362,7 @@ func (s *SubscriptionScheduler) handleUpdateFailure(
 		if sub.ConfigVersion() != attemptConfigVersion {
 			return
 		}
-		if sub.LastUpdatedNs.Load() > attemptStartedNs {
+		if sub.LastAppliedSeq() > attemptSeq {
 			return
 		}
 		now := time.Now().UnixNano()

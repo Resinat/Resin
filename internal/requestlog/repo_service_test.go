@@ -10,6 +10,8 @@ import (
 	"github.com/Resinat/Resin/internal/proxy"
 )
 
+func ptrInt(v int) *int { return &v }
+
 func TestRepo_InsertListGetPayloads(t *testing.T) {
 	repo := NewRepo(t.TempDir(), 1<<20, 5)
 	if err := repo.Open(); err != nil {
@@ -127,6 +129,23 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 	}
 	if len(filteredByName) != 1 || filteredByName[0].ID != "log-a" {
 		t.Fatalf("filtered by platform_name list: got %+v", filteredByName)
+	}
+
+	filteredByProxyType, hasMore, nextCursor, err := repo.List(ListFilter{
+		ProxyType: ptrInt(int(proxy.ProxyTypeReverse)),
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("repo.List filtered by proxy_type: %v", err)
+	}
+	if hasMore {
+		t.Fatalf("filtered by proxy_type hasMore: got true, want false")
+	}
+	if nextCursor != nil {
+		t.Fatalf("filtered by proxy_type nextCursor: got %+v, want nil", nextCursor)
+	}
+	if len(filteredByProxyType) != 1 || filteredByProxyType[0].ID != "log-b" {
+		t.Fatalf("filtered by proxy_type list: got %+v", filteredByProxyType)
 	}
 
 	fuzzyFiltered, hasMore, nextCursor, err := repo.List(ListFilter{

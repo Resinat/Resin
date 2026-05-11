@@ -51,6 +51,22 @@ func (c *stubConn) Close() error {
 	return nil
 }
 
+type stubHalfCloseConn struct {
+	stubConn
+	closeWriteCalls atomic.Int32
+	closeReadCalls  atomic.Int32
+}
+
+func (c *stubHalfCloseConn) CloseWrite() error {
+	c.closeWriteCalls.Add(1)
+	return nil
+}
+
+func (c *stubHalfCloseConn) CloseRead() error {
+	c.closeReadCalls.Add(1)
+	return nil
+}
+
 type stubAddr string
 
 func (a stubAddr) Network() string { return "tcp" }
@@ -152,4 +168,25 @@ func TestCountingConn_CloseFlushesPendingOnce(t *testing.T) {
 		t.Fatal("expected outbound close event")
 	}
 	expectNoTrafficDelta(t, sink.traffic, 90*time.Millisecond)
+}
+
+func TestConnCloseNotifier_ForwardsHalfClose(t *testing.T) {
+	base := &stubHalfCloseConn{}
+	conn := &connCloseNotifier{
+		Conn: base,
+		sink: newCountingConnTestSink(),
+	}
+
+	if err := conn.CloseWrite(); err != nil {
+		t.Fatalf("CloseWrite: %v", err)
+	}
+	if err := conn.CloseRead(); err != nil {
+		t.Fatalf("CloseRead: %v", err)
+	}
+	if got := base.closeWriteCalls.Load(); got != 1 {
+		t.Fatalf("CloseWrite calls: got %d, want 1", got)
+	}
+	if got := base.closeReadCalls.Load(); got != 1 {
+		t.Fatalf("CloseRead calls: got %d, want 1", got)
+	}
 }

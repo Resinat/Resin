@@ -3,7 +3,7 @@
 <div align="center">
   <img src="webui/public/vite.svg" width="48" alt="Resin Logo" />
   <h1>Resin</h1>
-  <p><strong>Turn massive proxy subscriptions into a stable, smart, and observable network with sticky sessions.</strong></p>
+  <p><strong>Turn massive proxy subscriptions into a stable, smart, observable unified proxy entrypoint with sticky sessions.</strong></p>
 </div>
 
 <p align="center">
@@ -20,14 +20,14 @@
 
 **Resin** is a **high-performance intelligent proxy pool gateway** built for operating massive numbers of proxy nodes.
 
-It helps shield your services from unstable upstream proxies and aggregates them into a single HTTP gateway with **session stickiness (sticky routing)**.
+It helps shield your services from unstable underlying proxy nodes by aggregating distributed proxy resources into a unified proxy entrypoint with **session stickiness (sticky routing)**.
 
 ## 💡 Why Resin?
 
 - **Massive-scale management**: Easily handles 100k+ proxy nodes with native high-concurrency performance.
 - **Smart scheduling and circuit breaking**: Fully automated **passive + active** health checks, outbound IP probing, and latency analysis to remove bad nodes precisely. Uses P2C plus domain-aware latency-weighted scoring for optimal node selection.
 - **Business-friendly sticky proxying**: Keeps the same business account bound to a stable outbound IP. If a node fails, Resin seamlessly switches to another node with the same IP.
-- **Dual access modes**: Supports both standard forward proxy (HTTP Proxy) and URL-based reverse proxy.
+- **Multiple access modes**: Supports HTTP forward proxy, SOCKS5 forward proxy, and URL-based reverse proxy for different clients and integration styles.
 - **Observability**: Detailed metrics and logs, plus a visual Web UI. Includes complete structured request logs for querying and auditing by platform, account, target site, and more.
 - **Simple and powerful**: Works out of the box with default settings, while still offering deep customization for enterprise-grade needs.
 - **Cross-subscription deduplication**: Automatically merges identical nodes from different subscriptions and shares their health state.
@@ -107,7 +107,7 @@ Run `docker compose up -d` to start the service.
 
 ### Step 3: Start sending proxy requests
 
-Use one of the client access modes in the following sections.
+See the following sections for client access modes. In common scenarios, you can choose HTTP forward proxy, SOCKS5 forward proxy, or reverse proxy based on what your client supports.
 
 ## 🟢 Basic Usage (Non-sticky Proxy)
 
@@ -115,16 +115,26 @@ Use one of the client access modes in the following sections.
 
 If you just need a high-performance, large-capacity proxy pool with automatic health management, Resin works out of the box.
 
-Once Resin is running, point your app to `http://127.0.0.1:2260`.
-If you do not want a proxy password, explicitly set `RESIN_PROXY_TOKEN=""` (the variable must still be defined). Then connect directly to `http://127.0.0.1:2260`.
+Once Resin is running, you can choose HTTP forward proxy, SOCKS5 forward proxy, or reverse proxy based on what your client supports.
+If you do not want a proxy password, explicitly set `RESIN_PROXY_TOKEN=""` (the variable must still be defined). Then HTTP forward proxy is available at `http://127.0.0.1:2260`, and SOCKS5 forward proxy is available at `socks5://127.0.0.1:2260`.
 
-Example with curl:
+HTTP forward proxy example:
 
 ```bash
 curl -x http://127.0.0.1:2260 \
   -U ":my-token" \
   https://api.ipify.org
 ```
+
+SOCKS5 forward proxy example (available only when `RESIN_AUTH_VERSION=V1`):
+
+```bash
+curl --proxy socks5h://127.0.0.1:2260 \
+  -U "Default:my-token" \
+  https://api.ipify.org
+```
+
+If you are still running `LEGACY_V0`, SOCKS5 inbound is not enabled. Keep using HTTP forward proxy, or complete migration before switching to `V1`. When `RESIN_PROXY_TOKEN=""`, SOCKS5 also allows unauthenticated access.
 
 If your client supports overriding `BASE_URL`, you can also use reverse-proxy mode.
 URL format: `/token/Platform(optional).Account(optional)/protocol/target`.
@@ -147,10 +157,16 @@ us
 hk
 ```
 
-For forward proxy, put Platform in proxy auth info:
+For forward proxy (HTTP / SOCKS5), include Platform in the auth info. Examples:
 
 ```bash
 curl -x http://127.0.0.1:2260 \
+  -U "MyPlatform:my-token" \
+  https://api.ipify.org
+```
+
+```bash
+curl --proxy socks5h://127.0.0.1:2260 \
   -U "MyPlatform:my-token" \
   https://api.ipify.org
 ```
@@ -174,18 +190,24 @@ First, understand two core concepts:
 
 ### Sticky proxy access formats
 
-#### Method 1: Forward proxy (HTTP Proxy)
+#### Method 1: Forward proxy (HTTP Proxy / SOCKS5)
 
-With `RESIN_AUTH_VERSION=V1`, the identity format is: `Platform.Account:RESIN_PROXY_TOKEN`.
+With `RESIN_AUTH_VERSION=V1`, HTTP forward proxy and SOCKS5 forward proxy share the same identity format: `Platform.Account:RESIN_PROXY_TOKEN`.
 
-> To keep the legacy V0 format, set `RESIN_AUTH_VERSION=LEGACY_V0` and continue using `RESIN_PROXY_TOKEN:Platform:Account`.
+> To keep the legacy V0 format, set `RESIN_AUTH_VERSION=LEGACY_V0` and continue using `RESIN_PROXY_TOKEN:Platform:Account`. SOCKS5 forward proxy is not enabled in that mode.
 
-Write identity directly in proxy auth username:
+Just put the identity in proxy authentication:
 
 ```bash
-# V1 format: -U "platform.account:token"
-# Bind business account user_tom to a stable dedicated outbound IP
+# HTTP forward proxy: bind business account user_tom to a stable dedicated outbound IP
 curl -x http://127.0.0.1:2260 \
+  -U "Default.user_tom:my-token" \
+  https://api.ipify.org
+```
+
+```bash
+# SOCKS5 forward proxy: uses the same identity format as HTTP forward proxy
+curl --proxy socks5h://127.0.0.1:2260 \
   -U "Default.user_tom:my-token" \
   https://api.ipify.org
 ```
@@ -250,14 +272,14 @@ Different clients integrate Resin differently, with different code-intrusion lev
 
 | Access Method | Code Intrusion | Notes |
 | :--- | :--- | :--- |
-| Forward proxy | 🟢 **Zero intrusion** | Just configure proxy address `http://127.0.0.1:2260` and credentials. |
+| Forward proxy | 🟢 **Zero intrusion** | Just configure an HTTP or SOCKS5 proxy address plus credentials. |
 | Reverse proxy | 🟢 **Zero/low intrusion** | Usually only requires changing service BaseURL. |
 
 💡 **If you need sticky proxying**
 
 | Access Method | Code Intrusion | Notes |
 | :--- | :--- | :--- |
-| Forward proxy | 🟡 **Medium intrusion** | Per-user requests need different auth info, such as `platform.account:token` (V1). |
+| Forward proxy | 🟡 **Medium intrusion** | Per-user requests need different auth info. Under V1, both HTTP and SOCKS5 can use `platform.account:token`. |
 | Reverse proxy | 🟡 **Medium intrusion** | Add `X-Resin-Account` request header or build reverse-proxy URL paths dynamically with account information. |
 | Reverse proxy + header rules | 🟢 **Zero/low intrusion** | Resin can extract Account from original headers (for example `Authorization`) and bind IP automatically. |
 
@@ -326,8 +348,8 @@ RESIN_PORT=2260 \
   - **A**: Even if you do not want a proxy password, you must explicitly set it to empty: `RESIN_PROXY_TOKEN=""`.
 - **Q: Startup fails with `RESIN_AUTH_VERSION` undefined?**
   - **A**: Set it to `LEGACY_V0` or `V1`. For new deployments, use `V1`. For upgrades with legacy data, see [doc/v1.0.0-migration-guide.md](doc/v1.0.0-migration-guide.md).
-- **Q: Is there a dedicated v1.0.0 migration guide?**
-  - **A**: Yes. See [doc/v1.0.0-migration-guide.md](doc/v1.0.0-migration-guide.md).
+- **Q: Why can't my SOCKS5 client connect?**
+  - **A**: First confirm that you are running with `RESIN_AUTH_VERSION=V1`; SOCKS5 inbound is not enabled under `LEGACY_V0`. If `RESIN_PROXY_TOKEN` is non-empty, the client must send SOCKS5 username/password authentication. If it is explicitly set to an empty string, `NO AUTH` is also allowed.
 - **Q: How to write reverse-proxy paths for WebSocket (ws/wss)?**
   - **A**: In the URL path, the protocol field must still be `http` or `https` (not `ws`/`wss`). Resin auto-detects and handles WebSocket upgrade.
 

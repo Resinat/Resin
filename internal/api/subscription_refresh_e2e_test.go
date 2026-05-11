@@ -43,8 +43,9 @@ func TestAPIContract_SubscriptionRefreshAction_E2EHTTPSource(t *testing.T) {
 	})
 
 	createRec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
-		"name": "sub-e2e",
-		"url":  subscriptionSource.URL + "/sub",
+		"name":                    "sub-e2e",
+		"url":                     subscriptionSource.URL + "/sub",
+		"incremental_alive_nodes": true,
 	}, true)
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create subscription status: got %d, want %d, body=%s", createRec.Code, http.StatusCreated, createRec.Body.String())
@@ -59,6 +60,9 @@ func TestAPIContract_SubscriptionRefreshAction_E2EHTTPSource(t *testing.T) {
 	}
 	if got := createBody["healthy_node_count"]; got != float64(0) {
 		t.Fatalf("create subscription healthy_node_count: got %v, want %v", got, 0)
+	}
+	if got := createBody["incremental_alive_nodes"]; got != true {
+		t.Fatalf("create subscription incremental_alive_nodes: got %v, want %v", got, true)
 	}
 
 	refreshRec := doJSONRequest(

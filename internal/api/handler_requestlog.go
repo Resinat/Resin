@@ -62,7 +62,7 @@ func HandleListRequestLogs(repo *requestlog.Repo) http.Handler {
 			return
 		}
 
-		proxyType, ok := parseBoundedIntQuery(w, r, "proxy_type", 1, 2, "proxy_type: must be 1 or 2")
+		proxyType, ok := parseBoundedIntQuery(w, r, "proxy_type", 1, 3, "proxy_type: must be 1, 2, or 3")
 		if !ok {
 			return
 		}

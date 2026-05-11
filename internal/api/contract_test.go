@@ -1718,12 +1718,51 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	}
 	assertErrorCode(t, rec, "INVALID_ARGUMENT")
 
+	inserted, err := requestlogRepo.InsertBatch([]proxy.RequestLogEntry{{
+		ID:          "log-contract-3",
+		StartedAtNs: time.Now().Add(-30 * time.Second).UnixNano(),
+		ProxyType:   proxy.ProxyTypeSocks5Forward,
+		ClientIP:    "127.0.0.3",
+		PlatformID:  platformID,
+		Account:     "acct-3",
+		TargetHost:  "example.net:443",
+		DurationNs:  int64(18 * time.Millisecond),
+		NetOK:       true,
+		HTTPStatus:  0,
+	}})
+	if err != nil {
+		t.Fatalf("insert socks5 request log: %v", err)
+	}
+	if inserted != 1 {
+		t.Fatalf("inserted socks5 logs: got %d, want %d", inserted, 1)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/request-logs?proxy_type=3", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("proxy_type=3 status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	filteredBody := decodeJSONMap(t, rec)
+	filteredItems, ok := filteredBody["items"].([]any)
+	if !ok {
+		t.Fatalf("proxy_type=3 items type: got %T", filteredBody["items"])
+	}
+	if len(filteredItems) != 1 {
+		t.Fatalf("proxy_type=3 items len: got %d, want 1", len(filteredItems))
+	}
+	filteredRow, ok := filteredItems[0].(map[string]any)
+	if !ok {
+		t.Fatalf("proxy_type=3 row type: got %T", filteredItems[0])
+	}
+	if filteredRow["id"] != "log-contract-3" {
+		t.Fatalf("proxy_type=3 row id: got %v, want %q", filteredRow["id"], "log-contract-3")
+	}
+
 	invalidCases := []string{
 		"/api/v1/request-logs?limit=bad",
 		"/api/v1/request-logs?limit=100001",
 		"/api/v1/request-logs?offset=1",
 		"/api/v1/request-logs?cursor=not-base64",
-		"/api/v1/request-logs?proxy_type=3",
+		"/api/v1/request-logs?proxy_type=4",
 		"/api/v1/request-logs?net_ok=2",
 		"/api/v1/request-logs?net_ok=1",
 		"/api/v1/request-logs?net_ok=maybe",

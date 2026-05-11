@@ -8,6 +8,7 @@ export type Subscription = {
   node_count: number;
   healthy_node_count: number;
   ephemeral: boolean;
+  incremental_alive_nodes: boolean;
   ephemeral_node_evict_delay: string;
   enabled: boolean;
   created_at: string;
@@ -31,6 +32,7 @@ export type SubscriptionCreateInput = {
   update_interval?: string;
   enabled?: boolean;
   ephemeral?: boolean;
+  incremental_alive_nodes?: boolean;
   ephemeral_node_evict_delay?: string;
 };
 
@@ -41,5 +43,6 @@ export type SubscriptionUpdateInput = {
   update_interval?: string;
   enabled?: boolean;
   ephemeral?: boolean;
+  incremental_alive_nodes?: boolean;
   ephemeral_node_evict_delay?: string;
 };

@@ -595,6 +595,21 @@ a {
   background: #e6e9ef;
 }
 
+.request-logs-proxy-badge-forward {
+  color: #1a5fb4;
+  background: rgba(20, 112, 255, 0.12);
+}
+
+.request-logs-proxy-badge-reverse {
+  color: #7b3fa0;
+  background: rgba(145, 65, 200, 0.12);
+}
+
+.request-logs-proxy-badge-socks {
+  color: #eff6ff;
+  background: #3f6cba;
+}
+
 .callout {
   display: inline-flex;
   width: 100%;
@@ -1715,7 +1730,7 @@ a {
   padding: 10px;
 }
 
-.stats-grid span {
+.stats-grid > div > span {
   display: inline-flex;
   font-size: 12px;
   color: var(--text-muted);

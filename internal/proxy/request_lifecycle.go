@@ -20,21 +20,18 @@ type requestLifecycle struct {
 	respBodyCapture *payloadCaptureReadCloser
 }
 
-func newRequestLifecycle(
+func newRequestLifecycleFromMetadata(
 	events EventEmitter,
-	r *http.Request,
+	clientRemoteAddr string,
+	method string,
 	proxyType ProxyType,
 	isConnect bool,
 ) *requestLifecycle {
-	method := ""
 	clientIP := ""
-	if r != nil {
-		method = r.Method
-		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			clientIP = host
-		} else {
-			clientIP = r.RemoteAddr // fallback: bare IP or unparseable
-		}
+	if host, _, err := net.SplitHostPort(clientRemoteAddr); err == nil {
+		clientIP = host
+	} else {
+		clientIP = clientRemoteAddr // fallback: bare IP or unparseable
 	}
 	now := time.Now()
 	return &requestLifecycle{
@@ -51,6 +48,21 @@ func newRequestLifecycle(
 			HTTPMethod:  method,
 		},
 	}
+}
+
+func newRequestLifecycle(
+	events EventEmitter,
+	r *http.Request,
+	proxyType ProxyType,
+	isConnect bool,
+) *requestLifecycle {
+	method := ""
+	clientRemoteAddr := ""
+	if r != nil {
+		method = r.Method
+		clientRemoteAddr = r.RemoteAddr
+	}
+	return newRequestLifecycleFromMetadata(events, clientRemoteAddr, method, proxyType, isConnect)
 }
 
 func (l *requestLifecycle) finish() {
@@ -81,9 +93,6 @@ func (l *requestLifecycle) setProxyError(pe *ProxyError) {
 		return
 	}
 	l.log.ResinError = pe.ResinError
-	if l.log.HTTPStatus == 0 {
-		l.log.HTTPStatus = pe.HTTPCode
-	}
 }
 
 func (l *requestLifecycle) setUpstreamError(stage string, err error) {

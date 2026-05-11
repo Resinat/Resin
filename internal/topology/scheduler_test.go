@@ -353,6 +353,80 @@ func TestScheduler_UpdateSubscription_KeepEvictedDoesNotReAddToPool(t *testing.T
 	}
 }
 
+func TestScheduler_UpdateSubscription_IncrementalAliveModeKeepsHealthyOldNodes(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "http://example.com", true, false)
+	sub.SetIncrementalAliveNodes(true)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	initialRaw := `{"type":"shadowsocks","tag":"healthy-old","server":"1.1.1.1","server_port":443}`
+	sched := newTestScheduler(subMgr, pool, makeMockFetcher(makeSubscriptionJSON(initialRaw), nil))
+	sched.UpdateSubscription(sub)
+
+	oldHash := node.HashFromRawOptions([]byte(initialRaw))
+	oldEntry, ok := pool.GetEntry(oldHash)
+	if !ok {
+		t.Fatal("old node should exist after initial refresh")
+	}
+	outbound := testutil.NewNoopOutbound()
+	oldEntry.Outbound.Store(&outbound)
+	oldEntry.CircuitOpenSince.Store(0)
+	oldEntry.SetLastError("")
+
+	newRaw := `{"type":"vmess","tag":"new-node","server":"2.2.2.2","server_port":443}`
+	sched.Fetcher = makeMockFetcher(makeSubscriptionJSON(newRaw), nil)
+	sched.UpdateSubscription(sub)
+
+	newHash := node.HashFromRawOptions([]byte(newRaw))
+	if _, ok := sub.ManagedNodes().LoadNode(oldHash); !ok {
+		t.Fatal("healthy old node should be retained in incremental mode")
+	}
+	if _, ok := sub.ManagedNodes().LoadNode(newHash); !ok {
+		t.Fatal("new node should be present after incremental refresh")
+	}
+	if _, ok := pool.GetEntry(oldHash); !ok {
+		t.Fatal("healthy old node should remain in pool")
+	}
+	if _, ok := pool.GetEntry(newHash); !ok {
+		t.Fatal("new node should be added to pool")
+	}
+}
+
+func TestScheduler_UpdateSubscription_IncrementalAliveModeRemovesUnhealthyOldNodes(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "http://example.com", true, false)
+	sub.SetIncrementalAliveNodes(true)
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	initialRaw := `{"type":"shadowsocks","tag":"bad-old","server":"1.1.1.1","server_port":443}`
+	sched := newTestScheduler(subMgr, pool, makeMockFetcher(makeSubscriptionJSON(initialRaw), nil))
+	sched.UpdateSubscription(sub)
+
+	oldHash := node.HashFromRawOptions([]byte(initialRaw))
+	oldEntry, ok := pool.GetEntry(oldHash)
+	if !ok {
+		t.Fatal("old node should exist after initial refresh")
+	}
+	oldEntry.CircuitOpenSince.Store(time.Now().Add(-time.Minute).UnixNano())
+
+	newRaw := `{"type":"vmess","tag":"new-node","server":"2.2.2.2","server_port":443}`
+	sched.Fetcher = makeMockFetcher(makeSubscriptionJSON(newRaw), nil)
+	sched.UpdateSubscription(sub)
+
+	newHash := node.HashFromRawOptions([]byte(newRaw))
+	if _, ok := sub.ManagedNodes().LoadNode(oldHash); ok {
+		t.Fatal("unhealthy old node should be removed in incremental mode")
+	}
+	if _, ok := pool.GetEntry(oldHash); ok {
+		t.Fatal("unhealthy old node should be removed from pool")
+	}
+	if _, ok := sub.ManagedNodes().LoadNode(newHash); !ok {
+		t.Fatal("new node should still be present")
+	}
+}
+
 // --- Test: Rename triggers re-filter ---
 
 func TestScheduler_RenameSubscription(t *testing.T) {

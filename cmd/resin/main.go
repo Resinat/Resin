@@ -95,6 +95,17 @@ func authVersionStartupWarning(authVersion config.AuthVersion) string {
 	)
 }
 
+func inboundProtocolsStartupLabel(authVersion config.AuthVersion) string {
+	switch authVersion {
+	case config.AuthVersionV1:
+		return "HTTP + SOCKS5"
+	case config.AuthVersionLegacyV0:
+		return "HTTP; SOCKS5 disabled under RESIN_AUTH_VERSION=LEGACY_V0"
+	default:
+		return "HTTP"
+	}
+}
+
 func loadRuntimeConfig(engine *state.StateEngine) *config.RuntimeConfig {
 	runtimeCfg, ver, err := engine.GetSystemConfig()
 	if err != nil {
@@ -380,6 +391,7 @@ func bootstrapTopology(
 		sub.SetFetchConfig(ms.URL, ms.UpdateIntervalNs)
 		sub.SetSourceType(ms.SourceType)
 		sub.SetContent(ms.Content)
+		sub.SetIncrementalAliveNodes(ms.IncrementalAliveNodes)
 		sub.SetEphemeralNodeEvictDelayNs(ms.EphemeralNodeEvictDelayNs)
 		sub.CreatedAtNs = ms.CreatedAtNs
 		sub.UpdatedAtNs = ms.UpdatedAtNs

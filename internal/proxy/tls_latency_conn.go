@@ -67,3 +67,11 @@ func (c *tlsLatencyConn) Read(b []byte) (int, error) {
 	}
 	return n, err
 }
+
+func (c *tlsLatencyConn) CloseWrite() error {
+	return closeWriteErr(c.Conn)
+}
+
+func (c *tlsLatencyConn) CloseRead() error {
+	return closeReadErr(c.Conn)
+}

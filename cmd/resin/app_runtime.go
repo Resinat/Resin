@@ -40,9 +40,12 @@ type resinApp struct {
 	metricsManager *metrics.Manager
 	requestlogRepo *requestlog.Repo
 	requestlogSvc  *requestlog.Service
-	inboundSrv     *http.Server
-	inboundLn      net.Listener
-	transportPool  *proxy.OutboundTransportPool
+	inboundSrv     interface {
+		Serve(net.Listener) error
+		Shutdown(context.Context) error
+	}
+	inboundLn     net.Listener
+	transportPool *proxy.OutboundTransportPool
 }
 
 func run() error {
@@ -428,6 +431,15 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		OutboundTransport: outboundTransportCfg,
 		TransportPool:     a.transportPool,
 	})
+	socks5Inbound := proxy.NewSocks5Inbound(proxy.Socks5InboundConfig{
+		ProxyToken:  a.envCfg.ProxyToken,
+		AuthVersion: string(a.envCfg.AuthVersion),
+		Router:      a.topoRuntime.router,
+		Pool:        a.topoRuntime.pool,
+		Health:      a.topoRuntime.pool,
+		Events:      proxyEvents,
+		MetricsSink: a.metricsManager,
+	})
 
 	inboundHandler := newInboundMux(
 		a.envCfg.ProxyToken,
@@ -441,7 +453,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		return fmt.Errorf("resin server listen: %w", err)
 	}
 	a.inboundLn = proxy.NewCountingListener(inboundLn, a.metricsManager)
-	a.inboundSrv = &http.Server{Handler: inboundHandler}
+	a.inboundSrv = newInboundDemuxServer(&http.Server{Handler: inboundHandler}, socks5Inbound)
 
 	return nil
 }
@@ -486,7 +498,11 @@ func (a *resinApp) startServers() <-chan error {
 	}
 
 	go func() {
-		log.Printf("Resin server starting on %s", formatListenURL(a.envCfg.ListenAddress, a.envCfg.ResinPort))
+		log.Printf(
+			"Resin server starting on %s (%s)",
+			formatListenAddress(a.envCfg.ListenAddress, a.envCfg.ResinPort),
+			inboundProtocolsStartupLabel(a.envCfg.AuthVersion),
+		)
 		reportServerErr("resin server", a.inboundSrv.Serve(a.inboundLn))
 	}()
 
