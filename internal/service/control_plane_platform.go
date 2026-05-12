@@ -590,6 +590,7 @@ type NodeSummary struct {
 	LastAuthorityLatencyProbeAttempt string    `json:"last_authority_latency_probe_attempt,omitempty"`
 	ReferenceLatencyMs               *float64  `json:"reference_latency_ms,omitempty"`
 	LastEgressUpdateAttempt          string    `json:"last_egress_update_attempt,omitempty"`
+	LeaseCount                       int64     `json:"lease_count"`
 	Tags                             []NodeTag `json:"tags"`
 }
 

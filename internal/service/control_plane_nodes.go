@@ -115,6 +115,25 @@ func (s *ControlPlaneService) ListNodes(filters NodeFilters) ([]NodeSummary, err
 	if result == nil {
 		result = []NodeSummary{}
 	}
+
+	if s.Router != nil {
+		var leaseLoads map[node.Hash]int64
+		if filters.PlatformID != nil {
+			leaseLoads = s.Router.SnapshotNodeLoad(*filters.PlatformID)
+		} else {
+			leaseLoads = s.Router.SnapshotNodeLoadAll()
+		}
+		if len(leaseLoads) > 0 {
+			for i := range result {
+				h, err := node.ParseHex(result[i].NodeHash)
+				if err != nil {
+					continue
+				}
+				result[i].LeaseCount = leaseLoads[h]
+			}
+		}
+	}
+
 	return result, nil
 }
 

@@ -2,6 +2,7 @@ import { apiRequest } from "../../lib/api-client";
 import type {
   EgressProbeResult,
   LatencyProbeResult,
+  NodeLease,
   NodeListQuery,
   NodeSummary,
   PageResponse,
@@ -9,7 +10,7 @@ import type {
 
 const basePath = "/api/v1/nodes";
 
-type ApiNodeSummary = Omit<NodeSummary, "tags"> & {
+type ApiNodeSummary = Omit<NodeSummary, "tags" | "lease_count"> & {
   tags?: NodeSummary["tags"] | null;
   enabled?: boolean | null;
   display_tag?: string | null;
@@ -22,6 +23,7 @@ type ApiNodeSummary = Omit<NodeSummary, "tags"> & {
   last_latency_probe_attempt?: string | null;
   last_authority_latency_probe_attempt?: string | null;
   last_egress_update_attempt?: string | null;
+  lease_count?: number | null;
 };
 
 function normalizeNode(raw: ApiNodeSummary): NodeSummary {
@@ -39,6 +41,7 @@ function normalizeNode(raw: ApiNodeSummary): NodeSummary {
     last_latency_probe_attempt: raw.last_latency_probe_attempt || "",
     last_authority_latency_probe_attempt: raw.last_authority_latency_probe_attempt || "",
     last_egress_update_attempt: raw.last_egress_update_attempt || "",
+    lease_count: typeof raw.lease_count === "number" ? raw.lease_count : 0,
   };
 
   // Backend uses `omitempty`; field missing means "no reference latency".
@@ -107,4 +110,16 @@ export async function probeLatency(hash: string): Promise<LatencyProbeResult> {
   return apiRequest<LatencyProbeResult>(`${basePath}/${hash}/actions/probe-latency`, {
     method: "POST",
   });
+}
+
+export async function listNodeLeases(hash: string, platformId?: string): Promise<NodeLease[]> {
+  const query = new URLSearchParams();
+  const pid = platformId?.trim();
+  if (pid) {
+    query.set("platform_id", pid);
+  }
+  const qs = query.toString();
+  const path = qs ? `${basePath}/${hash}/leases?${qs}` : `${basePath}/${hash}/leases`;
+  const data = await apiRequest<NodeLease[] | null>(path);
+  return Array.isArray(data) ? data : [];
 }

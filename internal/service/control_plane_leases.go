@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -209,6 +210,104 @@ func (s *ControlPlaneService) BindLease(platformID, account, nodeHashHex string)
 type IPLoadEntry struct {
 	EgressIP   string `json:"egress_ip"`
 	LeaseCount int64  `json:"lease_count"`
+}
+
+// NodeLeaseResponse is the API response for a lease scoped to a specific node.
+// Unlike LeaseResponse, it carries the owning platform so the caller can render
+// cross-platform lease bindings for a single node.
+type NodeLeaseResponse struct {
+	PlatformID   string `json:"platform_id"`
+	PlatformName string `json:"platform_name"`
+	Account      string `json:"account"`
+	NodeHash     string `json:"node_hash"`
+	EgressIP     string `json:"egress_ip"`
+	CreatedAt    string `json:"created_at"`
+	Expiry       string `json:"expiry"`
+	LastAccessed string `json:"last_accessed"`
+}
+
+// ListLeasesByNode returns every lease bound to the given node hash.
+// When platformID is non-empty, only leases under that platform are returned;
+// otherwise leases across all platforms are aggregated.
+// Results are sorted by CreatedAtNs descending (newest first).
+func (s *ControlPlaneService) ListLeasesByNode(nodeHashHex, platformID string) ([]NodeLeaseResponse, error) {
+	nodeHashHex = strings.TrimSpace(nodeHashHex)
+	h, err := node.ParseHex(nodeHashHex)
+	if err != nil {
+		return nil, invalidArg("node_hash: invalid format")
+	}
+	if _, ok := s.Pool.GetEntry(h); !ok {
+		return nil, notFound("node not found")
+	}
+
+	type entry struct {
+		resp        NodeLeaseResponse
+		createdAtNs int64
+	}
+	platformNameCache := make(map[string]string)
+	resolvePlatformName := func(pid string) string {
+		if name, ok := platformNameCache[pid]; ok {
+			return name
+		}
+		name := ""
+		if plat, ok := s.Pool.GetPlatform(pid); ok {
+			name = plat.Name
+		}
+		platformNameCache[pid] = name
+		return name
+	}
+
+	var entries []entry
+	addLease := func(pid, account string, lease routing.Lease) {
+		if lease.NodeHash != h {
+			return
+		}
+		entries = append(entries, entry{
+			resp: NodeLeaseResponse{
+				PlatformID:   pid,
+				PlatformName: resolvePlatformName(pid),
+				Account:      account,
+				NodeHash:     lease.NodeHash.Hex(),
+				EgressIP:     lease.EgressIP.String(),
+				CreatedAt:    time.Unix(0, lease.CreatedAtNs).UTC().Format(time.RFC3339Nano),
+				Expiry:       time.Unix(0, lease.ExpiryNs).UTC().Format(time.RFC3339Nano),
+				LastAccessed: time.Unix(0, lease.LastAccessedNs).UTC().Format(time.RFC3339Nano),
+			},
+			createdAtNs: lease.CreatedAtNs,
+		})
+	}
+
+	platformID = strings.TrimSpace(platformID)
+	if platformID != "" {
+		if _, ok := s.Pool.GetPlatform(platformID); !ok {
+			return nil, notFound("platform not found")
+		}
+		s.Router.RangeLeases(platformID, func(account string, lease routing.Lease) bool {
+			addLease(platformID, account, lease)
+			return true
+		})
+	} else {
+		s.Router.RangeAllLeases(func(pid, account string, lease routing.Lease) bool {
+			addLease(pid, account, lease)
+			return true
+		})
+	}
+
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].createdAtNs != entries[j].createdAtNs {
+			return entries[i].createdAtNs > entries[j].createdAtNs
+		}
+		if entries[i].resp.PlatformName != entries[j].resp.PlatformName {
+			return entries[i].resp.PlatformName < entries[j].resp.PlatformName
+		}
+		return entries[i].resp.Account < entries[j].resp.Account
+	})
+
+	result := make([]NodeLeaseResponse, 0, len(entries))
+	for _, e := range entries {
+		result = append(result, e.resp)
+	}
+	return result, nil
 }
 
 // GetIPLoad returns IP load stats for a platform.

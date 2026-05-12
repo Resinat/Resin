@@ -19,12 +19,20 @@ import { listPlatforms } from "../platforms/api";
 import type { Platform } from "../platforms/types";
 import { listSubscriptions } from "../subscriptions/api";
 import { getNode, listNodes, probeEgress, probeLatency } from "./api";
+import { NodeLeasesModal } from "./NodeLeasesModal";
 import type { NodeSummary } from "./types";
-import { getAllRegions, getRegionName } from "./regions";
+import { getAllRegions } from "./regions";
+import {
+  displayableReferenceLatencyMs,
+  firstTag,
+  formatLatency,
+  getNodeDisplayStatus,
+  referenceLatencyColor,
+  regionToFlag,
+} from "./nodeFormat";
 import type { NodeListFilters, NodeSortBy, SortOrder } from "./types";
 
 type NodeStatusFilter = "all" | "healthy" | "circuit_open" | "error" | "disabled";
-type NodeDisplayStatus = "healthy" | "circuit_open" | "pending_test" | "error" | "disabled";
 type ProbeAction = "egress" | "latency";
 
 type NodeFilterDraft = {
@@ -178,86 +186,11 @@ function draftToActiveFilters(draft: NodeFilterDraft): NodeListFilters {
   };
 }
 
-function firstTag(node: { display_tag?: string; tags: { tag: string }[] }): string {
-  if (node.display_tag && node.display_tag.trim()) {
-    return node.display_tag;
-  }
-  if (!node.tags.length) {
-    return "-";
-  }
-  return node.tags[0].tag;
-}
-
-function hasReferenceLatency(node: NodeSummary): node is NodeSummary & { reference_latency_ms: number } {
-  return typeof node.reference_latency_ms === "number";
-}
-
-function isPendingTestNode(node: NodeSummary): boolean {
-  return Boolean(node.circuit_open_since) && node.failure_count === 0;
-}
-
-function getNodeDisplayStatus(node: NodeSummary): NodeDisplayStatus {
-  if (!node.enabled) {
-    return "disabled";
-  }
-  if (!node.has_outbound) {
-    return "error";
-  }
-  if (isPendingTestNode(node)) {
-    return "pending_test";
-  }
-  if (node.circuit_open_since) {
-    return "circuit_open";
-  }
-  return "healthy";
-}
-
-function referenceLatencyColor(latencyMs: number): string {
-  if (!Number.isFinite(latencyMs)) {
-    return "var(--text-secondary)";
-  }
-  if (latencyMs <= 400) {
-    return "var(--success)";
-  }
-  if (latencyMs <= 1000) {
-    return "var(--warning)";
-  }
-  return "var(--danger)";
-}
-
-function displayableReferenceLatencyMs(node: NodeSummary): number | null {
-  if (getNodeDisplayStatus(node) !== "healthy") {
-    return null;
-  }
-  if (!hasReferenceLatency(node)) {
-    return null;
-  }
-  return node.reference_latency_ms;
-}
-
-
-function formatLatency(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "-";
-  }
-  return `${value.toFixed(0)} ms`;
-}
-
 function sortIndicator(active: boolean, order: SortOrder): string {
   if (!active) {
     return "↕";
   }
   return order === "asc" ? "▲" : "▼";
-}
-
-function regionToFlag(region: string | undefined): string {
-  if (!region || region.length !== 2) {
-    return region || "-";
-  }
-  const code = region.toUpperCase();
-  const flag = String.fromCodePoint(...[...code].map((c) => c.charCodeAt(0) + 127397));
-  const name = getRegionName(code);
-  return name ? `${flag} ${code} (${name})` : `${flag} ${code}`;
 }
 
 export function NodesPage() {
@@ -273,6 +206,7 @@ export function NodesPage() {
   const [pageSize, setPageSize] = useState<number>(200);
   const [selectedNodeHash, setSelectedNodeHash] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [leasesModalNodeHash, setLeasesModalNodeHash] = useState<string | null>(null);
   const [pendingEgressHashes, setPendingEgressHashes] = useState<Set<string>>(() => new Set());
   const [pendingLatencyHashes, setPendingLatencyHashes] = useState<Set<string>>(() => new Set());
   const { toasts, showToast, dismissToast } = useToast();
@@ -606,6 +540,32 @@ export function NodesPage() {
         if (status === "pending_test") return <Badge variant="muted">{t("待测")}</Badge>;
         if (status === "circuit_open") return <Badge variant="warning">{t("熔断")}</Badge>;
         return <Badge variant="success">{t("健康")}</Badge>;
+      },
+    }),
+    col.accessor("lease_count", {
+      header: () => (
+        <button type="button" className="table-sort-btn" onClick={() => changeSort("lease_count")}>
+          {t("租约数")}
+          <span>{sortIndicator(sortBy === "lease_count", sortOrder)}</span>
+        </button>
+      ),
+      cell: (info) => {
+        const node = info.row.original;
+        const count = node.lease_count ?? 0;
+        return (
+          <button
+            type="button"
+            className="lease-count-link"
+            onClick={(event) => {
+              event.stopPropagation();
+              setLeasesModalNodeHash(node.node_hash);
+            }}
+            disabled={count === 0}
+            title={count === 0 ? t("暂无租约") : t("查看租约详情")}
+          >
+            {count}
+          </button>
+        );
       },
     }),
     col.accessor("created_at", {
@@ -999,6 +959,24 @@ export function NodesPage() {
           </Card>
         </div>
       ) : null}
+
+      {leasesModalNodeHash
+        ? (() => {
+            const targetNode =
+              nodes.find((item) => item.node_hash === leasesModalNodeHash) ?? null;
+            if (!targetNode) {
+              return null;
+            }
+            return (
+              <NodeLeasesModal
+                node={targetNode}
+                platformId={activeFilters.platform_id || undefined}
+                onClose={() => setLeasesModalNodeHash(null)}
+                showToast={showToast}
+              />
+            );
+          })()
+        : null}
     </section>
   );
 }

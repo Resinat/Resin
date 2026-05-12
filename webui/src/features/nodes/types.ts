@@ -20,6 +20,7 @@ export type NodeSummary = {
   last_latency_probe_attempt?: string;
   last_authority_latency_probe_attempt?: string;
   last_egress_update_attempt?: string;
+  lease_count: number;
   tags: NodeTag[];
 };
 
@@ -32,7 +33,7 @@ export type PageResponse<T> = {
   unique_healthy_egress_ips: number;
 };
 
-export type NodeSortBy = "tag" | "created_at" | "failure_count" | "region";
+export type NodeSortBy = "tag" | "created_at" | "failure_count" | "region" | "lease_count";
 export type SortOrder = "asc" | "desc";
 
 export type NodeListFilters = {
@@ -62,4 +63,15 @@ export type EgressProbeResult = {
 
 export type LatencyProbeResult = {
   latency_ewma_ms: number;
+};
+
+export type NodeLease = {
+  platform_id: string;
+  platform_name: string;
+  account: string;
+  node_hash: string;
+  egress_ip: string;
+  created_at: string;
+  expiry: string;
+  last_accessed: string;
 };

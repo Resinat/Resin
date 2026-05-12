@@ -606,6 +606,52 @@ func (r *Router) RangeLeases(platformID string, fn func(account string, lease Le
 	return true
 }
 
+// RangeAllLeases iterates over all leases across every platform.
+// fn receives the owning platform ID alongside the account/lease pair.
+// Returning false from fn stops the iteration early.
+func (r *Router) RangeAllLeases(fn func(platformID, account string, lease Lease) bool) {
+	r.states.Range(func(platformID string, state *PlatformRoutingState) bool {
+		keepGoing := true
+		state.Leases.Range(func(account string, lease Lease) bool {
+			if !fn(platformID, account, lease) {
+				keepGoing = false
+				return false
+			}
+			return true
+		})
+		return keepGoing
+	})
+}
+
+// SnapshotNodeLoad returns a best-effort point-in-time count of leases per
+// node hash for a single platform. Empty map if the platform has no state.
+func (r *Router) SnapshotNodeLoad(platformID string) map[node.Hash]int64 {
+	state, ok := r.states.Load(platformID)
+	if !ok {
+		return map[node.Hash]int64{}
+	}
+	out := make(map[node.Hash]int64)
+	state.Leases.Range(func(_ string, lease Lease) bool {
+		out[lease.NodeHash]++
+		return true
+	})
+	return out
+}
+
+// SnapshotNodeLoadAll returns a best-effort point-in-time count of leases per
+// node hash, aggregated across every platform.
+func (r *Router) SnapshotNodeLoadAll() map[node.Hash]int64 {
+	out := make(map[node.Hash]int64)
+	r.states.Range(func(_ string, state *PlatformRoutingState) bool {
+		state.Leases.Range(func(_ string, lease Lease) bool {
+			out[lease.NodeHash]++
+			return true
+		})
+		return true
+	})
+	return out
+}
+
 // DeleteLease removes a single lease by platform and account.
 // Returns true if a lease was deleted. Emits a LeaseRemove event.
 func (r *Router) DeleteLease(platformID, account string) bool {

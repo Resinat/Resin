@@ -42,6 +42,8 @@ func compareNodeSummaries(sortBy string, a, b service.NodeSummary) int {
 		order = cmp.Compare(a.FailureCount, b.FailureCount)
 	case "region":
 		order = strings.Compare(a.Region, b.Region)
+	case "lease_count":
+		order = cmp.Compare(a.LeaseCount, b.LeaseCount)
 	default:
 		order = strings.Compare(nodeTagSortKey(a), nodeTagSortKey(b))
 	}
@@ -152,7 +154,7 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 
-		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"tag", "created_at", "failure_count", "region"}, "tag", "asc")
+		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"tag", "created_at", "failure_count", "region", "lease_count"}, "tag", "asc")
 		if !ok {
 			return
 		}
@@ -209,5 +211,28 @@ func HandleProbeLatency(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 		WriteJSON(w, http.StatusOK, result)
+	}
+}
+
+// HandleListNodeLeases returns a handler for GET /api/v1/nodes/{hash}/leases.
+// It returns every lease currently bound to the node; pass platform_id=... to
+// scope the result to a single platform.
+func HandleListNodeLeases(cp *service.ControlPlaneService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hash := PathParam(r, "hash")
+		platformID, ok := parseOptionalUUIDQuery(w, r, "platform_id", "platform_id")
+		if !ok {
+			return
+		}
+		pid := ""
+		if platformID != nil {
+			pid = *platformID
+		}
+		leases, err := cp.ListLeasesByNode(hash, pid)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, leases)
 	}
 }

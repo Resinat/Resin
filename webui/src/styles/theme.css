@@ -2381,6 +2381,104 @@ a {
   font-size: 12px;
 }
 
+.lease-count-link {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-accent, #2563eb);
+  cursor: pointer;
+  text-decoration: none;
+}
+.lease-count-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.lease-count-link:disabled {
+  color: var(--text-muted, #94a3b8);
+  cursor: default;
+}
+
+.node-leases-modal-card {
+  width: min(960px, 92vw);
+  max-height: 82vh;
+  padding: 20px 22px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+}
+.node-leases-modal-card .modal-header {
+  align-items: flex-start;
+  gap: 16px;
+}
+.node-leases-modal-titles {
+  min-width: 0;
+  flex: 1;
+}
+.node-leases-modal-titles h3 {
+  font-size: 16px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.node-leases-modal-subtitle {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.node-leases-modal-summary {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.node-leases-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.node-leases-modal-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(20, 112, 255, 0.07);
+  color: var(--text-secondary, var(--text));
+}
+.node-leases-modal-meta-item svg {
+  color: var(--text-muted);
+}
+.node-leases-modal-meta-latency {
+  font-weight: 600;
+}
+
+.node-leases-table-wrap {
+  margin-top: 0;
+  max-height: min(56vh, 460px);
+}
+.node-leases-table-wrap .data-table {
+  min-width: 0;
+  width: 100%;
+  table-layout: auto;
+}
+.node-leases-table-wrap .data-table th,
+.node-leases-table-wrap .data-table td {
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+.node-leases-table-wrap .data-table tbody tr {
+  cursor: default;
+}
+.node-leases-table-wrap .data-table tbody tr:hover {
+  background: rgba(20, 112, 255, 0.04);
+}
+.node-leases-table-wrap .data-table th:last-child,
+.node-leases-table-wrap .data-table td:last-child {
+  width: 1%;
+  text-align: right;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
