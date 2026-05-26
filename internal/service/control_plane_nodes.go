@@ -15,15 +15,16 @@ import (
 
 // NodeFilters holds query filters for listing nodes.
 type NodeFilters struct {
-	PlatformID     *string
-	SubscriptionID *string
-	Enabled        *bool
-	Region         *string
-	CircuitOpen    *bool
-	HasOutbound    *bool
-	EgressIP       *string
-	ProbedSince    *time.Time
-	TagKeyword     *string
+	PlatformID       *string
+	SubscriptionID   *string
+	Enabled          *bool
+	ManuallyDisabled *bool
+	Region           *string
+	CircuitOpen      *bool
+	HasOutbound      *bool
+	EgressIP         *string
+	ProbedSince      *time.Time
+	TagKeyword       *string
 }
 
 // ListNodes returns nodes from the pool with optional filters.
@@ -142,6 +143,13 @@ func (s *ControlPlaneService) nodeEntryMatchesFilters(
 	filters NodeFilters,
 	subLookup node.SubLookupFunc,
 ) bool {
+	// Manually disabled filter (admin-controlled flag, independent of subscription state).
+	if filters.ManuallyDisabled != nil {
+		if entry.IsManuallyDisabled() != *filters.ManuallyDisabled {
+			return false
+		}
+	}
+
 	// Enabled/disabled filter.
 	if filters.Enabled != nil {
 		enabled := true
@@ -273,4 +281,42 @@ func (s *ControlPlaneService) ProbeLatency(hashStr string) (*probe.LatencyProbeR
 		return nil, internal("latency probe failed", err)
 	}
 	return result, nil
+}
+
+// SetNodeManualDisableResult is returned by SetNodeManualDisable. When the
+// caller disables a node we report the number of bound leases that were
+// released as a side effect, so the UI can surface it.
+type SetNodeManualDisableResult struct {
+	ReleasedLeaseCount int `json:"released_lease_count"`
+}
+
+// SetNodeManualDisable toggles the admin-controlled disable flag on a node.
+// When transitioning to disabled, all leases currently bound to the node are
+// immediately released so connected platforms reroute to other nodes. The
+// flag is persisted via the node-dynamic dirty-set on the next flush.
+func (s *ControlPlaneService) SetNodeManualDisable(hashStr string, disable bool) (SetNodeManualDisableResult, error) {
+	h, err := node.ParseHex(hashStr)
+	if err != nil {
+		return SetNodeManualDisableResult{}, invalidArg("node_hash: invalid format")
+	}
+	if _, ok := s.Pool.GetEntry(h); !ok {
+		return SetNodeManualDisableResult{}, notFound("node not found")
+	}
+
+	// Flip the flag and trigger platform-view rebuilds so the node is removed
+	// from (or restored to) all routable views before we touch any leases.
+	s.Pool.SetNodeManualDisable(h, disable)
+	if s.Engine != nil {
+		s.Engine.MarkNodeDynamic(strings.ToLower(hashStr))
+	}
+
+	if !disable {
+		return SetNodeManualDisableResult{}, nil
+	}
+
+	released := 0
+	if s.Router != nil {
+		released = s.Router.DeleteLeasesByNode(h)
+	}
+	return SetNodeManualDisableResult{ReleasedLeaseCount: released}, nil
 }

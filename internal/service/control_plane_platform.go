@@ -578,6 +578,7 @@ type NodeSummary struct {
 	NodeHash                         string    `json:"node_hash"`
 	CreatedAt                        string    `json:"created_at"`
 	Enabled                          bool      `json:"enabled"`
+	ManuallyDisabled                 bool      `json:"manually_disabled"`
 	DisplayTag                       string    `json:"display_tag,omitempty"`
 	HasOutbound                      bool      `json:"has_outbound"`
 	LastError                        string    `json:"last_error,omitempty"`
@@ -597,7 +598,7 @@ type NodeSummary struct {
 // IsHealthyAndEnabled follows the node-summary health rule used by API/UI
 // aggregates: enabled, outbound-ready, and not circuit-open.
 func (n NodeSummary) IsHealthyAndEnabled() bool {
-	return n.Enabled && n.HasOutbound && n.CircuitOpenSince == nil
+	return n.Enabled && !n.ManuallyDisabled && n.HasOutbound && n.CircuitOpenSince == nil
 }
 
 type NodeTag struct {
@@ -621,6 +622,7 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 		ns.Enabled = !s.Pool.IsNodeDisabled(h)
 		ns.DisplayTag = s.Pool.ResolveNodeDisplayTag(h)
 	}
+	ns.ManuallyDisabled = entry.IsManuallyDisabled()
 
 	if cos := entry.CircuitOpenSince.Load(); cos > 0 {
 		t := time.Unix(0, cos).UTC().Format(time.RFC3339Nano)

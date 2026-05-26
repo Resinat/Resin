@@ -139,6 +139,12 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 		}
 		filters.Enabled = enabled
 
+		manuallyDisabled, ok := parseBoolQueryOrWriteInvalid(w, r, "manually_disabled")
+		if !ok {
+			return
+		}
+		filters.ManuallyDisabled = manuallyDisabled
+
 		if v := q.Get("probed_since"); v != "" {
 			t, err := time.Parse(time.RFC3339Nano, v)
 			if err != nil {
@@ -234,5 +240,35 @@ func HandleListNodeLeases(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 		WriteJSON(w, http.StatusOK, leases)
+	}
+}
+
+// HandleDisableNode returns a handler for POST /api/v1/nodes/{hash}/actions/disable.
+// Disabling a node removes it from all platform views and releases every lease
+// currently bound to it; the released count is returned in the response.
+func HandleDisableNode(cp *service.ControlPlaneService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hash := PathParam(r, "hash")
+		result, err := cp.SetNodeManualDisable(hash, true)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, result)
+	}
+}
+
+// HandleEnableNode returns a handler for POST /api/v1/nodes/{hash}/actions/enable.
+// Enabling a node clears the admin disable flag so it can be selected again on
+// the next routing decision. No leases are touched on enable.
+func HandleEnableNode(cp *service.ControlPlaneService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hash := PathParam(r, "hash")
+		result, err := cp.SetNodeManualDisable(hash, false)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, result)
 	}
 }

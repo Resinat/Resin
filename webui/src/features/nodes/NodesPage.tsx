@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
-import { AlertTriangle, Eraser, Globe, RefreshCw, Sparkles, X, Zap } from "lucide-react";
+import { AlertTriangle, Ban, CircleCheck, Eraser, Globe, RefreshCw, Sparkles, X, Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
@@ -18,7 +18,7 @@ import { formatDateTime, formatRelativeTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
 import type { Platform } from "../platforms/types";
 import { listSubscriptions } from "../subscriptions/api";
-import { getNode, listNodes, probeEgress, probeLatency } from "./api";
+import { disableNode, enableNode, getNode, listNodes, probeEgress, probeLatency } from "./api";
 import { NodeLeasesModal } from "./NodeLeasesModal";
 import type { NodeSummary } from "./types";
 import { getAllRegions } from "./regions";
@@ -32,7 +32,7 @@ import {
 } from "./nodeFormat";
 import type { NodeListFilters, NodeSortBy, SortOrder } from "./types";
 
-type NodeStatusFilter = "all" | "healthy" | "circuit_open" | "error" | "disabled";
+type NodeStatusFilter = "all" | "healthy" | "circuit_open" | "error" | "disabled" | "manually_disabled";
 type ProbeAction = "egress" | "latency";
 
 type NodeFilterDraft = {
@@ -92,7 +92,14 @@ function parseStatusParam(value: string | null): NodeStatusFilter | undefined {
   }
 
   const normalized = value.trim().toLowerCase();
-  if (normalized === "all" || normalized === "healthy" || normalized === "circuit_open" || normalized === "error" || normalized === "disabled") {
+  if (
+    normalized === "all" ||
+    normalized === "healthy" ||
+    normalized === "circuit_open" ||
+    normalized === "error" ||
+    normalized === "disabled" ||
+    normalized === "manually_disabled"
+  ) {
     return normalized;
   }
 
@@ -108,7 +115,11 @@ function statusFromQuery(params: URLSearchParams): NodeStatusFilter {
   const hasOutbound = parseBoolParam(params.get("has_outbound"));
   const circuitOpen = parseBoolParam(params.get("circuit_open"));
   const enabled = parseBoolParam(params.get("enabled"));
+  const manuallyDisabled = parseBoolParam(params.get("manually_disabled"));
 
+  if (manuallyDisabled === true) {
+    return "manually_disabled";
+  }
   if (enabled === false) {
     return "disabled";
   }
@@ -150,24 +161,32 @@ function draftToActiveFilters(draft: NodeFilterDraft): NodeListFilters {
   let circuit_open: boolean | undefined = undefined;
   let has_outbound: boolean | undefined = undefined;
   let enabled: boolean | undefined = undefined;
+  let manually_disabled: boolean | undefined = undefined;
 
   switch (draft.status) {
     case "healthy":
       enabled = true;
       has_outbound = true;
       circuit_open = false;
+      manually_disabled = false;
       break;
     case "circuit_open":
       enabled = true;
       has_outbound = true;
       circuit_open = true;
+      manually_disabled = false;
       break;
     case "error":
       enabled = true;
       has_outbound = false;
+      manually_disabled = false;
       break;
     case "disabled":
       enabled = false;
+      manually_disabled = false;
+      break;
+    case "manually_disabled":
+      manually_disabled = true;
       break;
     case "all":
     default:
@@ -181,6 +200,7 @@ function draftToActiveFilters(draft: NodeFilterDraft): NodeListFilters {
     region: draft.region,
     egress_ip: draft.egress_ip,
     enabled,
+    manually_disabled,
     circuit_open,
     has_outbound,
   };
@@ -346,6 +366,55 @@ export function NodesPage() {
       showToast("error", formatApiErrorMessage(error, t));
     },
   });
+
+  const disableNodeMutation = useMutation({
+    mutationFn: async (hash: string) => disableNode(hash),
+    onSuccess: async (result) => {
+      await refreshNodes();
+      const count = result.released_lease_count ?? 0;
+      if (count > 0) {
+        showToast("success", t("已禁用，解除 {{count}} 个绑定", { count }));
+      } else {
+        showToast("success", t("已禁用"));
+      }
+    },
+    onError: async (error) => {
+      await refreshNodes();
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
+
+  const enableNodeMutation = useMutation({
+    mutationFn: async (hash: string) => enableNode(hash),
+    onSuccess: async () => {
+      await refreshNodes();
+      showToast("success", t("已启用"));
+    },
+    onError: async (error) => {
+      await refreshNodes();
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
+
+  const runDisableNode = async (hash: string) => {
+    try {
+      await disableNodeMutation.mutateAsync(hash);
+    } catch {
+      // Mutation callbacks already surface the failure to the user.
+    }
+  };
+
+  const runEnableNode = async (hash: string) => {
+    try {
+      await enableNodeMutation.mutateAsync(hash);
+    } catch {
+      // Mutation callbacks already surface the failure to the user.
+    }
+  };
+
+  const isDisableActionPending = (hash: string): boolean =>
+    (disableNodeMutation.isPending && disableNodeMutation.variables === hash) ||
+    (enableNodeMutation.isPending && enableNodeMutation.variables === hash);
 
   const markProbePending = (hash: string, action: ProbeAction): boolean => {
     if (action === "egress") {
@@ -535,6 +604,7 @@ export function NodesPage() {
       cell: (info) => {
         const node = info.row.original;
         const status = getNodeDisplayStatus(node);
+        if (status === "manually_disabled") return <Badge variant="danger">{t("手动禁用")}</Badge>;
         if (status === "disabled") return <Badge variant="neutral">{t("禁用")}</Badge>;
         if (status === "error") return <Badge variant="danger">{t("错误")}</Badge>;
         if (status === "pending_test") return <Badge variant="muted">{t("待测")}</Badge>;
@@ -595,6 +665,7 @@ export function NodesPage() {
       header: t("操作"),
       cell: (info) => {
         const node = info.row.original;
+        const disablePending = isDisableActionPending(node.node_hash);
         return (
           <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
             <Button
@@ -615,6 +686,27 @@ export function NodesPage() {
             >
               <Zap size={14} />
             </Button>
+            {node.manually_disabled ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                title={t("启用节点")}
+                onClick={() => void runEnableNode(node.node_hash)}
+                disabled={disablePending}
+              >
+                <CircleCheck size={14} />
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                title={t("禁用节点（立即解除全部租约）")}
+                onClick={() => void runDisableNode(node.node_hash)}
+                disabled={disablePending}
+              >
+                <Ban size={14} />
+              </Button>
+            )}
           </div>
         );
       },
@@ -746,6 +838,7 @@ export function NodesPage() {
                 <option value="circuit_open">{t("熔断 / 待测")}</option>
                 <option value="error">{t("错误")}</option>
                 <option value="disabled">{t("禁用")}</option>
+                <option value="manually_disabled">{t("手动禁用")}</option>
               </Select>
             </div>
 
@@ -849,7 +942,9 @@ export function NodesPage() {
                         const status = getNodeDisplayStatus(detailNode);
                         return (
                           <div style={{ display: "flex", alignItems: "baseline", gap: "4px", flexWrap: "wrap" }}>
-                            {status === "error" ? (
+                            {status === "manually_disabled" ? (
+                              <Badge variant="danger">{t("手动禁用")}</Badge>
+                            ) : status === "error" ? (
                               <Badge variant="danger">{t("错误")}</Badge>
                             ) : status === "disabled" ? (
                               <Badge variant="neutral">{t("禁用")}</Badge>

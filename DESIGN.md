@@ -281,12 +281,13 @@ No available proxy nodes
 * 职责：维护当前 Platform *此刻* 可用的节点列表。
 * 特质：支持 O(1) 的随机选取与 O(1) 的增删查。
 * 过滤条件：
-    1. 节点状态正常（非 Circuit Break）。
-    2. 调用 `NodeEntry.MatchRegexs(Platform.RegexFilters)` 判断 Tag 是否匹配。
-    3. 节点必须有出口 IP（无论 Platform 是否配置 `RegionFilters`）。
-    4. 若 `RegionFilters` 非空，则节点出口 IP 地区必须符合 `RegionFilters`。
-    5. 有至少一条延迟信息。
-    6. Outbound 不为空
+    1. 节点未被管理员手动禁用（`NodeEntry.ManuallyDisabled == false`）。命中即整体短路，后续条件不再评估。
+    2. 节点状态正常（非 Circuit Break）。
+    3. 调用 `NodeEntry.MatchRegexs(Platform.RegexFilters)` 判断 Tag 是否匹配。
+    4. 节点必须有出口 IP（无论 Platform 是否配置 `RegionFilters`）。
+    5. 若 `RegionFilters` 非空，则节点出口 IP 地区必须符合 `RegionFilters`。
+    6. 有至少一条延迟信息。
+    7. Outbound 不为空
 * 过滤源：遍历全局节点池中的所有 `NodeEntry`。
 
 ##### Platform 节点视图动态更新
@@ -300,6 +301,7 @@ Platform 应该向外提供一个脏更新的接口，用来通知脏节点。�
 	* 出口 IP 变更：当 `ProbeManager` 探测到节点出口 IP 发生变化（或从无到有）。属于脏更新。
 	* 节点引用变更：当节点的 SubscriptionIDs 发生变化，可能会影响 MatchRegexs 的结果（因为 Tag 集合变了）。属于脏更新。
 	* 熔断触发 / 恢复：属于脏更新。	
+	* 管理员手动禁用 / 启用：属于脏更新。`Pool.SetNodeManualDisable` 翻位后立即触发 `notifyAllPlatformsDirty`。禁用时随后调用 `Router.DeleteLeasesByNode` 解绑该节点所有 sticky lease。
 	* Platform 过滤器配置变更：全量重建。
 
 ### 订阅
@@ -593,7 +595,7 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 
 #### cache.db
 * nodes_static(hash PK, raw_options_json, created_at_ns)
-* nodes_dynamic(hash PK, failure_count, circuit_open_since, egress_ip, egress_updated_at_ns, last_latency_probe_attempt_ns, last_authority_latency_probe_attempt_ns, last_egress_update_attempt_ns)
+* nodes_dynamic(hash PK, failure_count, circuit_open_since, egress_ip, egress_updated_at_ns, last_latency_probe_attempt_ns, last_authority_latency_probe_attempt_ns, last_egress_update_attempt_ns, manually_disabled)
 * node_latency(node_hash, domain, ewma_ns, last_updated_ns, PK(node_hash,domain))。
 * leases(platform_id, account, node_hash, egress_ip, expiry_ns, last_accessed_ns, PK(platform_id,account))。
 * subscription_nodes(subscription_id, node_hash, tags_json, PK(subscription_id,node_hash))
@@ -1630,6 +1632,8 @@ Query：
 * `region`：hk/us/...（可选）
 * `circuit_open`：true|false（可选）
 * `has_outbound`：true|false（可选）
+* `enabled`：true|false（可选），按"订阅维度"启用状态过滤
+* `manually_disabled`：true|false（可选），按"管理员手动禁用"标记过滤
 * `egress_ip`：IP 地址（可选）
 * `probed_since`：RFC3339Nano（可选），按节点 `LastLatencyProbeAttempt` 过滤
 * `sort_by`：排序字段（可选）
@@ -1650,6 +1654,8 @@ Response：
       "node_hash": "9f2c0b1a6d3e4f5c8a9b0c1d2e3f4a5b",
       "created_at": "2026-02-10T12:00:00Z",
 
+      "enabled": true,
+      "manually_disabled": false,
       "has_outbound": true,
       "last_error": "...",
       "circuit_open_since": null,
@@ -1723,6 +1729,60 @@ Response：
 * `404 NOT_FOUND`：节点不存在。
 
 返回 LatencyTestURL 的站点在 TD-EWMA 后的延迟 `latency_ewma_ms`。
+
+#### 手动禁用节点（Action）
+
+**POST** `/nodes/{node_hash}/actions/disable`
+
+请求体：无。
+
+效果：
+
+* 在节点上置位"管理员手动禁用"标记，节点立即从所有 Platform 的可路由视图中移除；后续 `RouteRequest` 不会再分配到该节点（即使存在 sticky lease 的旧绑定也会因下一次评估失败被替换）。
+* 同步遍历所有 Platform，将该节点上的全部 sticky leases 解绑（发出 `LeaseRemove` 事件以驱动 `leases` 表删除），并把解绑数量回传给调用方。
+* 标记位通过 `nodes_dynamic.manually_disabled` 列持久化，重启后恢复。
+
+校验规则：
+
+* `node_hash` 必须为 32 位十六进制字符串（大小写均可）。
+
+错误码映射（最小集）：
+
+* `400 INVALID_ARGUMENT`：`node_hash` 格式非法。
+* `404 NOT_FOUND`：节点不存在。
+
+返回：
+
+```json
+{ "released_lease_count": 3 }
+```
+
+#### 启用节点（Action）
+
+**POST** `/nodes/{node_hash}/actions/enable`
+
+请求体：无。
+
+效果：
+
+* 清除"管理员手动禁用"标记，节点会在下一次 Platform 视图评估中重新被纳入候选集合。不影响任何已有 lease，也不会主动创建新 lease。
+
+校验规则：
+
+* `node_hash` 必须为 32 位十六进制字符串（大小写均可）。
+
+错误码映射（最小集）：
+
+* `400 INVALID_ARGUMENT`：`node_hash` 格式非法。
+* `404 NOT_FOUND`：节点不存在。
+
+返回：
+
+```json
+{ "released_lease_count": 0 }
+```
+
+`released_lease_count` 始终为 0，仅保持与 `disable` 同形以方便前端复用。
 
 ### Leases
 

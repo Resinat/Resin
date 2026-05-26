@@ -58,6 +58,7 @@ type NodeDynamic struct {
 	LastLatencyProbeAttemptNs          int64  `json:"last_latency_probe_attempt_ns"`
 	LastAuthorityLatencyProbeAttemptNs int64  `json:"last_authority_latency_probe_attempt_ns"`
 	LastEgressUpdateAttemptNs          int64  `json:"last_egress_update_attempt_ns"`
+	ManuallyDisabled                   bool   `json:"manually_disabled"`
 }
 
 // NodeLatency holds per-domain latency statistics for a node.

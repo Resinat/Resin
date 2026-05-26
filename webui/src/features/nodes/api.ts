@@ -13,6 +13,7 @@ const basePath = "/api/v1/nodes";
 type ApiNodeSummary = Omit<NodeSummary, "tags" | "lease_count"> & {
   tags?: NodeSummary["tags"] | null;
   enabled?: boolean | null;
+  manually_disabled?: boolean | null;
   display_tag?: string | null;
   last_error?: string | null;
   circuit_open_since?: string | null;
@@ -31,6 +32,7 @@ function normalizeNode(raw: ApiNodeSummary): NodeSummary {
   const normalized: NodeSummary = {
     ...rest,
     enabled: raw.enabled !== false,
+    manually_disabled: Boolean(raw.manually_disabled),
     display_tag: raw.display_tag || "",
     tags: Array.isArray(raw.tags) ? raw.tags : [],
     last_error: raw.last_error || "",
@@ -87,6 +89,9 @@ export async function listNodes(filters: NodeListQuery): Promise<PageResponse<No
   if (filters.enabled !== undefined) {
     query.set("enabled", String(filters.enabled));
   }
+  if (filters.manually_disabled !== undefined) {
+    query.set("manually_disabled", String(filters.manually_disabled));
+  }
 
   const data = await apiRequest<PageResponse<ApiNodeSummary>>(`${basePath}?${query.toString()}`);
   return {
@@ -122,4 +127,20 @@ export async function listNodeLeases(hash: string, platformId?: string): Promise
   const path = qs ? `${basePath}/${hash}/leases?${qs}` : `${basePath}/${hash}/leases`;
   const data = await apiRequest<NodeLease[] | null>(path);
   return Array.isArray(data) ? data : [];
+}
+
+export type DisableNodeResult = {
+  released_lease_count: number;
+};
+
+export async function disableNode(hash: string): Promise<DisableNodeResult> {
+  return apiRequest<DisableNodeResult>(`${basePath}/${hash}/actions/disable`, {
+    method: "POST",
+  });
+}
+
+export async function enableNode(hash: string): Promise<DisableNodeResult> {
+  return apiRequest<DisableNodeResult>(`${basePath}/${hash}/actions/enable`, {
+    method: "POST",
+  });
 }

@@ -115,6 +115,8 @@ func NewServerWithAddress(
 		authed.Handle("GET /api/v1/nodes/{hash}/leases", HandleListNodeLeases(cp))
 		authed.Handle("POST /api/v1/nodes/{hash}/actions/probe-egress", HandleProbeEgress(cp))
 		authed.Handle("POST /api/v1/nodes/{hash}/actions/probe-latency", HandleProbeLatency(cp))
+		authed.Handle("POST /api/v1/nodes/{hash}/actions/disable", HandleDisableNode(cp))
+		authed.Handle("POST /api/v1/nodes/{hash}/actions/enable", HandleEnableNode(cp))
 
 		// GeoIP.
 		authed.Handle("GET /api/v1/geoip/status", HandleGeoIPStatus(cp))

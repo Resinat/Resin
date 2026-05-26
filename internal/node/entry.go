@@ -43,6 +43,10 @@ type NodeEntry struct {
 	LastEgressUpdateAttempt          atomic.Int64
 	LatencyTable                     *LatencyTable // per-domain latency stats; nil if not initialized
 
+	// Admin-controlled disable flag. When true, the node is excluded from all
+	// platform views regardless of subscription state. Toggled via the API.
+	ManuallyDisabled atomic.Bool
+
 	// Outbound instance for this node.
 	Outbound atomic.Pointer[adapter.Outbound]
 }
@@ -199,6 +203,14 @@ func matchesAll(s string, regexes []*regexp.Regexp) bool {
 // IsCircuitOpen returns true if the node is currently circuit-broken.
 func (e *NodeEntry) IsCircuitOpen() bool {
 	return e.CircuitOpenSince.Load() != 0
+}
+
+// IsManuallyDisabled reports whether an admin has flagged this node as disabled.
+func (e *NodeEntry) IsManuallyDisabled() bool {
+	if e == nil {
+		return false
+	}
+	return e.ManuallyDisabled.Load()
 }
 
 // HasLatency returns true if the node has at least one latency record.

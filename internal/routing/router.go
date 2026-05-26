@@ -699,3 +699,33 @@ func (r *Router) DeleteAllLeases(platformID string) int {
 	})
 	return count
 }
+
+// DeleteLeasesByNode removes every lease whose node_hash matches the target,
+// across all platforms. Returns the total number of leases deleted. Emits a
+// LeaseRemove event per deletion so persistence and metrics stay in sync.
+func (r *Router) DeleteLeasesByNode(target node.Hash) int {
+	count := 0
+	r.states.Range(func(platformID string, state *PlatformRoutingState) bool {
+		state.Leases.Range(func(account string, lease Lease) bool {
+			if lease.NodeHash != target {
+				return true
+			}
+			removed, deleted := state.Leases.DeleteLease(account)
+			if !deleted {
+				return true
+			}
+			r.emitLeaseEvent(LeaseEvent{
+				Type:        LeaseRemove,
+				PlatformID:  platformID,
+				Account:     account,
+				NodeHash:    removed.NodeHash,
+				EgressIP:    removed.EgressIP,
+				CreatedAtNs: removed.CreatedAtNs,
+			})
+			count++
+			return true
+		})
+		return true
+	})
+	return count
+}

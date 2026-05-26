@@ -1,7 +1,13 @@
 import type { NodeSummary } from "./types";
 import { getRegionName } from "./regions";
 
-export type NodeDisplayStatus = "healthy" | "circuit_open" | "pending_test" | "error" | "disabled";
+export type NodeDisplayStatus =
+  | "healthy"
+  | "circuit_open"
+  | "pending_test"
+  | "error"
+  | "disabled"
+  | "manually_disabled";
 
 export function firstTag(node: { display_tag?: string; tags: { tag: string }[] }): string {
   if (node.display_tag && node.display_tag.trim()) {
@@ -24,6 +30,9 @@ export function isPendingTestNode(node: NodeSummary): boolean {
 }
 
 export function getNodeDisplayStatus(node: NodeSummary): NodeDisplayStatus {
+  if (node.manually_disabled) {
+    return "manually_disabled";
+  }
   if (!node.enabled) {
     return "disabled";
   }
