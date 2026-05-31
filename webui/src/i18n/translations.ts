@@ -255,6 +255,33 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
   "正向代理": "Forward Proxy",
   "反向代理": "Reverse Proxy",
   "SOCKS5 正向代理": "SOCKS5 Forward Proxy",
+  "接入": "Access",
+  "复制正向/反向代理地址": "Copy forward / reverse proxy URLs",
+  "接入方式": "Access",
+  "填写账号与代理 token，一键复制正向/反向代理地址。":
+    "Fill in the account and proxy token to copy forward / reverse proxy URLs with one click.",
+  "业务账号（可选）": "Business account (optional)",
+  "例如 user_tom，留空则只按平台路由": "e.g. user_tom; leave empty to route by platform only",
+  "代理 token": "Proxy token",
+  "即后端 RESIN_PROXY_TOKEN。仅保存在浏览器本地，不会上传服务器。":
+    "This is the backend RESIN_PROXY_TOKEN. Stored only in your browser, never uploaded.",
+  "填写 RESIN_PROXY_TOKEN": "Enter RESIN_PROXY_TOKEN",
+  "当前代理免认证，可留空": "Proxy is unauthenticated; can be left empty",
+  "尚未填写 token，地址中将以 <token> 占位，请替换为实际值。":
+    "Token not set; URLs use <token> as a placeholder — replace it with the real value.",
+  "代理免认证": "No-auth proxy",
+  "后端 RESIN_PROXY_TOKEN 为空，正/反向代理无需认证。":
+    "Backend RESIN_PROXY_TOKEN is empty; forward/reverse proxy require no authentication.",
+  "当前为 LEGACY_V0 鉴权，SOCKS5 正向代理未启用。":
+    "LEGACY_V0 auth is active; SOCKS5 forward proxy is not enabled.",
+  "curl 示例": "curl example",
+  "目标网址": "Target URL",
+  "例如 https://api.ipify.org": "e.g. https://api.ipify.org",
+  "反向代理地址": "Reverse Proxy URL",
+  "请输入合法的 http/https 目标网址以生成反向代理地址。":
+    "Enter a valid http/https target URL to generate the reverse proxy URL.",
+  "复制": "Copy",
+  "已复制": "Copied",
   "HTTP": "HTTP",
   "随机选择节点": "Select node randomly",
   "按空账号处理": "Treat as empty account",

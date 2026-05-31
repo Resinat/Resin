@@ -33,13 +33,15 @@ import {
   toPlatformUpdateInput,
   type PlatformFormValues,
 } from "./formModel";
+import { PlatformAccessPanel } from "./PlatformAccessPanel";
 import { PlatformMonitorPanel } from "./PlatformMonitorPanel";
 
-type PlatformDetailTab = "monitor" | "config" | "ops";
+type PlatformDetailTab = "monitor" | "access" | "config" | "ops";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const DETAIL_TABS: Array<{ key: PlatformDetailTab; label: string; hint: string }> = [
   { key: "monitor", label: "监控", hint: "平台运行态趋势和快照" },
+  { key: "access", label: "接入", hint: "复制正向/反向代理地址" },
   { key: "config", label: "配置", hint: "过滤规则与分配策略" },
   { key: "ops", label: "运维", hint: "重置、清租约、删除操作" },
 ];
@@ -313,6 +315,17 @@ export function PlatformDetailPage() {
                 className="platform-detail-panel"
               >
                 <PlatformMonitorPanel platform={platform} />
+              </div>
+            ) : null}
+
+            {activeTab === "access" ? (
+              <div
+                id="platform-tabpanel-access"
+                role="tabpanel"
+                aria-labelledby="platform-tab-access"
+                className="platform-detail-panel"
+              >
+                <PlatformAccessPanel platformName={platform.name} />
               </div>
             ) : null}
 

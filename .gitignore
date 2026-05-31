@@ -3,3 +3,8 @@ sing-box-reference
 .agents
 .devcontainer
 start-instance.sh
+
+# Claude Code / OMC tooling and local runtime data
+.claude/
+.omc/
+.local/
