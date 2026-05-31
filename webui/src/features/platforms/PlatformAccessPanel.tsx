@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, Info } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { useI18n } from "../../i18n";
@@ -9,6 +8,8 @@ import { getEnvConfig } from "../systemConfig/api";
 
 const PROXY_TOKEN_STORAGE_KEY = "resin_proxy_token";
 const TOKEN_PLACEHOLDER = "<token>";
+
+type ProxyEndpoint = { scheme: string; host: string };
 
 function loadStoredProxyToken(): string {
   if (typeof window === "undefined") {
@@ -28,14 +29,49 @@ function persistProxyToken(value: string): void {
   }
 }
 
-function currentHost(fallbackPort: number): string {
+function formatHostWithPort(hostname: string, port: number): string {
+  const host = hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
+  return port ? `${host}:${port}` : host;
+}
+
+function configuredApiEndpoint(): ProxyEndpoint | null {
+  const apiBase = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (!apiBase || !/^https?:\/\//i.test(apiBase)) {
+    return null;
+  }
+  try {
+    const url = new URL(apiBase);
+    return { scheme: url.protocol.replace(/:$/, ""), host: url.host };
+  } catch {
+    return null;
+  }
+}
+
+function currentProxyEndpoint(fallbackPort: number): ProxyEndpoint {
+  const configured = configuredApiEndpoint();
+  if (configured) {
+    return configured;
+  }
+
   if (typeof window === "undefined") {
-    return fallbackPort ? `127.0.0.1:${fallbackPort}` : "127.0.0.1:2260";
+    return { scheme: "http", host: fallbackPort ? `127.0.0.1:${fallbackPort}` : "127.0.0.1:2260" };
+  }
+
+  const scheme = currentScheme();
+  const expectedPort = fallbackPort || 2260;
+  const currentPort = Number(window.location.port);
+  if (import.meta.env.DEV && window.location.hostname && currentPort && currentPort !== expectedPort) {
+    return { scheme, host: formatHostWithPort(window.location.hostname, expectedPort) };
   }
   if (window.location.host) {
-    return window.location.host;
+    return { scheme, host: window.location.host };
   }
-  return fallbackPort ? `${window.location.hostname}:${fallbackPort}` : window.location.hostname;
+  return {
+    scheme,
+    host: window.location.hostname
+      ? formatHostWithPort(window.location.hostname, expectedPort)
+      : `127.0.0.1:${expectedPort}`,
+  };
 }
 
 function currentScheme(): string {
@@ -49,6 +85,10 @@ function currentScheme(): string {
 // placeholder readable so users can see where to paste the real token.
 function encodeSegment(value: string): string {
   return value === TOKEN_PLACEHOLDER ? value : encodeURIComponent(value);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 type ParsedTarget = { protocol: string; rest: string };
@@ -148,8 +188,9 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
   const env = envQuery.data;
   const proxyTokenSet = env?.proxy_token_set ?? true;
   const isLegacy = env?.auth_version === "LEGACY_V0";
-  const host = currentHost(env?.resin_port ?? 2260);
-  const scheme = currentScheme();
+  const endpoint = currentProxyEndpoint(env?.resin_port ?? 2260);
+  const host = endpoint.host;
+  const scheme = endpoint.scheme;
 
   const handleTokenChange = (value: string) => {
     setToken(value);
@@ -159,7 +200,7 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
   const urls = useMemo(() => {
     const platform = platformName.trim() || "Default";
     const acc = account.trim();
-    const tokenRaw = token.trim();
+    const tokenRaw = proxyTokenSet ? token.trim() : "";
     const sep = isLegacy ? ":" : ".";
 
     // Raw identity/credential are used verbatim for the curl -U value.
@@ -168,6 +209,9 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
     const identityEnc = acc
       ? `${encodeSegment(platform)}${sep}${encodeSegment(acc)}`
       : encodeSegment(platform);
+    const reverseIdentityEnc = isLegacy
+      ? `${encodeSegment(platform)}:${acc ? encodeSegment(acc) : ""}`
+      : identityEnc;
 
     // forward token: literal placeholder only when auth is enabled but unset.
     const forwardToken = tokenRaw || (proxyTokenSet ? TOKEN_PLACEHOLDER : "");
@@ -185,14 +229,21 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
     const httpForward = `http://${userInfo}@${host}`;
     const socksForward = `socks5h://${userInfo}@${host}`;
 
-    const reverseTokenSeg = encodeSegment(tokenRaw || TOKEN_PLACEHOLDER);
+    const reverseTokenSeg = proxyTokenSet ? encodeSegment(tokenRaw || TOKEN_PLACEHOLDER) : "";
     const parsed = parseTarget(target);
     const reverseUrl = parsed
-      ? `${scheme}://${host}/${reverseTokenSeg}/${identityEnc}/${parsed.protocol}/${parsed.rest}`
+      ? `${scheme}://${host}/${reverseTokenSeg}/${reverseIdentityEnc}/${parsed.protocol}/${parsed.rest}`
       : "";
 
-    const curlForward = `curl -x http://${host} -U "${forwardCredential}" https://api.ipify.org`;
-    const curlReverse = reverseUrl ? `curl "${reverseUrl}"` : "";
+    const curlForward = [
+      "curl",
+      "-x",
+      shellQuote(`http://${host}`),
+      "-U",
+      shellQuote(forwardCredential),
+      shellQuote("https://api.ipify.org"),
+    ].join(" ");
+    const curlReverse = reverseUrl ? `curl ${shellQuote(reverseUrl)}` : "";
 
     return { httpForward, socksForward, reverseUrl, curlForward, curlReverse };
   }, [platformName, account, token, isLegacy, proxyTokenSet, host, scheme, target]);
@@ -200,6 +251,7 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
   const copyLabel = t("复制");
   const copiedLabel = t("已复制");
   const tokenMissing = proxyTokenSet && !token.trim();
+  const tokenInputValue = proxyTokenSet ? token : "";
 
   return (
     <section className="platform-detail-tabpanel platform-access-section">
@@ -236,9 +288,14 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
           <Input
             id="access-token"
             type="password"
-            placeholder={proxyTokenSet ? t("填写 RESIN_PROXY_TOKEN") : t("当前代理免认证，可留空")}
-            value={token}
-            onChange={(event) => handleTokenChange(event.target.value)}
+            placeholder={proxyTokenSet ? t("填写 RESIN_PROXY_TOKEN") : t("当前代理免认证，无需填写")}
+            value={tokenInputValue}
+            onChange={(event) => {
+              if (proxyTokenSet) {
+                handleTokenChange(event.target.value);
+              }
+            }}
+            disabled={!proxyTokenSet}
             autoComplete="off"
           />
           {tokenMissing ? (
@@ -248,13 +305,6 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
           ) : null}
         </div>
       </div>
-
-      {!proxyTokenSet ? (
-        <div className="platform-access-note">
-          <Badge variant="warning">{t("代理免认证")}</Badge>
-          <span>{t("后端 RESIN_PROXY_TOKEN 为空，正/反向代理无需认证。")}</span>
-        </div>
-      ) : null}
 
       <div className="platform-access-group">
         <h5>{t("正向代理")}</h5>

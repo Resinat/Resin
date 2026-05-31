@@ -267,6 +267,7 @@ const EXACT_ZH_TO_EN: Record<string, string> = {
     "This is the backend RESIN_PROXY_TOKEN. Stored only in your browser, never uploaded.",
   "填写 RESIN_PROXY_TOKEN": "Enter RESIN_PROXY_TOKEN",
   "当前代理免认证，可留空": "Proxy is unauthenticated; can be left empty",
+  "当前代理免认证，无需填写": "Proxy is unauthenticated; no token required",
   "尚未填写 token，地址中将以 <token> 占位，请替换为实际值。":
     "Token not set; URLs use <token> as a placeholder — replace it with the real value.",
   "代理免认证": "No-auth proxy",
