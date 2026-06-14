@@ -44,6 +44,13 @@ type Socks5InboundConfig struct {
 	Health      HealthRecorder
 	Events      EventEmitter
 	MetricsSink MetricsEventSink
+
+	// Free-mode (password-less) port support. When ForcedPlatform is non-empty,
+	// any client-supplied identity is ignored and every session routes as
+	// (ForcedPlatform, account); with AccountFromLocalPort the account is
+	// derived from the connection's local port so each port pins its own lease.
+	ForcedPlatform       string
+	AccountFromLocalPort bool
 }
 
 // Socks5Inbound implements SOCKS5 CONNECT over a raw TCP connection.
@@ -52,6 +59,9 @@ type Socks5Inbound struct {
 	authVersion config.AuthVersion
 	tunnel      tunnelDeps
 	events      EventEmitter
+
+	forcedPlatform       string
+	accountFromLocalPort bool
 }
 
 type socks5HandshakeResult struct {
@@ -81,6 +91,9 @@ func NewSocks5Inbound(cfg Socks5InboundConfig) *Socks5Inbound {
 			metricsSink: cfg.MetricsSink,
 		},
 		events: ev,
+
+		forcedPlatform:       cfg.ForcedPlatform,
+		accountFromLocalPort: cfg.AccountFromLocalPort,
 	}
 }
 
@@ -111,6 +124,8 @@ func (s *Socks5Inbound) ServeConnContext(baseCtx context.Context, conn net.Conn)
 	}
 	handshakePhase.Stop()
 
+	platformName, account := s.resolveIdentity(handshake, conn)
+
 	lifecycle := newRequestLifecycleFromMetadata(
 		s.events,
 		conn.RemoteAddr().String(),
@@ -119,14 +134,14 @@ func (s *Socks5Inbound) ServeConnContext(baseCtx context.Context, conn net.Conn)
 		true,
 	)
 	lifecycle.setTarget(handshake.target, "")
-	lifecycle.setAccount(handshake.account)
+	lifecycle.setAccount(account)
 	defer lifecycle.finish()
 
 	prepare := prepareConnectTunnel(
 		baseCtx,
 		s.tunnel,
-		handshake.platformName,
-		handshake.account,
+		platformName,
+		account,
 		handshake.target,
 	)
 	if prepare.route.PlatformID != "" {
@@ -163,6 +178,20 @@ func (s *Socks5Inbound) ServeConnContext(baseCtx context.Context, conn net.Conn)
 	}
 	lifecycle.setNetOK(relay.netOK)
 	prepare.session.recordResult(relay.netOK)
+}
+
+// resolveIdentity returns the (platform, account) to route with. In free-mode
+// (forcedPlatform set) it ignores any client-supplied identity and derives a
+// per-port sticky account; otherwise it uses the handshake identity.
+func (s *Socks5Inbound) resolveIdentity(h socks5HandshakeResult, conn net.Conn) (string, string) {
+	if s.forcedPlatform == "" {
+		return h.platformName, h.account
+	}
+	account := ""
+	if s.accountFromLocalPort && conn != nil {
+		account = freeAccountFromAddr(conn.LocalAddr())
+	}
+	return s.forcedPlatform, account
 }
 
 func (s *Socks5Inbound) performHandshake(conn net.Conn, reader *bufio.Reader) socks5HandshakeResult {

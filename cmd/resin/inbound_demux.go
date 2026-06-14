@@ -28,6 +28,7 @@ type inboundDemuxServer struct {
 	httpServer   *http.Server
 	httpListener *connChannelListener
 	socksHandler inboundConnHandler
+	connGate     func(net.Conn) bool
 
 	mu           sync.Mutex
 	outer        net.Listener
@@ -89,7 +90,6 @@ func (s *inboundDemuxServer) Serve(ln net.Listener) error {
 		}
 		go s.handleAcceptedConn(conn)
 	}
-	return nil
 }
 
 func inboundDemuxAcceptRetryDelay(err error, prev time.Duration) (time.Duration, bool) {
@@ -160,6 +160,12 @@ func (s *inboundDemuxServer) Shutdown(ctx context.Context) error {
 
 func (s *inboundDemuxServer) handleAcceptedConn(conn net.Conn) {
 	defer s.workerWG.Done()
+	// Optional access gate (free-mode ports inject an IP allow-list / intranet
+	// check here; the main port leaves it nil so behavior is unchanged).
+	if s.connGate != nil && !s.connGate(conn) {
+		_ = conn.Close()
+		return
+	}
 	s.trackActiveConn(conn)
 	s.trackSniffConn(conn)
 

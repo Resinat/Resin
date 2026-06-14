@@ -29,6 +29,7 @@ import (
 	"github.com/Resinat/Resin/internal/state"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/topology"
+	"github.com/google/uuid"
 )
 
 type topologyRuntime struct {
@@ -411,6 +412,9 @@ func bootstrapTopology(
 	if err := ensureDefaultPlatform(engine, envCfg, dbPlats); err != nil {
 		return fmt.Errorf("ensure default platform: %w", err)
 	}
+	if err := ensureFreePortPlatform(engine, envCfg, dbPlats); err != nil {
+		return fmt.Errorf("ensure free-port platform: %w", err)
+	}
 	dbPlats, err = engine.ListPlatforms()
 	if err != nil {
 		return fmt.Errorf("reload platforms: %w", err)
@@ -476,6 +480,42 @@ func ensureDefaultPlatform(
 		return err
 	}
 	log.Println("Created built-in Default platform")
+	return nil
+}
+
+// ensureFreePortPlatform auto-creates the platform bound to the free-mode ports
+// when it does not already exist, mirroring ensureDefaultPlatform. The feature
+// is disabled when RESIN_FREE_PORT_START is 0/unset.
+func ensureFreePortPlatform(
+	engine *state.StateEngine,
+	envCfg *config.EnvConfig,
+	platformsInDB []model.Platform,
+) error {
+	if envCfg == nil || envCfg.FreePortStart == 0 || envCfg.FreePortPlatform == "" {
+		return nil
+	}
+	for _, p := range platformsInDB {
+		if p.Name == envCfg.FreePortPlatform {
+			return nil // already exists; reuse it
+		}
+	}
+
+	freePlatform := model.Platform{
+		ID:                               uuid.NewString(),
+		Name:                             envCfg.FreePortPlatform,
+		StickyTTLNs:                      int64(envCfg.DefaultPlatformStickyTTL),
+		RegexFilters:                     append([]string(nil), envCfg.DefaultPlatformRegexFilters...),
+		RegionFilters:                    append([]string(nil), envCfg.DefaultPlatformRegionFilters...),
+		ReverseProxyMissAction:           envCfg.DefaultPlatformReverseProxyMissAction,
+		ReverseProxyEmptyAccountBehavior: envCfg.DefaultPlatformReverseProxyEmptyAccountBehavior,
+		ReverseProxyFixedAccountHeader:   envCfg.DefaultPlatformReverseProxyFixedAccountHeader,
+		AllocationPolicy:                 envCfg.DefaultPlatformAllocationPolicy,
+		UpdatedAtNs:                      time.Now().UnixNano(),
+	}
+	if err := engine.UpsertPlatform(freePlatform); err != nil {
+		return err
+	}
+	log.Printf("Created free-port platform %q (免密专用)", envCfg.FreePortPlatform)
 	return nil
 }
 

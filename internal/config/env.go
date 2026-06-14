@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/robfig/cron/v3"
 )
@@ -27,6 +28,13 @@ type EnvConfig struct {
 	// Ports
 	ResinPort       int
 	APIMaxBodyBytes int
+
+	// Free-mode (password-less) ports
+	FreePortStart      int
+	FreePortCount      int
+	FreePortPlatform   string
+	FreePortAccessMode string
+	FreePortWhitelist  []string
 
 	// Core
 	MaxLatencyTableEntries                          int
@@ -84,6 +92,13 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	// --- Ports ---
 	cfg.ResinPort = envInt("RESIN_PORT", 2260, &errs)
 	cfg.APIMaxBodyBytes = envInt("RESIN_API_MAX_BODY_BYTES", 1<<20, &errs)
+
+	// --- Free-mode ports (disabled when RESIN_FREE_PORT_START is 0/unset) ---
+	cfg.FreePortStart = envInt("RESIN_FREE_PORT_START", 0, &errs)
+	cfg.FreePortCount = envInt("RESIN_FREE_PORT_COUNT", 0, &errs)
+	cfg.FreePortPlatform = strings.TrimSpace(envStr("RESIN_FREE_PORT_PLATFORM", ""))
+	cfg.FreePortAccessMode = strings.TrimSpace(envStr("RESIN_FREE_PORT_ACCESS_MODE", netutil.AccessModeIntranet))
+	cfg.FreePortWhitelist = envStringSlice("RESIN_FREE_PORT_WHITELIST", []string{}, &errs)
 
 	// --- Core ---
 	cfg.MaxLatencyTableEntries = envInt("RESIN_MAX_LATENCY_TABLE_ENTRIES", 12, &errs)
@@ -205,6 +220,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 
 	validatePort("RESIN_PORT", cfg.ResinPort, &errs)
 	validatePositive("RESIN_API_MAX_BODY_BYTES", cfg.APIMaxBodyBytes, &errs)
+	validateFreePortConfig(cfg, &errs)
 
 	validatePositive("RESIN_MAX_LATENCY_TABLE_ENTRIES", cfg.MaxLatencyTableEntries, &errs)
 	if cfg.MaxLatencyTableEntries > 32 {
@@ -384,6 +400,48 @@ func validatePort(name string, value int, errs *[]string) {
 func validatePositive(name string, value int, errs *[]string) {
 	if value <= 0 {
 		*errs = append(*errs, fmt.Sprintf("%s: must be positive, got %d", name, value))
+	}
+}
+
+// freePortMaxCount caps how many password-less ports may be opened at once,
+// keeping fd/goroutine usage bounded (DESIGN: "按需指定数量").
+const freePortMaxCount = 256
+
+// validateFreePortConfig validates free-mode port settings. The feature is
+// disabled (and all checks skipped) when RESIN_FREE_PORT_START is 0/unset.
+func validateFreePortConfig(cfg *EnvConfig, errs *[]string) {
+	if cfg.FreePortStart == 0 {
+		return
+	}
+	validatePort("RESIN_FREE_PORT_START", cfg.FreePortStart, errs)
+	if cfg.FreePortCount <= 0 {
+		*errs = append(*errs, "RESIN_FREE_PORT_COUNT must be positive when RESIN_FREE_PORT_START is set")
+	} else if cfg.FreePortCount > freePortMaxCount {
+		*errs = append(*errs, fmt.Sprintf("RESIN_FREE_PORT_COUNT must be <= %d", freePortMaxCount))
+	}
+	if cfg.FreePortCount > 0 {
+		end := cfg.FreePortStart + cfg.FreePortCount - 1
+		if end > 65535 {
+			*errs = append(*errs, fmt.Sprintf("RESIN_FREE_PORT range end %d exceeds 65535", end))
+		}
+		if cfg.ResinPort >= cfg.FreePortStart && cfg.ResinPort <= end {
+			*errs = append(*errs, fmt.Sprintf(
+				"RESIN_PORT %d must not fall within free-port range [%d, %d]",
+				cfg.ResinPort, cfg.FreePortStart, end,
+			))
+		}
+	}
+	if cfg.FreePortPlatform == "" {
+		*errs = append(*errs, "RESIN_FREE_PORT_PLATFORM must not be empty when RESIN_FREE_PORT_START is set")
+	} else if cfg.AuthVersion == AuthVersionV1 {
+		if err := platform.ValidatePlatformName(cfg.FreePortPlatform); err != nil {
+			*errs = append(*errs, fmt.Sprintf("RESIN_FREE_PORT_PLATFORM: %v", err))
+		}
+	}
+	// Reuse AccessController construction as the single source of truth for
+	// access-mode / whitelist validation.
+	if _, err := netutil.NewAccessController(cfg.FreePortAccessMode, cfg.FreePortWhitelist); err != nil {
+		*errs = append(*errs, fmt.Sprintf("RESIN_FREE_PORT_ACCESS_MODE/RESIN_FREE_PORT_WHITELIST: %v", err))
 	}
 }
 

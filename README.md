@@ -177,6 +177,39 @@ For reverse proxy, include Platform in the URL prefix:
 curl http://127.0.0.1:2260/my-token/MyPlatform/https/api.ipify.org
 ```
 
+## 🔓 Free-Mode Ports (Password-less)
+
+If you want to use the proxy **without a password** and have “**one local port = one fixed egress IP**”, enable free-mode ports.
+
+Beyond the main port, Resin listens on a range of consecutive ports (starting at `21000` by default). The whole range is bound to a single platform (`MM` by default, **auto-created** and labeled as free-mode-only if missing); **each port** pins its own egress node/IP via a sticky lease — the same port keeps a stable egress, while different ports map to different egresses. Free-mode ports serve **both HTTP forward proxy and SOCKS5**, and expose **no** admin UI / reverse proxy.
+
+### Enabling (environment variables)
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `RESIN_FREE_PORT_START` | Start port; `0`/unset disables the feature | `0` |
+| `RESIN_FREE_PORT_COUNT` | Number of ports to open (max 256) | `0` |
+| `RESIN_FREE_PORT_PLATFORM` | Platform bound to the whole range (auto-created if missing) | empty |
+| `RESIN_FREE_PORT_ACCESS_MODE` | Access control: `intranet` / `whitelist` | `intranet` |
+| `RESIN_FREE_PORT_WHITELIST` | IP/CIDR list (JSON array) for whitelist mode | `[]` |
+
+> ⚠️ Security: free-mode ports rely entirely on access control. `intranet` (default) allows only private/loopback/link-local clients; `whitelist` allows only listed IP/CIDRs. **Never expose free-mode ports to the public internet with an empty or overly broad whitelist.**
+
+### Examples
+
+```bash
+# HTTP forward proxy on port 21000, no auth required
+curl -x http://127.0.0.1:21000 https://api.ipify.org
+
+# SOCKS5 on the same port
+curl --proxy socks5h://127.0.0.1:21000 https://api.ipify.org
+
+# Different port = different fixed egress
+curl -x http://127.0.0.1:21001 https://api.ipify.org
+```
+
+> For Docker, `docker-compose.yml.example` maps `21000-22000` by default. Note: mapping the whole span spawns ~1000 docker-proxy processes; in production, narrow the mapping to your actual count or use `network_mode: host`.
+
 ## 📖 Advanced Usage: Sticky Session Proxy
 
 When your business depends on IP continuity or long-lived interactions, use Resin's core feature: **sticky proxying**.

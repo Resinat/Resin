@@ -27,6 +27,13 @@ type ForwardProxyConfig struct {
 	MetricsSink       MetricsEventSink
 	OutboundTransport OutboundTransportConfig
 	TransportPool     *OutboundTransportPool
+
+	// Free-mode (password-less) port support. When ForcedPlatform is non-empty,
+	// the proxy skips Proxy-Authorization and routes every request as
+	// (ForcedPlatform, account). With AccountFromLocalPort, the account is
+	// derived from the connection's local port so each port pins its own lease.
+	ForcedPlatform       string
+	AccountFromLocalPort bool
 }
 
 // ForwardProxy implements an HTTP forward proxy with Proxy-Authorization
@@ -42,6 +49,9 @@ type ForwardProxy struct {
 	transportConfig   OutboundTransportConfig
 	transportPool     *OutboundTransportPool
 	transportPoolOnce sync.Once
+
+	forcedPlatform       string
+	accountFromLocalPort bool
 }
 
 // NewForwardProxy creates a new forward proxy handler.
@@ -69,6 +79,9 @@ func NewForwardProxy(cfg ForwardProxyConfig) *ForwardProxy {
 		metricsSink:     cfg.MetricsSink,
 		transportConfig: transportCfg,
 		transportPool:   transportPool,
+
+		forcedPlatform:       cfg.ForcedPlatform,
+		accountFromLocalPort: cfg.AccountFromLocalPort,
 	}
 }
 
@@ -97,6 +110,20 @@ func (p *ForwardProxy) effectiveAuthVersion() config.AuthVersion {
 		return config.AuthVersionV1
 	}
 	return config.AuthVersionLegacyV0
+}
+
+// resolveIdentity returns the (platformName, account) for a request. In
+// free-mode (ForcedPlatform set) it bypasses Proxy-Authorization and derives a
+// per-port sticky account; otherwise it parses Proxy-Authorization as usual.
+func (p *ForwardProxy) resolveIdentity(r *http.Request) (string, string, *ProxyError) {
+	if p.forcedPlatform != "" {
+		account := ""
+		if p.accountFromLocalPort {
+			account = freeAccountFromRequest(r)
+		}
+		return p.forcedPlatform, account, nil
+	}
+	return p.authenticate(r)
 }
 
 // authenticate parses Proxy-Authorization and returns (platformName, account, error).
@@ -293,7 +320,7 @@ func prepareForwardOutboundRequest(in *http.Request) *http.Request {
 }
 
 func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	platName, account, authErr := p.authenticate(r)
+	platName, account, authErr := p.resolveIdentity(r)
 	if authErr != nil {
 		writeProxyError(w, authErr)
 		return
@@ -375,7 +402,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	target := r.Host
-	platName, account, authErr := p.authenticate(r)
+	platName, account, authErr := p.resolveIdentity(r)
 	if authErr != nil {
 		writeProxyError(w, authErr)
 		return

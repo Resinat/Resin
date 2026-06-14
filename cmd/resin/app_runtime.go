@@ -46,6 +46,9 @@ type resinApp struct {
 	}
 	inboundLn     net.Listener
 	transportPool *proxy.OutboundTransportPool
+
+	freePortServers   []*inboundDemuxServer
+	freePortListeners []net.Listener
 }
 
 func run() error {
@@ -455,6 +458,84 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 	a.inboundLn = proxy.NewCountingListener(inboundLn, a.metricsManager)
 	a.inboundSrv = newInboundDemuxServer(&http.Server{Handler: inboundHandler}, socks5Inbound)
 
+	if a.envCfg.FreePortStart > 0 {
+		if err := a.buildFreePortServers(proxyEvents, outboundTransportCfg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// buildFreePortServers opens the password-less port range. One shared pair of
+// handlers serves the whole range; each connection's account is derived from
+// its local port, so every port pins its own sticky lease (its own egress)
+// within the bound platform. Free-mode forces a V1 SOCKS5 handshake with an
+// empty token (so NO_AUTH is accepted) regardless of the global auth mode, and
+// the HTTP side mounts only the forward proxy — no control plane / reverse
+// proxy is exposed on these ports.
+func (a *resinApp) buildFreePortServers(
+	proxyEvents proxy.ConfigAwareEventEmitter,
+	outboundTransportCfg proxy.OutboundTransportConfig,
+) error {
+	platformName := a.envCfg.FreePortPlatform
+	if _, ok := a.topoRuntime.pool.GetPlatformByName(platformName); !ok {
+		// Should not happen: ensureFreePortPlatform creates it during bootstrap.
+		return fmt.Errorf("free-port platform %q not found", platformName)
+	}
+
+	accessController, err := netutil.NewAccessController(
+		a.envCfg.FreePortAccessMode,
+		a.envCfg.FreePortWhitelist,
+	)
+	if err != nil {
+		return fmt.Errorf("free-port access controller: %w", err)
+	}
+
+	freeForward := proxy.NewForwardProxy(proxy.ForwardProxyConfig{
+		ProxyToken:           "",
+		AuthVersion:          string(config.AuthVersionV1),
+		Router:               a.topoRuntime.router,
+		Pool:                 a.topoRuntime.pool,
+		Health:               a.topoRuntime.pool,
+		Events:               proxyEvents,
+		MetricsSink:          a.metricsManager,
+		OutboundTransport:    outboundTransportCfg,
+		TransportPool:        a.transportPool,
+		ForcedPlatform:       platformName,
+		AccountFromLocalPort: true,
+	})
+	freeSocks5 := proxy.NewSocks5Inbound(proxy.Socks5InboundConfig{
+		ProxyToken:           "",
+		AuthVersion:          string(config.AuthVersionV1),
+		Router:               a.topoRuntime.router,
+		Pool:                 a.topoRuntime.pool,
+		Health:               a.topoRuntime.pool,
+		Events:               proxyEvents,
+		MetricsSink:          a.metricsManager,
+		ForcedPlatform:       platformName,
+		AccountFromLocalPort: true,
+	})
+
+	start := a.envCfg.FreePortStart
+	end := start + a.envCfg.FreePortCount - 1
+	opened := 0
+	for port := start; port <= end; port++ {
+		ln, lnErr := net.Listen("tcp", formatListenAddress(a.envCfg.ListenAddress, port))
+		if lnErr != nil {
+			log.Printf("Free-port %d listen failed, skipping: %v", port, lnErr)
+			continue
+		}
+		srv := newInboundDemuxServer(&http.Server{Handler: freeForward}, freeSocks5)
+		srv.connGate = func(c net.Conn) bool { return accessController.Allow(c.RemoteAddr()) }
+		a.freePortServers = append(a.freePortServers, srv)
+		a.freePortListeners = append(a.freePortListeners, proxy.NewCountingListener(ln, a.metricsManager))
+		opened++
+	}
+	log.Printf(
+		"Free-mode ports: %d/%d opened on [%d-%d] -> platform %q (access=%s)",
+		opened, a.envCfg.FreePortCount, start, end, platformName, a.envCfg.FreePortAccessMode,
+	)
 	return nil
 }
 
@@ -506,6 +587,14 @@ func (a *resinApp) startServers() <-chan error {
 		reportServerErr("resin server", a.inboundSrv.Serve(a.inboundLn))
 	}()
 
+	for i := range a.freePortServers {
+		srv := a.freePortServers[i]
+		ln := a.freePortListeners[i]
+		go func() {
+			reportServerErr("free-port server", srv.Serve(ln))
+		}()
+	}
+
 	return serverErrCh
 }
 
@@ -535,6 +624,14 @@ func formatListenURL(listenAddress string, port int) string {
 func (a *resinApp) shutdown(ctx context.Context) {
 	if err := a.inboundSrv.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
+	}
+	for _, srv := range a.freePortServers {
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("Free-port server shutdown error: %v", err)
+		}
+	}
+	if len(a.freePortServers) > 0 {
+		log.Printf("Free-mode ports stopped (%d)", len(a.freePortServers))
 	}
 	log.Println("Resin server stopped")
 	if a.transportPool != nil {
