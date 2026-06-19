@@ -102,7 +102,10 @@ func LoadEnvConfig() (*EnvConfig, error) {
 
 	// --- Core ---
 	cfg.MaxLatencyTableEntries = envInt("RESIN_MAX_LATENCY_TABLE_ENTRIES", 12, &errs)
-	cfg.ProbeConcurrency = envInt("RESIN_PROBE_CONCURRENCY", 1000, &errs)
+	// Default kept modest: each probe worker opens a real outbound (singbox) and
+	// performs an HTTPS request. With thousands of nodes, a high concurrency causes
+	// a CPU/network/disk-IO storm at startup. High-scale deployments can raise this.
+	cfg.ProbeConcurrency = envInt("RESIN_PROBE_CONCURRENCY", 64, &errs)
 	cfg.GeoIPUpdateSchedule = envStr("RESIN_GEOIP_UPDATE_SCHEDULE", "0 7 * * *")
 	cfg.DefaultPlatformStickyTTL = envDuration("RESIN_DEFAULT_PLATFORM_STICKY_TTL", 7*24*time.Hour, &errs)
 	cfg.DefaultPlatformRegexFilters = envStringSlice("RESIN_DEFAULT_PLATFORM_REGEX_FILTERS", []string{}, &errs)
