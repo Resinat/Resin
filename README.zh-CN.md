@@ -363,6 +363,8 @@ RESIN_PORT=2260 \
 
 ## 🛠️ 常见错误 (FAQ)
 
+- **Q: 如何让内网或本机目标不走代理节点？**
+  - **A**: 配置 `RESIN_PROXY_BYPASS`，用分号、逗号或换行分隔规则。命中的请求会由 Resin 本机直连目标，而不是通过代理节点。例如：`RESIN_PROXY_BYPASS="localhost;127.*;10.*;172.16.0.0/12;192.168.*;<local>"`。规则支持精确主机、`*`/`?` 通配符、CIDR 网段，以及表示无点号本地域名的 `<local>`。
 - **Q: 启动失败提示 `RESIN_PROXY_TOKEN` 未定义？**
   - **A**: 就算你不打算启用代理密码，也必须显式配置它为空：`RESIN_PROXY_TOKEN=""`。
 - **Q: 启动失败提示 `RESIN_AUTH_VERSION` 未定义？**

@@ -2,7 +2,9 @@ package outbound
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
@@ -24,6 +26,19 @@ func closeOutbound(ob adapter.Outbound) {
 	if c, ok := ob.(io.Closer); ok {
 		_ = c.Close()
 	}
+}
+
+func buildOutboundSafely(builder OutboundBuilder, rawOptions json.RawMessage) (ob adapter.Outbound, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if ob != nil {
+				closeOutbound(ob)
+			}
+			ob = nil
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	return builder.Build(rawOptions)
 }
 
 // OutboundManager manages outbound lifecycle and provides unified HTTP execution.
@@ -54,7 +69,7 @@ func (m *OutboundManager) EnsureNodeOutbound(hash node.Hash) {
 		return
 	}
 
-	ob, err := m.builder.Build(entry.RawOptions)
+	ob, err := buildOutboundSafely(m.builder, entry.RawOptions)
 	if err != nil {
 		entry.SetLastError("outbound build: " + err.Error())
 		return

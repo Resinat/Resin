@@ -65,9 +65,15 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 	assertEqual(t, "DefaultPlatformAllocationPolicy", cfg.DefaultPlatformAllocationPolicy, "BALANCED")
 	assertEqual(t, "ProbeTimeout", cfg.ProbeTimeout, 15*time.Second)
 	assertEqual(t, "ResourceFetchTimeout", cfg.ResourceFetchTimeout, 30*time.Second)
+	assertEqual(t, "NodeDNSUpstreamsLength", len(cfg.NodeDNSUpstreams), 4)
+	assertEqual(t, "NodeDNSUpstreams[0]", cfg.NodeDNSUpstreams[0], "https://doh.pub/dns-query")
+	assertEqual(t, "NodeDNSUpstreams[1]", cfg.NodeDNSUpstreams[1], "https://dns.alidns.com/dns-query")
+	assertEqual(t, "NodeDNSUpstreams[2]", cfg.NodeDNSUpstreams[2], "tls://223.5.5.5?sni=dns.alidns.com")
+	assertEqual(t, "NodeDNSUpstreams[3]", cfg.NodeDNSUpstreams[3], "local")
 	assertEqual(t, "ProxyTransportMaxIdleConns", cfg.ProxyTransportMaxIdleConns, 1024)
 	assertEqual(t, "ProxyTransportMaxIdleConnsPerHost", cfg.ProxyTransportMaxIdleConnsPerHost, 64)
 	assertEqual(t, "ProxyTransportIdleConnTimeout", cfg.ProxyTransportIdleConnTimeout, 90*time.Second)
+	assertEqual(t, "ProxyBypassRulesLength", len(cfg.ProxyBypassRules), 0)
 
 	// Request log
 	assertEqual(t, "RequestLogQueueSize", cfg.RequestLogQueueSize, 8192)
@@ -107,9 +113,11 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	envs["RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY"] = "PREFER_LOW_LATENCY"
 	envs["RESIN_PROBE_TIMEOUT"] = "20s"
 	envs["RESIN_RESOURCE_FETCH_TIMEOUT"] = "45s"
+	envs["RESIN_NODE_DNS_UPSTREAMS"] = `["udp://10.0.0.53","local"]`
 	envs["RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS"] = "2048"
 	envs["RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS_PER_HOST"] = "128"
 	envs["RESIN_PROXY_TRANSPORT_IDLE_CONN_TIMEOUT"] = "2m"
+	envs["RESIN_PROXY_BYPASS"] = "localhost;127.*; 192.168.*\n<local>,10.0.0.0/8"
 	envs["RESIN_REQUEST_LOG_QUEUE_FLUSH_INTERVAL"] = "10m"
 	setEnvs(t, envs)
 
@@ -146,9 +154,18 @@ func TestLoadEnvConfig_EnvOverrides(t *testing.T) {
 	assertEqual(t, "DefaultPlatformAllocationPolicy", cfg.DefaultPlatformAllocationPolicy, "PREFER_LOW_LATENCY")
 	assertEqual(t, "ProbeTimeout", cfg.ProbeTimeout, 20*time.Second)
 	assertEqual(t, "ResourceFetchTimeout", cfg.ResourceFetchTimeout, 45*time.Second)
+	assertEqual(t, "NodeDNSUpstreamsLength", len(cfg.NodeDNSUpstreams), 2)
+	assertEqual(t, "NodeDNSUpstreams[0]", cfg.NodeDNSUpstreams[0], "udp://10.0.0.53")
+	assertEqual(t, "NodeDNSUpstreams[1]", cfg.NodeDNSUpstreams[1], "local")
 	assertEqual(t, "ProxyTransportMaxIdleConns", cfg.ProxyTransportMaxIdleConns, 2048)
 	assertEqual(t, "ProxyTransportMaxIdleConnsPerHost", cfg.ProxyTransportMaxIdleConnsPerHost, 128)
 	assertEqual(t, "ProxyTransportIdleConnTimeout", cfg.ProxyTransportIdleConnTimeout, 2*time.Minute)
+	assertEqual(t, "ProxyBypassRulesLength", len(cfg.ProxyBypassRules), 5)
+	assertEqual(t, "ProxyBypassRules[0]", cfg.ProxyBypassRules[0], "localhost")
+	assertEqual(t, "ProxyBypassRules[1]", cfg.ProxyBypassRules[1], "127.*")
+	assertEqual(t, "ProxyBypassRules[2]", cfg.ProxyBypassRules[2], "192.168.*")
+	assertEqual(t, "ProxyBypassRules[3]", cfg.ProxyBypassRules[3], "<local>")
+	assertEqual(t, "ProxyBypassRules[4]", cfg.ProxyBypassRules[4], "10.0.0.0/8")
 	if cfg.RequestLogQueueFlushInterval.String() != "10m0s" {
 		t.Errorf("RequestLogQueueFlushInterval: got %v, want 10m", cfg.RequestLogQueueFlushInterval)
 	}
@@ -186,6 +203,30 @@ func TestLoadEnvConfig_DefaultPlatformRegionFilters_Negation(t *testing.T) {
 	assertEqual(t, "DefaultPlatformRegionFiltersLength", len(cfg.DefaultPlatformRegionFilters), 2)
 	assertEqual(t, "DefaultPlatformRegionFilters[0]", cfg.DefaultPlatformRegionFilters[0], "!hk")
 	assertEqual(t, "DefaultPlatformRegionFilters[1]", cfg.DefaultPlatformRegionFilters[1], "us")
+}
+
+func TestLoadEnvConfig_NodeDNSUpstreamsRejectsEmptyList(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_NODE_DNS_UPSTREAMS"] = `[]`
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for empty RESIN_NODE_DNS_UPSTREAMS")
+	}
+	assertContains(t, err.Error(), "RESIN_NODE_DNS_UPSTREAMS must contain at least one DNS upstream when defined")
+}
+
+func TestLoadEnvConfig_NodeDNSUpstreamsRejectsObjectFormat(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_NODE_DNS_UPSTREAMS"] = `[{"type":"udp","server":"10.0.0.53"}]`
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for object-style RESIN_NODE_DNS_UPSTREAMS")
+	}
+	assertContains(t, err.Error(), "RESIN_NODE_DNS_UPSTREAMS: invalid JSON string array")
 }
 
 func TestLoadEnvConfig_MissingAdminToken(t *testing.T) {

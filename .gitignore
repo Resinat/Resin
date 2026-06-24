@@ -10,3 +10,7 @@ data/
 start.sh
 .devcontainer
 start-instance.sh
+
+# Claude Code / OMC tooling and local runtime data
+.omc/
+.local/

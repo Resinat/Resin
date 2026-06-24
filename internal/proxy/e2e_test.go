@@ -167,6 +167,48 @@ func TestForwardProxy_E2EHTTPSuccess(t *testing.T) {
 	}
 }
 
+func TestForwardProxy_E2EHTTPBypassDialsDirect(t *testing.T) {
+	emitter := newMockEventEmitter()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Proxy-Authorization"); got != "" {
+			t.Fatalf("Proxy-Authorization leaked to direct upstream: %q", got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("direct-forward"))
+	}))
+	defer upstream.Close()
+
+	fp := NewForwardProxy(ForwardProxyConfig{
+		ProxyToken:       "tok",
+		Events:           emitter,
+		ProxyBypassRules: []string{"127.*"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, upstream.URL+"/direct", nil)
+	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	w := httptest.NewRecorder()
+
+	fp.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d (body=%q, resinErr=%q)",
+			w.Code, http.StatusOK, w.Body.String(), w.Header().Get("X-Resin-Error"))
+	}
+	if got := w.Body.String(); got != "direct-forward" {
+		t.Fatalf("body: got %q, want %q", got, "direct-forward")
+	}
+
+	select {
+	case logEv := <-emitter.logCh:
+		if logEv.NodeHash != "" {
+			t.Fatalf("direct bypass should not record a routed node, got %q", logEv.NodeHash)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected direct forward log event")
+	}
+}
+
 func TestForwardProxy_E2EHTTPDialTimeout_ZeroEgress(t *testing.T) {
 	env := newProxyE2EEnv(t)
 	emitter := newMockEventEmitter()
@@ -299,6 +341,50 @@ func TestReverseProxy_E2ESuccess(t *testing.T) {
 	}
 	if got := w.Body.String(); got != "reverse-e2e" {
 		t.Fatalf("body: got %q, want %q", got, "reverse-e2e")
+	}
+}
+
+func TestReverseProxy_E2EHTTPBypassDialsDirect(t *testing.T) {
+	emitter := newMockEventEmitter()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Path; got != "/api/direct" {
+			t.Fatalf("unexpected path: %q", got)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("direct-reverse"))
+	}))
+	defer upstream.Close()
+
+	host := strings.TrimPrefix(upstream.URL, "http://")
+	path := fmt.Sprintf("/tok/plat:acct/http/%s/api/direct", host)
+
+	rp := NewReverseProxy(ReverseProxyConfig{
+		ProxyToken:       "tok",
+		Events:           emitter,
+		ProxyBypassRules: []string{"127.*"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	w := httptest.NewRecorder()
+
+	rp.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status: got %d, want %d (body=%q, resinErr=%q)",
+			w.Code, http.StatusAccepted, w.Body.String(), w.Header().Get("X-Resin-Error"))
+	}
+	if got := w.Body.String(); got != "direct-reverse" {
+		t.Fatalf("body: got %q, want %q", got, "direct-reverse")
+	}
+
+	select {
+	case logEv := <-emitter.logCh:
+		if logEv.NodeHash != "" {
+			t.Fatalf("direct bypass should not record a routed node, got %q", logEv.NodeHash)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected direct reverse log event")
 	}
 }
 

@@ -985,6 +985,45 @@ func TestAPIContract_PlatformEmptyAccountBehavior(t *testing.T) {
 	assertErrorCode(t, rec, "INVALID_ARGUMENT")
 }
 
+func TestAPIContract_PlatformPassiveCircuitBreaker(t *testing.T) {
+	srv, _, _ := newControlPlaneTestServer(t)
+
+	rec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/platforms", map[string]any{
+		"name":                             "passive-breaker",
+		"passive_circuit_breaker_disabled": true,
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["passive_circuit_breaker_disabled"] != true {
+		t.Fatalf("create passive_circuit_breaker_disabled: got %v, want true", body["passive_circuit_breaker_disabled"])
+	}
+	platformID, _ := body["id"].(string)
+	if platformID == "" {
+		t.Fatalf("create platform missing id: body=%s", rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodPatch, "/api/v1/platforms/"+platformID, map[string]any{
+		"passive_circuit_breaker_disabled": false,
+	}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	if body["passive_circuit_breaker_disabled"] != false {
+		t.Fatalf("patch passive_circuit_breaker_disabled: got %v, want false", body["passive_circuit_breaker_disabled"])
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodPatch, "/api/v1/platforms/"+platformID, map[string]any{
+		"passive_circuit_breaker_disabled": "false",
+	}, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("patch invalid status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	assertErrorCode(t, rec, "INVALID_ARGUMENT")
+}
+
 func TestAPIContract_SystemConfigPatchSemantics(t *testing.T) {
 	srv, _, runtimeCfg := newControlPlaneTestServer(t)
 

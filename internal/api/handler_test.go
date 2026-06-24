@@ -38,6 +38,7 @@ func newTestServer() *Server {
 		ProxyTransportMaxIdleConns:                      1024,
 		ProxyTransportMaxIdleConnsPerHost:               64,
 		ProxyTransportIdleConnTimeout:                   90 * time.Second,
+		ProxyBypassRules:                                []string{"localhost", "127.*"},
 		RequestLogQueueSize:                             8192,
 		RequestLogQueueFlushBatchSize:                   4096,
 		RequestLogQueueFlushInterval:                    5 * time.Minute,
@@ -334,6 +335,9 @@ func TestSystemEnvConfig_OK(t *testing.T) {
 	}
 	if body["proxy_token_weak"] != false {
 		t.Errorf("proxy_token_weak: got %v, want false", body["proxy_token_weak"])
+	}
+	if rules, ok := body["proxy_bypass_rules"].([]any); !ok || len(rules) != 2 || rules[0] != "localhost" || rules[1] != "127.*" {
+		t.Errorf("proxy_bypass_rules: got %#v, want [localhost 127.*]", body["proxy_bypass_rules"])
 	}
 	if _, ok := body["admin_token"]; ok {
 		t.Error("admin_token should not be exposed in /system/config/env")

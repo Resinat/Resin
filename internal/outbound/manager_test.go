@@ -49,6 +49,12 @@ func (b *failBuilder) Build(_ json.RawMessage) (adapter.Outbound, error) {
 	return nil, errors.New("simulated build failure")
 }
 
+type panicBuilder struct{}
+
+func (b *panicBuilder) Build(_ json.RawMessage) (adapter.Outbound, error) {
+	panic("simulated build panic")
+}
+
 type closableOnly struct {
 	closed atomic.Bool
 }
@@ -184,6 +190,22 @@ func TestEnsureNodeOutbound_BuildFailure(t *testing.T) {
 	}
 	if entry.GetLastError() == "" {
 		t.Fatal("expected GetLastError() non-empty after build failure")
+	}
+}
+
+func TestEnsureNodeOutbound_BuildPanicCaptured(t *testing.T) {
+	entry := newTestEntry(`{"type":"panic"}`)
+	pool := &mockPool{}
+	pool.addEntry(entry)
+
+	mgr := NewOutboundManager(pool, &panicBuilder{})
+	mgr.EnsureNodeOutbound(entry.Hash)
+
+	if entry.HasOutbound() {
+		t.Fatal("expected HasOutbound() == false after build panic")
+	}
+	if got := entry.GetLastError(); !strings.Contains(got, "outbound build: panic: simulated build panic") {
+		t.Fatalf("unexpected last error after build panic: %q", got)
 	}
 }
 

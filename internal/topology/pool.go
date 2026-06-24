@@ -575,6 +575,30 @@ func (p *GlobalNodePool) RecordResult(hash node.Hash, success bool) {
 	}
 }
 
+// RecordPassiveResult records health feedback from user proxy traffic.
+// Failed passive traffic is ignored when the originating platform disables
+// passive circuit breaking; successes still count as positive health feedback.
+func (p *GlobalNodePool) RecordPassiveResult(platformID string, hash node.Hash, success bool) {
+	if success || !p.passiveCircuitBreakerDisabled(platformID) {
+		p.RecordResult(hash, success)
+	}
+}
+
+func (p *GlobalNodePool) passiveCircuitBreakerDisabled(platformID string) bool {
+	if platformID == "" {
+		return false
+	}
+
+	p.platMu.RLock()
+	defer p.platMu.RUnlock()
+
+	plat, ok := p.platformByID[platformID]
+	if !ok || plat == nil {
+		return false
+	}
+	return plat.PassiveCircuitBreakerDisabled
+}
+
 func (p *GlobalNodePool) currentMaxConsecutiveFailures() int {
 	return p.maxConsecutiveFailures()
 }

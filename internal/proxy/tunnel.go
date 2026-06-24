@@ -20,6 +20,7 @@ type tunnelDeps struct {
 	pool        outbound.PoolAccessor
 	health      HealthRecorder
 	metricsSink MetricsEventSink
+	bypass      *TargetBypassMatcher
 }
 
 type preparedTunnel struct {
@@ -56,6 +57,10 @@ func prepareConnectTunnel(
 	account string,
 	target string,
 ) tunnelPrepareResult {
+	if deps.bypass != nil && deps.bypass.ShouldBypass(target) {
+		return prepareDirectConnectTunnel(ctx, deps, target)
+	}
+
 	routed, routeErr := resolveRoutedOutbound(deps.router, deps.pool, platformName, account, target)
 	if routeErr != nil {
 		return tunnelPrepareResult{proxyErr: routeErr}
@@ -77,7 +82,7 @@ func prepareConnectTunnel(
 			}
 		}
 		if deps.health != nil {
-			go deps.health.RecordResult(nodeHashRaw, false)
+			recordPassiveResultAsync(deps.health, routed.Route, false)
 		}
 		return tunnelPrepareResult{
 			route:         routed.Route,
@@ -89,7 +94,7 @@ func prepareConnectTunnel(
 
 	recordResult := func(ok bool) {
 		if deps.health != nil {
-			go deps.health.RecordResult(nodeHashRaw, ok)
+			recordPassiveResultAsync(deps.health, routed.Route, ok)
 		}
 	}
 
@@ -110,6 +115,34 @@ func prepareConnectTunnel(
 		session: &preparedTunnel{
 			upstreamConn: upstreamConn,
 			recordResult: recordResult,
+		},
+	}
+}
+
+func prepareDirectConnectTunnel(ctx context.Context, deps tunnelDeps, target string) tunnelPrepareResult {
+	var dialer net.Dialer
+	rawConn, err := dialer.DialContext(ctx, "tcp", target)
+	if err != nil {
+		proxyErr := classifyConnectError(err)
+		if proxyErr == nil {
+			return tunnelPrepareResult{canceled: true}
+		}
+		return tunnelPrepareResult{
+			proxyErr:      proxyErr,
+			upstreamStage: "connect_direct_dial",
+			upstreamErr:   err,
+		}
+	}
+
+	var upstreamConn net.Conn = rawConn
+	if deps.metricsSink != nil {
+		deps.metricsSink.OnConnectionLifecycle(ConnectionOutbound, ConnectionOpen)
+		upstreamConn = newCountingConn(rawConn, deps.metricsSink)
+	}
+	return tunnelPrepareResult{
+		session: &preparedTunnel{
+			upstreamConn: upstreamConn,
+			recordResult: func(bool) {},
 		},
 	}
 }

@@ -24,6 +24,13 @@ type OutboundBuilder interface {
 	Build(rawOptions json.RawMessage) (adapter.Outbound, error)
 }
 
+// SingboxBuilderConfig configures SingboxBuilder construction.
+type SingboxBuilderConfig struct {
+	// DNSUpstreams configures Resin's node DNS chain.
+	// Values are DNS upstream URI strings and the slice must not be empty.
+	DNSUpstreams []string
+}
+
 // ---------------------------------------------------------------------------
 // SingboxBuilder — creates real sing-box adapter.Outbound instances.
 // ---------------------------------------------------------------------------
@@ -39,9 +46,10 @@ type SingboxBuilder struct {
 	dnsRouter           *dns.Router
 }
 
-// NewSingboxBuilder creates a SingboxBuilder with a complete sing-box service
-// graph (registries + DNS). The caller must call Close() when done.
-func NewSingboxBuilder() (*SingboxBuilder, error) {
+// NewSingboxBuilderWithConfig creates a SingboxBuilder with a complete
+// sing-box service graph (registries + DNS). The caller must call Close()
+// when done.
+func NewSingboxBuilderWithConfig(cfg SingboxBuilderConfig) (*SingboxBuilder, error) {
 	ctx := context.Background()
 	ctx = include.Context(ctx) // inject protocol registries
 
@@ -76,7 +84,11 @@ func NewSingboxBuilder() (*SingboxBuilder, error) {
 	dnsRouter := dns.NewRouter(ctx, logFactory, option.DNSOptions{})
 	service.MustRegister[adapter.DNSRouter](ctx, dnsRouter)
 
-	for _, spec := range secureDNSTransportSpecs() {
+	dnsTransportSpecs, err := secureDNSTransportSpecsForUpstreams(cfg.DNSUpstreams)
+	if err != nil {
+		return nil, fmt.Errorf("singbox builder: configure DNS transports: %w", err)
+	}
+	for _, spec := range dnsTransportSpecs {
 		if err := dnsTransportMgr.Create(ctx, logger, spec.tag, spec.transportType, spec.options); err != nil {
 			return nil, fmt.Errorf("singbox builder: create DNS transport %s[%s]: %w", spec.transportType, spec.tag, err)
 		}

@@ -62,6 +62,25 @@ func (m *mockHealthRecorder) RecordLatency(hash node.Hash, rawTarget string, lat
 	m.latencyCalls.Add(1)
 }
 
+type mockPassiveHealthRecorder struct {
+	mockHealthRecorder
+	passiveCalls atomic.Int32
+	platformID   string
+	nodeHash     node.Hash
+	success      bool
+	done         chan struct{}
+}
+
+func (m *mockPassiveHealthRecorder) RecordPassiveResult(platformID string, hash node.Hash, success bool) {
+	m.passiveCalls.Add(1)
+	m.platformID = platformID
+	m.nodeHash = hash
+	m.success = success
+	if m.done != nil {
+		m.done <- struct{}{}
+	}
+}
+
 type mockEventEmitter struct {
 	finishedCh chan RequestFinishedEvent
 	logCh      chan RequestLogEntry
@@ -105,6 +124,31 @@ func basicAuth(user, pass string) string {
 }
 
 // --- Tests ---
+
+func TestRecordPassiveResultAsync_UsesPlatformAwareRecorder(t *testing.T) {
+	h := node.HashFromRawOptions([]byte(`{"type":"ss","n":"platform-aware"}`))
+	rec := &mockPassiveHealthRecorder{done: make(chan struct{}, 1)}
+
+	recordPassiveResultAsync(rec, routing.RouteResult{
+		PlatformID: "plat-1",
+		NodeHash:   h,
+	}, false)
+
+	select {
+	case <-rec.done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for passive health result")
+	}
+	if rec.passiveCalls.Load() != 1 {
+		t.Fatalf("passive calls = %d, want 1", rec.passiveCalls.Load())
+	}
+	if rec.resultCalls.Load() != 0 {
+		t.Fatalf("fallback RecordResult calls = %d, want 0", rec.resultCalls.Load())
+	}
+	if rec.platformID != "plat-1" || rec.nodeHash != h || rec.success {
+		t.Fatalf("unexpected passive call payload: platform=%q hash=%s success=%v", rec.platformID, rec.nodeHash.Hex(), rec.success)
+	}
+}
 
 func TestForwardProxy_AuthRequired(t *testing.T) {
 	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}

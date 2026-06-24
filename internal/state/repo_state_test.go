@@ -1,6 +1,7 @@
 package state
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
@@ -25,6 +26,20 @@ func newTestStateRepo(t *testing.T) *StateRepo {
 	}
 	t.Cleanup(func() { db.Close() })
 	return newStateRepo(db)
+}
+
+func requireTableColumn(t *testing.T, db *sql.DB, table, column string) {
+	t.Helper()
+	if ok, err := hasTableColumn(db, table, column); err != nil || !ok {
+		t.Fatalf("expected migrated column %s.%s, ok=%v err=%v", table, column, ok, err)
+	}
+}
+
+func forceStateMigrationVersion(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
+	if _, err := db.Exec("UPDATE schema_migrations SET version = ?, dirty = 0", version); err != nil {
+		t.Fatalf("force schema_migrations version: %v", err)
+	}
 }
 
 func TestMigrateStateDB_UpgradesLegacyPlatformsColumns(t *testing.T) {
@@ -61,6 +76,9 @@ func TestMigrateStateDB_UpgradesLegacyPlatformsColumns(t *testing.T) {
 	}
 	if ok, err := hasTableColumn(db, "platforms", "reverse_proxy_fixed_account_header"); err != nil || !ok {
 		t.Fatalf("expected migrated column reverse_proxy_fixed_account_header, ok=%v err=%v", ok, err)
+	}
+	if ok, err := hasTableColumn(db, "platforms", "passive_circuit_breaker_disabled"); err != nil || !ok {
+		t.Fatalf("expected migrated column passive_circuit_breaker_disabled, ok=%v err=%v", ok, err)
 	}
 }
 
@@ -111,6 +129,9 @@ func TestMigrateStateDB_LegacyBaselineAdvancesToLatest(t *testing.T) {
 	}
 	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
+	}
+	if ok, err := hasTableColumn(db, "platforms", "passive_circuit_breaker_disabled"); err != nil || !ok {
+		t.Fatalf("expected migrated column platforms.passive_circuit_breaker_disabled, ok=%v err=%v", ok, err)
 	}
 }
 
@@ -175,6 +196,9 @@ func TestMigrateStateDB_AddsIncrementalAliveNodesToLegacySubscriptions(t *testin
 	}
 	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
+	}
+	if ok, err := hasTableColumn(db, "platforms", "passive_circuit_breaker_disabled"); err != nil || !ok {
+		t.Fatalf("expected migrated column platforms.passive_circuit_breaker_disabled, ok=%v err=%v", ok, err)
 	}
 }
 
@@ -254,6 +278,89 @@ func TestMigrateStateDB_NormalizesLegacyRandomMissAction(t *testing.T) {
 	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
 	}
+	if ok, err := hasTableColumn(db, "platforms", "passive_circuit_breaker_disabled"); err != nil || !ok {
+		t.Fatalf("expected migrated column platforms.passive_circuit_breaker_disabled, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestMigrateStateDB_RepairsForkVersion6SubscriptionUsage(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("initial MigrateStateDB: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE platforms DROP COLUMN passive_circuit_breaker_disabled"); err != nil {
+		t.Fatalf("simulate fork version 6 schema: %v", err)
+	}
+	forceStateMigrationVersion(t, db, stateVersionAddPassiveCircuitBreakerDisabled)
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	requireTableColumn(t, db, "platforms", "passive_circuit_breaker_disabled")
+	requireTableColumn(t, db, "subscriptions", "usage_updated_at_ns")
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateVersionAddSubscriptionUsageInfo {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
+	}
+}
+
+func TestMigrateStateDB_RepairsUpstreamVersion6PassiveCircuitBreaker(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("initial MigrateStateDB: %v", err)
+	}
+	for _, column := range []string{
+		"usage_updated_at_ns",
+		"usage_expire_unix",
+		"usage_total_bytes",
+		"usage_download_bytes",
+		"usage_upload_bytes",
+	} {
+		if _, err := db.Exec("ALTER TABLE subscriptions DROP COLUMN " + column); err != nil {
+			t.Fatalf("simulate upstream version 6 schema: drop %s: %v", column, err)
+		}
+	}
+	forceStateMigrationVersion(t, db, stateVersionAddPassiveCircuitBreakerDisabled)
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	requireTableColumn(t, db, "platforms", "passive_circuit_breaker_disabled")
+	requireTableColumn(t, db, "subscriptions", "usage_updated_at_ns")
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateVersionAddSubscriptionUsageInfo {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
+	}
 }
 
 // --- system_config ---
@@ -314,7 +421,8 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 		ID: "plat-1", Name: "Default", StickyTTLNs: 1000,
 		RegexFilters: []string{}, RegionFilters: []string{},
 		ReverseProxyMissAction: "TREAT_AS_EMPTY", AllocationPolicy: "BALANCED",
-		UpdatedAtNs: now,
+		PassiveCircuitBreakerDisabled: true,
+		UpdatedAtNs:                   now,
 	}
 	if err := repo.UpsertPlatform(p); err != nil {
 		t.Fatal(err)
@@ -334,6 +442,9 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 			"RANDOM",
 		)
 	}
+	if !got.PassiveCircuitBreakerDisabled {
+		t.Fatal("expected passive_circuit_breaker_disabled to round-trip true")
+	}
 
 	// List.
 	list, err := repo.ListPlatforms()
@@ -346,6 +457,7 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 
 	// Idempotent upsert (update same ID).
 	p.Name = "Default-Renamed"
+	p.PassiveCircuitBreakerDisabled = false
 	if err := repo.UpsertPlatform(p); err != nil {
 		t.Fatal(err)
 	}
@@ -355,6 +467,9 @@ func TestStateRepo_Platforms_CRUD(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].Name != "Default-Renamed" {
 		t.Fatalf("expected renamed platform, got %+v", list)
+	}
+	if list[0].PassiveCircuitBreakerDisabled {
+		t.Fatal("expected passive_circuit_breaker_disabled to update to false")
 	}
 
 	// Delete.

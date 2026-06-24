@@ -377,6 +377,8 @@ RESIN_PORT=2260 \
 
 ## 🛠️ FAQ
 
+- **Q: How do I let LAN or localhost targets skip proxy nodes?**
+  - **A**: Set `RESIN_PROXY_BYPASS` to a semicolon/comma/newline-separated rule list. Matching requests are dialed directly by Resin instead of through a proxy node. Example: `RESIN_PROXY_BYPASS="localhost;127.*;10.*;172.16.0.0/12;192.168.*;<local>"`. Supported rules include exact hosts, `*`/`?` wildcards, CIDR ranges, and `<local>` for hostnames without dots.
 - **Q: Startup fails with `RESIN_PROXY_TOKEN` undefined?**
   - **A**: Even if you do not want a proxy password, you must explicitly set it to empty: `RESIN_PROXY_TOKEN=""`.
 - **Q: Startup fails with `RESIN_AUTH_VERSION` undefined?**

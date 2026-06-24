@@ -11,8 +11,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/testutil"
 	"github.com/sagernet/sing-box/adapter"
+	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	M "github.com/sagernet/sing/common/metadata"
@@ -20,25 +22,30 @@ import (
 	mDNS "github.com/miekg/dns"
 )
 
+func newTestSingboxBuilder(t *testing.T) *SingboxBuilder {
+	t.Helper()
+	b, err := NewSingboxBuilderWithConfig(SingboxBuilderConfig{
+		DNSUpstreams: config.DefaultNodeDNSUpstreams(),
+	})
+	if err != nil {
+		t.Fatalf("NewSingboxBuilderWithConfig() error: %v", err)
+	}
+	return b
+}
+
 // ---------------------------------------------------------------------------
 // SingboxBuilder constructor / teardown
 // ---------------------------------------------------------------------------
 
-func TestNewSingboxBuilder(t *testing.T) {
-	b, err := NewSingboxBuilder()
-	if err != nil {
-		t.Fatalf("NewSingboxBuilder() error: %v", err)
-	}
+func TestNewSingboxBuilderWithConfig(t *testing.T) {
+	b := newTestSingboxBuilder(t)
 	if err := b.Close(); err != nil {
 		t.Fatalf("SingboxBuilder.Close() error: %v", err)
 	}
 }
 
 func TestNewSingboxBuilder_ConfiguresSecureDNSChain(t *testing.T) {
-	b, err := NewSingboxBuilder()
-	if err != nil {
-		t.Fatalf("NewSingboxBuilder() error: %v", err)
-	}
+	b := newTestSingboxBuilder(t)
 	defer b.Close()
 
 	defaultTransport := b.dnsTransportManager.Default()
@@ -51,9 +58,9 @@ func TestNewSingboxBuilder_ConfiguresSecureDNSChain(t *testing.T) {
 
 	for _, tag := range []string{
 		localDNSTransportTag,
-		secureDNSDoHPubTransportTag,
-		secureDNSAliDoHTransportTag,
-		secureDNSAliDoTTransportTag,
+		customDNSUpstreamTransportTag(0),
+		customDNSUpstreamTransportTag(1),
+		customDNSUpstreamTransportTag(2),
 		secureDNSFailoverTransportTag,
 	} {
 		transport, ok := b.dnsTransportManager.Transport(tag)
@@ -62,21 +69,21 @@ func TestNewSingboxBuilder_ConfiguresSecureDNSChain(t *testing.T) {
 		}
 	}
 
-	dohPub, _ := b.dnsTransportManager.Transport(secureDNSDoHPubTransportTag)
+	dohPub, _ := b.dnsTransportManager.Transport(customDNSUpstreamTransportTag(0))
 	if got := dohPub.Dependencies(); len(got) != 1 || got[0] != localDNSTransportTag {
 		t.Fatalf("DoH pub dependencies: got %v, want [%s]", got, localDNSTransportTag)
 	}
 
-	aliDoH, _ := b.dnsTransportManager.Transport(secureDNSAliDoHTransportTag)
+	aliDoH, _ := b.dnsTransportManager.Transport(customDNSUpstreamTransportTag(1))
 	if got := aliDoH.Dependencies(); len(got) != 1 || got[0] != localDNSTransportTag {
 		t.Fatalf("AliDNS DoH dependencies: got %v, want [%s]", got, localDNSTransportTag)
 	}
 
 	failover, _ := b.dnsTransportManager.Transport(secureDNSFailoverTransportTag)
 	wantFailoverDeps := []string{
-		secureDNSDoHPubTransportTag,
-		secureDNSAliDoHTransportTag,
-		secureDNSAliDoTTransportTag,
+		customDNSUpstreamTransportTag(0),
+		customDNSUpstreamTransportTag(1),
+		customDNSUpstreamTransportTag(2),
 		localDNSTransportTag,
 	}
 	if got := failover.Dependencies(); !equalStrings(got, wantFailoverDeps) {
@@ -84,10 +91,45 @@ func TestNewSingboxBuilder_ConfiguresSecureDNSChain(t *testing.T) {
 	}
 }
 
+func TestNewSingboxBuilderWithConfig_ConfiguresCustomDNSChain(t *testing.T) {
+	b, err := NewSingboxBuilderWithConfig(SingboxBuilderConfig{
+		DNSUpstreams: []string{"udp://127.0.0.1", "local"},
+	})
+	if err != nil {
+		t.Fatalf("NewSingboxBuilderWithConfig() error: %v", err)
+	}
+	defer b.Close()
+
+	defaultTransport := b.dnsTransportManager.Default()
+	if defaultTransport == nil {
+		t.Fatal("expected default DNS transport")
+	}
+	if defaultTransport.Tag() != secureDNSFailoverTransportTag {
+		t.Fatalf("default DNS transport: got %q, want %q", defaultTransport.Tag(), secureDNSFailoverTransportTag)
+	}
+
+	custom, ok := b.dnsTransportManager.Transport(customDNSUpstreamTransportTag(0))
+	if !ok || custom == nil {
+		t.Fatalf("expected custom DNS transport %q to be registered", customDNSUpstreamTransportTag(0))
+	}
+	if custom.Type() != C.DNSTypeUDP {
+		t.Fatalf("custom DNS transport type: got %q, want %q", custom.Type(), C.DNSTypeUDP)
+	}
+
+	failover, _ := b.dnsTransportManager.Transport(secureDNSFailoverTransportTag)
+	wantFailoverDeps := []string{customDNSUpstreamTransportTag(0), localDNSTransportTag}
+	if got := failover.Dependencies(); !equalStrings(got, wantFailoverDeps) {
+		t.Fatalf("custom DNS dependencies: got %v, want %v", got, wantFailoverDeps)
+	}
+}
+
 func TestSecureDNSTransportSpecs(t *testing.T) {
-	specs := secureDNSTransportSpecs()
+	specs, err := secureDNSTransportSpecsForUpstreams(config.DefaultNodeDNSUpstreams())
+	if err != nil {
+		t.Fatalf("secureDNSTransportSpecsForUpstreams() error: %v", err)
+	}
 	if len(specs) != 5 {
-		t.Fatalf("secureDNSTransportSpecs length: got %d, want 5", len(specs))
+		t.Fatalf("default DNS specs length: got %d, want 5", len(specs))
 	}
 
 	specByTag := make(map[string]secureDNSTransportSpec, len(specs))
@@ -95,9 +137,9 @@ func TestSecureDNSTransportSpecs(t *testing.T) {
 		specByTag[spec.tag] = spec
 	}
 
-	dohPubSpec, ok := specByTag[secureDNSDoHPubTransportTag]
+	dohPubSpec, ok := specByTag[customDNSUpstreamTransportTag(0)]
 	if !ok {
-		t.Fatalf("missing spec for %q", secureDNSDoHPubTransportTag)
+		t.Fatalf("missing spec for %q", customDNSUpstreamTransportTag(0))
 	}
 	dohPubOptions, ok := dohPubSpec.options.(*option.RemoteHTTPSDNSServerOptions)
 	if !ok {
@@ -110,19 +152,19 @@ func TestSecureDNSTransportSpecs(t *testing.T) {
 		t.Fatalf("DoH pub bootstrap resolver: got %+v, want %q", dohPubOptions.DomainResolver, localDNSTransportTag)
 	}
 
-	aliDoTSpec, ok := specByTag[secureDNSAliDoTTransportTag]
+	aliDoTSpec, ok := specByTag[customDNSUpstreamTransportTag(2)]
 	if !ok {
-		t.Fatalf("missing spec for %q", secureDNSAliDoTTransportTag)
+		t.Fatalf("missing spec for %q", customDNSUpstreamTransportTag(2))
 	}
 	aliDoTOptions, ok := aliDoTSpec.options.(*option.RemoteTLSDNSServerOptions)
 	if !ok {
 		t.Fatalf("AliDNS DoT options type: got %T", aliDoTSpec.options)
 	}
-	if aliDoTOptions.Server != secureDNSAliDoTServerAddress {
-		t.Fatalf("AliDNS DoT server: got %q, want %q", aliDoTOptions.Server, secureDNSAliDoTServerAddress)
+	if aliDoTOptions.Server != "223.5.5.5" {
+		t.Fatalf("AliDNS DoT server: got %q, want 223.5.5.5", aliDoTOptions.Server)
 	}
-	if aliDoTOptions.TLS == nil || aliDoTOptions.TLS.ServerName != secureDNSAliDoTTLSServerName {
-		t.Fatalf("AliDNS DoT TLS server_name: got %+v, want %q", aliDoTOptions.TLS, secureDNSAliDoTTLSServerName)
+	if aliDoTOptions.TLS == nil || aliDoTOptions.TLS.ServerName != "dns.alidns.com" {
+		t.Fatalf("AliDNS DoT TLS server_name: got %+v, want dns.alidns.com", aliDoTOptions.TLS)
 	}
 
 	failoverSpec, ok := specByTag[secureDNSFailoverTransportTag]
@@ -134,13 +176,108 @@ func TestSecureDNSTransportSpecs(t *testing.T) {
 		t.Fatalf("secure DNS failover options type: got %T", failoverSpec.options)
 	}
 	wantUpstreams := []string{
-		secureDNSDoHPubTransportTag,
-		secureDNSAliDoHTransportTag,
-		secureDNSAliDoTTransportTag,
+		customDNSUpstreamTransportTag(0),
+		customDNSUpstreamTransportTag(1),
+		customDNSUpstreamTransportTag(2),
 		localDNSTransportTag,
 	}
 	if !equalStrings(failoverOptions.Upstreams, wantUpstreams) {
 		t.Fatalf("secure DNS upstreams: got %v, want %v", failoverOptions.Upstreams, wantUpstreams)
+	}
+}
+
+func TestSecureDNSTransportSpecsForUpstreams_CustomURIList(t *testing.T) {
+	specs, err := secureDNSTransportSpecsForUpstreams([]string{
+		"udp://10.0.0.53",
+		"tls://223.5.5.5?sni=dns.alidns.com",
+		"https://dns.example.com/dns-query",
+		"local",
+	})
+	if err != nil {
+		t.Fatalf("secureDNSTransportSpecsForUpstreams() error: %v", err)
+	}
+	if len(specs) != 5 {
+		t.Fatalf("custom specs length: got %d, want 5", len(specs))
+	}
+
+	specByTag := make(map[string]secureDNSTransportSpec, len(specs))
+	for _, spec := range specs {
+		specByTag[spec.tag] = spec
+	}
+	if _, ok := specByTag[localDNSTransportTag]; !ok {
+		t.Fatalf("missing local DNS transport for custom bootstrap")
+	}
+
+	udpSpec := specByTag[customDNSUpstreamTransportTag(0)]
+	if udpSpec.transportType != C.DNSTypeUDP {
+		t.Fatalf("udp transport type: got %q, want %q", udpSpec.transportType, C.DNSTypeUDP)
+	}
+	udpOptions, ok := udpSpec.options.(*option.RemoteDNSServerOptions)
+	if !ok {
+		t.Fatalf("udp options type: got %T", udpSpec.options)
+	}
+	if udpOptions.Server != "10.0.0.53" || udpOptions.ServerPort != 0 {
+		t.Fatalf("udp server: got %s:%d", udpOptions.Server, udpOptions.ServerPort)
+	}
+	if udpOptions.DomainResolver != nil {
+		t.Fatalf("udp IP upstream should not need bootstrap resolver: %+v", udpOptions.DomainResolver)
+	}
+
+	tlsSpec := specByTag[customDNSUpstreamTransportTag(1)]
+	if tlsSpec.transportType != C.DNSTypeTLS {
+		t.Fatalf("tls transport type: got %q, want %q", tlsSpec.transportType, C.DNSTypeTLS)
+	}
+	tlsOptions, ok := tlsSpec.options.(*option.RemoteTLSDNSServerOptions)
+	if !ok {
+		t.Fatalf("tls options type: got %T", tlsSpec.options)
+	}
+	if tlsOptions.Server != "223.5.5.5" {
+		t.Fatalf("tls server: got %q", tlsOptions.Server)
+	}
+	if tlsOptions.TLS == nil || tlsOptions.TLS.ServerName != "dns.alidns.com" {
+		t.Fatalf("tls server_name: got %+v, want dns.alidns.com", tlsOptions.TLS)
+	}
+
+	httpsSpec := specByTag[customDNSUpstreamTransportTag(2)]
+	if httpsSpec.transportType != C.DNSTypeHTTPS {
+		t.Fatalf("https transport type: got %q, want %q", httpsSpec.transportType, C.DNSTypeHTTPS)
+	}
+	httpsOptions, ok := httpsSpec.options.(*option.RemoteHTTPSDNSServerOptions)
+	if !ok {
+		t.Fatalf("https options type: got %T", httpsSpec.options)
+	}
+	if httpsOptions.Server != "dns.example.com" {
+		t.Fatalf("https server: got %q", httpsOptions.Server)
+	}
+	if httpsOptions.Path != secureDNSQueryPath {
+		t.Fatalf("https path: got %q, want %q", httpsOptions.Path, secureDNSQueryPath)
+	}
+	if httpsOptions.DomainResolver == nil || httpsOptions.DomainResolver.Server != localDNSTransportTag {
+		t.Fatalf("https bootstrap resolver: got %+v, want %q", httpsOptions.DomainResolver, localDNSTransportTag)
+	}
+
+	failoverOptions, ok := specByTag[secureDNSFailoverTransportTag].options.(*secureDNSFailoverOptions)
+	if !ok {
+		t.Fatalf("failover options type: got %T", specByTag[secureDNSFailoverTransportTag].options)
+	}
+	wantUpstreams := []string{
+		customDNSUpstreamTransportTag(0),
+		customDNSUpstreamTransportTag(1),
+		customDNSUpstreamTransportTag(2),
+		localDNSTransportTag,
+	}
+	if !equalStrings(failoverOptions.Upstreams, wantUpstreams) {
+		t.Fatalf("custom DNS upstreams: got %v, want %v", failoverOptions.Upstreams, wantUpstreams)
+	}
+}
+
+func TestSecureDNSTransportSpecsForUpstreams_InvalidURI(t *testing.T) {
+	_, err := secureDNSTransportSpecsForUpstreams([]string{"https://dns.example.com/dns-query?headers=x"})
+	if err == nil {
+		t.Fatal("expected invalid query parameter error")
+	}
+	if !strings.Contains(err.Error(), `unsupported query parameter "headers"`) {
+		t.Fatalf("error: got %v", err)
 	}
 }
 
@@ -175,16 +312,17 @@ func TestSecureDNSFailoverTransport_FirstSuccessSkipsFallbacks(t *testing.T) {
 }
 
 func TestSecureDNSFailoverTransport_RcodeFailureFallsBack(t *testing.T) {
+	firstTag := "first"
 	manager := &stubDNSTransportManager{
 		transports: map[string]adapter.DNSTransport{
-			secureDNSDoHPubTransportTag: newStaticDNSTransport(secureDNSDoHPubTransportTag, rcodeDNSResponse(mDNS.RcodeServerFailure)),
-			localDNSTransportTag:        newStaticDNSTransport(localDNSTransportTag, successDNSResponse("local.example.")),
+			firstTag:             newStaticDNSTransport(firstTag, rcodeDNSResponse(mDNS.RcodeServerFailure)),
+			localDNSTransportTag: newStaticDNSTransport(localDNSTransportTag, successDNSResponse("local.example.")),
 		},
 	}
 	transport := &secureDNSFailoverTransport{
 		manager:      manager,
 		tag:          secureDNSFailoverTransportTag,
-		upstreamTags: []string{secureDNSDoHPubTransportTag, localDNSTransportTag},
+		upstreamTags: []string{firstTag, localDNSTransportTag},
 	}
 
 	resp, err := transport.Exchange(context.Background(), dnsQuestion("example.com."))
@@ -194,7 +332,7 @@ func TestSecureDNSFailoverTransport_RcodeFailureFallsBack(t *testing.T) {
 	if resp == nil || resp.Rcode != mDNS.RcodeSuccess {
 		t.Fatalf("response rcode: got %+v, want success", resp)
 	}
-	first, _ := manager.Transport(secureDNSDoHPubTransportTag)
+	first, _ := manager.Transport(firstTag)
 	second, _ := manager.Transport(localDNSTransportTag)
 	if first.(*staticDNSTransport).calls.Load() != 1 {
 		t.Fatalf("first transport calls: got %d, want 1", first.(*staticDNSTransport).calls.Load())
@@ -205,16 +343,17 @@ func TestSecureDNSFailoverTransport_RcodeFailureFallsBack(t *testing.T) {
 }
 
 func TestSecureDNSFailoverTransport_NameErrorFallsBack(t *testing.T) {
+	firstTag := "first"
 	manager := &stubDNSTransportManager{
 		transports: map[string]adapter.DNSTransport{
-			secureDNSDoHPubTransportTag: newStaticDNSTransport(secureDNSDoHPubTransportTag, rcodeDNSResponse(mDNS.RcodeNameError)),
-			localDNSTransportTag:        newStaticDNSTransport(localDNSTransportTag, successDNSResponse("local.example.")),
+			firstTag:             newStaticDNSTransport(firstTag, rcodeDNSResponse(mDNS.RcodeNameError)),
+			localDNSTransportTag: newStaticDNSTransport(localDNSTransportTag, successDNSResponse("local.example.")),
 		},
 	}
 	transport := &secureDNSFailoverTransport{
 		manager:      manager,
 		tag:          secureDNSFailoverTransportTag,
-		upstreamTags: []string{secureDNSDoHPubTransportTag, localDNSTransportTag},
+		upstreamTags: []string{firstTag, localDNSTransportTag},
 	}
 
 	resp, err := transport.Exchange(context.Background(), dnsQuestion("example.com."))
@@ -224,7 +363,7 @@ func TestSecureDNSFailoverTransport_NameErrorFallsBack(t *testing.T) {
 	if resp == nil || resp.Rcode != mDNS.RcodeSuccess {
 		t.Fatalf("response rcode: got %+v, want success", resp)
 	}
-	first, _ := manager.Transport(secureDNSDoHPubTransportTag)
+	first, _ := manager.Transport(firstTag)
 	second, _ := manager.Transport(localDNSTransportTag)
 	if first.(*staticDNSTransport).calls.Load() != 1 {
 		t.Fatalf("first transport calls: got %d, want 1", first.(*staticDNSTransport).calls.Load())
@@ -235,18 +374,21 @@ func TestSecureDNSFailoverTransport_NameErrorFallsBack(t *testing.T) {
 }
 
 func TestSecureDNSFailoverTransport_AllUpstreamsFail(t *testing.T) {
+	dohPubTag := "doh-pub"
+	aliDoHTag := "alidns-doh"
+	aliDoTTag := "alidns-dot"
 	manager := &stubDNSTransportManager{
 		transports: map[string]adapter.DNSTransport{
-			secureDNSDoHPubTransportTag: newErrorDNSTransport(secureDNSDoHPubTransportTag, errors.New("doh.pub down")),
-			secureDNSAliDoHTransportTag: newErrorDNSTransport(secureDNSAliDoHTransportTag, errors.New("alidns doh down")),
-			secureDNSAliDoTTransportTag: newErrorDNSTransport(secureDNSAliDoTTransportTag, errors.New("alidns dot down")),
-			localDNSTransportTag:        newErrorDNSTransport(localDNSTransportTag, errors.New("local down")),
+			dohPubTag:            newErrorDNSTransport(dohPubTag, errors.New("doh.pub down")),
+			aliDoHTag:            newErrorDNSTransport(aliDoHTag, errors.New("alidns doh down")),
+			aliDoTTag:            newErrorDNSTransport(aliDoTTag, errors.New("alidns dot down")),
+			localDNSTransportTag: newErrorDNSTransport(localDNSTransportTag, errors.New("local down")),
 		},
 	}
 	transport := &secureDNSFailoverTransport{
 		manager:      manager,
 		tag:          secureDNSFailoverTransportTag,
-		upstreamTags: []string{secureDNSDoHPubTransportTag, secureDNSAliDoHTransportTag, secureDNSAliDoTTransportTag, localDNSTransportTag},
+		upstreamTags: []string{dohPubTag, aliDoHTag, aliDoTTag, localDNSTransportTag},
 	}
 
 	_, err := transport.Exchange(context.Background(), dnsQuestion("example.com."))
@@ -254,9 +396,9 @@ func TestSecureDNSFailoverTransport_AllUpstreamsFail(t *testing.T) {
 		t.Fatal("expected error when all upstreams fail")
 	}
 	for _, part := range []string{
-		secureDNSDoHPubTransportTag,
-		secureDNSAliDoHTransportTag,
-		secureDNSAliDoTTransportTag,
+		dohPubTag,
+		aliDoHTag,
+		aliDoTTag,
 		localDNSTransportTag,
 	} {
 		if !strings.Contains(err.Error(), part) {
@@ -270,10 +412,7 @@ func TestSecureDNSFailoverTransport_AllUpstreamsFail(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestSingboxBuilder_ParseShadowsocks(t *testing.T) {
-	b, err := NewSingboxBuilder()
-	if err != nil {
-		t.Fatalf("NewSingboxBuilder() error: %v", err)
-	}
+	b := newTestSingboxBuilder(t)
 	defer b.Close()
 
 	raw := json.RawMessage(`{
@@ -300,10 +439,7 @@ func TestSingboxBuilder_ParseShadowsocks(t *testing.T) {
 }
 
 func TestSingboxBuilder_ParseExtendedProtocols(t *testing.T) {
-	b, err := NewSingboxBuilder()
-	if err != nil {
-		t.Fatalf("NewSingboxBuilder() error: %v", err)
-	}
+	b := newTestSingboxBuilder(t)
 	defer b.Close()
 
 	cases := []struct {
@@ -421,10 +557,7 @@ func TestSingboxBuilder_ParseExtendedProtocols(t *testing.T) {
 }
 
 func TestSingboxBuilder_ParseDomainServerProtocols(t *testing.T) {
-	b, err := NewSingboxBuilder()
-	if err != nil {
-		t.Fatalf("NewSingboxBuilder() error: %v", err)
-	}
+	b := newTestSingboxBuilder(t)
 	defer b.Close()
 
 	cases := []struct {
@@ -502,28 +635,22 @@ func TestSingboxBuilder_ParseDomainServerProtocols(t *testing.T) {
 }
 
 func TestSingboxBuilder_UnknownType(t *testing.T) {
-	b, err := NewSingboxBuilder()
-	if err != nil {
-		t.Fatalf("NewSingboxBuilder() error: %v", err)
-	}
+	b := newTestSingboxBuilder(t)
 	defer b.Close()
 
 	raw := json.RawMessage(`{"type": "totally-fake-protocol-xyz", "tag": "x"}`)
-	_, err = b.Build(raw)
+	_, err := b.Build(raw)
 	if err == nil {
 		t.Fatal("expected error for unknown outbound type, got nil")
 	}
 }
 
 func TestSingboxBuilder_InvalidJSON(t *testing.T) {
-	b, err := NewSingboxBuilder()
-	if err != nil {
-		t.Fatalf("NewSingboxBuilder() error: %v", err)
-	}
+	b := newTestSingboxBuilder(t)
 	defer b.Close()
 
 	raw := json.RawMessage(`{invalid`)
-	_, err = b.Build(raw)
+	_, err := b.Build(raw)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON, got nil")
 	}

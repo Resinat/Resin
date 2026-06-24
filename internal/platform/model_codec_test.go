@@ -19,6 +19,7 @@ func TestBuildFromModel_Success(t *testing.T) {
 		ReverseProxyEmptyAccountBehavior: "FIXED_HEADER",
 		ReverseProxyFixedAccountHeader:   "x-account-id",
 		AllocationPolicy:                 "PREFER_LOW_LATENCY",
+		PassiveCircuitBreakerDisabled:    true,
 	}
 
 	plat, err := BuildFromModel(mp)
@@ -51,6 +52,9 @@ func TestBuildFromModel_Success(t *testing.T) {
 	}
 	if plat.AllocationPolicy != AllocationPolicyPreferLowLatency {
 		t.Fatalf("allocation policy mismatch: got %q want %q", plat.AllocationPolicy, AllocationPolicyPreferLowLatency)
+	}
+	if !plat.PassiveCircuitBreakerDisabled {
+		t.Fatal("passive circuit breaker flag mismatch: got false want true")
 	}
 	if len(plat.RegexFilters) != 1 || !plat.RegexFilters[0].MatchString("us-node") {
 		t.Fatalf("regex filters not compiled as expected: %+v", plat.RegexFilters)

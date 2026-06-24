@@ -37,6 +37,7 @@ export const platformFormSchema = z.object({
   reverse_proxy_empty_account_behavior: z.enum(emptyAccountBehaviors),
   reverse_proxy_fixed_account_header: z.string().optional(),
   allocation_policy: z.enum(allocationPolicies),
+  passive_circuit_breaker_disabled: z.boolean(),
 }).superRefine((value, ctx) => {
   if (
     value.reverse_proxy_empty_account_behavior === "FIXED_HEADER" &&
@@ -61,6 +62,7 @@ export const defaultPlatformFormValues: PlatformFormValues = {
   reverse_proxy_empty_account_behavior: "RANDOM",
   reverse_proxy_fixed_account_header: "Authorization",
   allocation_policy: "BALANCED",
+  passive_circuit_breaker_disabled: false,
 };
 
 export function platformToFormValues(platform: Platform): PlatformFormValues {
@@ -76,6 +78,7 @@ export function platformToFormValues(platform: Platform): PlatformFormValues {
     reverse_proxy_empty_account_behavior: platform.reverse_proxy_empty_account_behavior,
     reverse_proxy_fixed_account_header: platform.reverse_proxy_fixed_account_header,
     allocation_policy: platform.allocation_policy,
+    passive_circuit_breaker_disabled: platform.passive_circuit_breaker_disabled,
   };
 }
 
@@ -88,6 +91,7 @@ function toPlatformPayloadBase(values: PlatformFormValues) {
     reverse_proxy_empty_account_behavior: values.reverse_proxy_empty_account_behavior,
     reverse_proxy_fixed_account_header: parseHeaderLines(values.reverse_proxy_fixed_account_header).join("\n"),
     allocation_policy: values.allocation_policy,
+    passive_circuit_breaker_disabled: values.passive_circuit_breaker_disabled,
   };
 }
 

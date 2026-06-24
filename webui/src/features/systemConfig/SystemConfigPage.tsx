@@ -943,6 +943,15 @@ export function SystemConfigPage() {
                       <label className="field-label" style={{ margin: 0 }}>{t("资源获取超时时间")}</label>
                       <Input readOnly disabled value={envBaseline.resource_fetch_timeout} />
                     </div>
+                    <div className="field-group field-span-2">
+                      <label className="field-label" style={{ margin: 0 }}>{t("节点 DNS 上游")}</label>
+                      <Textarea
+                        readOnly
+                        disabled
+                        rows={3}
+                        value={envBaseline.node_dns_upstreams?.join("\n") || t("无")}
+                      />
+                    </div>
                     <div className="field-group">
                       <label className="field-label" style={{ margin: 0 }}>{t("GeoIP 更新计划")}</label>
                       <Input readOnly disabled value={envBaseline.geoip_update_schedule} />
@@ -958,6 +967,15 @@ export function SystemConfigPage() {
                     <div className="field-group">
                       <label className="field-label" style={{ margin: 0 }}>{t("空闲连接超时时间")}</label>
                       <Input readOnly disabled value={envBaseline.proxy_transport_idle_conn_timeout} />
+                    </div>
+                    <div className="field-group field-span-2">
+                      <label className="field-label" style={{ margin: 0 }}>{t("代理直连目标")}</label>
+                      <Textarea
+                        readOnly
+                        disabled
+                        rows={3}
+                        value={envBaseline.proxy_bypass_rules?.join("\n") || t("无")}
+                      />
                     </div>
                   </div>
                 </section>

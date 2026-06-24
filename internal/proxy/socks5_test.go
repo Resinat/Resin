@@ -294,6 +294,77 @@ func TestSocks5Inbound_CONNECTSuccess_LogsProxyType3(t *testing.T) {
 	t.Fatal("expected RecordResult call for SOCKS5 CONNECT success")
 }
 
+func TestSocks5Inbound_CONNECTBypassDialsDirect(t *testing.T) {
+	emitter := newMockEventEmitter()
+
+	targetLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen target: %v", err)
+	}
+	defer targetLn.Close()
+
+	targetDone := make(chan struct{})
+	go func() {
+		defer close(targetDone)
+		conn, err := targetLn.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = io.Copy(conn, conn)
+	}()
+
+	inbound := NewSocks5Inbound(Socks5InboundConfig{
+		ProxyToken:       "tok",
+		AuthVersion:      string(config.AuthVersionV1),
+		Events:           emitter,
+		ProxyBypassRules: []string{"127.*"},
+	})
+
+	clientConn, reader, done := startSocks5Session(t, inbound)
+	defer clientConn.Close()
+
+	writeAll(t, clientConn, []byte{socks5Version, 1, socks5MethodUserPass})
+	if got := readExactly(t, reader, 2); got[1] != socks5MethodUserPass {
+		t.Fatalf("selected method: got %d, want %d", got[1], socks5MethodUserPass)
+	}
+
+	writeAll(t, clientConn, socks5UserPassPacket("plat.acct", "tok"))
+	if got := readExactly(t, reader, 2); got[1] != socks5UserPassStatusSuccess {
+		t.Fatalf("auth status: got %d, want %d", got[1], socks5UserPassStatusSuccess)
+	}
+
+	targetAddr := targetLn.Addr().String()
+	writeAll(t, clientConn, socks5ConnectIPv4Packet(targetAddr))
+	reply := readExactly(t, reader, 10)
+	if reply[0] != socks5Version || reply[1] != socks5ReplySucceeded {
+		t.Fatalf("connect reply: got %v, want success", reply)
+	}
+
+	const payload = "direct-socks5"
+	writeAll(t, clientConn, []byte(payload))
+	echo := readExactly(t, reader, len(payload))
+	if string(echo) != payload {
+		t.Fatalf("echo payload: got %q, want %q", string(echo), payload)
+	}
+
+	_ = clientConn.Close()
+	<-done
+	<-targetDone
+
+	select {
+	case logEv := <-emitter.logCh:
+		if logEv.NodeHash != "" {
+			t.Fatalf("direct bypass should not record a routed node, got %q", logEv.NodeHash)
+		}
+		if !logEv.NetOK {
+			t.Fatal("direct bypass SOCKS5 CONNECT should log net_ok=true")
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected direct SOCKS5 request log event")
+	}
+}
+
 func TestSocks5Inbound_CONNECTOneWayTrafficStillLogsSuccess(t *testing.T) {
 	env := newProxyE2EEnv(t)
 	emitter := newMockEventEmitter()

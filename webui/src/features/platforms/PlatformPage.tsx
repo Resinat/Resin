@@ -10,6 +10,7 @@ import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { OffsetPagination } from "../../components/ui/OffsetPagination";
 import { Select } from "../../components/ui/Select";
+import { Switch } from "../../components/ui/Switch";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
@@ -284,6 +285,26 @@ export function PlatformPage() {
                     </option>
                   ))}
                 </Select>
+              </div>
+
+              <div className="field-group">
+                <label className="field-label" htmlFor="create-passive-circuit-breaker" style={{ visibility: "hidden" }}>
+                  {t("禁用请求失败熔断")}
+                </label>
+                <div className="subscription-switch-item">
+                  <label className="subscription-switch-label" htmlFor="create-passive-circuit-breaker">
+                    <span>{t("禁用请求失败熔断")}</span>
+                    <span
+                      className="subscription-info-icon"
+                      title={t("开启后，此平台的代理请求失败不会增加节点熔断计数；主动探测不受影响。")}
+                      aria-label={t("开启后，此平台的代理请求失败不会增加节点熔断计数；主动探测不受影响。")}
+                      tabIndex={0}
+                    >
+                      <Info size={13} />
+                    </span>
+                  </label>
+                  <Switch id="create-passive-circuit-breaker" {...createForm.register("passive_circuit_breaker_disabled")} />
+                </div>
               </div>
 
               <div className="field-group">

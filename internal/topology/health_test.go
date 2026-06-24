@@ -194,6 +194,54 @@ func TestRecordResult_CircuitBreak_RemovesFromView(t *testing.T) {
 	}
 }
 
+func TestRecordPassiveResult_DisabledPlatformSkipsFailures(t *testing.T) {
+	pool, subMgr := newHealthTestPool(2)
+	sub := subMgr.Lookup("s1")
+	h := addTestNode(pool, sub, `{"type":"ss","n":"passive-disabled"}`)
+	entry, _ := pool.GetEntry(h)
+	pool.RecordResult(h, true)
+
+	plat := platform.NewPlatform("p1", "NoPassiveBreaker", nil, nil)
+	plat.PassiveCircuitBreakerDisabled = true
+	pool.RegisterPlatform(plat)
+
+	pool.RecordPassiveResult(plat.ID, h, false)
+	pool.RecordPassiveResult(plat.ID, h, false)
+	if got := entry.FailureCount.Load(); got != 0 {
+		t.Fatalf("passive failures should be ignored, failure count=%d", got)
+	}
+	if entry.IsCircuitOpen() {
+		t.Fatal("passive failures should not open circuit when disabled")
+	}
+
+	pool.RecordResult(h, false)
+	pool.RecordResult(h, false)
+	if !entry.IsCircuitOpen() {
+		t.Fatal("active health feedback should still open circuit")
+	}
+}
+
+func TestRecordPassiveResult_EnabledPlatformCountsFailures(t *testing.T) {
+	pool, subMgr := newHealthTestPool(2)
+	sub := subMgr.Lookup("s1")
+	h := addTestNode(pool, sub, `{"type":"ss","n":"passive-enabled"}`)
+	entry, _ := pool.GetEntry(h)
+	pool.RecordResult(h, true)
+
+	plat := platform.NewPlatform("p1", "PassiveBreaker", nil, nil)
+	plat.PassiveCircuitBreakerDisabled = false
+	pool.RegisterPlatform(plat)
+
+	pool.RecordPassiveResult(plat.ID, h, false)
+	pool.RecordPassiveResult(plat.ID, h, false)
+	if got := entry.FailureCount.Load(); got != 2 {
+		t.Fatalf("passive failures should be counted, failure count=%d", got)
+	}
+	if !entry.IsCircuitOpen() {
+		t.Fatal("passive failures should open circuit when enabled")
+	}
+}
+
 // --- RecordLatency tests ---
 
 func TestRecordLatency_NormalizesDomain(t *testing.T) {

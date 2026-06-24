@@ -35,6 +35,7 @@ type ReverseProxyConfig struct {
 	MetricsSink       MetricsEventSink
 	OutboundTransport OutboundTransportConfig
 	TransportPool     *OutboundTransportPool
+	ProxyBypassRules  []string
 }
 
 // ReverseProxy implements an HTTP reverse proxy.
@@ -54,6 +55,9 @@ type ReverseProxy struct {
 	transportConfig   OutboundTransportConfig
 	transportPool     *OutboundTransportPool
 	transportPoolOnce sync.Once
+	directTransport   *http.Transport
+	directOnce        sync.Once
+	bypass            *TargetBypassMatcher
 }
 
 // NewReverseProxy creates a new reverse proxy handler.
@@ -83,6 +87,7 @@ func NewReverseProxy(cfg ReverseProxyConfig) *ReverseProxy {
 		metricsSink:     cfg.MetricsSink,
 		transportConfig: transportCfg,
 		transportPool:   transportPool,
+		bypass:          NewTargetBypassMatcher(cfg.ProxyBypassRules),
 	}
 }
 
@@ -103,6 +108,13 @@ func (p *ReverseProxy) outboundHTTPTransport(routed routedOutbound) *http.Transp
 		}
 	})
 	return p.transportPool.Get(routed.Route.NodeHash, routed.Outbound, p.metricsSink)
+}
+
+func (p *ReverseProxy) directHTTPTransport() *http.Transport {
+	p.directOnce.Do(func() {
+		p.directTransport = newDirectHTTPTransport(p.transportConfig, p.metricsSink)
+	})
+	return p.directTransport
 }
 
 // parsedPath holds the result of parsing a reverse proxy request path.
@@ -383,19 +395,6 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	routed, routeErr := resolveRoutedOutbound(p.router, p.pool, parsed.PlatformName, account, parsed.Host)
-	if routeErr != nil {
-		lifecycle.setProxyError(routeErr)
-		lifecycle.setHTTPStatus(routeErr.HTTPCode)
-		writeProxyError(w, routeErr)
-		return
-	}
-	lifecycle.setRouteResult(routed.Route)
-
-	nodeHashRaw := routed.Route.NodeHash
-	domain := netutil.ExtractDomain(parsed.Host)
-	go p.health.RecordLatency(nodeHashRaw, domain, nil)
-
 	target, targetErr := buildReverseTargetURL(parsed, r.URL.RawQuery)
 	if targetErr != nil {
 		lifecycle.setProxyError(targetErr)
@@ -405,7 +404,30 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	lifecycle.setTarget(parsed.Host, target.String())
 
-	transport := p.outboundHTTPTransport(routed)
+	var route routing.RouteResult
+	var hasRoute bool
+	var transport *http.Transport
+	var nodeHashRaw = route.NodeHash
+	domain := netutil.ExtractDomain(parsed.Host)
+	if p.bypass != nil && p.bypass.ShouldBypass(parsed.Host) {
+		transport = p.directHTTPTransport()
+	} else {
+		routed, routeErr := resolveRoutedOutbound(p.router, p.pool, parsed.PlatformName, account, parsed.Host)
+		if routeErr != nil {
+			lifecycle.setProxyError(routeErr)
+			lifecycle.setHTTPStatus(routeErr.HTTPCode)
+			writeProxyError(w, routeErr)
+			return
+		}
+		route = routed.Route
+		hasRoute = true
+		nodeHashRaw = route.NodeHash
+		lifecycle.setRouteResult(route)
+		if p.health != nil {
+			go p.health.RecordLatency(nodeHashRaw, domain, nil)
+		}
+		transport = p.outboundHTTPTransport(routed)
+	}
 
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
@@ -419,7 +441,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reqCtx := httptrace.WithClientTrace(req.Context(), upstreamTrace.clientTrace())
 
 			// Add httptrace for TLS latency measurement on HTTPS.
-			if parsed.Protocol == "https" {
+			if parsed.Protocol == "https" && hasRoute && p.health != nil {
 				reporter := newReverseLatencyReporter(p.health, nodeHashRaw, domain)
 				reqCtx = httptrace.WithClientTrace(reqCtx, reporter.clientTrace())
 			}
@@ -439,7 +461,9 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			lifecycle.setUpstreamError("reverse_roundtrip", err)
 			lifecycle.setNetOK(false)
 			lifecycle.setHTTPStatus(proxyErr.HTTPCode)
-			go p.health.RecordResult(nodeHashRaw, false)
+			if hasRoute {
+				recordPassiveResultAsync(p.health, route, false)
+			}
 			writeProxyError(rw, proxyErr)
 		},
 		ModifyResponse: func(resp *http.Response) error {
@@ -462,7 +486,9 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					lifecycle.setRespHeadersCaptured(respHeaders, respHeadersLen, respHeadersTruncated)
 				}
 				lifecycle.setNetOK(true)
-				go p.health.RecordResult(nodeHashRaw, true)
+				if hasRoute {
+					recordPassiveResultAsync(p.health, route, true)
+				}
 				return nil
 			}
 			if resp.Body != nil && resp.Body != http.NoBody {
@@ -486,7 +512,9 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// (client abort vs upstream reset vs network blip), and the added
 			// complexity is not worth it for the current phase.
 			lifecycle.setNetOK(true)
-			go p.health.RecordResult(nodeHashRaw, true)
+			if hasRoute {
+				recordPassiveResultAsync(p.health, route, true)
+			}
 			return nil
 		},
 	}

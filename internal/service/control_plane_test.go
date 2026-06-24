@@ -484,6 +484,12 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	if !plat.View().Contains(hash) {
 		t.Fatalf("new platform view should contain seeded hash %s", hash.Hex())
 	}
+	if created.PassiveCircuitBreakerDisabled {
+		t.Fatal("new platform should default passive circuit breaker to not disabled")
+	}
+	if plat.PassiveCircuitBreakerDisabled {
+		t.Fatal("runtime platform should default passive circuit breaker to not disabled")
+	}
 }
 
 func TestCreatePlatform_RejectsReservedAPIName(t *testing.T) {
@@ -883,6 +889,7 @@ func TestDeletePlatform_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
 		string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
 		"",
 		platformRow.AllocationPolicy,
+		true,
 	))
 
 	cp := &ControlPlaneService{
@@ -945,6 +952,7 @@ func TestResetPlatformToDefault_SupportsBuiltInDefaultPlatform(t *testing.T) {
 		string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
 		"",
 		defaultRow.AllocationPolicy,
+		true,
 	))
 
 	cp := &ControlPlaneService{
@@ -1086,6 +1094,7 @@ func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *test
 		string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
 		"",
 		platformRow.AllocationPolicy,
+		true,
 	))
 
 	cp := &ControlPlaneService{

@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
+	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/sagernet/sing-box/adapter"
 	C "github.com/sagernet/sing-box/constant"
@@ -18,16 +22,11 @@ import (
 const (
 	localDNSTransportTag = "local"
 
-	secureDNSDoHPubTransportTag    = "resin-doh-pub"
-	secureDNSAliDoHTransportTag    = "resin-doh-alidns"
-	secureDNSAliDoTTransportTag    = "resin-dot-alidns"
 	secureDNSFailoverTransportTag  = "resin-secure-dns"
 	secureDNSFailoverTransportType = "resin-sequential-failover"
-	secureDNSAliDoTServerAddress   = "223.5.5.5"
-	secureDNSAliDoTTLSServerName   = "dns.alidns.com"
-	secureDNSDoHPubServerAddress   = "doh.pub"
-	secureDNSAliDoHServerAddress   = "dns.alidns.com"
 	secureDNSQueryPath             = "/dns-query"
+
+	customDNSTransportTagPrefix = "resin-dns-upstream-"
 )
 
 type secureDNSTransportSpec struct {
@@ -50,84 +49,237 @@ func registerSecureDNSTransport(registry *dns.TransportRegistry) {
 	dns.RegisterTransport[secureDNSFailoverOptions](registry, secureDNSFailoverTransportType, newSecureDNSFailoverTransport)
 }
 
-func secureDNSTransportSpecs() []secureDNSTransportSpec {
-	return []secureDNSTransportSpec{
-		{
-			tag:           localDNSTransportTag,
-			transportType: C.DNSTypeLocal,
-			options:       &option.LocalDNSServerOptions{},
-		},
-		{
-			tag:           secureDNSDoHPubTransportTag,
-			transportType: C.DNSTypeHTTPS,
-			options: &option.RemoteHTTPSDNSServerOptions{
-				RemoteTLSDNSServerOptions: option.RemoteTLSDNSServerOptions{
-					RemoteDNSServerOptions: option.RemoteDNSServerOptions{
-						LocalDNSServerOptions: option.LocalDNSServerOptions{
-							DialerOptions: option.DialerOptions{
-								DomainResolver: &option.DomainResolveOptions{
-									Server: localDNSTransportTag,
-								},
-							},
-						},
-						DNSServerAddressOptions: option.DNSServerAddressOptions{
-							Server: secureDNSDoHPubServerAddress,
-						},
-					},
-				},
-				Path: secureDNSQueryPath,
-			},
-		},
-		{
-			tag:           secureDNSAliDoHTransportTag,
-			transportType: C.DNSTypeHTTPS,
-			options: &option.RemoteHTTPSDNSServerOptions{
-				RemoteTLSDNSServerOptions: option.RemoteTLSDNSServerOptions{
-					RemoteDNSServerOptions: option.RemoteDNSServerOptions{
-						LocalDNSServerOptions: option.LocalDNSServerOptions{
-							DialerOptions: option.DialerOptions{
-								DomainResolver: &option.DomainResolveOptions{
-									Server: localDNSTransportTag,
-								},
-							},
-						},
-						DNSServerAddressOptions: option.DNSServerAddressOptions{
-							Server: secureDNSAliDoHServerAddress,
-						},
-					},
-				},
-				Path: secureDNSQueryPath,
-			},
-		},
-		{
-			tag:           secureDNSAliDoTTransportTag,
-			transportType: C.DNSTypeTLS,
-			options: &option.RemoteTLSDNSServerOptions{
-				RemoteDNSServerOptions: option.RemoteDNSServerOptions{
-					DNSServerAddressOptions: option.DNSServerAddressOptions{
-						Server: secureDNSAliDoTServerAddress,
-					},
-				},
-				OutboundTLSOptionsContainer: option.OutboundTLSOptionsContainer{
-					TLS: &option.OutboundTLSOptions{
-						ServerName: secureDNSAliDoTTLSServerName,
-					},
-				},
-			},
-		},
-		{
-			tag:           secureDNSFailoverTransportTag,
-			transportType: secureDNSFailoverTransportType,
-			options: &secureDNSFailoverOptions{
-				Upstreams: []string{
-					secureDNSDoHPubTransportTag,
-					secureDNSAliDoHTransportTag,
-					secureDNSAliDoTTransportTag,
-					localDNSTransportTag,
-				},
-			},
+func secureDNSTransportSpecsForUpstreams(upstreams []string) ([]secureDNSTransportSpec, error) {
+	if len(upstreams) == 0 {
+		return nil, fmt.Errorf("no DNS upstreams configured")
+	}
+	return customSecureDNSTransportSpecs(upstreams)
+}
+
+func customSecureDNSTransportSpecs(upstreams []string) ([]secureDNSTransportSpec, error) {
+	specs := make([]secureDNSTransportSpec, 0, len(upstreams)+2)
+	upstreamTags := make([]string, 0, len(upstreams))
+	localNeeded := false
+
+	for i, raw := range upstreams {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return nil, fmt.Errorf("DNS upstream %d: empty URI", i+1)
+		}
+		if strings.EqualFold(raw, localDNSTransportTag) {
+			localNeeded = true
+			upstreamTags = append(upstreamTags, localDNSTransportTag)
+			continue
+		}
+
+		spec, needsLocal, err := parseCustomDNSUpstream(raw, customDNSUpstreamTransportTag(i))
+		if err != nil {
+			return nil, fmt.Errorf("DNS upstream %d %q: %w", i+1, raw, err)
+		}
+		if needsLocal {
+			localNeeded = true
+		}
+		specs = append(specs, spec)
+		upstreamTags = append(upstreamTags, spec.tag)
+	}
+	if len(upstreamTags) == 0 {
+		return nil, fmt.Errorf("no DNS upstreams configured")
+	}
+	if localNeeded {
+		specs = append([]secureDNSTransportSpec{localDNSTransportSpec()}, specs...)
+	}
+	specs = append(specs, secureDNSFailoverTransportSpec(upstreamTags))
+	return specs, nil
+}
+
+func customDNSUpstreamTransportTag(index int) string {
+	return fmt.Sprintf("%s%d", customDNSTransportTagPrefix, index+1)
+}
+
+func localDNSTransportSpec() secureDNSTransportSpec {
+	return secureDNSTransportSpec{
+		tag:           localDNSTransportTag,
+		transportType: C.DNSTypeLocal,
+		options:       &option.LocalDNSServerOptions{},
+	}
+}
+
+func secureDNSFailoverTransportSpec(upstreams []string) secureDNSTransportSpec {
+	return secureDNSTransportSpec{
+		tag:           secureDNSFailoverTransportTag,
+		transportType: secureDNSFailoverTransportType,
+		options: &secureDNSFailoverOptions{
+			Upstreams: append([]string(nil), upstreams...),
 		},
 	}
+}
+
+func parseCustomDNSUpstream(raw string, tag string) (secureDNSTransportSpec, bool, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return secureDNSTransportSpec{}, false, err
+	}
+	if u.Scheme == "" {
+		return secureDNSTransportSpec{}, false, fmt.Errorf("missing scheme")
+	}
+	if u.User != nil {
+		return secureDNSTransportSpec{}, false, fmt.Errorf("userinfo is not supported")
+	}
+	if u.Fragment != "" {
+		return secureDNSTransportSpec{}, false, fmt.Errorf("fragment is not supported")
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	host, port, err := parseDNSUpstreamHostPort(u)
+	if err != nil {
+		return secureDNSTransportSpec{}, false, err
+	}
+
+	query := u.Query()
+	if err := validateDNSUpstreamQuery(query); err != nil {
+		return secureDNSTransportSpec{}, false, err
+	}
+	sni := firstNonEmptyQuery(query, "sni", "servername", "server_name")
+	bootstrap := strings.TrimSpace(query.Get("bootstrap"))
+	if bootstrap != "" && !strings.EqualFold(bootstrap, localDNSTransportTag) {
+		return secureDNSTransportSpec{}, false, fmt.Errorf("unsupported bootstrap %q", bootstrap)
+	}
+
+	needsLocalResolver := strings.EqualFold(bootstrap, localDNSTransportTag) || dnsUpstreamHostNeedsBootstrap(host)
+	remoteOptions := option.RemoteDNSServerOptions{
+		LocalDNSServerOptions: option.LocalDNSServerOptions{
+			DialerOptions: option.DialerOptions{},
+		},
+		DNSServerAddressOptions: option.DNSServerAddressOptions{
+			Server:     host,
+			ServerPort: port,
+		},
+	}
+	if needsLocalResolver {
+		remoteOptions.LocalDNSServerOptions.DialerOptions.DomainResolver = &option.DomainResolveOptions{
+			Server: localDNSTransportTag,
+		}
+	}
+
+	switch scheme {
+	case C.DNSTypeUDP:
+		if sni != "" {
+			return secureDNSTransportSpec{}, false, fmt.Errorf("sni is only supported for TLS DNS transports")
+		}
+		if u.Path != "" {
+			return secureDNSTransportSpec{}, false, fmt.Errorf("path is not supported for udp DNS upstreams")
+		}
+		return secureDNSTransportSpec{tag: tag, transportType: C.DNSTypeUDP, options: &remoteOptions}, needsLocalResolver, nil
+	case C.DNSTypeTCP:
+		if sni != "" {
+			return secureDNSTransportSpec{}, false, fmt.Errorf("sni is only supported for TLS DNS transports")
+		}
+		if u.Path != "" {
+			return secureDNSTransportSpec{}, false, fmt.Errorf("path is not supported for tcp DNS upstreams")
+		}
+		return secureDNSTransportSpec{tag: tag, transportType: C.DNSTypeTCP, options: &remoteOptions}, needsLocalResolver, nil
+	case C.DNSTypeTLS, C.DNSTypeQUIC:
+		if u.Path != "" {
+			return secureDNSTransportSpec{}, false, fmt.Errorf("path is not supported for %s DNS upstreams", scheme)
+		}
+		return secureDNSTransportSpec{
+			tag:           tag,
+			transportType: scheme,
+			options:       remoteTLSDNSOptions(remoteOptions, sni),
+		}, needsLocalResolver, nil
+	case C.DNSTypeHTTPS, C.DNSTypeHTTP3:
+		path := u.Path
+		if path == "" {
+			path = secureDNSQueryPath
+		}
+		return secureDNSTransportSpec{
+			tag:           tag,
+			transportType: scheme,
+			options: &option.RemoteHTTPSDNSServerOptions{
+				RemoteTLSDNSServerOptions: *remoteTLSDNSOptions(remoteOptions, sni),
+				Path:                      path,
+			},
+		}, needsLocalResolver, nil
+	default:
+		return secureDNSTransportSpec{}, false, fmt.Errorf("unsupported DNS upstream scheme %q", scheme)
+	}
+}
+
+func parseDNSUpstreamHostPort(u *url.URL) (string, uint16, error) {
+	host := strings.TrimSpace(u.Hostname())
+	if host == "" {
+		return "", 0, fmt.Errorf("missing host")
+	}
+	if strings.Count(u.Host, ":") > 1 && !strings.HasPrefix(u.Host, "[") {
+		return "", 0, fmt.Errorf("IPv6 addresses must use [addr] URI syntax")
+	}
+	portRaw := strings.TrimSpace(u.Port())
+	if portRaw == "" {
+		if hasInvalidDNSUpstreamPortSyntax(u.Host) {
+			return "", 0, fmt.Errorf("invalid port")
+		}
+		return host, 0, nil
+	}
+	port, err := strconv.Atoi(portRaw)
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0, fmt.Errorf("invalid port %q", portRaw)
+	}
+	return host, uint16(port), nil
+}
+
+func hasInvalidDNSUpstreamPortSyntax(hostport string) bool {
+	if strings.HasPrefix(hostport, "[") {
+		closing := strings.LastIndex(hostport, "]")
+		return closing >= 0 && len(hostport) > closing+1 && strings.HasPrefix(hostport[closing+1:], ":")
+	}
+	lastColon := strings.LastIndex(hostport, ":")
+	if lastColon < 0 {
+		return false
+	}
+	return true
+}
+
+func validateDNSUpstreamQuery(query url.Values) error {
+	allowed := map[string]struct{}{
+		"bootstrap":   {},
+		"sni":         {},
+		"servername":  {},
+		"server_name": {},
+	}
+	for key := range query {
+		if _, ok := allowed[key]; !ok {
+			return fmt.Errorf("unsupported query parameter %q", key)
+		}
+	}
+	return nil
+}
+
+func firstNonEmptyQuery(query url.Values, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(query.Get(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func remoteTLSDNSOptions(remoteOptions option.RemoteDNSServerOptions, sni string) *option.RemoteTLSDNSServerOptions {
+	options := &option.RemoteTLSDNSServerOptions{
+		RemoteDNSServerOptions: remoteOptions,
+	}
+	if sni != "" {
+		options.OutboundTLSOptionsContainer.TLS = &option.OutboundTLSOptions{
+			ServerName: sni,
+		}
+	}
+	return options
+}
+
+func dnsUpstreamHostNeedsBootstrap(host string) bool {
+	if _, err := netip.ParseAddr(host); err == nil {
+		return false
+	}
+	return true
 }
 
 func newSecureDNSFailoverTransport(

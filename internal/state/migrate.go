@@ -19,13 +19,14 @@ const (
 	// Keep these version markers in sync with SQL files under migrations/state/.
 	// stateLegacyBaselineVersion must remain fixed to the highest migration
 	// version covered by compatibility detection for pre-migrate databases.
-	stateVersionBaseSchema               = 1
-	stateVersionAddEmptyAccountBehavior  = 2
-	stateVersionAddFixedAccountHeader    = 3
-	stateVersionNormalizeMissAction      = 4
-	stateVersionAddIncrementalAliveNodes = 5
-	stateVersionAddSubscriptionUsageInfo = 6
-	stateLegacyBaselineVersion           = stateVersionAddFixedAccountHeader
+	stateVersionBaseSchema                       = 1
+	stateVersionAddEmptyAccountBehavior          = 2
+	stateVersionAddFixedAccountHeader            = 3
+	stateVersionNormalizeMissAction              = 4
+	stateVersionAddIncrementalAliveNodes         = 5
+	stateVersionAddPassiveCircuitBreakerDisabled = 6
+	stateVersionAddSubscriptionUsageInfo         = 7
+	stateLegacyBaselineVersion                   = stateVersionAddFixedAccountHeader
 
 	stateBaseSchemaMigration = stateMigrationsPath + "/000001_state_base.up.sql"
 )
@@ -89,7 +90,7 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 		return err
 	}
 	if hasVersion {
-		return nil
+		return repairAmbiguousStateVersion6(db, driver)
 	}
 
 	hasPlatforms, err := hasTable(db, "platforms")
@@ -108,6 +109,10 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 	if err != nil {
 		return err
 	}
+	hasPassiveCircuitBreakerDisabled, err := hasTableColumn(db, "platforms", "passive_circuit_breaker_disabled")
+	if err != nil {
+		return err
+	}
 	hasIncrementalAliveNodes, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes")
 	if err != nil {
 		return err
@@ -118,7 +123,20 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 	}
 
 	switch {
+	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasPassiveCircuitBreakerDisabled && hasSubscriptionUsageInfo:
+		if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
+			return err
+		}
+		return setLegacyMigrationVersion(db, driver, stateVersionAddSubscriptionUsageInfo)
+	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasPassiveCircuitBreakerDisabled:
+		return setLegacyMigrationVersion(db, driver, stateVersionAddPassiveCircuitBreakerDisabled)
 	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasSubscriptionUsageInfo:
+		if err := ensurePassiveCircuitBreakerColumn(db); err != nil {
+			return err
+		}
+		if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
+			return err
+		}
 		return setLegacyMigrationVersion(db, driver, stateVersionAddSubscriptionUsageInfo)
 	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes:
 		return setLegacyMigrationVersion(db, driver, stateVersionAddIncrementalAliveNodes)
@@ -141,6 +159,55 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 		// No baseline metadata: migrate from base schema.
 		return nil
 	}
+}
+
+func repairAmbiguousStateVersion6(db *sql.DB, driver migratedb.Driver) error {
+	version, dirty, err := driver.Version()
+	if err != nil {
+		return fmt.Errorf("read migration version: %w", err)
+	}
+	if dirty || version != stateVersionAddPassiveCircuitBreakerDisabled {
+		return nil
+	}
+
+	if err := ensureStateBaseSchema(db); err != nil {
+		return err
+	}
+	if err := ensurePassiveCircuitBreakerColumn(db); err != nil {
+		return err
+	}
+	if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
+		return err
+	}
+	return setMigrationVersion(driver, stateVersionAddSubscriptionUsageInfo)
+}
+
+func ensurePassiveCircuitBreakerColumn(db *sql.DB) error {
+	return ensureTableColumn(
+		db,
+		"platforms",
+		"passive_circuit_breaker_disabled",
+		`passive_circuit_breaker_disabled INTEGER NOT NULL DEFAULT 0`,
+	)
+}
+
+func ensureSubscriptionUsageInfoColumns(db *sql.DB) error {
+	columns := []struct {
+		name string
+		ddl  string
+	}{
+		{"usage_upload_bytes", `usage_upload_bytes INTEGER NOT NULL DEFAULT 0`},
+		{"usage_download_bytes", `usage_download_bytes INTEGER NOT NULL DEFAULT 0`},
+		{"usage_total_bytes", `usage_total_bytes INTEGER NOT NULL DEFAULT 0`},
+		{"usage_expire_unix", `usage_expire_unix INTEGER NOT NULL DEFAULT 0`},
+		{"usage_updated_at_ns", `usage_updated_at_ns INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, column := range columns {
+		if err := ensureTableColumn(db, "subscriptions", column.name, column.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func hasMigrationVersion(db *sql.DB, table string) (bool, error) {

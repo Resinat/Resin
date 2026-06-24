@@ -37,13 +37,14 @@ var socks5HandshakeTimeout = 15 * time.Second
 
 // Socks5InboundConfig holds dependencies for the SOCKS5 inbound handler.
 type Socks5InboundConfig struct {
-	ProxyToken  string
-	AuthVersion string
-	Router      *routing.Router
-	Pool        outbound.PoolAccessor
-	Health      HealthRecorder
-	Events      EventEmitter
-	MetricsSink MetricsEventSink
+	ProxyToken       string
+	AuthVersion      string
+	Router           *routing.Router
+	Pool             outbound.PoolAccessor
+	Health           HealthRecorder
+	Events           EventEmitter
+	MetricsSink      MetricsEventSink
+	ProxyBypassRules []string
 
 	// Free-mode (password-less) port support. When ForcedPlatform is non-empty,
 	// any client-supplied identity is ignored and every session routes as
@@ -89,6 +90,7 @@ func NewSocks5Inbound(cfg Socks5InboundConfig) *Socks5Inbound {
 			pool:        cfg.Pool,
 			health:      cfg.Health,
 			metricsSink: cfg.MetricsSink,
+			bypass:      NewTargetBypassMatcher(cfg.ProxyBypassRules),
 		},
 		events: ev,
 

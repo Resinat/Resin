@@ -9,6 +9,7 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
 import { Select } from "../../components/ui/Select";
+import { Switch } from "../../components/ui/Switch";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
@@ -32,14 +33,16 @@ import {
   toPlatformUpdateInput,
   type PlatformFormValues,
 } from "./formModel";
+import { PlatformAccessPanel } from "./PlatformAccessPanel";
 import { PlatformMonitorPanel } from "./PlatformMonitorPanel";
 import { PlatformLeasesPanel } from "./PlatformLeasesPanel";
 
-type PlatformDetailTab = "monitor" | "leases" | "config" | "ops";
+type PlatformDetailTab = "monitor" | "access" | "leases" | "config" | "ops";
 
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const DETAIL_TABS: Array<{ key: PlatformDetailTab; label: string; hint: string }> = [
   { key: "monitor", label: "监控", hint: "平台运行态趋势和快照" },
+  { key: "access", label: "接入", hint: "复制正向/反向代理地址" },
   { key: "leases", label: "租约", hint: "查看和管理当前平台的租约绑定" },
   { key: "config", label: "配置", hint: "过滤规则与分配策略" },
   { key: "ops", label: "运维", hint: "重置、清租约、删除操作" },
@@ -276,6 +279,10 @@ export function PlatformDetailPage() {
                   <span>{t("空账号行为")}</span>
                   <strong>{t(emptyAccountBehaviorLabel[platform.reverse_proxy_empty_account_behavior])}</strong>
                 </span>
+                <span className="platform-fact">
+                  <span>{t("请求失败熔断")}</span>
+                  <strong>{platform.passive_circuit_breaker_disabled ? t("已关闭") : t("已开启")}</strong>
+                </span>
               </div>
             </div>
           </Card>
@@ -310,6 +317,17 @@ export function PlatformDetailPage() {
                 className="platform-detail-panel"
               >
                 <PlatformMonitorPanel platform={platform} />
+              </div>
+            ) : null}
+
+            {activeTab === "access" ? (
+              <div
+                id="platform-tabpanel-access"
+                role="tabpanel"
+                aria-labelledby="platform-tab-access"
+                className="platform-detail-panel"
+              >
+                <PlatformAccessPanel platformName={platform.name} />
               </div>
             ) : null}
 
@@ -386,6 +404,26 @@ export function PlatformDetailPage() {
                         </option>
                       ))}
                     </Select>
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="detail-edit-passive-circuit-breaker" style={{ visibility: "hidden" }}>
+                      {t("禁用请求失败熔断")}
+                    </label>
+                    <div className="subscription-switch-item">
+                      <label className="subscription-switch-label" htmlFor="detail-edit-passive-circuit-breaker">
+                        <span>{t("禁用请求失败熔断")}</span>
+                        <span
+                          className="subscription-info-icon"
+                          title={t("开启后，此平台的代理请求失败不会增加节点熔断计数；主动探测不受影响。")}
+                          aria-label={t("开启后，此平台的代理请求失败不会增加节点熔断计数；主动探测不受影响。")}
+                          tabIndex={0}
+                        >
+                          <Info size={13} />
+                        </span>
+                      </label>
+                      <Switch id="detail-edit-passive-circuit-breaker" {...editForm.register("passive_circuit_breaker_disabled")} />
+                    </div>
                   </div>
 
                   <div className="field-group">

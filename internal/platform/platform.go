@@ -39,6 +39,7 @@ type Platform struct {
 	ReverseProxyFixedAccountHeader   string
 	ReverseProxyFixedAccountHeaders  []string
 	AllocationPolicy                 AllocationPolicy
+	PassiveCircuitBreakerDisabled    bool
 
 	// Routable view & its lock.
 	// viewMu serializes both FullRebuild and NotifyDirty.

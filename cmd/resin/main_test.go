@@ -43,6 +43,7 @@ func newDefaultPlatformEnvConfig() *config.EnvConfig {
 		DefaultPlatformReverseProxyEmptyAccountBehavior: "ACCOUNT_HEADER_RULE",
 		DefaultPlatformReverseProxyFixedAccountHeader:   "Authorization",
 		DefaultPlatformAllocationPolicy:                 "BALANCED",
+		NodeDNSUpstreams:                                config.DefaultNodeDNSUpstreams(),
 	}
 }
 
@@ -125,6 +126,9 @@ func TestBootstrapTopology_CreatesDefaultPlatformWhenMissing(t *testing.T) {
 	}
 	if defaultPlat.AllocationPolicy != "PREFER_LOW_LATENCY" {
 		t.Fatalf("allocation_policy: got %q, want %q", defaultPlat.AllocationPolicy, "PREFER_LOW_LATENCY")
+	}
+	if defaultPlat.PassiveCircuitBreakerDisabled {
+		t.Fatal("passive_circuit_breaker_disabled: got true, want false")
 	}
 
 	if !reflect.DeepEqual(defaultPlat.RegexFilters, []string{`^Provider/.*`}) {

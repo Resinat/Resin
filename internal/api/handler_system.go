@@ -27,9 +27,11 @@ type systemEnvConfigResponse struct {
 	DefaultPlatformAllocationPolicy                 string          `json:"default_platform_allocation_policy"`
 	ProbeTimeout                                    config.Duration `json:"probe_timeout"`
 	ResourceFetchTimeout                            config.Duration `json:"resource_fetch_timeout"`
+	NodeDNSUpstreams                                []string        `json:"node_dns_upstreams"`
 	ProxyTransportMaxIdleConns                      int             `json:"proxy_transport_max_idle_conns"`
 	ProxyTransportMaxIdleConnsPerHost               int             `json:"proxy_transport_max_idle_conns_per_host"`
 	ProxyTransportIdleConnTimeout                   config.Duration `json:"proxy_transport_idle_conn_timeout"`
+	ProxyBypassRules                                []string        `json:"proxy_bypass_rules"`
 	RequestLogQueueSize                             int             `json:"request_log_queue_size"`
 	RequestLogQueueFlushBatchSize                   int             `json:"request_log_queue_flush_batch_size"`
 	RequestLogQueueFlushInterval                    config.Duration `json:"request_log_queue_flush_interval"`
@@ -48,6 +50,7 @@ type systemEnvConfigResponse struct {
 	ProxyTokenSet                                   bool            `json:"proxy_token_set"`
 	AdminTokenWeak                                  bool            `json:"admin_token_weak"`
 	ProxyTokenWeak                                  bool            `json:"proxy_token_weak"`
+	AuthVersion                                     string          `json:"auth_version"`
 }
 
 // HandleSystemInfo returns a handler for GET /api/v1/system/info.
@@ -123,9 +126,11 @@ func systemEnvConfigSnapshot(envCfg *config.EnvConfig) *systemEnvConfigResponse 
 		DefaultPlatformAllocationPolicy:                 envCfg.DefaultPlatformAllocationPolicy,
 		ProbeTimeout:                                    config.Duration(envCfg.ProbeTimeout),
 		ResourceFetchTimeout:                            config.Duration(envCfg.ResourceFetchTimeout),
+		NodeDNSUpstreams:                                append([]string(nil), envCfg.NodeDNSUpstreams...),
 		ProxyTransportMaxIdleConns:                      envCfg.ProxyTransportMaxIdleConns,
 		ProxyTransportMaxIdleConnsPerHost:               envCfg.ProxyTransportMaxIdleConnsPerHost,
 		ProxyTransportIdleConnTimeout:                   config.Duration(envCfg.ProxyTransportIdleConnTimeout),
+		ProxyBypassRules:                                append([]string(nil), envCfg.ProxyBypassRules...),
 		RequestLogQueueSize:                             envCfg.RequestLogQueueSize,
 		RequestLogQueueFlushBatchSize:                   envCfg.RequestLogQueueFlushBatchSize,
 		RequestLogQueueFlushInterval:                    config.Duration(envCfg.RequestLogQueueFlushInterval),
@@ -144,5 +149,6 @@ func systemEnvConfigSnapshot(envCfg *config.EnvConfig) *systemEnvConfigResponse 
 		ProxyTokenSet:                                   proxyTokenSet,
 		AdminTokenWeak:                                  adminTokenSet && config.IsWeakToken(envCfg.AdminToken),
 		ProxyTokenWeak:                                  proxyTokenSet && config.IsWeakToken(envCfg.ProxyToken),
+		AuthVersion:                                     string(envCfg.AuthVersion),
 	}
 }

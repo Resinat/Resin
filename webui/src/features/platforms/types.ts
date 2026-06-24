@@ -13,6 +13,7 @@ export type Platform = {
   reverse_proxy_empty_account_behavior: PlatformEmptyAccountBehavior;
   reverse_proxy_fixed_account_header: string;
   allocation_policy: PlatformAllocationPolicy;
+  passive_circuit_breaker_disabled: boolean;
   updated_at: string;
 };
 
@@ -32,6 +33,7 @@ export type PlatformCreateInput = {
   reverse_proxy_empty_account_behavior?: PlatformEmptyAccountBehavior;
   reverse_proxy_fixed_account_header?: string;
   allocation_policy?: PlatformAllocationPolicy;
+  passive_circuit_breaker_disabled?: boolean;
 };
 
 export type PlatformUpdateInput = {
@@ -43,6 +45,7 @@ export type PlatformUpdateInput = {
   reverse_proxy_empty_account_behavior?: PlatformEmptyAccountBehavior;
   reverse_proxy_fixed_account_header?: string;
   allocation_policy?: PlatformAllocationPolicy;
+  passive_circuit_breaker_disabled?: boolean;
 };
 
 export type LeaseResponse = {

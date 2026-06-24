@@ -32,6 +32,7 @@ type PlatformResponse struct {
 	ReverseProxyEmptyAccountBehavior string   `json:"reverse_proxy_empty_account_behavior"`
 	ReverseProxyFixedAccountHeader   string   `json:"reverse_proxy_fixed_account_header"`
 	AllocationPolicy                 string   `json:"allocation_policy"`
+	PassiveCircuitBreakerDisabled    bool     `json:"passive_circuit_breaker_disabled"`
 	UpdatedAt                        string   `json:"updated_at"`
 }
 
@@ -49,6 +50,7 @@ func platformToResponse(p model.Platform) PlatformResponse {
 		ReverseProxyEmptyAccountBehavior: behavior,
 		ReverseProxyFixedAccountHeader:   fixedHeader,
 		AllocationPolicy:                 p.AllocationPolicy,
+		PassiveCircuitBreakerDisabled:    p.PassiveCircuitBreakerDisabled,
 		UpdatedAt:                        time.Unix(0, p.UpdatedAtNs).UTC().Format(time.RFC3339Nano),
 	}
 }
@@ -74,6 +76,7 @@ type platformConfig struct {
 	ReverseProxyEmptyAccountBehavior string
 	ReverseProxyFixedAccountHeader   string
 	AllocationPolicy                 string
+	PassiveCircuitBreakerDisabled    bool
 }
 
 func normalizePlatformMissAction(raw string) string {
@@ -118,6 +121,7 @@ func platformConfigFromModel(mp model.Platform) platformConfig {
 		ReverseProxyEmptyAccountBehavior: normalizePlatformEmptyAccountBehavior(mp.ReverseProxyEmptyAccountBehavior),
 		ReverseProxyFixedAccountHeader:   normalizeHeaderFieldName(mp.ReverseProxyFixedAccountHeader),
 		AllocationPolicy:                 mp.AllocationPolicy,
+		PassiveCircuitBreakerDisabled:    mp.PassiveCircuitBreakerDisabled,
 	}
 }
 
@@ -132,6 +136,7 @@ func (cfg platformConfig) toModel(id string, updatedAtNs int64) model.Platform {
 		ReverseProxyEmptyAccountBehavior: cfg.ReverseProxyEmptyAccountBehavior,
 		ReverseProxyFixedAccountHeader:   cfg.ReverseProxyFixedAccountHeader,
 		AllocationPolicy:                 cfg.AllocationPolicy,
+		PassiveCircuitBreakerDisabled:    cfg.PassiveCircuitBreakerDisabled,
 		UpdatedAtNs:                      updatedAtNs,
 	}
 }
@@ -151,6 +156,7 @@ func (cfg platformConfig) toRuntime(id string) (*platform.Platform, error) {
 		cfg.ReverseProxyEmptyAccountBehavior,
 		cfg.ReverseProxyFixedAccountHeader,
 		cfg.AllocationPolicy,
+		cfg.PassiveCircuitBreakerDisabled,
 	), nil
 }
 
@@ -328,6 +334,7 @@ type CreatePlatformRequest struct {
 	ReverseProxyEmptyAccountBehavior *string  `json:"reverse_proxy_empty_account_behavior"`
 	ReverseProxyFixedAccountHeader   *string  `json:"reverse_proxy_fixed_account_header"`
 	AllocationPolicy                 *string  `json:"allocation_policy"`
+	PassiveCircuitBreakerDisabled    *bool    `json:"passive_circuit_breaker_disabled"`
 }
 
 // CreatePlatform creates a new platform.
@@ -381,6 +388,9 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 		if err := setPlatformAllocationPolicy(&cfg, *req.AllocationPolicy); err != nil {
 			return nil, err
 		}
+	}
+	if req.PassiveCircuitBreakerDisabled != nil {
+		cfg.PassiveCircuitBreakerDisabled = *req.PassiveCircuitBreakerDisabled
 	}
 	if err := validatePlatformConfig(&cfg, true); err != nil {
 		return nil, err
@@ -493,6 +503,11 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		if err := setPlatformAllocationPolicy(&cfg, ap); err != nil {
 			return nil, err
 		}
+	}
+	if disabled, ok, err := patch.optionalBool("passive_circuit_breaker_disabled"); err != nil {
+		return nil, err
+	} else if ok {
+		cfg.PassiveCircuitBreakerDisabled = disabled
 	}
 	if err := validatePlatformConfig(&cfg, regionFiltersPatched); err != nil {
 		return nil, err

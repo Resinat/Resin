@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/Resinat/Resin/internal/node"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/sagernet/sing-box/adapter"
 	M "github.com/sagernet/sing/common/metadata"
 )
@@ -111,5 +111,28 @@ func (p *OutboundTransportPool) newReusableOutboundTransport(ob adapter.Outbound
 		MaxIdleConns:        p.config.MaxIdleConns,
 		MaxIdleConnsPerHost: p.config.MaxIdleConnsPerHost,
 		IdleConnTimeout:     p.config.IdleConnTimeout,
+	}
+}
+
+func newDirectHTTPTransport(cfg OutboundTransportConfig, sink MetricsEventSink) *http.Transport {
+	cfg = normalizeOutboundTransportConfig(cfg)
+	dialer := &net.Dialer{}
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := dialer.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			if sink != nil {
+				sink.OnConnectionLifecycle(ConnectionOutbound, ConnectionOpen)
+				conn = newCountingConn(conn, sink)
+			}
+			return conn, nil
+		},
+		DisableKeepAlives:   false,
+		ForceAttemptHTTP2:   true,
+		MaxIdleConns:        cfg.MaxIdleConns,
+		MaxIdleConnsPerHost: cfg.MaxIdleConnsPerHost,
+		IdleConnTimeout:     cfg.IdleConnTimeout,
 	}
 }
