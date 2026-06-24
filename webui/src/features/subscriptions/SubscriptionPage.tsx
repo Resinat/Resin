@@ -18,6 +18,7 @@ import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
+import { formatBytes } from "../../lib/bytes";
 import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatDateTime, formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
@@ -118,6 +119,26 @@ function normalizeSubmitUpdateInterval(sourceType: SubscriptionSourceType, raw: 
     return LOCAL_SOURCE_UPDATE_INTERVAL;
   }
   return raw.trim();
+}
+
+function formatSubscriptionUsage(subscription: Subscription): string {
+  const usage = subscription.usage;
+  if (!usage) {
+    return "-";
+  }
+  const usedBytes = Math.max(0, usage.upload_bytes || 0) + Math.max(0, usage.download_bytes || 0);
+  if (usage.total_bytes > 0) {
+    return `${formatBytes(usedBytes)} / ${formatBytes(usage.total_bytes)}`;
+  }
+  return formatBytes(usedBytes);
+}
+
+function formatSubscriptionExpire(subscription: Subscription, formatter: (input: string) => string): string {
+  const expireUnix = subscription.usage?.expire_unix ?? 0;
+  if (expireUnix <= 0) {
+    return "-";
+  }
+  return formatter(new Date(expireUnix * 1000).toISOString());
 }
 
 export function SubscriptionPage() {
@@ -471,6 +492,16 @@ export function SubscriptionPage() {
         },
       }),
       col.display({
+        id: "usage",
+        header: t("用量"),
+        cell: (info) => formatSubscriptionUsage(info.row.original),
+      }),
+      col.display({
+        id: "expire",
+        header: t("到期"),
+        cell: (info) => formatSubscriptionExpire(info.row.original, formatRelativeTime),
+      }),
+      col.display({
         id: "status",
         header: t("状态"),
         cell: (info) => {
@@ -697,6 +728,22 @@ export function SubscriptionPage() {
                   <div>
                     <span>{t("上次更新")}</span>
                     <p>{formatDateTime(selectedSubscription.last_updated || "")}</p>
+                  </div>
+                  <div>
+                    <span>{t("已用流量")}</span>
+                    <p>{formatSubscriptionUsage(selectedSubscription)}</p>
+                  </div>
+                  <div>
+                    <span>{t("上传流量")}</span>
+                    <p>{selectedSubscription.usage ? formatBytes(selectedSubscription.usage.upload_bytes) : "-"}</p>
+                  </div>
+                  <div>
+                    <span>{t("下载流量")}</span>
+                    <p>{selectedSubscription.usage ? formatBytes(selectedSubscription.usage.download_bytes) : "-"}</p>
+                  </div>
+                  <div>
+                    <span>{t("到期时间")}</span>
+                    <p>{formatSubscriptionExpire(selectedSubscription, formatDateTime)}</p>
                   </div>
                 </div>
 

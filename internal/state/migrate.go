@@ -24,6 +24,7 @@ const (
 	stateVersionAddFixedAccountHeader    = 3
 	stateVersionNormalizeMissAction      = 4
 	stateVersionAddIncrementalAliveNodes = 5
+	stateVersionAddSubscriptionUsageInfo = 6
 	stateLegacyBaselineVersion           = stateVersionAddFixedAccountHeader
 
 	stateBaseSchemaMigration = stateMigrationsPath + "/000001_state_base.up.sql"
@@ -111,8 +112,14 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 	if err != nil {
 		return err
 	}
+	hasSubscriptionUsageInfo, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns")
+	if err != nil {
+		return err
+	}
 
 	switch {
+	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasSubscriptionUsageInfo:
+		return setLegacyMigrationVersion(db, driver, stateVersionAddSubscriptionUsageInfo)
 	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes:
 		return setLegacyMigrationVersion(db, driver, stateVersionAddIncrementalAliveNodes)
 	case hasEmptyBehavior && hasFixedHeader:

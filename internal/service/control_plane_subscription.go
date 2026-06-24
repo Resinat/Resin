@@ -22,22 +22,31 @@ import (
 
 // SubscriptionResponse is the API response for a subscription.
 type SubscriptionResponse struct {
-	ID                      string `json:"id"`
-	Name                    string `json:"name"`
-	SourceType              string `json:"source_type"`
-	URL                     string `json:"url"`
-	Content                 string `json:"content"`
-	UpdateInterval          string `json:"update_interval"`
-	NodeCount               int    `json:"node_count"`
-	HealthyNodeCount        int    `json:"healthy_node_count"`
-	Ephemeral               bool   `json:"ephemeral"`
-	IncrementalAliveNodes   bool   `json:"incremental_alive_nodes"`
-	EphemeralNodeEvictDelay string `json:"ephemeral_node_evict_delay"`
-	Enabled                 bool   `json:"enabled"`
-	CreatedAt               string `json:"created_at"`
-	LastChecked             string `json:"last_checked,omitempty"`
-	LastUpdated             string `json:"last_updated,omitempty"`
-	LastError               string `json:"last_error,omitempty"`
+	ID                      string                     `json:"id"`
+	Name                    string                     `json:"name"`
+	SourceType              string                     `json:"source_type"`
+	URL                     string                     `json:"url"`
+	Content                 string                     `json:"content"`
+	UpdateInterval          string                     `json:"update_interval"`
+	NodeCount               int                        `json:"node_count"`
+	HealthyNodeCount        int                        `json:"healthy_node_count"`
+	Ephemeral               bool                       `json:"ephemeral"`
+	IncrementalAliveNodes   bool                       `json:"incremental_alive_nodes"`
+	EphemeralNodeEvictDelay string                     `json:"ephemeral_node_evict_delay"`
+	Enabled                 bool                       `json:"enabled"`
+	CreatedAt               string                     `json:"created_at"`
+	LastChecked             string                     `json:"last_checked,omitempty"`
+	LastUpdated             string                     `json:"last_updated,omitempty"`
+	LastError               string                     `json:"last_error,omitempty"`
+	Usage                   *SubscriptionUsageResponse `json:"usage,omitempty"`
+}
+
+type SubscriptionUsageResponse struct {
+	UploadBytes   int64  `json:"upload_bytes"`
+	DownloadBytes int64  `json:"download_bytes"`
+	TotalBytes    int64  `json:"total_bytes"`
+	ExpireUnix    int64  `json:"expire_unix,omitempty"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) SubscriptionResponse {
@@ -84,8 +93,28 @@ func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) Subs
 	if lu := sub.LastUpdatedNs.Load(); lu > 0 {
 		resp.LastUpdated = time.Unix(0, lu).UTC().Format(time.RFC3339Nano)
 	}
+	if usage := sub.Usage(); usage.UpdatedAtNs > 0 {
+		resp.Usage = &SubscriptionUsageResponse{
+			UploadBytes:   usage.UploadBytes,
+			DownloadBytes: usage.DownloadBytes,
+			TotalBytes:    usage.TotalBytes,
+			ExpireUnix:    usage.ExpireUnix,
+			UpdatedAt:     time.Unix(0, usage.UpdatedAtNs).UTC().Format(time.RFC3339Nano),
+		}
+	}
 	resp.LastError = sub.GetLastError()
 	return resp
+}
+
+func subscriptionUsageToModelFields(usage subscription.UsageInfo, ms *model.Subscription) {
+	if ms == nil {
+		return
+	}
+	ms.UsageUploadBytes = usage.UploadBytes
+	ms.UsageDownloadBytes = usage.DownloadBytes
+	ms.UsageTotalBytes = usage.TotalBytes
+	ms.UsageExpireUnix = usage.ExpireUnix
+	ms.UsageUpdatedAtNs = usage.UpdatedAtNs
 }
 
 // ListSubscriptions returns all subscriptions, optionally filtered by enabled.
@@ -379,6 +408,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 		CreatedAtNs:               sub.CreatedAtNs,
 		UpdatedAtNs:               now,
 	}
+	subscriptionUsageToModelFields(sub.Usage(), &ms)
 	if err := s.Engine.UpsertSubscription(ms); err != nil {
 		return nil, internal("persist subscription", err)
 	}

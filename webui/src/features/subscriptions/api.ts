@@ -14,6 +14,7 @@ type ApiSubscription = Omit<Subscription, "last_checked" | "last_updated" | "las
   last_checked?: string | null;
   last_updated?: string | null;
   last_error?: string | null;
+  usage?: Subscription["usage"] | null;
 };
 
 function normalizeSubscription(raw: ApiSubscription): Subscription {
@@ -24,6 +25,7 @@ function normalizeSubscription(raw: ApiSubscription): Subscription {
     last_checked: raw.last_checked || "",
     last_updated: raw.last_updated || "",
     last_error: raw.last_error || "",
+    usage: raw.usage ?? undefined,
   };
 }
 

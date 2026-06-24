@@ -103,11 +103,14 @@ func TestMigrateStateDB_LegacyBaselineAdvancesToLatest(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionAddIncrementalAliveNodes {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddIncrementalAliveNodes)
+	if version != stateVersionAddSubscriptionUsageInfo {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
 	}
 	if ok, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.incremental_alive_nodes, ok=%v err=%v", ok, err)
+	}
+	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
+		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
 	}
 }
 
@@ -167,8 +170,11 @@ func TestMigrateStateDB_AddsIncrementalAliveNodesToLegacySubscriptions(t *testin
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionAddIncrementalAliveNodes {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddIncrementalAliveNodes)
+	if version != stateVersionAddSubscriptionUsageInfo {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
+	}
+	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
+		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
 	}
 }
 
@@ -239,11 +245,14 @@ func TestMigrateStateDB_NormalizesLegacyRandomMissAction(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionAddIncrementalAliveNodes {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddIncrementalAliveNodes)
+	if version != stateVersionAddSubscriptionUsageInfo {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
 	}
 	if ok, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.incremental_alive_nodes, ok=%v err=%v", ok, err)
+	}
+	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
+		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
 	}
 }
 
@@ -611,6 +620,45 @@ func TestStateRepo_Subscription_LocalSourcePersists(t *testing.T) {
 	}
 	if list[0].Content != "vmess://example" {
 		t.Fatalf("content: got %q", list[0].Content)
+	}
+}
+
+func TestStateRepo_Subscription_UsageInfoPersists(t *testing.T) {
+	repo := newTestStateRepo(t)
+	now := time.Now().UnixNano()
+
+	s := model.Subscription{
+		ID:                        "sub-usage",
+		Name:                      "UsageSub",
+		SourceType:                "remote",
+		URL:                       "https://example.com/sub",
+		UpdateIntervalNs:          int64(time.Hour),
+		Enabled:                   true,
+		Ephemeral:                 false,
+		EphemeralNodeEvictDelayNs: int64(72 * time.Hour),
+		UsageUploadBytes:          1024,
+		UsageDownloadBytes:        2048,
+		UsageTotalBytes:           4096,
+		UsageExpireUnix:           1893456000,
+		UsageUpdatedAtNs:          now,
+		CreatedAtNs:               now,
+		UpdatedAtNs:               now,
+	}
+	if err := repo.UpsertSubscription(s); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := repo.ListSubscriptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 subscription, got %d", len(list))
+	}
+	got := list[0]
+	if got.UsageUploadBytes != 1024 || got.UsageDownloadBytes != 2048 || got.UsageTotalBytes != 4096 ||
+		got.UsageExpireUnix != 1893456000 || got.UsageUpdatedAtNs != now {
+		t.Fatalf("unexpected usage fields: %+v", got)
 	}
 }
 

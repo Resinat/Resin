@@ -229,6 +229,9 @@ func (r *Router) createOrAbortStickyLease(
 	hadPreviousLease bool,
 	invalidation leaseInvalidationReason,
 ) (Lease, xsync.ComputeOp, RouteResult, error) {
+	state.allocationMu.Lock()
+	defer state.allocationMu.Unlock()
+
 	newLease, createdResult, err := r.createLease(plat, state, targetDomain, now, nowNs)
 	if err != nil {
 		r.cleanupPreviousLease(state, previous, hadPreviousLease, invalidation, plat.ID, account)
@@ -413,6 +416,12 @@ func (r *Router) selectLiveRandomRoute(
 	stats *IPLoadStats,
 	targetDomain string,
 ) (node.Hash, *node.NodeEntry, error) {
+	if plat.AllocationPolicy == platform.AllocationPolicyPreferIdleIP {
+		if h, entry, ok := r.selectIdleIPRoute(plat, stats, targetDomain); ok {
+			return h, entry, nil
+		}
+	}
+
 	var lastMissing node.Hash
 	for i := 0; i < livePickAttempts; i++ {
 		h, err := randomRoute(plat, stats, r.pool, targetDomain, r.authorities(), r.p2cWindow())
@@ -429,6 +438,74 @@ func (r *Router) selectLiveRandomRoute(
 		return node.Zero, nil, fmt.Errorf("%w: selected node %s no longer in pool", ErrNoAvailableNodes, lastMissing.Hex())
 	}
 	return node.Zero, nil, ErrNoAvailableNodes
+}
+
+type idleIPRouteCandidate struct {
+	hash       node.Hash
+	entry      *node.NodeEntry
+	latency    time.Duration
+	hasLatency bool
+}
+
+func (r *Router) selectIdleIPRoute(
+	plat *platform.Platform,
+	stats *IPLoadStats,
+	targetDomain string,
+) (node.Hash, *node.NodeEntry, bool) {
+	authorities := r.authorities()
+	window := r.p2cWindow()
+	candidates := make(map[netip.Addr]idleIPRouteCandidate)
+
+	plat.View().Range(func(h node.Hash) bool {
+		entry, ok := r.pool.GetEntry(h)
+		if !ok {
+			return true
+		}
+		ip := entry.GetEgressIP()
+		if !ip.IsValid() || stats.Get(ip) > 0 {
+			return true
+		}
+
+		latency, hasLatency := sameIPCandidateLatency(entry, targetDomain, authorities, window)
+		next := idleIPRouteCandidate{
+			hash:       h,
+			entry:      entry,
+			latency:    latency,
+			hasLatency: hasLatency,
+		}
+		if current, ok := candidates[ip]; !ok || isBetterIdleIPCandidate(next, current) {
+			candidates[ip] = next
+		}
+		return true
+	})
+
+	best, ok := bestIdleIPCandidate(candidates)
+	if !ok {
+		return node.Zero, nil, false
+	}
+	return best.hash, best.entry, true
+}
+
+func bestIdleIPCandidate(candidates map[netip.Addr]idleIPRouteCandidate) (idleIPRouteCandidate, bool) {
+	var best idleIPRouteCandidate
+	ok := false
+	for _, candidate := range candidates {
+		if !ok || isBetterIdleIPCandidate(candidate, best) {
+			best = candidate
+			ok = true
+		}
+	}
+	return best, ok
+}
+
+func isBetterIdleIPCandidate(next, current idleIPRouteCandidate) bool {
+	if next.hasLatency != current.hasLatency {
+		return next.hasLatency
+	}
+	if next.hasLatency && next.latency != current.latency {
+		return next.latency < current.latency
+	}
+	return next.hash.Hex() < current.hash.Hex()
 }
 
 func chooseSameIPRotationCandidate(

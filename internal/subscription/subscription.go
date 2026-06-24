@@ -32,6 +32,15 @@ type ManagedNode struct {
 	Evicted bool
 }
 
+// UsageInfo contains optional usage metadata reported by a subscription source.
+type UsageInfo struct {
+	UploadBytes   int64
+	DownloadBytes int64
+	TotalBytes    int64
+	ExpireUnix    int64
+	UpdatedAtNs   int64
+}
+
 // ManagedNodes wraps hash->ManagedNode map.
 //
 // Maintenance rule:
@@ -129,6 +138,7 @@ type Subscription struct {
 	// ephemeralNodeEvictDelayNs is the per-subscription eviction delay for
 	// circuit-broken nodes when Ephemeral is enabled.
 	ephemeralNodeEvictDelayNs int64
+	usage                     UsageInfo
 
 	// Persistence timestamps (written under mu or single-writer context).
 	CreatedAtNs int64
@@ -328,6 +338,20 @@ func (s *Subscription) EphemeralNodeEvictDelayNs() int64 {
 func (s *Subscription) SetEphemeralNodeEvictDelayNs(v int64) {
 	s.mu.Lock()
 	s.ephemeralNodeEvictDelayNs = v
+	s.mu.Unlock()
+}
+
+// Usage returns the latest subscription usage metadata.
+func (s *Subscription) Usage() UsageInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.usage
+}
+
+// SetUsage updates the latest subscription usage metadata.
+func (s *Subscription) SetUsage(usage UsageInfo) {
+	s.mu.Lock()
+	s.usage = usage
 	s.mu.Unlock()
 }
 

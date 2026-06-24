@@ -1,3 +1,11 @@
+export type SubscriptionUsage = {
+  upload_bytes: number;
+  download_bytes: number;
+  total_bytes: number;
+  expire_unix?: number;
+  updated_at: string;
+};
+
 export type Subscription = {
   id: string;
   name: string;
@@ -15,6 +23,7 @@ export type Subscription = {
   last_checked?: string;
   last_updated?: string;
   last_error?: string;
+  usage?: SubscriptionUsage;
 };
 
 export type PageResponse<T> = {

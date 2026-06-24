@@ -338,6 +338,11 @@ func newTopologyRuntime(
 		SubManager: subManager,
 		Pool:       pool,
 		Downloader: downloader,
+		OnSubUpdated: func(sub *subscription.Subscription) {
+			if err := engine.UpsertSubscription(runtimeSubscriptionToModel(sub)); err != nil {
+				log.Printf("persist subscription %s: %v", sub.ID, err)
+			}
+		},
 		OnSubReenabledNode: func(hash node.Hash) {
 			outboundMgr.EnsureNodeOutbound(hash)
 			probeMgr.TriggerImmediateEgressProbe(hash)
@@ -394,6 +399,13 @@ func bootstrapTopology(
 		sub.SetContent(ms.Content)
 		sub.SetIncrementalAliveNodes(ms.IncrementalAliveNodes)
 		sub.SetEphemeralNodeEvictDelayNs(ms.EphemeralNodeEvictDelayNs)
+		sub.SetUsage(subscription.UsageInfo{
+			UploadBytes:   ms.UsageUploadBytes,
+			DownloadBytes: ms.UsageDownloadBytes,
+			TotalBytes:    ms.UsageTotalBytes,
+			ExpireUnix:    ms.UsageExpireUnix,
+			UpdatedAtNs:   ms.UsageUpdatedAtNs,
+		})
 		sub.CreatedAtNs = ms.CreatedAtNs
 		sub.UpdatedAtNs = ms.UpdatedAtNs
 		subManager.Register(sub)
@@ -428,6 +440,29 @@ func bootstrapTopology(
 	}
 	log.Printf("Loaded %d platforms from state.db", len(dbPlats))
 	return nil
+}
+
+func runtimeSubscriptionToModel(sub *subscription.Subscription) model.Subscription {
+	usage := sub.Usage()
+	return model.Subscription{
+		ID:                        sub.ID,
+		Name:                      sub.Name(),
+		SourceType:                sub.SourceType(),
+		URL:                       sub.URL(),
+		Content:                   sub.Content(),
+		UpdateIntervalNs:          sub.UpdateIntervalNs(),
+		Enabled:                   sub.Enabled(),
+		Ephemeral:                 sub.Ephemeral(),
+		IncrementalAliveNodes:     sub.IncrementalAliveNodes(),
+		EphemeralNodeEvictDelayNs: sub.EphemeralNodeEvictDelayNs(),
+		UsageUploadBytes:          usage.UploadBytes,
+		UsageDownloadBytes:        usage.DownloadBytes,
+		UsageTotalBytes:           usage.TotalBytes,
+		UsageExpireUnix:           usage.ExpireUnix,
+		UsageUpdatedAtNs:          usage.UpdatedAtNs,
+		CreatedAtNs:               sub.CreatedAtNs,
+		UpdatedAtNs:               sub.UpdatedAtNs,
+	}
 }
 
 func validatePersistedPlatformNamesForV1(platformsInDB []model.Platform) error {

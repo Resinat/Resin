@@ -39,6 +39,20 @@ type Downloader interface {
 	Download(ctx context.Context, url string) ([]byte, error)
 }
 
+// DownloadResponse contains the response body plus HTTP metadata relevant to
+// callers that need subscription headers.
+type DownloadResponse struct {
+	Body   []byte
+	Header http.Header
+}
+
+// MetadataDownloader fetches remote resources while preserving response
+// metadata. Downloader remains the compatibility interface for body-only
+// callers.
+type MetadataDownloader interface {
+	DownloadWithMetadata(ctx context.Context, url string) (DownloadResponse, error)
+}
+
 // DirectDownloader downloads via a standard HTTP client (no proxy).
 type DirectDownloader struct {
 	Client      *http.Client
@@ -64,6 +78,15 @@ func NewDirectDownloader(timeoutFn func() time.Duration, userAgentFn func() stri
 
 // Download fetches the URL and returns the response body.
 func (d *DirectDownloader) Download(ctx context.Context, url string) ([]byte, error) {
+	resp, err := d.DownloadWithMetadata(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
+}
+
+// DownloadWithMetadata fetches the URL and returns the response body and headers.
+func (d *DirectDownloader) DownloadWithMetadata(ctx context.Context, url string) (DownloadResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -76,7 +99,7 @@ func (d *DirectDownloader) Download(ctx context.Context, url string) ([]byte, er
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, &NonRetryableError{Err: err}
+		return DownloadResponse{}, &NonRetryableError{Err: err}
 	}
 	userAgent := d.currentUserAgent()
 	if userAgent != "" {
@@ -89,19 +112,22 @@ func (d *DirectDownloader) Download(ctx context.Context, url string) ([]byte, er
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("downloader: %w", err)
+		return DownloadResponse{}, fmt.Errorf("downloader: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, &HTTPStatusError{StatusCode: resp.StatusCode, URL: url}
+		return DownloadResponse{}, &HTTPStatusError{StatusCode: resp.StatusCode, URL: url}
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("downloader: %w", err)
+		return DownloadResponse{}, fmt.Errorf("downloader: %w", err)
 	}
-	return body, nil
+	return DownloadResponse{
+		Body:   body,
+		Header: resp.Header.Clone(),
+	}, nil
 }
 
 func (d *DirectDownloader) currentTimeout() time.Duration {
