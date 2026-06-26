@@ -225,10 +225,15 @@ func (a *resinApp) wireRetryDownloader(retryDL *netutil.RetryDownloader) {
 		}
 		return res.NodeHash, nil
 	}
-	retryDL.ProxyFetch = func(ctx context.Context, hash node.Hash, url string) ([]byte, error) {
-		body, _, err := a.topoRuntime.outboundMgr.FetchWithUserAgent(ctx, hash, url, currentDownloadUserAgent())
-		return body, err
+	proxyFetchMetadata := func(ctx context.Context, hash node.Hash, url string) (netutil.DownloadResponse, error) {
+		resp, _, err := a.topoRuntime.outboundMgr.FetchWithUserAgentMetadata(ctx, hash, url, currentDownloadUserAgent())
+		return resp, err
 	}
+	retryDL.ProxyFetch = func(ctx context.Context, hash node.Hash, url string) ([]byte, error) {
+		resp, err := proxyFetchMetadata(ctx, hash, url)
+		return resp.Body, err
+	}
+	retryDL.ProxyFetchMetadata = proxyFetchMetadata
 	log.Println("RetryDownloader wiring complete")
 }
 
