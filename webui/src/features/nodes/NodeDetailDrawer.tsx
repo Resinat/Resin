@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -49,7 +50,7 @@ export function NodeDetailDrawer({
   const egressPending = isEgressProbePending(node.node_hash);
   const latencyPending = isLatencyProbePending(node.node_hash);
 
-  return (
+  return createPortal(
     <div
       className="drawer-overlay"
       role="dialog"
@@ -189,6 +190,7 @@ export function NodeDetailDrawer({
           </section>
         </div>
       </Card>
-    </div>
+    </div>,
+    document.body,
   );
 }
