@@ -16,26 +16,28 @@ import (
 
 // LeaseResponse is the API response for a lease.
 type LeaseResponse struct {
-	PlatformID   string `json:"platform_id"`
-	Account      string `json:"account"`
-	NodeHash     string `json:"node_hash"`
-	NodeTag      string `json:"node_tag"`
-	EgressIP     string `json:"egress_ip"`
-	CreatedAt    string `json:"created_at"`
-	Expiry       string `json:"expiry"`
-	LastAccessed string `json:"last_accessed"`
+	PlatformID         string   `json:"platform_id"`
+	Account            string   `json:"account"`
+	NodeHash           string   `json:"node_hash"`
+	NodeTag            string   `json:"node_tag"`
+	EgressIP           string   `json:"egress_ip"`
+	ReferenceLatencyMs *float64 `json:"reference_latency_ms,omitempty"`
+	CreatedAt          string   `json:"created_at"`
+	Expiry             string   `json:"expiry"`
+	LastAccessed       string   `json:"last_accessed"`
 }
 
-func leaseToResponse(lease model.Lease, nodeTag string) LeaseResponse {
+func leaseToResponse(lease model.Lease, nodeTag string, referenceLatencyMs *float64) LeaseResponse {
 	return LeaseResponse{
-		PlatformID:   lease.PlatformID,
-		Account:      lease.Account,
-		NodeHash:     lease.NodeHash,
-		NodeTag:      nodeTag,
-		EgressIP:     lease.EgressIP,
-		CreatedAt:    time.Unix(0, lease.CreatedAtNs).UTC().Format(time.RFC3339Nano),
-		Expiry:       time.Unix(0, lease.ExpiryNs).UTC().Format(time.RFC3339Nano),
-		LastAccessed: time.Unix(0, lease.LastAccessedNs).UTC().Format(time.RFC3339Nano),
+		PlatformID:         lease.PlatformID,
+		Account:            lease.Account,
+		NodeHash:           lease.NodeHash,
+		NodeTag:            nodeTag,
+		EgressIP:           lease.EgressIP,
+		ReferenceLatencyMs: referenceLatencyMs,
+		CreatedAt:          time.Unix(0, lease.CreatedAtNs).UTC().Format(time.RFC3339Nano),
+		Expiry:             time.Unix(0, lease.ExpiryNs).UTC().Format(time.RFC3339Nano),
+		LastAccessed:       time.Unix(0, lease.LastAccessedNs).UTC().Format(time.RFC3339Nano),
 	}
 }
 
@@ -54,6 +56,33 @@ func (s *ControlPlaneService) resolveLeaseNodeTagFromHex(hashHex string) string 
 	return s.resolveLeaseNodeTag(hash)
 }
 
+func (s *ControlPlaneService) resolveLeaseNodeReferenceLatency(hash node.Hash) *float64 {
+	if s == nil || s.Pool == nil || s.RuntimeCfg == nil {
+		return nil
+	}
+	entry, ok := s.Pool.GetEntry(hash)
+	if !ok {
+		return nil
+	}
+	cfg := s.RuntimeCfg.Load()
+	if cfg == nil {
+		return nil
+	}
+	avgMs, ok := node.AverageEWMAForDomainsMs(entry, cfg.LatencyAuthorities)
+	if !ok {
+		return nil
+	}
+	return &avgMs
+}
+
+func (s *ControlPlaneService) resolveLeaseNodeReferenceLatencyFromHex(hashHex string) *float64 {
+	hash, err := node.ParseHex(hashHex)
+	if err != nil {
+		return nil
+	}
+	return s.resolveLeaseNodeReferenceLatency(hash)
+}
+
 // ListLeases returns all leases for a platform.
 func (s *ControlPlaneService) ListLeases(platformID string) ([]LeaseResponse, error) {
 	if _, ok := s.Pool.GetPlatform(platformID); !ok {
@@ -69,7 +98,7 @@ func (s *ControlPlaneService) ListLeases(platformID string) ([]LeaseResponse, er
 			CreatedAtNs:    lease.CreatedAtNs,
 			ExpiryNs:       lease.ExpiryNs,
 			LastAccessedNs: lease.LastAccessedNs,
-		}, s.resolveLeaseNodeTag(lease.NodeHash)))
+		}, s.resolveLeaseNodeTag(lease.NodeHash), s.resolveLeaseNodeReferenceLatency(lease.NodeHash)))
 		return true
 	})
 	if result == nil {
@@ -87,7 +116,7 @@ func (s *ControlPlaneService) GetLease(platformID, account string) (*LeaseRespon
 	if ml == nil {
 		return nil, notFound("lease not found")
 	}
-	resp := leaseToResponse(*ml, s.resolveLeaseNodeTagFromHex(ml.NodeHash))
+	resp := leaseToResponse(*ml, s.resolveLeaseNodeTagFromHex(ml.NodeHash), s.resolveLeaseNodeReferenceLatencyFromHex(ml.NodeHash))
 	return &resp, nil
 }
 
@@ -202,7 +231,7 @@ func (s *ControlPlaneService) BindLease(platformID, account, nodeHashHex string)
 		return nil, internal("bind lease", err)
 	}
 
-	resp := leaseToResponse(ml, s.resolveLeaseNodeTag(h))
+	resp := leaseToResponse(ml, s.resolveLeaseNodeTag(h), s.resolveLeaseNodeReferenceLatency(h))
 	return &resp, nil
 }
 

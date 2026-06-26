@@ -10,7 +10,9 @@ import { Select } from "../../components/ui/Select";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatRelativeTime } from "../../lib/time";
-import { listNodes } from "../nodes/api";
+import { getNode, listNodes, probeEgress, probeLatency } from "../nodes/api";
+import { NodeDetailDrawer } from "../nodes/NodeDetailDrawer";
+import { formatLatency, referenceLatencyColor } from "../nodes/nodeFormat";
 import { bindPlatformLease, deletePlatformLease, listPlatformLeases } from "./api";
 import type { LeaseResponse, Platform } from "./types";
 
@@ -36,6 +38,7 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
   const [bindOpen, setBindOpen] = useState(false);
   const [bindAccount, setBindAccount] = useState("");
   const [selectedNodeHash, setSelectedNodeHash] = useState("");
+  const [detailNodeHash, setDetailNodeHash] = useState("");
   const [sortBy, setSortBy] = useState<SortField>("account");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
 
@@ -66,6 +69,13 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
     enabled: bindOpen,
   });
 
+  const nodeDetailQuery = useQuery({
+    queryKey: ["node", detailNodeHash],
+    queryFn: () => getNode(detailNodeHash),
+    enabled: Boolean(detailNodeHash),
+    refetchInterval: 30_000,
+  });
+
   const sortedNodes = (nodesQuery.data?.items ?? []).slice().sort((a, b) => {
     const aLat = a.reference_latency_ms;
     const bLat = b.reference_latency_ms;
@@ -78,6 +88,14 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
   const invalidateLeases = async () => {
     await queryClient.invalidateQueries({ queryKey: ["platform-leases", platform.id] });
     await queryClient.invalidateQueries({ queryKey: ["platform-monitor"] });
+  };
+
+  const refreshDetailNode = async (hash: string) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["node", hash] }),
+      queryClient.invalidateQueries({ queryKey: ["platform-leases", platform.id] }),
+      queryClient.invalidateQueries({ queryKey: ["platform-nodes", platform.id] }),
+    ]);
   };
 
   const deleteMutation = useMutation({
@@ -99,6 +117,35 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
       setBindAccount("");
       setSelectedNodeHash("");
       showToast("success", t("租约 {{account}} 已绑定到 {{ip}}", { account: lease.account, ip: lease.egress_ip }));
+    },
+    onError: (error) => {
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
+
+  const probeEgressMutation = useMutation({
+    mutationFn: (hash: string) => probeEgress(hash),
+    onSuccess: async (result, hash) => {
+      await refreshDetailNode(hash);
+      showToast(
+        "success",
+        t("出口探测完成：出口 IP={{ip}}，区域={{region}}，延迟={{latency}}", {
+          ip: result.egress_ip || "-",
+          region: result.region || "-",
+          latency: formatLatency(result.latency_ewma_ms),
+        }),
+      );
+    },
+    onError: (error) => {
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
+
+  const probeLatencyMutation = useMutation({
+    mutationFn: (hash: string) => probeLatency(hash),
+    onSuccess: async (result, hash) => {
+      await refreshDetailNode(hash);
+      showToast("success", t("延迟探测完成：延迟={{latency}}", { latency: formatLatency(result.latency_ewma_ms) }));
     },
     onError: (error) => {
       showToast("error", formatApiErrorMessage(error, t));
@@ -155,6 +202,21 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
     }),
     columnHelper.accessor("egress_ip", {
       header: () => sortHeader(t("出口 IP"), "egress_ip"),
+    }),
+    columnHelper.display({
+      id: "reference_latency_ms",
+      header: t("参考延迟"),
+      cell: (info) => {
+        const latencyMs = info.row.original.reference_latency_ms;
+        if (typeof latencyMs !== "number") {
+          return "-";
+        }
+        return (
+          <span style={{ color: referenceLatencyColor(latencyMs), fontWeight: 600 }}>
+            {formatLatency(latencyMs)}
+          </span>
+        );
+      },
     }),
     columnHelper.accessor("created_at", {
       header: () => sortHeader(t("绑定时间"), "created_at"),
@@ -276,7 +338,12 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
       ) : null}
 
       {leases.length ? (
-        <DataTable data={leases} columns={leaseColumns} getRowId={(l) => l.account} />
+        <DataTable
+          data={leases}
+          columns={leaseColumns}
+          getRowId={(l) => l.account}
+          onRowClick={(lease) => setDetailNodeHash(lease.node_hash)}
+        />
       ) : null}
 
       <OffsetPagination
@@ -288,6 +355,17 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
         onPageChange={setPage}
         onPageSizeChange={changePageSize}
       />
+
+      {nodeDetailQuery.data ? (
+        <NodeDetailDrawer
+          node={nodeDetailQuery.data}
+          onClose={() => setDetailNodeHash("")}
+          onProbeEgress={(hash) => probeEgressMutation.mutate(hash)}
+          onProbeLatency={(hash) => probeLatencyMutation.mutate(hash)}
+          isEgressProbePending={(hash) => probeEgressMutation.isPending && probeEgressMutation.variables === hash}
+          isLatencyProbePending={(hash) => probeLatencyMutation.isPending && probeLatencyMutation.variables === hash}
+        />
+      ) : null}
     </div>
   );
 }

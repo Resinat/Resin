@@ -54,6 +54,7 @@ export type LeaseResponse = {
   node_hash: string;
   node_tag: string;
   egress_ip: string;
+  reference_latency_ms?: number;
   created_at: string;
   expiry: string;
   last_accessed: string;

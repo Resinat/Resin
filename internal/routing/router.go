@@ -445,6 +445,7 @@ type idleIPRouteCandidate struct {
 	entry      *node.NodeEntry
 	latency    time.Duration
 	hasLatency bool
+	createdAt  time.Time
 }
 
 func (r *Router) selectIdleIPRoute(
@@ -472,6 +473,7 @@ func (r *Router) selectIdleIPRoute(
 			entry:      entry,
 			latency:    latency,
 			hasLatency: hasLatency,
+			createdAt:  entry.CreatedAt,
 		}
 		if current, ok := candidates[ip]; !ok || isBetterIdleIPCandidate(next, current) {
 			candidates[ip] = next
@@ -504,6 +506,9 @@ func isBetterIdleIPCandidate(next, current idleIPRouteCandidate) bool {
 	}
 	if next.hasLatency && next.latency != current.latency {
 		return next.latency < current.latency
+	}
+	if !next.createdAt.Equal(current.createdAt) {
+		return next.createdAt.Before(current.createdAt)
 	}
 	return next.hash.Hex() < current.hash.Hex()
 }

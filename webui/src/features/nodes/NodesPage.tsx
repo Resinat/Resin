@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
-import { AlertTriangle, Ban, CircleCheck, Eraser, Globe, RefreshCw, Sparkles, X, Zap } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { AlertTriangle, Ban, CircleCheck, Eraser, Globe, RefreshCw, Sparkles, Zap } from "lucide-react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -19,6 +19,7 @@ import { listPlatforms } from "../platforms/api";
 import type { Platform } from "../platforms/types";
 import { listSubscriptions } from "../subscriptions/api";
 import { disableNode, enableNode, getNode, listNodes, probeEgress, probeLatency } from "./api";
+import { NodeDetailDrawer } from "./NodeDetailDrawer";
 import { NodeLeasesModal } from "./NodeLeasesModal";
 import type { NodeSummary } from "./types";
 import { getAllRegions } from "./regions";
@@ -214,7 +215,7 @@ function sortIndicator(active: boolean, order: SortOrder): string {
 }
 
 export function NodesPage() {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
   const location = useLocation();
   const [draftFilters, setDraftFilters] = useState<NodeFilterDraft>(() => draftFromQuery(location.search));
   const [activeFilters, setActiveFilters] = useState<NodeListFilters>(() =>
@@ -235,7 +236,7 @@ export function NodesPage() {
 
   const queryClient = useQueryClient();
 
-  const allRegions = useMemo(() => getAllRegions(), [locale]);
+  const allRegions = getAllRegions();
 
   const platformsQuery = useQuery({
     queryKey: ["platforms", "all"],
@@ -307,22 +308,6 @@ export function NodesPage() {
 
   const detailNode = nodeDetailQuery.data ?? selectedNode;
   const drawerVisible = drawerOpen && Boolean(detailNode);
-
-  useEffect(() => {
-    if (!drawerVisible) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      setDrawerOpen(false);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [drawerVisible]);
 
   const openDrawer = (hash: string) => {
     setSelectedNodeHash(hash);
@@ -894,165 +879,14 @@ export function NodesPage() {
       </Card>
 
       {drawerVisible && detailNode ? (
-        <div
-          className="drawer-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("节点详情 {{name}}", { name: firstTag(detailNode) })}
-          onClick={() => setDrawerOpen(false)}
-        >
-          <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <h3>{firstTag(detailNode)}</h3>
-                <p>{detailNode.node_hash}</p>
-              </div>
-              <div className="drawer-header-actions">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={t("关闭详情面板")}
-                  onClick={() => setDrawerOpen(false)}
-                >
-                  <X size={16} />
-                </Button>
-              </div>
-            </div>
-
-            <div className="platform-drawer-layout">
-              <section className="platform-drawer-section">
-                <div className="platform-drawer-section-head">
-                  <h4>{t("节点状态")}</h4>
-                  <p>{t("节点的网络出口、探测状态以及失败历史。")}</p>
-                </div>
-
-                <div className="stats-grid">
-                  <div>
-                    <span>{t("创建时间")}</span>
-                    <p>{formatDateTime(detailNode.created_at)}</p>
-                  </div>
-                  <div>
-                    <span>{t("连续失败")}</span>
-                    <p>{!detailNode.has_outbound ? "-" : detailNode.failure_count}</p>
-                  </div>
-                  <div>
-                    <span>{t("状态")}</span>
-                    <div>
-                      {(() => {
-                        const status = getNodeDisplayStatus(detailNode);
-                        return (
-                          <div style={{ display: "flex", alignItems: "baseline", gap: "4px", flexWrap: "wrap" }}>
-                            {status === "manually_disabled" ? (
-                              <Badge variant="danger">{t("手动禁用")}</Badge>
-                            ) : status === "error" ? (
-                              <Badge variant="danger">{t("错误")}</Badge>
-                            ) : status === "disabled" ? (
-                              <Badge variant="neutral">{t("禁用")}</Badge>
-                            ) : status === "pending_test" ? (
-                              <Badge variant="muted">{t("待测")}</Badge>
-                            ) : status === "circuit_open" ? (
-                              <Badge variant="warning">{t("熔断")}</Badge>
-                            ) : (
-                              <Badge variant="success">{t("健康")}</Badge>
-                            )}
-                            {(status === "circuit_open" || status === "pending_test") && detailNode.circuit_open_since ? (
-                              <span
-                                style={{
-                                  fontSize: "11px",
-                                  color: "var(--text-muted)",
-                                  fontWeight: "normal",
-                                }}
-                              >
-                                ({formatRelativeTime(detailNode.circuit_open_since)})
-                              </span>
-                            ) : null}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  <div>
-                    <span>{t("出口 / 区域")}</span>
-                    <p>
-                      {detailNode.egress_ip || "-"} / {regionToFlag(detailNode.region)}
-                    </p>
-                  </div>
-                  <div>
-                    <span>{t("参考延迟")}</span>
-                    {(() => {
-                      const latencyMs = displayableReferenceLatencyMs(detailNode);
-                      if (latencyMs === null) {
-                        return <p>-</p>;
-                      }
-                      return <p style={{ color: referenceLatencyColor(latencyMs) }}>{formatLatency(latencyMs)}</p>;
-                    })()}
-                  </div>
-                  <div>
-                    <span>{t("上次探测")}</span>
-                    <p>{formatDateTime(detailNode.last_latency_probe_attempt || "")}</p>
-                  </div>
-                </div>
-
-                {detailNode.last_error ? (
-                  <div className="callout callout-error">{t("最近错误：{{message}}", { message: detailNode.last_error })}</div>
-                ) : null}
-              </section>
-
-              <section className="platform-drawer-section">
-                <div className="platform-drawer-section-head">
-                  <h4>{t("节点别名")}</h4>
-                </div>
-                {!detailNode.tags.length ? (
-                  <p className="muted">{t("无节点名信息")}</p>
-                ) : (
-                  <div className="tag-list">
-                    {detailNode.tags.map((tag) => (
-                      <div key={`${tag.subscription_id}:${tag.tag}`} className="tag-item">
-                        <p>{tag.tag}</p>
-                        <span>{tag.subscription_name}</span>
-                        <code>{tag.subscription_id}</code>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              <section className="platform-drawer-section platform-ops-section">
-                <div className="platform-drawer-section-head">
-                  <h4>{t("运维操作")}</h4>
-                </div>
-                <div className="platform-ops-list">
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>{t("出口探测")}</h5>
-                      <p className="platform-op-hint">{t("检查节点当前出口 IP。")}</p>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void runProbeEgress(detailNode.node_hash)}
-                      disabled={isProbePending(detailNode.node_hash, "egress")}
-                    >
-                      {isProbePending(detailNode.node_hash, "egress") ? t("探测中...") : t("触发出口探测")}
-                    </Button>
-                  </div>
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>{t("延迟探测")}</h5>
-                      <p className="platform-op-hint">{t("检测节点网络延迟。")}</p>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void runProbeLatency(detailNode.node_hash)}
-                      disabled={isProbePending(detailNode.node_hash, "latency")}
-                    >
-                      {isProbePending(detailNode.node_hash, "latency") ? t("探测中...") : t("触发延迟探测")}
-                    </Button>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </Card>
-        </div>
+        <NodeDetailDrawer
+          node={detailNode}
+          onClose={() => setDrawerOpen(false)}
+          onProbeEgress={(hash) => void runProbeEgress(hash)}
+          onProbeLatency={(hash) => void runProbeLatency(hash)}
+          isEgressProbePending={(hash) => isProbePending(hash, "egress")}
+          isLatencyProbePending={(hash) => isProbePending(hash, "latency")}
+        />
       ) : null}
 
       {leasesModalNodeHash

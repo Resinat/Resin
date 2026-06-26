@@ -476,6 +476,14 @@ func TestAPIContract_GetLease_IncludesNodeTag(t *testing.T) {
 	raw := json.RawMessage(`{"type":"ss","server":"198.51.100.50","port":443}`)
 	cp.Pool.AddNodeFromSub(hash, raw, older.ID)
 	cp.Pool.AddNodeFromSub(hash, raw, newer.ID)
+	entry, ok := cp.Pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing", hash.Hex())
+	}
+	entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+		Ewma:        58 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
 
 	now := time.Now().UnixNano()
 	cp.Router.RestoreLeases([]model.Lease{
@@ -504,6 +512,9 @@ func TestAPIContract_GetLease_IncludesNodeTag(t *testing.T) {
 	body := decodeJSONMap(t, rec)
 	if body["node_tag"] != "Z-Provider/aa" {
 		t.Fatalf("node_tag: got %v, want %q", body["node_tag"], "Z-Provider/aa")
+	}
+	if body["reference_latency_ms"] != float64(58) {
+		t.Fatalf("reference_latency_ms: got %v, want 58", body["reference_latency_ms"])
 	}
 }
 
