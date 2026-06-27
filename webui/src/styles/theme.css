@@ -1090,7 +1090,12 @@ a {
 
 .dashboard-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns:
+    minmax(180px, 0.75fr)
+    minmax(230px, 1fr)
+    minmax(360px, 1.6fr)
+    minmax(260px, 1.15fr)
+    minmax(170px, 0.7fr);
   gap: 10px;
 }
 
@@ -1124,6 +1129,12 @@ a {
   background: rgba(241, 143, 1, 0.12);
 }
 
+.dashboard-kpi-icon.server {
+  color: #2467e4;
+  border-color: rgba(36, 103, 228, 0.22);
+  background: rgba(36, 103, 228, 0.12);
+}
+
 .dashboard-kpi-icon.shield {
   color: #007f55;
   border-color: rgba(0, 127, 85, 0.24);
@@ -1152,6 +1163,9 @@ a {
   margin-top: 2px;
   font-size: 12px;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-kpi-badge {
@@ -1530,6 +1544,17 @@ a {
 .subscriptions-count {
   font-size: 13px;
   color: var(--text-muted);
+}
+
+.subscriptions-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  max-width: 1040px;
+}
+
+.subscriptions-header-meta span {
+  white-space: nowrap;
 }
 
 .subscriptions-table {

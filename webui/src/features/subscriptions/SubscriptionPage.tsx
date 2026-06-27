@@ -25,11 +25,12 @@ import {
   cleanupSubscriptionCircuitOpenNodes,
   createSubscription,
   deleteSubscription,
+  getHistoryTrafficTotal,
   listSubscriptions,
   refreshSubscription,
   updateSubscription,
 } from "./api";
-import type { Subscription } from "./types";
+import type { Subscription, SubscriptionSummary } from "./types";
 
 type EnabledFilter = "all" | "enabled" | "disabled";
 type SubscriptionSourceType = "remote" | "local";
@@ -72,6 +73,15 @@ const subscriptionEditSchema = subscriptionCreateSchema;
 type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
+const EMPTY_SUBSCRIPTION_SUMMARY: SubscriptionSummary = {
+  enabled_count: 0,
+  disabled_count: 0,
+  usage_used_bytes: 0,
+  usage_total_bytes: 0,
+  usage_remaining_bytes: 0,
+  healthy_node_count: 0,
+  node_count: 0,
+};
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const LOCAL_SOURCE_UPDATE_INTERVAL = "12h";
 const SUBSCRIPTION_DISABLE_HINT = "禁用订阅后，相关节点不会参与平台路由、健康统计或自动探测。";
@@ -141,8 +151,19 @@ function formatSubscriptionExpire(subscription: Subscription, formatter: (input:
   return formatter(new Date(expireUnix * 1000).toISOString());
 }
 
+function getYesterdayTrafficWindow(): { from: string; to: string } {
+  const to = new Date();
+  to.setHours(0, 0, 0, 0);
+  const from = new Date(to);
+  from.setDate(from.getDate() - 1);
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+  };
+}
+
 export function SubscriptionPage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [enabledFilter, setEnabledFilter] = useState<EnabledFilter>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -180,9 +201,22 @@ export function SubscriptionPage() {
     refetchInterval: 30_000,
     placeholderData: (prev) => prev,
   });
+  const yesterdayTrafficWindow = useMemo(() => getYesterdayTrafficWindow(), []);
+  const yesterdayTrafficQuery = useQuery({
+    queryKey: ["metrics", "history", "traffic", "yesterday", yesterdayTrafficWindow.from, yesterdayTrafficWindow.to],
+    queryFn: () => getHistoryTrafficTotal(yesterdayTrafficWindow),
+    refetchInterval: 300_000,
+    placeholderData: (prev) => prev,
+  });
 
   const subscriptions = subscriptionsQuery.data?.items ?? EMPTY_SUBSCRIPTIONS;
   const totalSubscriptions = subscriptionsQuery.data?.total ?? 0;
+  const subscriptionSummary = subscriptionsQuery.data?.summary ?? EMPTY_SUBSCRIPTION_SUMMARY;
+  const countFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+  const formatCount = (value: number) => countFormatter.format(Math.round(value));
+  const usageTotalText = subscriptionSummary.usage_total_bytes > 0 ? formatBytes(subscriptionSummary.usage_total_bytes) : "-";
+  const usageRemainingText = subscriptionSummary.usage_total_bytes > 0 ? formatBytes(subscriptionSummary.usage_remaining_bytes) : "-";
+  const yesterdayTrafficText = yesterdayTrafficQuery.isError ? "-" : formatBytes(yesterdayTrafficQuery.data ?? 0);
 
   const totalPages = Math.max(1, Math.ceil(totalSubscriptions / pageSize));
   const currentPage = Math.min(page, totalPages - 1);
@@ -587,7 +621,16 @@ export function SubscriptionPage() {
         <div className="list-card-header">
           <div>
             <h3>{t("订阅列表")}</h3>
-            <p>{t("共 {{count}} 个订阅", { count: totalSubscriptions })}</p>
+            <p className="subscriptions-header-meta">
+              <span>{t("共 {{count}} 个订阅", { count: totalSubscriptions })}</span>
+              {subscriptionsQuery.data ? (
+                <>
+                  <span>{t("订阅:")} {t("启用")} {formatCount(subscriptionSummary.enabled_count)} / {t("禁用")} {formatCount(subscriptionSummary.disabled_count)}</span>
+                  <span>{t("节点:")} {`${formatCount(subscriptionSummary.healthy_node_count)} / ${formatCount(subscriptionSummary.node_count)}`}</span>
+                  <span>{t("流量:")} {`${formatBytes(subscriptionSummary.usage_used_bytes)} / ${usageTotalText}`} · {t("剩余")} {usageRemainingText} · {t("昨日")} {yesterdayTrafficText}</span>
+                </>
+              ) : null}
+            </p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <label className="subscription-inline-filter" htmlFor="sub-status-filter" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>

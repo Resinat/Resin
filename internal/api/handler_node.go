@@ -272,3 +272,18 @@ func HandleEnableNode(cp *service.ControlPlaneService) http.HandlerFunc {
 		WriteJSON(w, http.StatusOK, result)
 	}
 }
+
+// HandleCleanupNode returns a handler for POST /api/v1/nodes/{hash}/actions/cleanup.
+// Cleaning a node evicts every subscription reference and releases every lease
+// currently bound to it.
+func HandleCleanupNode(cp *service.ControlPlaneService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hash := PathParam(r, "hash")
+		result, err := cp.CleanupNode(hash)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, result)
+	}
+}

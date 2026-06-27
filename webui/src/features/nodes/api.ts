@@ -133,6 +133,11 @@ export type DisableNodeResult = {
   released_lease_count: number;
 };
 
+export type CleanupNodeResult = {
+  evicted_subscription_count: number;
+  released_lease_count: number;
+};
+
 export async function disableNode(hash: string): Promise<DisableNodeResult> {
   return apiRequest<DisableNodeResult>(`${basePath}/${hash}/actions/disable`, {
     method: "POST",
@@ -141,6 +146,12 @@ export async function disableNode(hash: string): Promise<DisableNodeResult> {
 
 export async function enableNode(hash: string): Promise<DisableNodeResult> {
   return apiRequest<DisableNodeResult>(`${basePath}/${hash}/actions/enable`, {
+    method: "POST",
+  });
+}
+
+export async function cleanupNode(hash: string): Promise<CleanupNodeResult> {
+  return apiRequest<CleanupNodeResult>(`${basePath}/${hash}/actions/cleanup`, {
     method: "POST",
   });
 }

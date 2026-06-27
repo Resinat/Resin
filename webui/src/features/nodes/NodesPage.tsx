@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
-import { AlertTriangle, Ban, CircleCheck, Eraser, Globe, RefreshCw, Sparkles, Zap } from "lucide-react";
+import { AlertTriangle, Ban, CircleCheck, Eraser, Globe, RefreshCw, Sparkles, Trash2, Zap } from "lucide-react";
 import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
@@ -18,7 +18,7 @@ import { formatDateTime, formatRelativeTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
 import type { Platform } from "../platforms/types";
 import { listSubscriptions } from "../subscriptions/api";
-import { disableNode, enableNode, getNode, listNodes, probeEgress, probeLatency } from "./api";
+import { cleanupNode, disableNode, enableNode, getNode, listNodes, probeEgress, probeLatency } from "./api";
 import { NodeDetailDrawer } from "./NodeDetailDrawer";
 import { NodeLeasesModal } from "./NodeLeasesModal";
 import type { NodeSummary } from "./types";
@@ -381,6 +381,30 @@ export function NodesPage() {
     },
   });
 
+  const cleanupNodeMutation = useMutation({
+    mutationFn: async (hash: string) => cleanupNode(hash),
+    onSuccess: async (result, hash) => {
+      if (selectedHash === hash) {
+        setDrawerOpen(false);
+        setSelectedNodeHash("");
+      }
+      if (leasesModalNodeHash === hash) {
+        setLeasesModalNodeHash(null);
+      }
+      await refreshNodes();
+      const count = result.released_lease_count ?? 0;
+      if (count > 0) {
+        showToast("success", t("节点已清理，解除 {{count}} 个绑定", { count }));
+      } else {
+        showToast("success", t("节点已清理"));
+      }
+    },
+    onError: async (error) => {
+      await refreshNodes();
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
+
   const runDisableNode = async (hash: string) => {
     try {
       await disableNodeMutation.mutateAsync(hash);
@@ -397,9 +421,26 @@ export function NodesPage() {
     }
   };
 
+  const runCleanupNode = async (node: NodeSummary) => {
+    const confirmed = window.confirm(
+      t("确认清理节点 {{name}}？该节点会从节点池移除，并解除相关租约。", { name: firstTag(node) })
+    );
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await cleanupNodeMutation.mutateAsync(node.node_hash);
+    } catch {
+      // Mutation callbacks already surface the failure to the user.
+    }
+  };
+
   const isDisableActionPending = (hash: string): boolean =>
     (disableNodeMutation.isPending && disableNodeMutation.variables === hash) ||
     (enableNodeMutation.isPending && enableNodeMutation.variables === hash);
+
+  const isCleanupActionPending = (hash: string): boolean =>
+    cleanupNodeMutation.isPending && cleanupNodeMutation.variables === hash;
 
   const markProbePending = (hash: string, action: ProbeAction): boolean => {
     if (action === "egress") {
@@ -651,6 +692,7 @@ export function NodesPage() {
       cell: (info) => {
         const node = info.row.original;
         const disablePending = isDisableActionPending(node.node_hash);
+        const cleanupPending = isCleanupActionPending(node.node_hash);
         return (
           <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
             <Button
@@ -677,7 +719,7 @@ export function NodesPage() {
                 variant="ghost"
                 title={t("启用节点")}
                 onClick={() => void runEnableNode(node.node_hash)}
-                disabled={disablePending}
+                disabled={disablePending || cleanupPending}
               >
                 <CircleCheck size={14} />
               </Button>
@@ -687,11 +729,21 @@ export function NodesPage() {
                 variant="ghost"
                 title={t("禁用节点（立即解除全部租约）")}
                 onClick={() => void runDisableNode(node.node_hash)}
-                disabled={disablePending}
+                disabled={disablePending || cleanupPending}
               >
                 <Ban size={14} />
               </Button>
             )}
+            <Button
+              size="sm"
+              variant="ghost"
+              title={t("清理节点")}
+              onClick={() => void runCleanupNode(node)}
+              disabled={disablePending || cleanupPending}
+              style={{ color: "var(--delete-btn-color, #c27070)" }}
+            >
+              <Trash2 size={14} />
+            </Button>
           </div>
         );
       },

@@ -290,6 +290,11 @@ type SetNodeManualDisableResult struct {
 	ReleasedLeaseCount int `json:"released_lease_count"`
 }
 
+type CleanupNodeResult struct {
+	EvictedSubscriptionCount int `json:"evicted_subscription_count"`
+	ReleasedLeaseCount       int `json:"released_lease_count"`
+}
+
 // SetNodeManualDisable toggles the admin-controlled disable flag on a node.
 // When transitioning to disabled, all leases currently bound to the node are
 // immediately released so connected platforms reroute to other nodes. The
@@ -319,4 +324,57 @@ func (s *ControlPlaneService) SetNodeManualDisable(hashStr string, disable bool)
 		released = s.Router.DeleteLeasesByNode(h)
 	}
 	return SetNodeManualDisableResult{ReleasedLeaseCount: released}, nil
+}
+
+func (s *ControlPlaneService) CleanupNode(hashStr string) (CleanupNodeResult, error) {
+	h, err := node.ParseHex(hashStr)
+	if err != nil {
+		return CleanupNodeResult{}, invalidArg("node_hash: invalid format")
+	}
+	entry, ok := s.Pool.GetEntry(h)
+	if !ok {
+		return CleanupNodeResult{}, notFound("node not found")
+	}
+
+	evictedSubIDs := make([]string, 0, entry.SubscriptionCount())
+	for _, subID := range entry.SubscriptionIDs() {
+		sub := s.SubMgr.Lookup(subID)
+		if sub == nil {
+			s.Pool.RemoveNodeFromSub(h, subID)
+			continue
+		}
+
+		evicted := false
+		sub.WithOpLock(func() {
+			lockedSub := s.SubMgr.Lookup(subID)
+			if lockedSub == nil {
+				return
+			}
+			managed, ok := lockedSub.ManagedNodes().LoadNode(h)
+			if ok && !managed.Evicted {
+				managed.Evicted = true
+				lockedSub.ManagedNodes().StoreNode(h, managed)
+				evicted = true
+			}
+			s.Pool.RemoveNodeFromSub(h, subID)
+		})
+		if evicted {
+			evictedSubIDs = append(evictedSubIDs, subID)
+		}
+	}
+
+	if s.Engine != nil {
+		for _, subID := range evictedSubIDs {
+			s.Engine.MarkSubscriptionNode(subID, h.Hex())
+		}
+	}
+
+	released := 0
+	if s.Router != nil {
+		released = s.Router.DeleteLeasesByNode(h)
+	}
+	return CleanupNodeResult{
+		EvictedSubscriptionCount: len(evictedSubIDs),
+		ReleasedLeaseCount:       released,
+	}, nil
 }

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Check, Copy, Info } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { useI18n } from "../../i18n";
@@ -15,17 +15,25 @@ function loadStoredProxyToken(): string {
   if (typeof window === "undefined") {
     return "";
   }
-  return window.localStorage.getItem(PROXY_TOKEN_STORAGE_KEY) ?? "";
+  try {
+    return window.localStorage.getItem(PROXY_TOKEN_STORAGE_KEY) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 function persistProxyToken(value: string): void {
   if (typeof window === "undefined") {
     return;
   }
-  if (value) {
-    window.localStorage.setItem(PROXY_TOKEN_STORAGE_KEY, value);
-  } else {
-    window.localStorage.removeItem(PROXY_TOKEN_STORAGE_KEY);
+  try {
+    if (value) {
+      window.localStorage.setItem(PROXY_TOKEN_STORAGE_KEY, value);
+    } else {
+      window.localStorage.removeItem(PROXY_TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // Browser storage can be unavailable in private or restricted contexts.
   }
 }
 
@@ -178,6 +186,19 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
   const [account, setAccount] = useState("");
   const [token, setToken] = useState(loadStoredProxyToken);
   const [target, setTarget] = useState("https://api.ipify.org");
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === PROXY_TOKEN_STORAGE_KEY) {
+        setToken(event.newValue ?? "");
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const envQuery = useQuery({
     queryKey: ["system-env-config"],

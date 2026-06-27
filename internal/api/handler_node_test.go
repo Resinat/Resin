@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/model"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/probe"
 	"github.com/Resinat/Resin/internal/service"
@@ -250,6 +251,59 @@ func TestHandleProbeEgress_ReturnsRegion(t *testing.T) {
 	}
 	if body["region"] != "jp" {
 		t.Fatalf("region: got %v, want %q", body["region"], "jp")
+	}
+}
+
+func TestHandleCleanupNode_RemovesNodeAndLeases(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	sub := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	cp.SubMgr.Register(sub)
+
+	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
+	hash := node.HashFromRawOptions(raw)
+	cp.Pool.AddNodeFromSub(hash, raw, sub.ID)
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag"}})
+
+	now := time.Now().UnixNano()
+	if err := cp.Router.UpsertLease(model.Lease{
+		PlatformID:     "platform-a",
+		Account:        "alice",
+		NodeHash:       hash.Hex(),
+		EgressIP:       "203.0.113.10",
+		CreatedAtNs:    now,
+		ExpiryNs:       now + int64(time.Hour),
+		LastAccessedNs: now,
+	}); err != nil {
+		t.Fatalf("upsert lease: %v", err)
+	}
+
+	rec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/nodes/"+hash.Hex()+"/actions/cleanup", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cleanup status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["evicted_subscription_count"] != float64(1) {
+		t.Fatalf("evicted_subscription_count: got %v, want 1", body["evicted_subscription_count"])
+	}
+	if body["released_lease_count"] != float64(1) {
+		t.Fatalf("released_lease_count: got %v, want 1", body["released_lease_count"])
+	}
+	if _, ok := cp.Pool.GetEntry(hash); ok {
+		t.Fatal("node should be removed from pool")
+	}
+	managed, ok := sub.ManagedNodes().LoadNode(hash)
+	if !ok || !managed.Evicted {
+		t.Fatalf("managed node evicted = %v, ok=%v; want true", managed.Evicted, ok)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/nodes/not-hex/actions/cleanup", nil, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid hash status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/nodes/"+hash.Hex()+"/actions/cleanup", nil, true)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing node status: got %d, want %d, body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
 	}
 }
 

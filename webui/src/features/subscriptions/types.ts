@@ -26,11 +26,25 @@ export type Subscription = {
   usage?: SubscriptionUsage;
 };
 
+export type SubscriptionSummary = {
+  enabled_count: number;
+  disabled_count: number;
+  usage_used_bytes: number;
+  usage_total_bytes: number;
+  usage_remaining_bytes: number;
+  healthy_node_count: number;
+  node_count: number;
+};
+
 export type PageResponse<T> = {
   items: T[];
   total: number;
   limit: number;
   offset: number;
+};
+
+export type SubscriptionPageResponse = PageResponse<Subscription> & {
+  summary: SubscriptionSummary;
 };
 
 export type SubscriptionCreateInput = {

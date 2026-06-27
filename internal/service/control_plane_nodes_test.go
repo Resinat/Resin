@@ -8,9 +8,11 @@ import (
 
 	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/geoip"
+	"github.com/Resinat/Resin/internal/model"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/probe"
+	"github.com/Resinat/Resin/internal/routing"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
 	"github.com/Resinat/Resin/internal/topology"
@@ -521,5 +523,76 @@ func TestProbeEgress_ReturnsRegion(t *testing.T) {
 	}
 	if got.Region != "jp" {
 		t.Fatalf("region: got %q, want %q", got.Region, "jp")
+	}
+}
+
+func TestCleanupNode_EvictsAllSubscriptionsAndReleasesLeases(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := newNodeListTestPool(subMgr)
+	router := routing.NewRouter(routing.RouterConfig{Pool: pool})
+
+	subA := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subB := subscription.NewSubscription("sub-b", "sub-b", "https://example.com/b", true, false)
+	subMgr.Register(subA)
+	subMgr.Register(subB)
+
+	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
+	hash := node.HashFromRawOptions(raw)
+	pool.AddNodeFromSub(hash, raw, subA.ID)
+	pool.AddNodeFromSub(hash, raw, subB.ID)
+	subA.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"a"}})
+	subB.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"b"}})
+
+	now := time.Now().UnixNano()
+	for _, account := range []string{"alice", "bob"} {
+		if err := router.UpsertLease(model.Lease{
+			PlatformID:     "platform-a",
+			Account:        account,
+			NodeHash:       hash.Hex(),
+			EgressIP:       "203.0.113.10",
+			CreatedAtNs:    now,
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		}); err != nil {
+			t.Fatalf("upsert lease %s: %v", account, err)
+		}
+	}
+
+	cp := &ControlPlaneService{
+		Pool:   pool,
+		SubMgr: subMgr,
+		Router: router,
+	}
+	result, err := cp.CleanupNode(hash.Hex())
+	if err != nil {
+		t.Fatalf("CleanupNode: %v", err)
+	}
+	if result.EvictedSubscriptionCount != 2 {
+		t.Fatalf("evicted_subscription_count = %d, want 2", result.EvictedSubscriptionCount)
+	}
+	if result.ReleasedLeaseCount != 2 {
+		t.Fatalf("released_lease_count = %d, want 2", result.ReleasedLeaseCount)
+	}
+	if _, ok := pool.GetEntry(hash); ok {
+		t.Fatal("node should be removed from pool")
+	}
+	for _, sub := range []*subscription.Subscription{subA, subB} {
+		managed, ok := sub.ManagedNodes().LoadNode(hash)
+		if !ok {
+			t.Fatalf("managed node missing for subscription %s", sub.ID)
+		}
+		if !managed.Evicted {
+			t.Fatalf("managed node for subscription %s should be evicted", sub.ID)
+		}
+	}
+	remaining := 0
+	router.RangeAllLeases(func(_, _ string, lease routing.Lease) bool {
+		if lease.NodeHash == hash {
+			remaining++
+		}
+		return true
+	})
+	if remaining != 0 {
+		t.Fatalf("remaining leases for node = %d, want 0", remaining)
 	}
 }

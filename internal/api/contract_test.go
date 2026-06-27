@@ -826,13 +826,47 @@ func TestAPIContract_KeywordFilteringOnListEndpoints(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create subscription banana status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
+		"name":    "Aardvark Feed",
+		"url":     "https://example.com/aardvark",
+		"enabled": false,
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create subscription disabled status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions?keyword=Feed&enabled=true", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list subscriptions default status sort status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	subItems, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("subscription status sort items type: got %T", body["items"])
+	}
+	if len(subItems) != 2 {
+		t.Fatalf("subscription enabled items len: got %d, want %d, body=%s", len(subItems), 2, rec.Body.String())
+	}
+	if got := subItems[0].(map[string]any)["name"]; got != "Apple Feed" {
+		t.Fatalf("subscription status sort first: got %v, want %q", got, "Apple Feed")
+	}
+	if got := subItems[1].(map[string]any)["name"]; got != "Banana Feed" {
+		t.Fatalf("subscription status sort second: got %v, want %q", got, "Banana Feed")
+	}
+	summary, ok := body["summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("subscription summary type: got %T", body["summary"])
+	}
+	if summary["enabled_count"] != float64(2) || summary["disabled_count"] != float64(1) {
+		t.Fatalf("subscription summary counts: got enabled=%v disabled=%v, want 2/1", summary["enabled_count"], summary["disabled_count"])
+	}
 
 	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions?keyword=BANANA&sort_by=name&sort_order=asc", nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list subscriptions keyword status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body = decodeJSONMap(t, rec)
-	subItems, ok := body["items"].([]any)
+	subItems, ok = body["items"].([]any)
 	if !ok {
 		t.Fatalf("subscription items type: got %T", body["items"])
 	}
