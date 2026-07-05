@@ -3,6 +3,7 @@ package probe
 import (
 	"errors"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -111,6 +112,115 @@ func TestProbeEgress_Failure(t *testing.T) {
 	// No latency or egress IP should be recorded.
 	if entry.HasLatency() {
 		t.Fatal("should not have latency on failure")
+	}
+}
+
+func TestProbeEgress_FallbackSuccess(t *testing.T) {
+	pool := topology.NewGlobalNodePool(topology.PoolConfig{
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+	})
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"egress-fallback"}`))
+	pool.AddNodeFromSub(hash, []byte(`{"type":"egress-fallback"}`), "sub1")
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	storeOutbound(entry)
+
+	var gotURLs []string
+	mgr := NewProbeManager(ProbeConfig{
+		Pool: pool,
+		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
+			gotURLs = append(gotURLs, url)
+			switch url {
+			case egressTraceURL:
+				return nil, 0, errors.New("cloudflare blocked")
+			case egressIPifyURL:
+				return []byte("198.51.100.44\n"), 55 * time.Millisecond, nil
+			default:
+				return nil, 0, errors.New("unexpected URL")
+			}
+		},
+	})
+
+	result, err := mgr.ProbeEgressSync(hash)
+	if err != nil {
+		t.Fatalf("ProbeEgressSync: %v", err)
+	}
+
+	wantURLs := []string{egressTraceURL, egressIPifyURL}
+	if len(gotURLs) != len(wantURLs) {
+		t.Fatalf("probe URLs: got %v, want %v", gotURLs, wantURLs)
+	}
+	for i := range wantURLs {
+		if gotURLs[i] != wantURLs[i] {
+			t.Fatalf("probe URL[%d]: got %q, want %q", i, gotURLs[i], wantURLs[i])
+		}
+	}
+	if result.EgressIP != "198.51.100.44" {
+		t.Fatalf("egress IP: got %q, want 198.51.100.44", result.EgressIP)
+	}
+	if result.LatencyEwmaMs != 55 {
+		t.Fatalf("latency_ewma_ms: got %f, want 55", result.LatencyEwmaMs)
+	}
+	if entry.FailureCount.Load() != 0 {
+		t.Fatalf("expected 0 failures, got %d", entry.FailureCount.Load())
+	}
+}
+
+func TestProbeEgress_AllTargetsFailedAggregatesErrors(t *testing.T) {
+	pool := topology.NewGlobalNodePool(topology.PoolConfig{
+		MaxLatencyTableEntries: 16,
+		MaxConsecutiveFailures: func() int { return 3 },
+	})
+
+	hash := node.HashFromRawOptions([]byte(`{"type":"egress-all-fail"}`))
+	pool.AddNodeFromSub(hash, []byte(`{"type":"egress-all-fail"}`), "sub1")
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatal("entry not found")
+	}
+	storeOutbound(entry)
+
+	mgr := NewProbeManager(ProbeConfig{
+		Pool: pool,
+		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
+			switch url {
+			case egressTraceURL:
+				return nil, 0, errors.New("cloudflare blocked")
+			case egressIPifyURL:
+				return []byte("not an ip"), 10 * time.Millisecond, nil
+			case egressCheckIPURL:
+				return nil, 0, errors.New("aws blocked")
+			default:
+				return nil, 0, errors.New("unexpected URL")
+			}
+		},
+	})
+
+	_, err := mgr.ProbeEgressSync(hash)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		egressTraceURL + " fetch",
+		egressIPifyURL + " parse",
+		egressCheckIPURL + " fetch",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error %q does not contain %q", msg, want)
+		}
+	}
+	if entry.FailureCount.Load() != 1 {
+		t.Fatalf("expected 1 failure, got %d", entry.FailureCount.Load())
+	}
+	if got := entry.GetEgressIP(); got.IsValid() {
+		t.Fatalf("egress IP should be empty, got %v", got)
 	}
 }
 
@@ -972,5 +1082,18 @@ func TestParseCloudflareTrace_NoIP(t *testing.T) {
 	_, _, err := ParseCloudflareTrace(body)
 	if err == nil {
 		t.Fatal("expected error when ip field is missing")
+	}
+}
+
+func TestParsePlainIP_TrimSpace(t *testing.T) {
+	addr, loc, err := ParsePlainIP([]byte(" 2001:db8::1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr != netip.MustParseAddr("2001:db8::1") {
+		t.Fatalf("got %v, want 2001:db8::1", addr)
+	}
+	if loc != nil {
+		t.Fatalf("loc: got %v, want nil", loc)
 	}
 }
