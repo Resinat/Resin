@@ -87,6 +87,12 @@ const LOCAL_SOURCE_UPDATE_INTERVAL = "12h";
 const SUBSCRIPTION_DISABLE_HINT = "禁用订阅后，相关节点不会参与平台路由、健康统计或自动探测。";
 const SUBSCRIPTION_EPHEMERAL_HINT = "临时订阅的非健康节点会在一段时间后被自动删除。订阅本身不会被删除。";
 const SUBSCRIPTION_INCREMENTAL_HINT = "开启后刷新时保留当前仍存活的旧节点，仅清理失效旧节点，并合并新订阅内容；关闭后仅保留刷新后的订阅内容。";
+const USAGE_WARNING_RATIO = 0.3;
+const USAGE_DANGER_RATIO = 0.1;
+const EXPIRE_WARNING_MS = 7 * 24 * 60 * 60 * 1000;
+const EXPIRE_DANGER_MS = 3 * 24 * 60 * 60 * 1000;
+
+type SubscriptionUsageTone = "neutral" | "success" | "warning" | "danger";
 
 function extractHostname(url: string): string {
   try {
@@ -131,14 +137,48 @@ function normalizeSubmitUpdateInterval(sourceType: SubscriptionSourceType, raw: 
   return raw.trim();
 }
 
-function formatSubscriptionUsage(subscription: Subscription): string {
+function getSubscriptionUsedBytes(subscription: Subscription): number {
   const usage = subscription.usage;
-  if (!usage) {
+  return Math.max(0, usage?.upload_bytes || 0) + Math.max(0, usage?.download_bytes || 0);
+}
+
+function getSubscriptionUsageTone(subscription: Subscription): SubscriptionUsageTone {
+  const totalBytes = subscription.usage?.total_bytes ?? 0;
+  if (totalBytes <= 0) {
+    return "neutral";
+  }
+  const remainingRatio = (totalBytes - getSubscriptionUsedBytes(subscription)) / totalBytes;
+  if (remainingRatio <= USAGE_DANGER_RATIO) {
+    return "danger";
+  }
+  if (remainingRatio <= USAGE_WARNING_RATIO) {
+    return "warning";
+  }
+  return "success";
+}
+
+function getSubscriptionExpireTone(subscription: Subscription): SubscriptionUsageTone {
+  const expireUnix = subscription.usage?.expire_unix ?? 0;
+  if (expireUnix <= 0) {
+    return "neutral";
+  }
+  const remainingMs = expireUnix * 1000 - Date.now();
+  if (remainingMs <= EXPIRE_DANGER_MS) {
+    return "danger";
+  }
+  if (remainingMs <= EXPIRE_WARNING_MS) {
+    return "warning";
+  }
+  return "success";
+}
+
+function formatSubscriptionUsage(subscription: Subscription): string {
+  if (!subscription.usage) {
     return "-";
   }
-  const usedBytes = Math.max(0, usage.upload_bytes || 0) + Math.max(0, usage.download_bytes || 0);
-  if (usage.total_bytes > 0) {
-    return `${formatBytes(usedBytes)} / ${formatBytes(usage.total_bytes)}`;
+  const usedBytes = getSubscriptionUsedBytes(subscription);
+  if (subscription.usage.total_bytes > 0) {
+    return `${formatBytes(usedBytes)} / ${formatBytes(subscription.usage.total_bytes)}`;
   }
   return formatBytes(usedBytes);
 }
@@ -149,6 +189,14 @@ function formatSubscriptionExpire(subscription: Subscription, formatter: (input:
     return "-";
   }
   return formatter(new Date(expireUnix * 1000).toISOString());
+}
+
+function renderSubscriptionUsage(subscription: Subscription) {
+  return <Badge variant={getSubscriptionUsageTone(subscription)}>{formatSubscriptionUsage(subscription)}</Badge>;
+}
+
+function renderSubscriptionExpire(subscription: Subscription, formatter: (input: string) => string) {
+  return <Badge variant={getSubscriptionExpireTone(subscription)}>{formatSubscriptionExpire(subscription, formatter)}</Badge>;
 }
 
 function getYesterdayTrafficWindow(): { from: string; to: string } {
@@ -528,12 +576,12 @@ export function SubscriptionPage() {
       col.display({
         id: "usage",
         header: t("用量"),
-        cell: (info) => formatSubscriptionUsage(info.row.original),
+        cell: (info) => renderSubscriptionUsage(info.row.original),
       }),
       col.display({
         id: "expire",
         header: t("到期"),
-        cell: (info) => formatSubscriptionExpire(info.row.original, formatRelativeTime),
+        cell: (info) => renderSubscriptionExpire(info.row.original, formatRelativeTime),
       }),
       col.display({
         id: "status",
@@ -774,7 +822,7 @@ export function SubscriptionPage() {
                   </div>
                   <div>
                     <span>{t("已用流量")}</span>
-                    <p>{formatSubscriptionUsage(selectedSubscription)}</p>
+                    <p>{renderSubscriptionUsage(selectedSubscription)}</p>
                   </div>
                   <div>
                     <span>{t("上传流量")}</span>
@@ -786,7 +834,7 @@ export function SubscriptionPage() {
                   </div>
                   <div>
                     <span>{t("到期时间")}</span>
-                    <p>{formatSubscriptionExpire(selectedSubscription, formatDateTime)}</p>
+                    <p>{renderSubscriptionExpire(selectedSubscription, formatDateTime)}</p>
                   </div>
                 </div>
 
