@@ -1,11 +1,15 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -626,24 +630,31 @@ type PlatformSpecFilter struct {
 
 // NodeSummary is the API response for a node.
 type NodeSummary struct {
-	NodeHash                         string    `json:"node_hash"`
-	CreatedAt                        string    `json:"created_at"`
-	Enabled                          bool      `json:"enabled"`
-	ManuallyDisabled                 bool      `json:"manually_disabled"`
-	DisplayTag                       string    `json:"display_tag,omitempty"`
-	HasOutbound                      bool      `json:"has_outbound"`
-	LastError                        string    `json:"last_error,omitempty"`
-	CircuitOpenSince                 *string   `json:"circuit_open_since"`
-	FailureCount                     int       `json:"failure_count"`
-	EgressIP                         string    `json:"egress_ip,omitempty"`
-	Region                           string    `json:"region,omitempty"`
-	LastEgressUpdate                 string    `json:"last_egress_update,omitempty"`
-	LastLatencyProbeAttempt          string    `json:"last_latency_probe_attempt,omitempty"`
-	LastAuthorityLatencyProbeAttempt string    `json:"last_authority_latency_probe_attempt,omitempty"`
-	ReferenceLatencyMs               *float64  `json:"reference_latency_ms,omitempty"`
-	LastEgressUpdateAttempt          string    `json:"last_egress_update_attempt,omitempty"`
-	LeaseCount                       int64     `json:"lease_count"`
-	Tags                             []NodeTag `json:"tags"`
+	NodeHash                         string          `json:"node_hash"`
+	CreatedAt                        string          `json:"created_at"`
+	Enabled                          bool            `json:"enabled"`
+	ManuallyDisabled                 bool            `json:"manually_disabled"`
+	DisplayTag                       string          `json:"display_tag,omitempty"`
+	HasOutbound                      bool            `json:"has_outbound"`
+	LastError                        string          `json:"last_error,omitempty"`
+	CircuitOpenSince                 *string         `json:"circuit_open_since"`
+	FailureCount                     int             `json:"failure_count"`
+	EgressIP                         string          `json:"egress_ip,omitempty"`
+	Region                           string          `json:"region,omitempty"`
+	LastEgressUpdate                 string          `json:"last_egress_update,omitempty"`
+	LastLatencyProbeAttempt          string          `json:"last_latency_probe_attempt,omitempty"`
+	LastAuthorityLatencyProbeAttempt string          `json:"last_authority_latency_probe_attempt,omitempty"`
+	ReferenceLatencyMs               *float64        `json:"reference_latency_ms,omitempty"`
+	LastEgressUpdateAttempt          string          `json:"last_egress_update_attempt,omitempty"`
+	LeaseCount                       int64           `json:"lease_count"`
+	Tags                             []NodeTag       `json:"tags"`
+	Outbound                         json.RawMessage `json:"outbound,omitempty"`
+	ProxyURLs                        []NodeProxyURL  `json:"proxy_urls,omitempty"`
+}
+
+type NodeProxyURL struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
 }
 
 // IsHealthyAndEnabled follows the node-summary health rule used by API/UI
@@ -734,6 +745,97 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 		ns.Tags = []NodeTag{}
 	}
 	return ns
+}
+
+func (s *ControlPlaneService) nodeEntryToDetailSummary(h node.Hash, entry *node.NodeEntry) NodeSummary {
+	ns := s.nodeEntryToSummary(h, entry)
+	raw := bytes.TrimSpace(entry.RawOptions)
+	if len(raw) == 0 || !json.Valid(raw) {
+		return ns
+	}
+	ns.Outbound = append(json.RawMessage(nil), raw...)
+	ns.ProxyURLs = proxyURLsFromOutbound(raw)
+	return ns
+}
+
+type simpleProxyOutbound struct {
+	Type       string          `json:"type"`
+	Tag        string          `json:"tag"`
+	Server     string          `json:"server"`
+	ServerPort uint16          `json:"server_port"`
+	Username   string          `json:"username"`
+	Password   string          `json:"password"`
+	Version    string          `json:"version"`
+	TLS        *simpleProxyTLS `json:"tls"`
+}
+
+type simpleProxyTLS struct {
+	Enabled    bool   `json:"enabled"`
+	ServerName string `json:"server_name"`
+	Insecure   bool   `json:"insecure"`
+}
+
+func proxyURLsFromOutbound(raw json.RawMessage) []NodeProxyURL {
+	var outbound simpleProxyOutbound
+	if err := json.Unmarshal(raw, &outbound); err != nil {
+		return nil
+	}
+	server := strings.TrimSpace(outbound.Server)
+	if server == "" || outbound.ServerPort == 0 {
+		return nil
+	}
+
+	switch strings.ToLower(strings.TrimSpace(outbound.Type)) {
+	case "http":
+		if outbound.TLS != nil && outbound.TLS.Enabled {
+			return []NodeProxyURL{{Type: "https", URL: buildProxyURL("https", server, outbound)}}
+		}
+		return []NodeProxyURL{{Type: "http", URL: buildProxyURL("http", server, outbound)}}
+	case "socks", "socks5":
+		if !isSocks5Version(outbound.Version) {
+			return nil
+		}
+		return []NodeProxyURL{{Type: "socks5", URL: buildProxyURL("socks5", server, outbound)}}
+	default:
+		return nil
+	}
+}
+
+func isSocks5Version(version string) bool {
+	switch strings.ToLower(strings.TrimSpace(version)) {
+	case "", "5", "5h", "socks5", "socks5h":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildProxyURL(scheme string, server string, outbound simpleProxyOutbound) string {
+	u := url.URL{
+		Scheme: scheme,
+		Host:   net.JoinHostPort(server, strconv.Itoa(int(outbound.ServerPort))),
+	}
+	if outbound.Username != "" || outbound.Password != "" {
+		if outbound.Password == "" {
+			u.User = url.User(outbound.Username)
+		} else {
+			u.User = url.UserPassword(outbound.Username, outbound.Password)
+		}
+	}
+	if tag := strings.TrimSpace(outbound.Tag); tag != "" {
+		u.Fragment = tag
+	}
+	if scheme == "https" && outbound.TLS != nil {
+		query := url.Values{}
+		if serverName := strings.TrimSpace(outbound.TLS.ServerName); serverName != "" {
+			query.Set("sni", serverName)
+		}
+		if outbound.TLS.Insecure {
+			query.Set("insecure", "true")
+		}
+		u.RawQuery = query.Encode()
+	}
+	return u.String()
 }
 
 // PreviewFilter returns nodes matching the given filter spec.

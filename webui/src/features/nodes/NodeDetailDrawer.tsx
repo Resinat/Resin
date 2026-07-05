@@ -1,5 +1,5 @@
-import { X } from "lucide-react";
-import { useEffect } from "react";
+import { Check, Copy, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -25,6 +25,47 @@ type Props = {
   isLatencyProbePending: (hash: string) => boolean;
 };
 
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const area = document.createElement("textarea");
+  area.value = value;
+  area.style.position = "fixed";
+  area.style.opacity = "0";
+  document.body.appendChild(area);
+  try {
+    area.select();
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(area);
+  }
+}
+
+function CopyButton({ value }: { value: string }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await copyText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <Button variant="secondary" size="sm" onClick={() => void handleCopy()} className="node-detail-copy-btn">
+      {copied ? <Check size={14} /> : <Copy size={14} />}
+      {copied ? t("已复制") : t("复制")}
+    </Button>
+  );
+}
+
 export function NodeDetailDrawer({
   node,
   onClose,
@@ -49,6 +90,8 @@ export function NodeDetailDrawer({
   const title = firstTag(node);
   const egressPending = isEgressProbePending(node.node_hash);
   const latencyPending = isLatencyProbePending(node.node_hash);
+  const outboundJSON = node.outbound == null ? "" : JSON.stringify(node.outbound, null, 2) ?? "";
+  const proxyUrls = node.proxy_urls ?? [];
 
   return createPortal(
     <div
@@ -162,6 +205,37 @@ export function NodeDetailDrawer({
               </div>
             )}
           </section>
+
+          {outboundJSON ? (
+            <section className="platform-drawer-section">
+              <div className="platform-drawer-section-head node-detail-section-head-row">
+                <div>
+                  <h4>{t("Outbound JSON")}</h4>
+                  <p>{t("节点原始 outbound 配置。")}</p>
+                </div>
+                <CopyButton value={outboundJSON} />
+              </div>
+              <pre className="logs-payload-box node-outbound-json">{outboundJSON}</pre>
+            </section>
+          ) : null}
+
+          {proxyUrls.length ? (
+            <section className="platform-drawer-section">
+              <div className="platform-drawer-section-head">
+                <h4>{t("可复制代理地址")}</h4>
+                <p>{t("已按后端可安全拼接的协议生成。")}</p>
+              </div>
+              <div className="node-proxy-url-list">
+                {proxyUrls.map((item) => (
+                  <div key={`${item.type}:${item.url}`} className="node-proxy-url-item">
+                    <Badge variant="neutral">{item.type.toUpperCase()}</Badge>
+                    <code title={item.url}>{item.url}</code>
+                    <CopyButton value={item.url} />
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="platform-drawer-section platform-ops-section">
             <div className="platform-drawer-section-head">

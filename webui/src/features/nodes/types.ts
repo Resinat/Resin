@@ -4,6 +4,11 @@ export type NodeTag = {
   tag: string;
 };
 
+export type NodeProxyUrl = {
+  type: "http" | "https" | "socks5";
+  url: string;
+};
+
 export type NodeSummary = {
   node_hash: string;
   created_at: string;
@@ -23,6 +28,8 @@ export type NodeSummary = {
   last_egress_update_attempt?: string;
   lease_count: number;
   tags: NodeTag[];
+  outbound?: unknown;
+  proxy_urls?: NodeProxyUrl[];
 };
 
 export type PageResponse<T> = {

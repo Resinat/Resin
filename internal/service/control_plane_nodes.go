@@ -242,7 +242,7 @@ func (s *ControlPlaneService) GetNode(hashStr string) (*NodeSummary, error) {
 	if !ok {
 		return nil, notFound("node not found")
 	}
-	ns := s.nodeEntryToSummary(h, entry)
+	ns := s.nodeEntryToDetailSummary(h, entry)
 	return &ns, nil
 }
 

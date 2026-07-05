@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"net/netip"
 	"sync/atomic"
 	"testing"
@@ -66,6 +67,48 @@ func addRoutableNodeForSubscriptionWithTag(
 	pool.RecordResult(hash, true)
 	pool.NotifyNodeDirty(hash)
 	return hash
+}
+
+func TestProxyURLsFromOutbound(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want []NodeProxyURL
+	}{
+		{
+			name: "http",
+			raw:  `{"type":"http","tag":"plain","server":"proxy.example.com","server_port":8080,"username":"user","password":"pass"}`,
+			want: []NodeProxyURL{{Type: "http", URL: "http://user:pass@proxy.example.com:8080#plain"}},
+		},
+		{
+			name: "https",
+			raw:  `{"type":"http","tag":"tls","server":"proxy.example.com","server_port":8443,"tls":{"enabled":true,"server_name":"sni.example.com","insecure":true}}`,
+			want: []NodeProxyURL{{Type: "https", URL: "https://proxy.example.com:8443?insecure=true&sni=sni.example.com#tls"}},
+		},
+		{
+			name: "socks5",
+			raw:  `{"type":"socks","tag":"sock","server":"127.0.0.1","server_port":1080,"version":"5"}`,
+			want: []NodeProxyURL{{Type: "socks5", URL: "socks5://127.0.0.1:1080#sock"}},
+		},
+		{
+			name: "unsupported",
+			raw:  `{"type":"shadowsocks","server":"1.1.1.1","server_port":443}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := proxyURLsFromOutbound(json.RawMessage(tt.raw))
+			if len(got) != len(tt.want) {
+				t.Fatalf("len = %d, want %d: %#v", len(got), len(tt.want), got)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Fatalf("proxy url[%d] = %#v, want %#v", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
 }
 
 func TestListNodes_PlatformAndSubscriptionFiltersReturnIntersection(t *testing.T) {

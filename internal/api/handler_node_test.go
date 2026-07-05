@@ -216,6 +216,61 @@ func TestHandleListNodes_IncludesReferenceLatencyMs(t *testing.T) {
 	}
 }
 
+func TestHandleGetNode_IncludesOutboundDetails(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	sub := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	cp.SubMgr.Register(sub)
+
+	raw := `{"type":"http","tag":"proxy","server":"proxy.example.com","server_port":8080,"username":"user","password":"pass"}`
+	hash := node.HashFromRawOptions([]byte(raw))
+	addNodeForNodeListTestWithTag(t, cp, sub, raw, "203.0.113.10", "proxy")
+
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/nodes/"+hash.Hex(), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get node status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	outbound, ok := body["outbound"].(map[string]any)
+	if !ok {
+		t.Fatalf("outbound type: got %T", body["outbound"])
+	}
+	if outbound["type"] != "http" || outbound["server"] != "proxy.example.com" {
+		t.Fatalf("outbound mismatch: %#v", outbound)
+	}
+	proxyURLs, ok := body["proxy_urls"].([]any)
+	if !ok || len(proxyURLs) != 1 {
+		t.Fatalf("proxy_urls mismatch: got %T %#v", body["proxy_urls"], body["proxy_urls"])
+	}
+	first, ok := proxyURLs[0].(map[string]any)
+	if !ok {
+		t.Fatalf("proxy_urls[0] type: got %T", proxyURLs[0])
+	}
+	if first["type"] != "http" || first["url"] != "http://user:pass@proxy.example.com:8080#proxy" {
+		t.Fatalf("proxy url mismatch: %#v", first)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/nodes?subscription_id="+sub.ID, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list nodes status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	listBody := decodeJSONMap(t, rec)
+	items, ok := listBody["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items mismatch: got %T len=%d", listBody["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if _, ok := item["outbound"]; ok {
+		t.Fatalf("list item should not include outbound: %#v", item["outbound"])
+	}
+	if _, ok := item["proxy_urls"]; ok {
+		t.Fatalf("list item should not include proxy_urls: %#v", item["proxy_urls"])
+	}
+}
+
 func TestHandleListNodes_SortsByReferenceLatencyMs(t *testing.T) {
 	srv, cp, runtimeCfg := newControlPlaneTestServer(t)
 
