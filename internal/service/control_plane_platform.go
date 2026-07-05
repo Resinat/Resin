@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/Resinat/Resin/internal/model"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
+	"github.com/Resinat/Resin/internal/routing"
 	"github.com/Resinat/Resin/internal/state"
 )
 
@@ -28,6 +30,9 @@ type PlatformResponse struct {
 	RegexFilters                     []string `json:"regex_filters"`
 	RegionFilters                    []string `json:"region_filters"`
 	RoutableNodeCount                int      `json:"routable_node_count"`
+	EgressIPCount                    int      `json:"egress_ip_count"`
+	ActiveLeaseCount                 int      `json:"active_lease_count"`
+	IsBuiltin                        bool     `json:"is_builtin"`
 	ReverseProxyMissAction           string   `json:"reverse_proxy_miss_action"`
 	ReverseProxyEmptyAccountBehavior string   `json:"reverse_proxy_empty_account_behavior"`
 	ReverseProxyFixedAccountHeader   string   `json:"reverse_proxy_fixed_account_header"`
@@ -46,6 +51,9 @@ func platformToResponse(p model.Platform) PlatformResponse {
 		RegexFilters:                     append([]string(nil), p.RegexFilters...),
 		RegionFilters:                    append([]string(nil), p.RegionFilters...),
 		RoutableNodeCount:                0,
+		EgressIPCount:                    0,
+		ActiveLeaseCount:                 0,
+		IsBuiltin:                        false,
 		ReverseProxyMissAction:           p.ReverseProxyMissAction,
 		ReverseProxyEmptyAccountBehavior: behavior,
 		ReverseProxyFixedAccountHeader:   fixedHeader,
@@ -55,15 +63,43 @@ func platformToResponse(p model.Platform) PlatformResponse {
 	}
 }
 
-func (s *ControlPlaneService) withRoutableNodeCount(resp PlatformResponse) PlatformResponse {
-	if s == nil || s.Pool == nil {
+func (s *ControlPlaneService) withPlatformRuntimeStats(resp PlatformResponse) PlatformResponse {
+	resp.IsBuiltin = resp.ID == platform.DefaultPlatformID ||
+		(s != nil && s.EnvCfg != nil && s.EnvCfg.FreePortStart > 0 &&
+			s.EnvCfg.FreePortPlatform != "" && resp.Name == s.EnvCfg.FreePortPlatform)
+
+	if s == nil {
 		return resp
 	}
-	plat, ok := s.Pool.GetPlatform(resp.ID)
-	if !ok || plat == nil {
-		return resp
+
+	if s.Pool != nil {
+		plat, ok := s.Pool.GetPlatform(resp.ID)
+		if ok && plat != nil {
+			seen := make(map[netip.Addr]struct{})
+			view := plat.View()
+			resp.RoutableNodeCount = view.Size()
+			view.Range(func(h node.Hash) bool {
+				entry, ok := s.Pool.GetEntry(h)
+				if !ok || entry == nil {
+					return true
+				}
+				ip := entry.GetEgressIP()
+				if ip.IsValid() {
+					seen[ip] = struct{}{}
+				}
+				return true
+			})
+			resp.EgressIPCount = len(seen)
+		}
 	}
-	resp.RoutableNodeCount = plat.View().Size()
+
+	if s.Router != nil {
+		s.Router.RangeLeases(resp.ID, func(_ string, _ routing.Lease) bool {
+			resp.ActiveLeaseCount++
+			return true
+		})
+	}
+
 	return resp
 }
 
@@ -298,7 +334,7 @@ func (s *ControlPlaneService) ListPlatforms() ([]PlatformResponse, error) {
 	}
 	resp := make([]PlatformResponse, len(platforms))
 	for i, p := range platforms {
-		resp[i] = s.withRoutableNodeCount(platformToResponse(p))
+		resp[i] = s.withPlatformRuntimeStats(platformToResponse(p))
 	}
 	return resp, nil
 }
@@ -320,7 +356,7 @@ func (s *ControlPlaneService) GetPlatform(id string) (*PlatformResponse, error) 
 	if err != nil {
 		return nil, err
 	}
-	r := s.withRoutableNodeCount(platformToResponse(*mp))
+	r := s.withPlatformRuntimeStats(platformToResponse(*mp))
 	return &r, nil
 }
 
@@ -408,7 +444,7 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 	s.Pool.RebuildPlatform(plat)
 	s.Pool.RegisterPlatform(plat)
 
-	r := s.withRoutableNodeCount(platformToResponse(mp))
+	r := s.withPlatformRuntimeStats(platformToResponse(mp))
 	return &r, nil
 }
 
@@ -523,7 +559,7 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		return nil, internal("replace platform in pool", err)
 	}
 
-	r := s.withRoutableNodeCount(platformToResponse(mp))
+	r := s.withPlatformRuntimeStats(platformToResponse(mp))
 	return &r, nil
 }
 
@@ -563,7 +599,7 @@ func (s *ControlPlaneService) ResetPlatformToDefault(id string) (*PlatformRespon
 		return nil, internal("replace platform in pool", err)
 	}
 
-	r := s.withRoutableNodeCount(platformToResponse(mp))
+	r := s.withPlatformRuntimeStats(platformToResponse(mp))
 	return &r, nil
 }
 

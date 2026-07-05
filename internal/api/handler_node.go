@@ -54,6 +54,26 @@ func compareNodeSummaries(sortBy string, a, b service.NodeSummary) int {
 }
 
 func sortNodeSummaries(nodes []service.NodeSummary, sorting Sorting) {
+	if sorting.SortBy == "reference_latency_ms" {
+		slices.SortStableFunc(nodes, func(a, b service.NodeSummary) int {
+			if a.ReferenceLatencyMs == nil && b.ReferenceLatencyMs == nil {
+				return strings.Compare(a.NodeHash, b.NodeHash)
+			}
+			if a.ReferenceLatencyMs == nil {
+				return 1
+			}
+			if b.ReferenceLatencyMs == nil {
+				return -1
+			}
+			order := cmp.Compare(*a.ReferenceLatencyMs, *b.ReferenceLatencyMs)
+			if order != 0 {
+				return applySortOrder(order, sorting.SortOrder)
+			}
+			return strings.Compare(a.NodeHash, b.NodeHash)
+		})
+		return
+	}
+
 	slices.SortStableFunc(nodes, func(a, b service.NodeSummary) int {
 		return applySortOrder(compareNodeSummaries(sorting.SortBy, a, b), sorting.SortOrder)
 	})
@@ -160,7 +180,7 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 
-		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"tag", "created_at", "failure_count", "region", "lease_count"}, "tag", "asc")
+		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"tag", "created_at", "failure_count", "region", "lease_count", "reference_latency_ms"}, "tag", "asc")
 		if !ok {
 			return
 		}

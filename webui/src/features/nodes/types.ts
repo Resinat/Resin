@@ -34,7 +34,13 @@ export type PageResponse<T> = {
   unique_healthy_egress_ips: number;
 };
 
-export type NodeSortBy = "tag" | "created_at" | "failure_count" | "region" | "lease_count";
+export type NodeSortBy =
+  | "tag"
+  | "created_at"
+  | "failure_count"
+  | "region"
+  | "lease_count"
+  | "reference_latency_ms";
 export type SortOrder = "asc" | "desc";
 
 export type NodeListFilters = {

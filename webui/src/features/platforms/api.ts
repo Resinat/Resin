@@ -7,6 +7,9 @@ type ApiPlatform = Omit<Platform, "regex_filters" | "region_filters"> & {
   regex_filters?: string[] | null;
   region_filters?: string[] | null;
   routable_node_count?: number | null;
+  egress_ip_count?: number | null;
+  active_lease_count?: number | null;
+  is_builtin?: boolean | null;
   reverse_proxy_miss_action?: Platform["reverse_proxy_miss_action"] | null;
   reverse_proxy_empty_account_behavior?: Platform["reverse_proxy_empty_account_behavior"] | null;
   reverse_proxy_fixed_account_header?: string | null;
@@ -27,6 +30,9 @@ function normalizePlatform(raw: ApiPlatform): Platform {
     regex_filters: Array.isArray(raw.regex_filters) ? raw.regex_filters : [],
     region_filters: Array.isArray(raw.region_filters) ? raw.region_filters : [],
     routable_node_count: typeof raw.routable_node_count === "number" ? raw.routable_node_count : 0,
+    egress_ip_count: typeof raw.egress_ip_count === "number" ? raw.egress_ip_count : 0,
+    active_lease_count: typeof raw.active_lease_count === "number" ? raw.active_lease_count : 0,
+    is_builtin: typeof raw.is_builtin === "boolean" ? raw.is_builtin : false,
     reverse_proxy_empty_account_behavior:
       raw.reverse_proxy_empty_account_behavior === "RANDOM" ||
       raw.reverse_proxy_empty_account_behavior === "FIXED_HEADER" ||

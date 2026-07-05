@@ -216,6 +216,83 @@ func TestHandleListNodes_IncludesReferenceLatencyMs(t *testing.T) {
 	}
 }
 
+func TestHandleListNodes_SortsByReferenceLatencyMs(t *testing.T) {
+	srv, cp, runtimeCfg := newControlPlaneTestServer(t)
+
+	cfg := config.NewDefaultRuntimeConfig()
+	cfg.LatencyAuthorities = []string{"cloudflare.com"}
+	runtimeCfg.Store(cfg)
+
+	subA := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	cp.SubMgr.Register(subA)
+
+	rawFast := `{"type":"ss","server":"1.1.1.1","port":443}`
+	rawSlow := `{"type":"ss","server":"2.2.2.2","port":443}`
+	rawUnknown := `{"type":"ss","server":"3.3.3.3","port":443}`
+	addNodeForNodeListTestWithTag(t, cp, subA, rawFast, "", "fast")
+	addNodeForNodeListTestWithTag(t, cp, subA, rawSlow, "", "slow")
+	addNodeForNodeListTestWithTag(t, cp, subA, rawUnknown, "", "unknown")
+
+	fastHash := node.HashFromRawOptions([]byte(rawFast))
+	slowHash := node.HashFromRawOptions([]byte(rawSlow))
+	unknownHash := node.HashFromRawOptions([]byte(rawUnknown))
+	for hash, latency := range map[node.Hash]time.Duration{
+		fastHash: 20 * time.Millisecond,
+		slowHash: 80 * time.Millisecond,
+	} {
+		entry, ok := cp.Pool.GetEntry(hash)
+		if !ok {
+			t.Fatalf("node %s missing after add", hash.Hex())
+		}
+		entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+			Ewma:        latency,
+			LastUpdated: time.Now(),
+		})
+	}
+
+	hashesFromResponse := func(path string) []string {
+		t.Helper()
+		rec := doJSONRequest(t, srv, http.MethodGet, path, nil, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list nodes status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := decodeJSONMap(t, rec)
+		items, ok := body["items"].([]any)
+		if !ok {
+			t.Fatalf("items type: got %T", body["items"])
+		}
+		hashes := make([]string, 0, len(items))
+		for _, rawItem := range items {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				t.Fatalf("item type: got %T", rawItem)
+			}
+			hash, ok := item["node_hash"].(string)
+			if !ok {
+				t.Fatalf("node_hash type: got %T", item["node_hash"])
+			}
+			hashes = append(hashes, hash)
+		}
+		return hashes
+	}
+
+	basePath := "/api/v1/nodes?subscription_id=" + subA.ID + "&sort_by=reference_latency_ms"
+	assertOrder := func(label string, got []string, want []node.Hash) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s len: got %d, want %d (%v)", label, len(got), len(want), got)
+		}
+		for i, h := range want {
+			if got[i] != h.Hex() {
+				t.Fatalf("%s[%d]: got %s, want %s (all=%v)", label, i, got[i], h.Hex(), got)
+			}
+		}
+	}
+
+	assertOrder("asc", hashesFromResponse(basePath+"&sort_order=asc"), []node.Hash{fastHash, slowHash, unknownHash})
+	assertOrder("desc", hashesFromResponse(basePath+"&sort_order=desc"), []node.Hash{slowHash, fastHash, unknownHash})
+}
+
 func TestHandleProbeEgress_ReturnsRegion(t *testing.T) {
 	srv, cp, _ := newControlPlaneTestServer(t)
 
