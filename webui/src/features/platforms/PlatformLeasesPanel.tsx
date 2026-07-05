@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Link2Off, Plus, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Copy, Link2Off, Plus, Search, Sparkles, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
 import { DataTable } from "../../components/ui/DataTable";
 import { Input } from "../../components/ui/Input";
 import { OffsetPagination } from "../../components/ui/OffsetPagination";
-import { Select } from "../../components/ui/Select";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatRelativeTime } from "../../lib/time";
@@ -20,7 +20,7 @@ const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
 const columnHelper = createColumnHelper<LeaseResponse>();
 
-type SortField = "account" | "node_tag" | "egress_ip" | "created_at" | "expiry" | "last_accessed";
+type SortField = "account" | "node_tag" | "egress_ip" | "reference_latency_ms" | "created_at" | "expiry" | "last_accessed";
 type SortOrder = "asc" | "desc";
 
 type Props = {
@@ -69,6 +69,19 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
     enabled: bindOpen,
   });
 
+  const bindLeasesQuery = useQuery({
+    queryKey: ["platform-leases", platform.id, "bind-map"],
+    queryFn: () =>
+      listPlatformLeases(platform.id, {
+        limit: 100000,
+        offset: 0,
+        sort_by: "account",
+        sort_order: "asc",
+      }),
+    enabled: bindOpen,
+    placeholderData: (prev) => prev,
+  });
+
   const nodeDetailQuery = useQuery({
     queryKey: ["node", detailNodeHash],
     queryFn: () => getNode(detailNodeHash),
@@ -84,6 +97,47 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
     if (bLat == null) return -1;
     return aLat - bLat;
   });
+
+  const leaseAccountsByNode = new Map<string, string[]>();
+  for (const lease of bindLeasesQuery.data?.items ?? []) {
+    const accounts = leaseAccountsByNode.get(lease.node_hash) ?? [];
+    accounts.push(lease.account);
+    leaseAccountsByNode.set(lease.node_hash, accounts);
+  }
+
+  const openBindModal = (lease?: LeaseResponse) => {
+    setBindAccount(lease?.account ?? "");
+    setSelectedNodeHash(lease?.node_hash ?? "");
+    setBindOpen(true);
+  };
+
+  const closeBindModal = () => {
+    setBindOpen(false);
+    setBindAccount("");
+    setSelectedNodeHash("");
+  };
+
+  const copyLeaseName = async () => {
+    const account = bindAccount.trim();
+    if (!account) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(account);
+      } else {
+        const area = document.createElement("textarea");
+        area.value = account;
+        area.style.position = "fixed";
+        area.style.opacity = "0";
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand("copy");
+        document.body.removeChild(area);
+      }
+      showToast("success", t("租约名称已复制"));
+    } catch {
+      showToast("error", t("复制失败"));
+    }
+  };
 
   const invalidateLeases = async () => {
     await queryClient.invalidateQueries({ queryKey: ["platform-leases", platform.id] });
@@ -113,9 +167,7 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
     mutationFn: () => bindPlatformLease(platform.id, bindAccount.trim(), selectedNodeHash),
     onSuccess: async (lease) => {
       await invalidateLeases();
-      setBindOpen(false);
-      setBindAccount("");
-      setSelectedNodeHash("");
+      closeBindModal();
       showToast("success", t("租约 {{account}} 已绑定到 {{ip}}", { account: lease.account, ip: lease.egress_ip }));
     },
     onError: (error) => {
@@ -194,7 +246,19 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
   const leaseColumns = [
     columnHelper.accessor("account", {
       header: () => sortHeader(t("Account"), "account"),
-      cell: (info) => <span className="lease-account-cell">{info.getValue()}</span>,
+      cell: (info) => (
+        <button
+          type="button"
+          className="lease-account-button"
+          title={t("绑定租约 {{account}}", { account: info.getValue() })}
+          onClick={(event) => {
+            event.stopPropagation();
+            openBindModal(info.row.original);
+          }}
+        >
+          {info.getValue()}
+        </button>
+      ),
     }),
     columnHelper.accessor("node_tag", {
       header: () => sortHeader(t("节点"), "node_tag"),
@@ -205,7 +269,7 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
     }),
     columnHelper.display({
       id: "reference_latency_ms",
-      header: t("参考延迟"),
+      header: () => sortHeader(t("参考延迟"), "reference_latency_ms"),
       cell: (info) => {
         const latencyMs = info.row.original.reference_latency_ms;
         if (typeof latencyMs !== "number") {
@@ -264,61 +328,157 @@ export function PlatformLeasesPanel({ platform, showToast }: Props) {
             }}
           />
         </div>
-        <Button variant="secondary" size="sm" onClick={() => setBindOpen(!bindOpen)}>
+        <Button variant="secondary" size="sm" onClick={() => openBindModal()}>
           <Plus size={14} />
           {t("绑定租约")}
         </Button>
       </div>
 
       {bindOpen ? (
-        <form className="platform-leases-bind-form" onSubmit={handleBind}>
-          <div className="bind-field bind-field-account">
-            <Input
-              placeholder={t("Account")}
-              value={bindAccount}
-              onChange={(e) => setBindAccount(e.target.value)}
-              required
-            />
-          </div>
-          <div className="bind-field bind-field-node">
-            <Select
-              value={selectedNodeHash}
-              onChange={(e) => setSelectedNodeHash(e.target.value)}
-              required
-              disabled={nodesQuery.isLoading}
-            >
-              <option value="">
-                {nodesQuery.isLoading ? t("加载节点中...") : t("出口 IP（如 1.2.3.4）")}
-              </option>
-              {sortedNodes.map((nd) => {
-                const tag = nd.tags.map((tg) => tg.tag).join(", ") || nd.node_hash.slice(0, 8);
-                const latency = nd.reference_latency_ms != null ? `${nd.reference_latency_ms}ms` : "-";
-                return (
-                  <option key={nd.node_hash} value={nd.node_hash}>
-                    {tag} | {nd.egress_ip || "-"} | {latency}
-                  </option>
-                );
-              })}
-            </Select>
-          </div>
-          <div className="bind-actions">
-            <Button type="submit" size="sm" disabled={bindMutation.isPending || !bindAccount.trim() || !selectedNodeHash}>
-              {bindMutation.isPending ? t("绑定中...") : t("确认绑定")}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              onClick={() => {
-                setBindOpen(false);
-                setBindAccount("");
-                setSelectedNodeHash("");
-              }}
-            >
-              {t("取消")}
-            </Button>
-          </div>
-        </form>
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={t("绑定租约")} onClick={closeBindModal}>
+          <Card className="modal-card platform-lease-bind-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{t("绑定租约")}</h3>
+              <Button variant="ghost" size="sm" aria-label={t("关闭")} onClick={closeBindModal}>
+                <X size={16} />
+              </Button>
+            </div>
+
+            <form className="platform-lease-bind-form" onSubmit={handleBind}>
+              <div className="field-group">
+                <label className="field-label" htmlFor="bind-lease-account">
+                  {t("租约名称")}
+                </label>
+                <Input
+                  id="bind-lease-account"
+                  placeholder={t("Account")}
+                  value={bindAccount}
+                  onChange={(e) => setBindAccount(e.target.value)}
+                  required
+                />
+              </div>
+
+              {bindAccount.trim() ? (
+                <button type="button" className="lease-copy-chip" title={t("点击复制租约名称")} onClick={copyLeaseName}>
+                  <span>{bindAccount.trim()}</span>
+                  <Copy size={13} />
+                </button>
+              ) : null}
+
+              <div className="platform-lease-node-picker">
+                <div className="platform-lease-node-picker-head">
+                  <span>{t("选择节点")}</span>
+                  <span>{nodesQuery.isLoading ? t("加载节点中...") : t("共 {{count}} 个节点", { count: sortedNodes.length })}</span>
+                </div>
+
+                {nodesQuery.isError ? (
+                  <div className="callout callout-error">
+                    <AlertTriangle size={14} />
+                    <span>{formatApiErrorMessage(nodesQuery.error, t)}</span>
+                  </div>
+                ) : null}
+
+                {bindLeasesQuery.isError ? (
+                  <div className="callout callout-error">
+                    <AlertTriangle size={14} />
+                    <span>{formatApiErrorMessage(bindLeasesQuery.error, t)}</span>
+                  </div>
+                ) : null}
+
+                {nodesQuery.isLoading ? <p className="muted">{t("加载节点中...")}</p> : null}
+
+                {!nodesQuery.isLoading && !sortedNodes.length ? (
+                  <div className="empty-box">
+                    <Sparkles size={16} />
+                    <p>{t("没有匹配的节点")}</p>
+                  </div>
+                ) : null}
+
+                {sortedNodes.length ? (
+                  <div className="platform-lease-node-table-wrap">
+                    <table className="platform-lease-node-table">
+                      <thead>
+                        <tr>
+                          <th>{t("节点")}</th>
+                          <th>{t("出口 IP")}</th>
+                          <th>{t("参考延迟")}</th>
+                          <th>{t("已绑定")}</th>
+                          <th>{t("操作")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedNodes.map((nd) => {
+                          const tag = nd.tags.map((tg) => tg.tag).join(", ") || nd.display_tag || nd.node_hash.slice(0, 8);
+                          const latencyMs = nd.reference_latency_ms;
+                          const accounts = leaseAccountsByNode.get(nd.node_hash) ?? [];
+                          const hiddenAccountCount = Math.max(0, accounts.length - 2);
+                          const accountText = accounts.slice(0, 2).join(", ");
+                          const boundTitle = accounts.join(", ");
+                          const isOccupied = accounts.length > 0 || nd.lease_count > 0;
+                          const selected = selectedNodeHash === nd.node_hash;
+                          return (
+                            <tr
+                              key={nd.node_hash}
+                              className={`${selected ? "selected" : ""}${isOccupied ? " occupied" : ""}`}
+                            >
+                              <td className="platform-lease-node-name" title={tag}>
+                                {tag}
+                              </td>
+                              <td className="platform-lease-node-ip" title={nd.egress_ip || "-"}>
+                                {nd.egress_ip || "-"}
+                              </td>
+                              <td>
+                                <span
+                                  className="platform-lease-node-latency"
+                                  style={typeof latencyMs === "number" ? { color: referenceLatencyColor(latencyMs) } : undefined}
+                                >
+                                  {typeof latencyMs === "number" ? formatLatency(latencyMs) : "-"}
+                                </span>
+                              </td>
+                              <td className="platform-lease-node-bound" title={boundTitle}>
+                                {accounts.length ? (
+                                  <>
+                                    <span className="platform-lease-bound-label">{t("已绑定:")}</span>
+                                    <span className="platform-lease-bound-accounts">
+                                      {accountText}
+                                      {hiddenAccountCount ? ` ${t("+{{count}}", { count: hiddenAccountCount })}` : ""}
+                                    </span>
+                                  </>
+                                ) : isOccupied && bindLeasesQuery.isLoading ? (
+                                  <span className="muted">{t("加载中...")}</span>
+                                ) : (
+                                  "-"
+                                )}
+                              </td>
+                              <td className="platform-lease-node-action">
+                                <Button
+                                  variant={selected ? "primary" : "secondary"}
+                                  size="sm"
+                                  onClick={() => setSelectedNodeHash(nd.node_hash)}
+                                >
+                                  {selected ? t("已选择") : t("选择")}
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="bind-actions">
+                <Button type="submit" size="sm" disabled={bindMutation.isPending || !bindAccount.trim() || !selectedNodeHash}>
+                  {bindMutation.isPending ? t("绑定中...") : t("确认绑定")}
+                </Button>
+                <Button variant="secondary" size="sm" type="button" onClick={closeBindModal}>
+                  {t("取消")}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
       ) : null}
 
       {leasesQuery.isLoading ? <p className="muted">{t("正在加载租约数据...")}</p> : null}

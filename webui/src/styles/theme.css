@@ -2865,28 +2865,128 @@ a {
 .platform-leases-search .form-input {
   flex: 1;
 }
-.platform-leases-bind-form {
+.platform-lease-bind-modal {
+  width: min(760px, 92vw);
+}
+.platform-lease-bind-form {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lease-copy-chip {
+  align-self: flex-start;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  max-width: 100%;
+  gap: 6px;
   border: 1px solid rgba(37, 72, 120, 0.14);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.84);
-  flex-wrap: nowrap;
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: rgba(20, 112, 255, 0.07);
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
 }
-.bind-field {
+.lease-copy-chip span {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
 }
-.bind-field-account {
-  flex: 1;
+.platform-lease-node-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.bind-field-node {
-  flex: 2;
+.platform-lease-node-picker-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
-.bind-field .form-input,
-.bind-field .form-select {
+.platform-lease-node-table-wrap {
+  max-height: min(42vh, 360px);
+  overflow: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(37, 72, 120, 0.14);
+}
+.platform-lease-node-table {
   width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+.platform-lease-node-table th,
+.platform-lease-node-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(37, 72, 120, 0.1);
+  vertical-align: middle;
+}
+.platform-lease-node-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(240, 247, 255, 0.96);
+  color: var(--text-muted);
+  font-weight: 700;
+  text-align: left;
+}
+.platform-lease-node-table th:nth-child(2),
+.platform-lease-node-table td:nth-child(2) {
+  width: 122px;
+}
+.platform-lease-node-table th:nth-child(3),
+.platform-lease-node-table td:nth-child(3) {
+  width: 92px;
+}
+.platform-lease-node-table th:nth-child(4),
+.platform-lease-node-table td:nth-child(4) {
+  width: 190px;
+}
+.platform-lease-node-table th:nth-child(5),
+.platform-lease-node-table td:nth-child(5) {
+  width: 78px;
+  text-align: right;
+}
+.platform-lease-node-table tbody tr {
+  background: rgba(255, 255, 255, 0.64);
+  transition: background-color 0.15s, opacity 0.15s;
+}
+.platform-lease-node-table tbody tr:hover,
+.platform-lease-node-table tbody tr.selected {
+  background: rgba(20, 112, 255, 0.08);
+}
+.platform-lease-node-table tbody tr.occupied:not(.selected) {
+  opacity: 0.68;
+}
+.platform-lease-node-name,
+.platform-lease-node-ip,
+.platform-lease-node-bound {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.platform-lease-node-name {
+  font-weight: 600;
+}
+.platform-lease-node-latency {
+  font-weight: 700;
+}
+.platform-lease-bound-label {
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+.platform-lease-bound-accounts {
+  color: var(--text);
+  font-family: var(--font-mono, monospace);
+}
+.platform-lease-node-action .btn {
+  min-width: 64px;
+  justify-content: center;
 }
 .bind-actions {
   display: flex;
@@ -2899,6 +2999,24 @@ a {
 .lease-account-cell {
   font-family: var(--font-mono, monospace);
   font-size: 12px;
+}
+.lease-account-button {
+  max-width: 220px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lease-account-button:hover {
+  text-decoration: underline;
 }
 .lease-sort-header {
   display: inline-flex;
@@ -3607,8 +3725,21 @@ a {
   background: rgba(255, 255, 255, 0.04);
 }
 
-[data-theme="dark"] .platform-leases-bind-form {
+[data-theme="dark"] .lease-copy-chip {
   background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .platform-lease-node-table th {
+  background: rgba(22, 34, 55, 0.96);
+}
+
+[data-theme="dark"] .platform-lease-node-table tbody tr {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .platform-lease-node-table tbody tr:hover,
+[data-theme="dark"] .platform-lease-node-table tbody tr.selected {
+  background: rgba(20, 112, 255, 0.12);
 }
 
 [data-theme="dark"] .logs-detail-block {

@@ -518,6 +518,103 @@ func TestAPIContract_GetLease_IncludesNodeTag(t *testing.T) {
 	}
 }
 
+func TestAPIContract_ListLeases_SortByReferenceLatency(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	platformID := mustCreatePlatform(t, srv, "lease-latency-sort")
+	sub := subscription.NewSubscription("lease-latency-sub", "Latency", "https://example.com/latency", true, false)
+	cp.SubMgr.Register(sub)
+
+	addNode := func(raw []byte, tag, egressIP string, latencyMs int) node.Hash {
+		t.Helper()
+		hash := node.HashFromRawOptions(raw)
+		sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{tag}})
+		cp.Pool.AddNodeFromSub(hash, raw, sub.ID)
+		entry, ok := cp.Pool.GetEntry(hash)
+		if !ok {
+			t.Fatalf("node %s missing", hash.Hex())
+		}
+		entry.SetEgressIP(netip.MustParseAddr(egressIP))
+		if latencyMs >= 0 {
+			entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+				Ewma:        time.Duration(latencyMs) * time.Millisecond,
+				LastUpdated: time.Now(),
+			})
+		}
+		return hash
+	}
+
+	fast := addNode([]byte(`{"type":"ss","server":"198.51.100.61","port":443}`), "fast", "203.0.113.61", 20)
+	slow := addNode([]byte(`{"type":"ss","server":"198.51.100.62","port":443}`), "slow", "203.0.113.62", 80)
+	unknown := addNode([]byte(`{"type":"ss","server":"198.51.100.63","port":443}`), "unknown", "203.0.113.63", -1)
+
+	now := time.Now().UnixNano()
+	cp.Router.RestoreLeases([]model.Lease{
+		{
+			PlatformID:     platformID,
+			Account:        "slow",
+			NodeHash:       slow.Hex(),
+			EgressIP:       "203.0.113.62",
+			CreatedAtNs:    now,
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		},
+		{
+			PlatformID:     platformID,
+			Account:        "unknown",
+			NodeHash:       unknown.Hex(),
+			EgressIP:       "203.0.113.63",
+			CreatedAtNs:    now,
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		},
+		{
+			PlatformID:     platformID,
+			Account:        "fast",
+			NodeHash:       fast.Hex(),
+			EgressIP:       "203.0.113.61",
+			CreatedAtNs:    now,
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		},
+	})
+
+	assertOrder := func(sortOrder string, want []string) {
+		t.Helper()
+		rec := doJSONRequest(
+			t,
+			srv,
+			http.MethodGet,
+			"/api/v1/platforms/"+platformID+"/leases?sort_by=reference_latency_ms&sort_order="+sortOrder,
+			nil,
+			true,
+		)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list leases status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := decodeJSONMap(t, rec)
+		items, ok := body["items"].([]any)
+		if !ok {
+			t.Fatalf("items type: got %T", body["items"])
+		}
+		if len(items) != len(want) {
+			t.Fatalf("items len: got %d, want %d", len(items), len(want))
+		}
+		for i, item := range items {
+			row, ok := item.(map[string]any)
+			if !ok {
+				t.Fatalf("item type: got %T", item)
+			}
+			if row["account"] != want[i] {
+				t.Fatalf("account[%d]: got %v, want %q (body=%s)", i, row["account"], want[i], rec.Body.String())
+			}
+		}
+	}
+
+	assertOrder("asc", []string{"fast", "slow", "unknown"})
+	assertOrder("desc", []string{"slow", "fast", "unknown"})
+}
+
 func TestAPIContract_ListLeases_AccountFuzzySearch(t *testing.T) {
 	srv, cp, _ := newControlPlaneTestServer(t)
 

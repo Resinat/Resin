@@ -34,6 +34,25 @@ func leaseSortKey(sortBy string, l service.LeaseResponse) string {
 	}
 }
 
+func sortLeaseResponsesByLatency(leases []service.LeaseResponse, sorting Sorting) {
+	slices.SortStableFunc(leases, func(a, b service.LeaseResponse) int {
+		if a.ReferenceLatencyMs == nil && b.ReferenceLatencyMs == nil {
+			return strings.Compare(a.Account, b.Account)
+		}
+		if a.ReferenceLatencyMs == nil {
+			return 1
+		}
+		if b.ReferenceLatencyMs == nil {
+			return -1
+		}
+		order := cmp.Compare(*a.ReferenceLatencyMs, *b.ReferenceLatencyMs)
+		if order != 0 {
+			return applySortOrder(order, sorting.SortOrder)
+		}
+		return strings.Compare(a.Account, b.Account)
+	})
+}
+
 func compareIPLoadEntries(sortBy string, a, b service.IPLoadEntry) int {
 	switch sortBy {
 	case "egress_ip":
@@ -98,13 +117,17 @@ func HandleListLeases(cp *service.ControlPlaneService) http.HandlerFunc {
 			leases = filtered
 		}
 
-		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"account", "node_tag", "egress_ip", "created_at", "expiry", "last_accessed"}, "expiry", "asc")
+		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"account", "node_tag", "egress_ip", "reference_latency_ms", "created_at", "expiry", "last_accessed"}, "expiry", "asc")
 		if !ok {
 			return
 		}
-		SortSlice(leases, sorting, func(l service.LeaseResponse) string {
-			return leaseSortKey(sorting.SortBy, l)
-		})
+		if sorting.SortBy == "reference_latency_ms" {
+			sortLeaseResponsesByLatency(leases, sorting)
+		} else {
+			SortSlice(leases, sorting, func(l service.LeaseResponse) string {
+				return leaseSortKey(sorting.SortBy, l)
+			})
+		}
 
 		pg, ok := parsePaginationOrWriteInvalid(w, r)
 		if !ok {
