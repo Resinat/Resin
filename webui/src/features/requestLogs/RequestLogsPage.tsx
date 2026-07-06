@@ -83,6 +83,17 @@ function boolFromFilter(value: BoolFilter): boolean | undefined {
   return undefined;
 }
 
+function formatDurationMs(value: number): string {
+  return `${value} ms`;
+}
+
+function formatOptionalDurationMs(value: number | undefined): string {
+  if (value === undefined || value === null || value <= 0) {
+    return "-";
+  }
+  return formatDurationMs(value);
+}
+
 function decodeBase64ToBytes(raw: string): Uint8Array | null {
   if (!raw) {
     return new Uint8Array(0);
@@ -614,9 +625,13 @@ export function RequestLogsPage() {
           </Badge>
         ),
       }),
+      col.accessor("first_byte_duration_ms", {
+        header: t("首字耗时"),
+        cell: (info) => formatOptionalDurationMs(info.getValue()),
+      }),
       col.accessor("duration_ms", {
-        header: t("耗时"),
-        cell: (info) => `${info.getValue()} ms`,
+        header: t("总耗时"),
+        cell: (info) => formatDurationMs(info.getValue()),
       }),
       col.display({
         id: "traffic",
@@ -931,8 +946,12 @@ export function RequestLogsPage() {
                   </div>
 
                   <div>
-                    <span>{t("耗时")}</span>
-                    <p>{detailLog.duration_ms} ms</p>
+                    <span>{t("首字耗时")}</span>
+                    <p>{formatOptionalDurationMs(detailLog.first_byte_duration_ms)}</p>
+                  </div>
+                  <div>
+                    <span>{t("总耗时")}</span>
+                    <p>{formatDurationMs(detailLog.duration_ms)}</p>
                   </div>
                   <div>
                     <span>{t("平台")}</span>

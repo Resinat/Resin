@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -52,6 +54,10 @@ type resinApp struct {
 }
 
 func run() error {
+	if err := loadDotenvFile(".env"); err != nil {
+		return err
+	}
+
 	envCfg, err := config.LoadEnvConfig()
 	if err != nil {
 		return err
@@ -84,6 +90,51 @@ func run() error {
 	}
 	if runtimeErr != nil {
 		return fmt.Errorf("runtime server error: %w", runtimeErr)
+	}
+	return nil
+}
+
+func loadDotenvFile(path string) error {
+	file, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load %s: %w", path, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for lineNo := 1; scanner.Scan(); lineNo++ {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return fmt.Errorf("load %s:%d: missing '='", path, lineNo)
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return fmt.Errorf("load %s:%d: empty key", path, lineNo)
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 {
+			first, last := value[0], value[len(value)-1]
+			if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("load %s:%d: %w", path, lineNo, err)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("load %s: %w", path, err)
 	}
 	return nil
 }

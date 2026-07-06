@@ -112,6 +112,7 @@ services:
 如果你只需要一个高性能、大容量、且会自动健康管理的通用代理池，Resin 开箱即用。
 启动 Resin 服务后，你可以按客户端能力选择 HTTP 正向代理、SOCKS5 正向代理或反向代理接入。  
 如果你不想设置代理密码，请将环境变量显式设为空字符串：`RESIN_PROXY_TOKEN=""`（变量必须定义）。此时 HTTP 正向代理可直接接入 `http://127.0.0.1:2260`，SOCKS5 正向代理可直接接入 `socks5://127.0.0.1:2260`。
+通过二进制文件或源码运行时，Resin 也会在读取配置前自动加载当前工作目录下的 `.env` 文件；已经由系统或 shell 设置的环境变量优先级高于 `.env`。
 
 HTTP 正向代理例子：
 
@@ -327,6 +328,19 @@ RESIN_LISTEN_ADDRESS=0.0.0.0 \
 RESIN_PORT=2260 \
 ./resin
 ```
+
+也可以在工作目录创建 `.env` 文件，然后直接运行 `./resin`：
+
+```dotenv
+RESIN_AUTH_VERSION=V1
+RESIN_ADMIN_TOKEN=【管理面板密码】
+RESIN_PROXY_TOKEN=【代理密码】
+RESIN_STATE_DIR=./data/state
+RESIN_CACHE_DIR=./data/cache
+RESIN_LOG_DIR=./data/log
+RESIN_LISTEN_ADDRESS=0.0.0.0
+RESIN_PORT=2260
+```
 </details>
 
 <details>
@@ -366,7 +380,7 @@ RESIN_PORT=2260 \
 - **Q: 如何让内网或本机目标不走代理节点？**
   - **A**: 配置 `RESIN_PROXY_BYPASS`，用分号、逗号或换行分隔规则。命中的请求会由 Resin 本机直连目标，而不是通过代理节点。例如：`RESIN_PROXY_BYPASS="localhost;127.*;10.*;172.16.0.0/12;192.168.*;<local>"`。规则支持精确主机、`*`/`?` 通配符、CIDR 网段，以及表示无点号本地域名的 `<local>`。
 - **Q: 启动失败提示 `RESIN_PROXY_TOKEN` 未定义？**
-  - **A**: 就算你不打算启用代理密码，也必须显式配置它为空：`RESIN_PROXY_TOKEN=""`。
+  - **A**: 就算你不打算启用代理密码，也必须显式配置它为空：`RESIN_PROXY_TOKEN=""`。如果你的 shell 会丢弃空环境变量，请创建 `.env` 文件并写入 `RESIN_PROXY_TOKEN=`。
 - **Q: 启动失败提示 `RESIN_AUTH_VERSION` 未定义？**
   - **A**: 请设置为 `LEGACY_V0` 或 `V1`。新用户设置成 V1 即可。有旧数据的老用户可以参考[迁移指南](doc/v1.0.0-migration-guide.zh-CN.md)。
 - **Q: 为什么 SOCKS5 客户端连不上？**

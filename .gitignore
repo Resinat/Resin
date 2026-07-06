@@ -1,4 +1,5 @@
 /resin
+.env
 sing-box-reference
 .agents
 .ace-tool/

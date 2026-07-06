@@ -3,6 +3,7 @@ package proxy
 import (
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/Resinat/Resin/internal/routing"
@@ -11,10 +12,11 @@ import (
 // requestLifecycle captures mutable per-request telemetry and emits both
 // metrics and request-log events on completion.
 type requestLifecycle struct {
-	startedAt time.Time
-	events    EventEmitter
-	finished  RequestFinishedEvent
-	log       RequestLogEntry
+	startedAt           time.Time
+	events              EventEmitter
+	finished            RequestFinishedEvent
+	log                 RequestLogEntry
+	firstByteDurationNs atomic.Int64
 
 	reqBodyCapture  *payloadCaptureReadCloser
 	respBodyCapture *payloadCaptureReadCloser
@@ -80,8 +82,21 @@ func (l *requestLifecycle) finish() {
 	durationNs := time.Since(l.startedAt).Nanoseconds()
 	l.finished.DurationNs = durationNs
 	l.log.DurationNs = durationNs
+	l.log.FirstByteDurationNs = l.firstByteDurationNs.Load()
 	l.events.EmitRequestFinished(l.finished)
 	l.events.EmitRequestLog(l.log)
+}
+
+func (l *requestLifecycle) markFirstByteReceived() {
+	if l == nil || l.startedAt.IsZero() {
+		return
+	}
+	durationNs := time.Since(l.startedAt).Nanoseconds()
+	if durationNs <= 0 {
+		durationNs = 1
+	}
+	// 首字耗时只记录第一次观测到上游响应字节的时间，避免重试或多回调覆盖。
+	l.firstByteDurationNs.CompareAndSwap(0, durationNs)
 }
 
 func (l *requestLifecycle) setHTTPStatus(code int) {

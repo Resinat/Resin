@@ -1158,19 +1158,20 @@ func TestReverseParsePath_ProtocolCaseInsensitive(t *testing.T) {
 func TestEventEmitterInterface(t *testing.T) {
 	// Verify the RequestLogEntry fields match DESIGN.md schema.
 	entry := RequestLogEntry{
-		ProxyType:    ProxyTypeForward,
-		ClientIP:     "127.0.0.1:12345",
-		PlatformID:   "test-id",
-		PlatformName: "test",
-		Account:      "acct",
-		TargetHost:   "example.com",
-		TargetURL:    "https://example.com/path",
-		NodeHash:     "abc123",
-		EgressIP:     "1.2.3.4",
-		DurationNs:   12345678,
-		NetOK:        true,
-		HTTPMethod:   "GET",
-		HTTPStatus:   200,
+		ProxyType:           ProxyTypeForward,
+		ClientIP:            "127.0.0.1:12345",
+		PlatformID:          "test-id",
+		PlatformName:        "test",
+		Account:             "acct",
+		TargetHost:          "example.com",
+		TargetURL:           "https://example.com/path",
+		NodeHash:            "abc123",
+		EgressIP:            "1.2.3.4",
+		DurationNs:          12345678,
+		FirstByteDurationNs: 3456789,
+		NetOK:               true,
+		HTTPMethod:          "GET",
+		HTTPStatus:          200,
 	}
 	// Just verify fields are accessible (compile-time check).
 	if entry.ProxyType != ProxyTypeForward || !entry.NetOK {

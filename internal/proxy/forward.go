@@ -365,7 +365,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		transport = p.outboundHTTPTransport(routed)
 	}
 	outReq := prepareForwardOutboundRequest(r)
-	upstreamTrace := newUpstreamRequestTrace()
+	upstreamTrace := newUpstreamRequestTrace(lifecycle.markFirstByteReceived)
 	outReq = outReq.WithContext(httptrace.WithClientTrace(outReq.Context(), upstreamTrace.clientTrace()))
 	pendingEgressHeaderBytes := headerWireLen(outReq.Header)
 	var egressBodyCounter *countingReadCloser
@@ -512,6 +512,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	lifecycle.setHTTPStatus(http.StatusOK)
 	relay := pumpPreparedTunnel(clientConn, clientBuf.Reader, prepare.session, tunnelPumpOptions{
 		requireBidirectionalTraffic: true,
+		onFirstIngressByte:          lifecycle.markFirstByteReceived,
 	})
 	lifecycle.addIngressBytes(relay.ingressBytes)
 	lifecycle.addEgressBytes(relay.egressBytes)

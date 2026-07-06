@@ -198,10 +198,10 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	}
 
 	if !hasAdminToken {
-		errs = append(errs, "RESIN_ADMIN_TOKEN must be defined (can be empty)")
+		errs = append(errs, "RESIN_ADMIN_TOKEN must be defined. If you intend to use an empty token, please set it explicitly (e.g., RESIN_ADMIN_TOKEN=).")
 	}
 	if !hasProxyToken {
-		errs = append(errs, "RESIN_PROXY_TOKEN must be defined (can be empty)")
+		errs = append(errs, "RESIN_PROXY_TOKEN must be defined. If you intend to use an empty token, please set it explicitly (e.g., RESIN_PROXY_TOKEN=).")
 	} else {
 		if cfg.ProxyToken != "" {
 			switch cfg.AuthVersion {

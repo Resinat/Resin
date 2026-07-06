@@ -48,6 +48,21 @@ type tunnelRelayResult struct {
 
 type tunnelPumpOptions struct {
 	requireBidirectionalTraffic bool
+	onFirstIngressByte          func()
+}
+
+type firstByteReader struct {
+	reader      io.Reader
+	onFirstByte func()
+	once        sync.Once
+}
+
+func (r *firstByteReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 && r.onFirstByte != nil {
+		r.once.Do(r.onFirstByte)
+	}
+	return n, err
 }
 
 func prepareConnectTunnel(
@@ -201,7 +216,12 @@ func pumpPreparedTunnelReader(
 		egressBytesCh <- copyResult{n: n, err: copyErr}
 	}()
 	go func() {
-		n, copyErr := io.Copy(clientConn, session.upstreamConn)
+		var upstreamReader io.Reader = session.upstreamConn
+		if opts.onFirstIngressByte != nil {
+			// 隧道首字耗时以目标站点返回的第一批字节为准，而不是 CONNECT/SOCKS 握手完成。
+			upstreamReader = &firstByteReader{reader: session.upstreamConn, onFirstByte: opts.onFirstIngressByte}
+		}
+		n, copyErr := io.Copy(clientConn, upstreamReader)
 		if !isBenignTunnelCopyError(copyErr) || !closeWriteConn(clientConn) {
 			closeBoth()
 		}

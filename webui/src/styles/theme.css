@@ -3085,6 +3085,91 @@ a {
   gap: 10px;
 }
 
+.platform-ops-tabpanel {
+  gap: 18px;
+}
+
+.platform-ops-section,
+.platform-lease-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.platform-lease-head {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.platform-lease-head>div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.platform-lease-head .btn {
+  flex-shrink: 0;
+}
+
+.platform-lease-table-wrap {
+  margin-top: 0;
+  max-height: 420px;
+}
+
+.data-table-leases {
+  min-width: 900px;
+}
+
+.platform-lease-table-wrap .data-table tbody tr {
+  cursor: default;
+}
+
+.lease-account-cell {
+  display: block;
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 700;
+  color: #173f74;
+}
+
+.lease-node-cell {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 260px;
+}
+
+.lease-node-cell strong,
+.lease-node-cell small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.lease-node-cell strong {
+  font-size: 13px;
+  color: #253d5f;
+}
+
+.lease-node-cell small {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.lease-row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .platform-op-item {
   border: 1px solid rgba(37, 72, 120, 0.14);
   border-radius: 12px;

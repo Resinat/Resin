@@ -292,6 +292,7 @@ type logListItem struct {
 	NodeTag              string `json:"node_tag"`
 	EgressIP             string `json:"egress_ip"`
 	DurationMs           int64  `json:"duration_ms"`
+	FirstByteDurationMs  int64  `json:"first_byte_duration_ms"`
 	NetOK                bool   `json:"net_ok"`
 	HTTPMethod           string `json:"http_method"`
 	HTTPStatus           int    `json:"http_status"`
@@ -328,6 +329,7 @@ func toLogListItem(s requestlog.LogSummary) logListItem {
 		NodeTag:              s.NodeTag,
 		EgressIP:             s.EgressIP,
 		DurationMs:           s.DurationNs / 1e6,
+		FirstByteDurationMs:  s.FirstByteDurationNs / 1e6,
 		NetOK:                s.NetOK,
 		HTTPMethod:           s.HTTPMethod,
 		HTTPStatus:           s.HTTPStatus,

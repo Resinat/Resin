@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Info, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
@@ -16,7 +16,13 @@ import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatGoDuration, formatRelativeTime } from "../../lib/time";
-import { clearAllPlatformLeases, deletePlatform, getPlatform, resetPlatform, updatePlatform } from "./api";
+import {
+  clearAllPlatformLeases,
+  deletePlatform,
+  getPlatform,
+  resetPlatform,
+  updatePlatform,
+} from "./api";
 import {
   allocationPolicies,
   allocationPolicyLabel,
@@ -51,6 +57,7 @@ const DETAIL_TABS: Array<{ key: PlatformDetailTab; label: string; hint: string }
 export function PlatformDetailPage() {
   const { t } = useI18n();
   const { platformId = "" } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<PlatformDetailTab>("monitor");
   const { toasts, showToast, dismissToast } = useToast();
@@ -85,6 +92,13 @@ export function PlatformDetailPage() {
     }
     editForm.reset(platformToFormValues(platform));
   }, [platform, editForm]);
+
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get("tab");
+    if (DETAIL_TABS.some((item) => item.key === tab)) {
+      setActiveTab(tab as PlatformDetailTab);
+    }
+  }, [location.search]);
 
   const invalidatePlatform = async (id: string) => {
     await Promise.all([
@@ -137,7 +151,10 @@ export function PlatformDetailPage() {
       return platform;
     },
     onSuccess: async (updated) => {
-      await queryClient.invalidateQueries({ queryKey: ["platform-monitor"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["platform-monitor"] }),
+        queryClient.invalidateQueries({ queryKey: ["platform-leases", updated.id] }),
+      ]);
       showToast("success", t("平台 {{name}} 的所有租约已清除", { name: updated.name }));
     },
     onError: (error) => {
@@ -507,49 +524,52 @@ export function PlatformDetailPage() {
             ) : null}
 
             {activeTab === "ops" ? (
-              <section
+              <div
                 id="platform-tabpanel-ops"
                 role="tabpanel"
                 aria-labelledby="platform-tab-ops"
-                className="platform-detail-tabpanel platform-ops-section"
+                className="platform-detail-tabpanel platform-ops-tabpanel"
               >
-                <div className="platform-drawer-section-head">
-                  <h4>{t("运维操作")}</h4>
-                  <p>{t("以下操作会直接作用于当前平台，请谨慎执行。")}</p>
-                </div>
-
-                <div className="platform-ops-list">
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>{t("重置为默认配置")}</h5>
-                      <p className="platform-op-hint">{t("恢复默认设置，并覆盖当前修改。")}</p>
-                    </div>
-                    <Button variant="secondary" onClick={() => void resetMutation.mutateAsync()} disabled={resetMutation.isPending}>
-                      {resetMutation.isPending ? t("重置中...") : t("重置为默认配置")}
-                    </Button>
+                <section className="platform-ops-section">
+                  <div className="platform-drawer-section-head">
+                    <h4>{t("运维操作")}</h4>
+                    <p>{t("以下操作会直接作用于当前平台，请谨慎执行。")}</p>
                   </div>
 
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>{t("清除所有租约")}</h5>
-                      <p className="platform-op-hint">{t("立即清除当前平台的全部租约，下次请求将重新分配出口。")}</p>
+                  <div className="platform-ops-list">
+                    <div className="platform-op-item">
+                      <div className="platform-op-copy">
+                        <h5>{t("重置为默认配置")}</h5>
+                        <p className="platform-op-hint">{t("恢复默认设置，并覆盖当前修改。")}</p>
+                      </div>
+                      <Button variant="secondary" onClick={() => void resetMutation.mutateAsync()} disabled={resetMutation.isPending}>
+                        {resetMutation.isPending ? t("重置中...") : t("重置为默认配置")}
+                      </Button>
                     </div>
-                    <Button variant="danger" onClick={() => void handleClearAllLeases()} disabled={clearLeasesMutation.isPending}>
-                      {clearLeasesMutation.isPending ? t("清除中...") : t("清除所有租约")}
-                    </Button>
-                  </div>
 
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>{t("删除平台")}</h5>
-                      <p className="platform-op-hint">{t("永久删除当前平台及其配置，操作不可撤销。")}</p>
+                    <div className="platform-op-item">
+                      <div className="platform-op-copy">
+                        <h5>{t("清除所有租约")}</h5>
+                        <p className="platform-op-hint">{t("立即清除当前平台的全部租约，下次请求将重新分配出口。")}</p>
+                      </div>
+                      <Button variant="danger" onClick={() => void handleClearAllLeases()} disabled={clearLeasesMutation.isPending}>
+                        {clearLeasesMutation.isPending ? t("清除中...") : t("清除所有租约")}
+                      </Button>
                     </div>
-                    <Button variant="danger" onClick={() => void handleDelete()} disabled={deleteDisabled}>
-                      {deleteMutation.isPending ? t("删除中...") : t("删除平台")}
-                    </Button>
+
+                    <div className="platform-op-item">
+                      <div className="platform-op-copy">
+                        <h5>{t("删除平台")}</h5>
+                        <p className="platform-op-hint">{t("永久删除当前平台及其配置，操作不可撤销。")}</p>
+                      </div>
+                      <Button variant="danger" onClick={() => void handleDelete()} disabled={deleteDisabled}>
+                        {deleteMutation.isPending ? t("删除中...") : t("删除平台")}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </section>
+                </section>
+
+              </div>
             ) : null}
           </Card>
         </>

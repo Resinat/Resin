@@ -718,6 +718,7 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 * `node_tag`：出口节点展示 Tag (`<Subscription>/<Tag>`)。如果有多个订阅持有节点，选所属 subscription 创建最早的那个，同 subscription 选字典序最小的。
 * `egress_ip`：实际出口 IP 地址。
 * `duration_ns`：请求耗时。隧道型请求（HTTP `CONNECT` / SOCKS5 `CONNECT`）记录隧道保留时长。
+* `first_byte_duration_ns`：从请求开始到观测到上游首批响应字节的耗时；未观测到时为 `0`。
 * `net_ok`：网络层是否成功 (0/1)。
 * `http_method`：HTTP 方法。HTTP `CONNECT` 记录为 `CONNECT`；SOCKS5 正向代理无 HTTP 语义，记录为空字符串。
 * `http_status`：HTTP 状态码。SOCKS5 正向代理无 HTTP 语义，记录为 `0`。
@@ -1960,6 +1961,7 @@ Query（建议）：
       "node_tag": "sub-A/HK-01",
       "egress_ip": "1.2.3.4",
       "duration_ms": 532,
+      "first_byte_duration_ms": 120,
       "net_ok": true,
       "http_method": "GET",
       "http_status": 200,
@@ -1984,7 +1986,7 @@ Query（建议）：
 }
 ```
 
-说明：当 `proxy_type=3`（SOCKS5 正向代理）时，`target_url=""`、`http_method=""`、`http_status=0`；其余字段仍按统一请求日志契约返回。
+说明：当 `proxy_type=3`（SOCKS5 正向代理）时，`target_url=""`、`http_method=""`、`http_status=0`；其余字段仍按统一请求日志契约返回。`first_byte_duration_ms=0` 表示未观测到上游首字节。
 
 #### 获取单条日志
 
@@ -2369,6 +2371,7 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * `RESIN_REQUEST_LOG_DB_RETAIN_COUNT`：保留的历史日志数据库文件数量（滚动日志），默认 5。
 
 认证设置：
+* 启动时会先加载当前工作目录下的 `.env` 文件（文件不存在则忽略；格式错误则拒绝启动）；系统或 shell 已设置的环境变量优先于 `.env`。
 * `RESIN_AUTH_VERSION`：认证解析版本。必填。枚举：`LEGACY_V0|V1`。用于认证格式迁移。缺失或非法值时拒绝启动。
   * `LEGACY_V0`：兼容旧认证格式，禁用 V1 新格式解析，并禁用 SOCKS5 正向代理入口。
   * `V1`：启用新认证格式与 SOCKS5 正向代理入口，并在启动期执行 V1 兼容性校验（`RESIN_PROXY_TOKEN` 与历史 Platform 名称）。

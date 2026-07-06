@@ -62,3 +62,23 @@ export type LeaseResponse = {
   expiry: string;
   last_accessed: string;
 };
+
+export type PlatformLease = LeaseResponse;
+export type PlatformLeaseSortBy =
+  | "account"
+  | "node_tag"
+  | "egress_ip"
+  | "reference_latency_ms"
+  | "created_at"
+  | "expiry"
+  | "last_accessed";
+export type SortOrder = "asc" | "desc";
+
+export type ListPlatformLeasesInput = {
+  limit?: number;
+  offset?: number;
+  account?: string;
+  fuzzy?: boolean;
+  sort_by?: PlatformLeaseSortBy;
+  sort_order?: SortOrder;
+};

@@ -12,6 +12,7 @@ export type RequestLogItem = {
   node_tag: string;
   egress_ip: string;
   duration_ms: number;
+  first_byte_duration_ms: number;
   net_ok: boolean;
   http_method: string;
   http_status: number;

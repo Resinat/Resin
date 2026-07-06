@@ -1,4 +1,5 @@
 .git
+.env
 .agents
 resin
 sing-box-reference

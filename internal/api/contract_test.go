@@ -288,6 +288,7 @@ func seedObservabilityData(
 			NodeTag:              "sub/tag-1",
 			EgressIP:             "8.8.8.8",
 			DurationNs:           int64(45 * time.Millisecond),
+			FirstByteDurationNs:  int64(12 * time.Millisecond),
 			NetOK:                true,
 			HTTPMethod:           "GET",
 			HTTPStatus:           200,
@@ -307,18 +308,19 @@ func seedObservabilityData(
 			RespBody:             []byte("resp-b-1"),
 		},
 		{
-			ID:          "log-contract-2",
-			StartedAtNs: time.Now().Add(-time.Minute).UnixNano(),
-			ProxyType:   proxy.ProxyTypeForward,
-			ClientIP:    "127.0.0.2",
-			PlatformID:  platformID,
-			Account:     "acct-2",
-			TargetHost:  "example.org",
-			TargetURL:   "https://example.org/resource",
-			DurationNs:  int64(12 * time.Millisecond),
-			NetOK:       false,
-			HTTPMethod:  "POST",
-			HTTPStatus:  502,
+			ID:                  "log-contract-2",
+			StartedAtNs:         time.Now().Add(-time.Minute).UnixNano(),
+			ProxyType:           proxy.ProxyTypeForward,
+			ClientIP:            "127.0.0.2",
+			PlatformID:          platformID,
+			Account:             "acct-2",
+			TargetHost:          "example.org",
+			TargetURL:           "https://example.org/resource",
+			DurationNs:          int64(12 * time.Millisecond),
+			FirstByteDurationNs: int64(5 * time.Millisecond),
+			NetOK:               false,
+			HTTPMethod:          "POST",
+			HTTPStatus:          502,
 		},
 	})
 	if err != nil {
@@ -1806,10 +1808,13 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	if !ok {
 		t.Fatalf("first item type: got %T", items[0])
 	}
-	for _, key := range []string{"resin_error", "upstream_stage", "upstream_err_kind", "upstream_errno", "upstream_err_msg"} {
+	for _, key := range []string{"first_byte_duration_ms", "resin_error", "upstream_stage", "upstream_err_kind", "upstream_errno", "upstream_err_msg"} {
 		if _, exists := firstItem[key]; !exists {
 			t.Fatalf("first item missing field %q", key)
 		}
+	}
+	if firstItem["first_byte_duration_ms"] != float64(5) {
+		t.Fatalf("first_byte_duration_ms: got %v, want 5", firstItem["first_byte_duration_ms"])
 	}
 
 	rec = doJSONRequest(
@@ -1925,10 +1930,13 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	if row["id"] != logID {
 		t.Fatalf("id: got %v, want %q", row["id"], logID)
 	}
-	for _, key := range []string{"resin_error", "upstream_stage", "upstream_err_kind", "upstream_errno", "upstream_err_msg"} {
+	for _, key := range []string{"first_byte_duration_ms", "resin_error", "upstream_stage", "upstream_err_kind", "upstream_errno", "upstream_err_msg"} {
 		if _, exists := row[key]; !exists {
 			t.Fatalf("row missing field %q", key)
 		}
+	}
+	if row["first_byte_duration_ms"] != float64(12) {
+		t.Fatalf("detail first_byte_duration_ms: got %v, want 12", row["first_byte_duration_ms"])
 	}
 	if row["payload_present"] != true {
 		t.Fatalf("payload_present: got %v, want true", row["payload_present"])

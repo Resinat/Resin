@@ -359,7 +359,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeReverse, false)
 	lifecycle.setTarget(parsed.Host, "")
-	upstreamTrace := newUpstreamRequestTrace()
+	upstreamTrace := newUpstreamRequestTrace(lifecycle.markFirstByteReceived)
 	var pendingEgressHeaderBytes int64
 	var egressBodyCounter *countingReadCloser
 	var ingressBodyCounter *countingReadCloser

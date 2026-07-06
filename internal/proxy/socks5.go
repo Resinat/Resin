@@ -171,7 +171,9 @@ func (s *Socks5Inbound) ServeConnContext(baseCtx context.Context, conn net.Conn)
 		return
 	}
 
-	relay := pumpPreparedTunnel(conn, reader, prepare.session, tunnelPumpOptions{})
+	relay := pumpPreparedTunnel(conn, reader, prepare.session, tunnelPumpOptions{
+		onFirstIngressByte: lifecycle.markFirstByteReceived,
+	})
 	lifecycle.addIngressBytes(relay.ingressBytes)
 	lifecycle.addEgressBytes(relay.egressBytes)
 	if relay.proxyErr != nil {

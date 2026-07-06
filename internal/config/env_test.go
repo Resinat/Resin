@@ -239,7 +239,7 @@ func TestLoadEnvConfig_MissingAdminToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing RESIN_ADMIN_TOKEN")
 	}
-	assertContains(t, err.Error(), "RESIN_ADMIN_TOKEN must be defined (can be empty)")
+	assertContains(t, err.Error(), "RESIN_ADMIN_TOKEN must be defined. If you intend to use an empty token, please set it explicitly (e.g., RESIN_ADMIN_TOKEN=).")
 }
 
 func TestLoadEnvConfig_MissingProxyToken(t *testing.T) {
@@ -251,7 +251,7 @@ func TestLoadEnvConfig_MissingProxyToken(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing RESIN_PROXY_TOKEN")
 	}
-	assertContains(t, err.Error(), "RESIN_PROXY_TOKEN must be defined (can be empty)")
+	assertContains(t, err.Error(), "RESIN_PROXY_TOKEN must be defined. If you intend to use an empty token, please set it explicitly (e.g., RESIN_PROXY_TOKEN=).")
 }
 
 func TestLoadEnvConfig_MissingAuthVersion(t *testing.T) {

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -18,6 +19,24 @@ import (
 	"github.com/Resinat/Resin/internal/testutil"
 	"github.com/Resinat/Resin/internal/topology"
 )
+
+func unsetEnvForDotenvTest(t *testing.T, keys ...string) {
+	t.Helper()
+	for _, key := range keys {
+		oldValue, hadOldValue := os.LookupEnv(key)
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatalf("Unsetenv(%s): %v", key, err)
+		}
+		key := key
+		t.Cleanup(func() {
+			if hadOldValue {
+				_ = os.Setenv(key, oldValue)
+			} else {
+				_ = os.Unsetenv(key)
+			}
+		})
+	}
+}
 
 func newBootstrapTestRuntime(runtimeCfg *config.RuntimeConfig) (*topology.SubscriptionManager, *topology.GlobalNodePool) {
 	subManager := topology.NewSubscriptionManager()
@@ -64,6 +83,74 @@ func TestAuthVersionStartupWarning_V1(t *testing.T) {
 	msg := authVersionStartupWarning(config.AuthVersionV1)
 	if msg != "" {
 		t.Fatalf("expected empty warning for V1, got: %q", msg)
+	}
+}
+
+func TestLoadDotenvFile_LoadsEmptyProxyToken(t *testing.T) {
+	unsetEnvForDotenvTest(t, "RESIN_AUTH_VERSION", "RESIN_ADMIN_TOKEN", "RESIN_PROXY_TOKEN")
+
+	path := filepath.Join(t.TempDir(), ".env")
+	content := strings.Join([]string{
+		"RESIN_AUTH_VERSION=V1",
+		"RESIN_ADMIN_TOKEN=admin-secret",
+		"RESIN_PROXY_TOKEN=",
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile(.env): %v", err)
+	}
+
+	if err := loadDotenvFile(path); err != nil {
+		t.Fatalf("loadDotenvFile: %v", err)
+	}
+
+	proxyToken, ok := os.LookupEnv("RESIN_PROXY_TOKEN")
+	if !ok {
+		t.Fatal("expected RESIN_PROXY_TOKEN to be defined from .env")
+	}
+	if proxyToken != "" {
+		t.Fatalf("RESIN_PROXY_TOKEN = %q, want empty", proxyToken)
+	}
+
+	cfg, err := config.LoadEnvConfig()
+	if err != nil {
+		t.Fatalf("LoadEnvConfig: %v", err)
+	}
+	if cfg.ProxyToken != "" {
+		t.Fatalf("cfg.ProxyToken = %q, want empty", cfg.ProxyToken)
+	}
+}
+
+func TestLoadDotenvFile_DoesNotOverrideExistingEnv(t *testing.T) {
+	unsetEnvForDotenvTest(t, "RESIN_AUTH_VERSION", "RESIN_ADMIN_TOKEN", "RESIN_PROXY_TOKEN")
+	if err := os.Setenv("RESIN_PROXY_TOKEN", "real-env-token"); err != nil {
+		t.Fatalf("Setenv(RESIN_PROXY_TOKEN): %v", err)
+	}
+
+	path := filepath.Join(t.TempDir(), ".env")
+	content := strings.Join([]string{
+		"RESIN_AUTH_VERSION=V1",
+		"RESIN_ADMIN_TOKEN=admin-secret",
+		"RESIN_PROXY_TOKEN=dotenv-token",
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile(.env): %v", err)
+	}
+
+	if err := loadDotenvFile(path); err != nil {
+		t.Fatalf("loadDotenvFile: %v", err)
+	}
+
+	if got := os.Getenv("RESIN_PROXY_TOKEN"); got != "real-env-token" {
+		t.Fatalf("RESIN_PROXY_TOKEN = %q, want real-env-token", got)
+	}
+	if got := os.Getenv("RESIN_AUTH_VERSION"); got != "V1" {
+		t.Fatalf("RESIN_AUTH_VERSION = %q, want V1", got)
+	}
+}
+
+func TestLoadDotenvFile_IgnoresMissingFile(t *testing.T) {
+	if err := loadDotenvFile(filepath.Join(t.TempDir(), ".env")); err != nil {
+		t.Fatalf("loadDotenvFile missing file: %v", err)
 	}
 }
 

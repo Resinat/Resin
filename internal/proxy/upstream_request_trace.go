@@ -9,12 +9,17 @@ import (
 // net/http transport so request-log egress bytes can be committed only when
 // the request has actually been written to upstream.
 type upstreamRequestTrace struct {
-	gotConn      atomic.Bool
-	wroteRequest atomic.Bool
+	gotConn              atomic.Bool
+	wroteRequest         atomic.Bool
+	gotFirstResponseByte func()
 }
 
-func newUpstreamRequestTrace() *upstreamRequestTrace {
-	return &upstreamRequestTrace{}
+func newUpstreamRequestTrace(gotFirstResponseByte ...func()) *upstreamRequestTrace {
+	trace := &upstreamRequestTrace{}
+	if len(gotFirstResponseByte) > 0 {
+		trace.gotFirstResponseByte = gotFirstResponseByte[0]
+	}
+	return trace
 }
 
 func (t *upstreamRequestTrace) clientTrace() *httptrace.ClientTrace {
@@ -27,6 +32,11 @@ func (t *upstreamRequestTrace) clientTrace() *httptrace.ClientTrace {
 			// WroteRequest can also fire with Err!=nil for failed write attempts.
 			if info.Err == nil {
 				t.wroteRequest.Store(true)
+			}
+		},
+		GotFirstResponseByte: func() {
+			if t.gotFirstResponseByte != nil {
+				t.gotFirstResponseByte()
 			}
 		},
 	}

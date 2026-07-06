@@ -117,6 +117,7 @@ If you just need a high-performance, large-capacity proxy pool with automatic he
 
 Once Resin is running, you can choose HTTP forward proxy, SOCKS5 forward proxy, or reverse proxy based on what your client supports.
 If you do not want a proxy password, explicitly set `RESIN_PROXY_TOKEN=""` (the variable must still be defined). Then HTTP forward proxy is available at `http://127.0.0.1:2260`, and SOCKS5 forward proxy is available at `socks5://127.0.0.1:2260`.
+For binary/source runs, Resin also loads a `.env` file from the current working directory before reading configuration. Environment variables already set by the OS or shell take precedence over `.env` values.
 
 HTTP forward proxy example:
 
@@ -341,6 +342,19 @@ RESIN_LISTEN_ADDRESS=0.0.0.0 \
 RESIN_PORT=2260 \
 ./resin
 ```
+
+Alternatively, create a `.env` file in the working directory and run `./resin`:
+
+```dotenv
+RESIN_AUTH_VERSION=V1
+RESIN_ADMIN_TOKEN=<admin-dashboard-password>
+RESIN_PROXY_TOKEN=<proxy-password>
+RESIN_STATE_DIR=./data/state
+RESIN_CACHE_DIR=./data/cache
+RESIN_LOG_DIR=./data/log
+RESIN_LISTEN_ADDRESS=0.0.0.0
+RESIN_PORT=2260
+```
 </details>
 
 <details>
@@ -380,7 +394,7 @@ RESIN_PORT=2260 \
 - **Q: How do I let LAN or localhost targets skip proxy nodes?**
   - **A**: Set `RESIN_PROXY_BYPASS` to a semicolon/comma/newline-separated rule list. Matching requests are dialed directly by Resin instead of through a proxy node. Example: `RESIN_PROXY_BYPASS="localhost;127.*;10.*;172.16.0.0/12;192.168.*;<local>"`. Supported rules include exact hosts, `*`/`?` wildcards, CIDR ranges, and `<local>` for hostnames without dots.
 - **Q: Startup fails with `RESIN_PROXY_TOKEN` undefined?**
-  - **A**: Even if you do not want a proxy password, you must explicitly set it to empty: `RESIN_PROXY_TOKEN=""`.
+  - **A**: Even if you do not want a proxy password, you must explicitly set it to empty: `RESIN_PROXY_TOKEN=""`. On shells that drop empty environment variables, create a `.env` file with `RESIN_PROXY_TOKEN=`.
 - **Q: Startup fails with `RESIN_AUTH_VERSION` undefined?**
   - **A**: Set it to `LEGACY_V0` or `V1`. For new deployments, use `V1`. For upgrades with legacy data, see [doc/v1.0.0-migration-guide.md](doc/v1.0.0-migration-guide.md).
 - **Q: Why can't my SOCKS5 client connect?**
