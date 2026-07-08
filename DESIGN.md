@@ -29,6 +29,7 @@
 * Name：平台名，全局唯一。
 * StickyTTL: time.Duration，该平台的粘性租约寿命。
 * RegexFilters：一个正则表达式列表。按照节点的 Tag 的正则表达式过滤器。同时满足所有过滤器才符合条件。
+* RegexExcludeFilters：一个正则表达式列表。命中任意排除规则的节点不进入该平台。
 * RegexFiltersCompiled：编译后的正则表达式列表。用于运行时匹配。随着 RegexFilters 更新。
 * RegionFilters：一个地区列表。小写 ISO codes (e.g., "hk", "us")。节点的出口 IP 地区属于该列表才符合条件。空表示不做地区筛选。
 * 反向代理 Account 为空时的行为：随机路由 / 固定 Header 提取 / 按 Account Header Rule 提取。
@@ -590,7 +591,7 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 ### SQLite 数据模型
 #### state.db
 * system_config(config_json, version, updated_at_ns)
-* platforms(id PK, name UNIQUE, sticky_ttl_ns, regex_filters_json, region_filters_json, reverse_proxy_miss_action, reverse_proxy_empty_account_behavior, reverse_proxy_fixed_account_header, allocation_policy, passive_circuit_breaker_disabled, updated_at_ns)
+* platforms(id PK, name UNIQUE, sticky_ttl_ns, regex_filters_json, regex_exclude_filters_json, region_filters_json, reverse_proxy_miss_action, reverse_proxy_empty_account_behavior, reverse_proxy_fixed_account_header, allocation_policy, passive_circuit_breaker_disabled, updated_at_ns)
 * subscriptions(id PK, name, url, update_interval_ns, enabled, ephemeral, created_at_ns, updated_at_ns)
 * account_header_rules(url_prefix PK, headers_json, updated_at_ns)
 
@@ -1153,6 +1154,7 @@ Body（partial patch 示例）：
   "name": "Default",
   "sticky_ttl": "30m",
   "regex_filters": ["^sub1/.*", ".*hk.*"],
+  "regex_exclude_filters": [".*low-rate.*"],
   "region_filters": ["hk","us"],
   "routable_node_count": 123,
   "reverse_proxy_miss_action": "TREAT_AS_EMPTY|REJECT",
@@ -1182,6 +1184,7 @@ Body：
   "name": "Platform-A",
   "sticky_ttl": "168h",
   "regex_filters": ["^sub1/.*"],
+  "regex_exclude_filters": [".*low-rate.*"],
   "region_filters": ["hk", "us"],
   "reverse_proxy_miss_action": "TREAT_AS_EMPTY",
   "reverse_proxy_empty_account_behavior": "ACCOUNT_HEADER_RULE",
@@ -1194,7 +1197,7 @@ Body：
 字段要求：
 
 * 必填字段：`name`
-* 可选字段：`sticky_ttl`、`regex_filters`、`region_filters`、`reverse_proxy_miss_action`、`reverse_proxy_empty_account_behavior`、`reverse_proxy_fixed_account_header`、`allocation_policy`、`passive_circuit_breaker_disabled`
+* 可选字段：`sticky_ttl`、`regex_filters`、`regex_exclude_filters`、`region_filters`、`reverse_proxy_miss_action`、`reverse_proxy_empty_account_behavior`、`reverse_proxy_fixed_account_header`、`allocation_policy`、`passive_circuit_breaker_disabled`
 * 不可传字段：`id`、`updated_at`、`routable_node_count`
 * 省略可选字段时，平台策略字段使用当前环境变量默认平台设置（`RESIN_DEFAULT_PLATFORM_*`）对应值；`passive_circuit_breaker_disabled` 默认 `false`
 
@@ -1203,6 +1206,7 @@ Body：
 * `name`：trim 后需非空、全局唯一；不能为保留名 `Default` 或 `api`（大小写不敏感）；且不能包含 `.:|/\@?#%~`、空格、tab、换行、回车。
 * `sticky_ttl`：合法 Go duration。
 * `regex_filters`：每项可被 regexp 编译。
+* `regex_exclude_filters`：每项可被 regexp 编译；节点命中任意一项即排除。
 * `region_filters`：每项为 ISO 3166-1 alpha-2 小写代码。
 * 枚举字段：`reverse_proxy_miss_action` 仅 `TREAT_AS_EMPTY|REJECT`；`reverse_proxy_empty_account_behavior` 仅 `RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE`；`allocation_policy` 仅 `BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。
 * `passive_circuit_breaker_disabled`：布尔值。设为 `true` 后，此 Platform 的用户代理请求失败不会增加节点熔断计数；主动探测不受影响。成功请求仍会清除节点连续失败计数并可恢复熔断节点。
@@ -1234,7 +1238,7 @@ Body（partial patch 示例）：
 字段要求：
 
 * 必填字段：无
-* 可改字段：`name`、`sticky_ttl`、`regex_filters`、`region_filters`、`reverse_proxy_miss_action`、`reverse_proxy_empty_account_behavior`、`reverse_proxy_fixed_account_header`、`allocation_policy`、`passive_circuit_breaker_disabled`
+* 可改字段：`name`、`sticky_ttl`、`regex_filters`、`regex_exclude_filters`、`region_filters`、`reverse_proxy_miss_action`、`reverse_proxy_empty_account_behavior`、`reverse_proxy_fixed_account_header`、`allocation_policy`、`passive_circuit_breaker_disabled`
 * 不可改字段：`id`、`updated_at`、`routable_node_count`
 
 关键校验：与“创建平台”一致。
@@ -1293,6 +1297,7 @@ Body（partial patch 示例）：
 {
   "platform_spec": {
     "regex_filters": ["^subA/.*"],
+    "regex_exclude_filters": [".*low-rate.*"],
     "region_filters": ["hk", "us"]
   }
 }
@@ -1301,12 +1306,13 @@ Body（partial patch 示例）：
 字段要求：
 
 * 必填字段：`platform_id` 与 `platform_spec` 二选一，且只能出现一个。
-* `platform_spec` 仅允许字段：`regex_filters`、`region_filters`。
+* `platform_spec` 仅允许字段：`regex_filters`、`regex_exclude_filters`、`region_filters`。
 
 关键校验（最小集）：
 
 * `platform_id`：必须存在。
 * `platform_spec.regex_filters`：每项可被 regexp 编译。
+* `platform_spec.regex_exclude_filters`：每项可被 regexp 编译。
 * `platform_spec.region_filters`：每项为 ISO 3166-1 alpha-2 小写代码。
 
 错误码映射（最小集）：

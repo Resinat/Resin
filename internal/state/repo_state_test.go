@@ -121,8 +121,8 @@ func TestMigrateStateDB_LegacyBaselineAdvancesToLatest(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionAddSubscriptionUsageInfo {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
+	if version != stateVersionAddRegexExcludeFilters {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddRegexExcludeFilters)
 	}
 	if ok, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.incremental_alive_nodes, ok=%v err=%v", ok, err)
@@ -132,6 +132,73 @@ func TestMigrateStateDB_LegacyBaselineAdvancesToLatest(t *testing.T) {
 	}
 	if ok, err := hasTableColumn(db, "platforms", "passive_circuit_breaker_disabled"); err != nil || !ok {
 		t.Fatalf("expected migrated column platforms.passive_circuit_breaker_disabled, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestMigrateStateDB_LegacyBaselineWithRegexExcludeColumn(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE platforms (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			sticky_ttl_ns INTEGER NOT NULL,
+			regex_filters_json TEXT NOT NULL DEFAULT '[]',
+			regex_exclude_filters_json TEXT NOT NULL DEFAULT '[]',
+			region_filters_json TEXT NOT NULL DEFAULT '[]',
+			reverse_proxy_miss_action TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_empty_account_behavior TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_fixed_account_header TEXT NOT NULL DEFAULT '',
+			allocation_policy TEXT NOT NULL DEFAULT 'BALANCED',
+			passive_circuit_breaker_disabled INTEGER NOT NULL DEFAULT 0,
+			updated_at_ns INTEGER NOT NULL
+		);
+
+		CREATE TABLE subscriptions (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			source_type TEXT NOT NULL DEFAULT 'remote',
+			url TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			update_interval_ns INTEGER NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			ephemeral INTEGER NOT NULL DEFAULT 0,
+			incremental_alive_nodes INTEGER NOT NULL DEFAULT 0,
+			ephemeral_node_evict_delay_ns INTEGER NOT NULL,
+			usage_upload_bytes INTEGER NOT NULL DEFAULT 0,
+			usage_download_bytes INTEGER NOT NULL DEFAULT 0,
+			usage_total_bytes INTEGER NOT NULL DEFAULT 0,
+			usage_expire_unix INTEGER NOT NULL DEFAULT 0,
+			usage_updated_at_ns INTEGER NOT NULL DEFAULT 0,
+			created_at_ns INTEGER NOT NULL,
+			updated_at_ns INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create latest-like legacy tables: %v", err)
+	}
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	requireTableColumn(t, db, "platforms", "regex_exclude_filters_json")
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateVersionAddRegexExcludeFilters {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddRegexExcludeFilters)
 	}
 }
 
@@ -191,8 +258,8 @@ func TestMigrateStateDB_AddsIncrementalAliveNodesToLegacySubscriptions(t *testin
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionAddSubscriptionUsageInfo {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
+	if version != stateVersionAddRegexExcludeFilters {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddRegexExcludeFilters)
 	}
 	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
@@ -269,8 +336,8 @@ func TestMigrateStateDB_NormalizesLegacyRandomMissAction(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionAddSubscriptionUsageInfo {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
+	if version != stateVersionAddRegexExcludeFilters {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddRegexExcludeFilters)
 	}
 	if ok, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.incremental_alive_nodes, ok=%v err=%v", ok, err)
@@ -314,8 +381,8 @@ func TestMigrateStateDB_RepairsForkVersion6SubscriptionUsage(t *testing.T) {
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionAddSubscriptionUsageInfo {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
+	if version != stateVersionAddRegexExcludeFilters {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddRegexExcludeFilters)
 	}
 }
 
@@ -358,8 +425,40 @@ func TestMigrateStateDB_RepairsUpstreamVersion6PassiveCircuitBreaker(t *testing.
 	if dirty {
 		t.Fatalf("schema_migrations dirty=true")
 	}
-	if version != stateVersionAddSubscriptionUsageInfo {
-		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddSubscriptionUsageInfo)
+	if version != stateVersionAddRegexExcludeFilters {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddRegexExcludeFilters)
+	}
+}
+
+func TestMigrateStateDB_RepairsVersion7WithRegexExcludeColumn(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("initial MigrateStateDB: %v", err)
+	}
+	forceStateMigrationVersion(t, db, stateVersionAddSubscriptionUsageInfo)
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	requireTableColumn(t, db, "platforms", "regex_exclude_filters_json")
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateVersionAddRegexExcludeFilters {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateVersionAddRegexExcludeFilters)
 	}
 }
 
@@ -573,6 +672,13 @@ func TestStateRepo_Platform_ValidationRejectsInvalidRegex(t *testing.T) {
 		t.Fatal("expected error for uncompilable regex")
 	}
 
+	// Uncompilable exclude regex.
+	bad = base
+	bad.RegexExcludeFilters = []string{"(unclosed"}
+	if err := repo.UpsertPlatform(bad); err == nil {
+		t.Fatal("expected error for uncompilable exclude regex")
+	}
+
 	// Invalid region_filters.
 	bad = base
 	bad.RegionFilters = []string{""}
@@ -582,6 +688,7 @@ func TestStateRepo_Platform_ValidationRejectsInvalidRegex(t *testing.T) {
 
 	// Valid config should still succeed.
 	base.RegexFilters = []string{"^ss$", "vmess"}
+	base.RegexExcludeFilters = []string{"bad"}
 	base.RegionFilters = []string{"us", "jp"}
 	if err := repo.UpsertPlatform(base); err != nil {
 		t.Fatalf("valid platform rejected: %v", err)
@@ -591,6 +698,9 @@ func TestStateRepo_Platform_ValidationRejectsInvalidRegex(t *testing.T) {
 	list, _ := repo.ListPlatforms()
 	if len(list) != 1 {
 		t.Fatalf("expected 1 platform, got %d", len(list))
+	}
+	if !reflect.DeepEqual(list[0].RegexExcludeFilters, []string{"bad"}) {
+		t.Fatalf("regex_exclude_filters = %v, want [bad]", list[0].RegexExcludeFilters)
 	}
 }
 

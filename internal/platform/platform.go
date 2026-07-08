@@ -29,8 +29,9 @@ type Platform struct {
 	Name string
 
 	// Filter configuration.
-	RegexFilters  []*regexp.Regexp
-	RegionFilters []string // lowercase ISO codes, supports negation "!xx"
+	RegexFilters        []*regexp.Regexp
+	RegexExcludeFilters []*regexp.Regexp
+	RegionFilters       []string // lowercase ISO codes, supports negation "!xx"
 
 	// Other config fields.
 	StickyTTLNs                      int64
@@ -131,6 +132,9 @@ func (p *Platform) evaluateNode(
 
 	// 2. Tag regex match.
 	if !entry.MatchRegexs(p.RegexFilters, subLookup) {
+		return false
+	}
+	if entry.MatchAnyRegex(p.RegexExcludeFilters, subLookup) {
 		return false
 	}
 

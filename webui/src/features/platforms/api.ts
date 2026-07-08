@@ -10,8 +10,9 @@ import type {
 
 const basePath = "/api/v1/platforms";
 
-type ApiPlatform = Omit<Platform, "regex_filters" | "region_filters"> & {
+type ApiPlatform = Omit<Platform, "regex_filters" | "regex_exclude_filters" | "region_filters"> & {
   regex_filters?: string[] | null;
+  regex_exclude_filters?: string[] | null;
   region_filters?: string[] | null;
   routable_node_count?: number | null;
   egress_ip_count?: number | null;
@@ -37,6 +38,7 @@ function normalizePlatform(raw: ApiPlatform): Platform {
     ...raw,
     reverse_proxy_miss_action: parseMissAction(raw.reverse_proxy_miss_action),
     regex_filters: Array.isArray(raw.regex_filters) ? raw.regex_filters : [],
+    regex_exclude_filters: Array.isArray(raw.regex_exclude_filters) ? raw.regex_exclude_filters : [],
     region_filters: Array.isArray(raw.region_filters) ? raw.region_filters : [],
     routable_node_count: typeof raw.routable_node_count === "number" ? raw.routable_node_count : 0,
     egress_ip_count: typeof raw.egress_ip_count === "number" ? raw.egress_ip_count : 0,

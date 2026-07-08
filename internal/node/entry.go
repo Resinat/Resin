@@ -157,6 +157,33 @@ func (e *NodeEntry) MatchRegexs(regexes []*regexp.Regexp, subLookup SubLookupFun
 	return false
 }
 
+// MatchAnyRegex reports whether any tag from any enabled subscription matches
+// any regex. Empty regexes or a nil lookup never exclude anything.
+func (e *NodeEntry) MatchAnyRegex(regexes []*regexp.Regexp, subLookup SubLookupFunc) bool {
+	if len(regexes) == 0 || subLookup == nil {
+		return false
+	}
+
+	e.mu.RLock()
+	subs := make([]string, len(e.subscriptionIDs))
+	copy(subs, e.subscriptionIDs)
+	e.mu.RUnlock()
+
+	for _, subID := range subs {
+		name, enabled, tags, ok := subLookup(subID, e.Hash)
+		if !ok || !enabled {
+			continue
+		}
+		for _, tag := range tags {
+			candidate := name + "/" + tag
+			if matchesAny(candidate, regexes) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // HasEnabledSubscription reports whether the node currently has at least one
 // enabled subscription reference, based on subLookup.
 //
@@ -196,6 +223,15 @@ func matchesAll(s string, regexes []*regexp.Regexp) bool {
 		}
 	}
 	return true
+}
+
+func matchesAny(s string, regexes []*regexp.Regexp) bool {
+	for _, re := range regexes {
+		if re.MatchString(s) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Condition helpers for platform filtering ---

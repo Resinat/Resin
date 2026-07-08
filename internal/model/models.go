@@ -9,6 +9,7 @@ type Platform struct {
 	Name                             string `json:"name"`
 	StickyTTLNs                      int64  `json:"sticky_ttl_ns"`
 	RegexFilters                     []string
+	RegexExcludeFilters              []string
 	RegionFilters                    []string
 	ReverseProxyMissAction           string `json:"reverse_proxy_miss_action"`
 	ReverseProxyEmptyAccountBehavior string `json:"reverse_proxy_empty_account_behavior"`

@@ -137,6 +137,21 @@ func TestPlatform_EvaluateNode_RegexFilter(t *testing.T) {
 	}
 }
 
+func TestPlatform_EvaluateNode_RegexExcludeFilter(t *testing.T) {
+	p := NewPlatform("p1", "Test", []*regexp.Regexp{regexp.MustCompile("us")}, nil)
+	p.RegexExcludeFilters = []*regexp.Regexp{regexp.MustCompile("fast")}
+	h := makeHash(`{"type":"ss"}`)
+	entry := makeFullyRoutableEntry(h, "sub1")
+
+	p.FullRebuild(func(fn func(node.Hash, *node.NodeEntry) bool) {
+		fn(h, entry)
+	}, alwaysLookup, usGeoLookup)
+
+	if p.View().Size() != 0 {
+		t.Fatal("node matching exclude regex should not be routable")
+	}
+}
+
 func TestPlatform_EvaluateNode_RegionFilter(t *testing.T) {
 	p := NewPlatform("p1", "Test", nil, []string{"us"})
 	h := makeHash(`{"type":"ss"}`)

@@ -469,7 +469,8 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	}
 
 	name := "new-platform"
-	created, err := cp.CreatePlatform(CreatePlatformRequest{Name: &name})
+	regexExcludeFilters := []string{"nope"}
+	created, err := cp.CreatePlatform(CreatePlatformRequest{Name: &name, RegexExcludeFilters: regexExcludeFilters})
 	if err != nil {
 		t.Fatalf("CreatePlatform: %v", err)
 	}
@@ -484,8 +485,14 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	if !plat.View().Contains(hash) {
 		t.Fatalf("new platform view should contain seeded hash %s", hash.Hex())
 	}
+	if !reflect.DeepEqual(created.RegexExcludeFilters, regexExcludeFilters) {
+		t.Fatalf("created regex_exclude_filters = %v, want %v", created.RegexExcludeFilters, regexExcludeFilters)
+	}
 	if created.PassiveCircuitBreakerDisabled {
 		t.Fatal("new platform should default passive circuit breaker to not disabled")
+	}
+	if len(plat.RegexExcludeFilters) != 1 || plat.RegexExcludeFilters[0].String() != "nope" {
+		t.Fatalf("runtime regex_exclude_filters = %v, want [nope]", plat.RegexExcludeFilters)
 	}
 	if plat.PassiveCircuitBreakerDisabled {
 		t.Fatal("runtime platform should default passive circuit breaker to not disabled")
@@ -884,6 +891,7 @@ func TestDeletePlatform_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
 		platformRow.Name,
 		nil,
 		nil,
+		nil,
 		platformRow.StickyTTLNs,
 		platformRow.ReverseProxyMissAction,
 		string(platform.ReverseProxyEmptyAccountBehaviorAccountHeaderRule),
@@ -945,6 +953,7 @@ func TestResetPlatformToDefault_SupportsBuiltInDefaultPlatform(t *testing.T) {
 	pool.RegisterPlatform(platform.NewConfiguredPlatform(
 		defaultRow.ID,
 		defaultRow.Name,
+		nil,
 		nil,
 		nil,
 		defaultRow.StickyTTLNs,
@@ -1087,6 +1096,7 @@ func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *test
 	pool.RegisterPlatform(platform.NewConfiguredPlatform(
 		platformRow.ID,
 		platformRow.Name,
+		nil,
 		nil,
 		nil,
 		platformRow.StickyTTLNs,

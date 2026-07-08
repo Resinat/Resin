@@ -26,6 +26,7 @@ const (
 	stateVersionAddIncrementalAliveNodes         = 5
 	stateVersionAddPassiveCircuitBreakerDisabled = 6
 	stateVersionAddSubscriptionUsageInfo         = 7
+	stateVersionAddRegexExcludeFilters           = 8
 	stateLegacyBaselineVersion                   = stateVersionAddFixedAccountHeader
 
 	stateBaseSchemaMigration = stateMigrationsPath + "/000001_state_base.up.sql"
@@ -90,7 +91,7 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 		return err
 	}
 	if hasVersion {
-		return repairAmbiguousStateVersion6(db, driver)
+		return repairStateMigrationMetadata(db, driver)
 	}
 
 	hasPlatforms, err := hasTable(db, "platforms")
@@ -121,14 +122,27 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 	if err != nil {
 		return err
 	}
+	hasRegexExcludeFilters, err := hasTableColumn(db, "platforms", "regex_exclude_filters_json")
+	if err != nil {
+		return err
+	}
 
 	switch {
 	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasPassiveCircuitBreakerDisabled && hasSubscriptionUsageInfo:
 		if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
 			return err
 		}
+		if hasRegexExcludeFilters {
+			return setLegacyMigrationVersion(db, driver, stateVersionAddRegexExcludeFilters)
+		}
 		return setLegacyMigrationVersion(db, driver, stateVersionAddSubscriptionUsageInfo)
 	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasPassiveCircuitBreakerDisabled:
+		if hasRegexExcludeFilters {
+			if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
+				return err
+			}
+			return setLegacyMigrationVersion(db, driver, stateVersionAddRegexExcludeFilters)
+		}
 		return setLegacyMigrationVersion(db, driver, stateVersionAddPassiveCircuitBreakerDisabled)
 	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasSubscriptionUsageInfo:
 		if err := ensurePassiveCircuitBreakerColumn(db); err != nil {
@@ -136,6 +150,9 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 		}
 		if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
 			return err
+		}
+		if hasRegexExcludeFilters {
+			return setLegacyMigrationVersion(db, driver, stateVersionAddRegexExcludeFilters)
 		}
 		return setLegacyMigrationVersion(db, driver, stateVersionAddSubscriptionUsageInfo)
 	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes:
@@ -161,25 +178,44 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 	}
 }
 
-func repairAmbiguousStateVersion6(db *sql.DB, driver migratedb.Driver) error {
+func repairStateMigrationMetadata(db *sql.DB, driver migratedb.Driver) error {
 	version, dirty, err := driver.Version()
 	if err != nil {
 		return fmt.Errorf("read migration version: %w", err)
 	}
-	if dirty || version != stateVersionAddPassiveCircuitBreakerDisabled {
+	if dirty {
 		return nil
 	}
 
-	if err := ensureStateBaseSchema(db); err != nil {
-		return err
+	switch version {
+	case stateVersionAddPassiveCircuitBreakerDisabled:
+		if err := ensureStateBaseSchema(db); err != nil {
+			return err
+		}
+		if err := ensurePassiveCircuitBreakerColumn(db); err != nil {
+			return err
+		}
+		if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
+			return err
+		}
+		hasRegexExcludeFilters, err := hasTableColumn(db, "platforms", "regex_exclude_filters_json")
+		if err != nil {
+			return err
+		}
+		if hasRegexExcludeFilters {
+			return setMigrationVersion(driver, stateVersionAddRegexExcludeFilters)
+		}
+		return setMigrationVersion(driver, stateVersionAddSubscriptionUsageInfo)
+	case stateVersionAddSubscriptionUsageInfo:
+		hasRegexExcludeFilters, err := hasTableColumn(db, "platforms", "regex_exclude_filters_json")
+		if err != nil {
+			return err
+		}
+		if hasRegexExcludeFilters {
+			return setMigrationVersion(driver, stateVersionAddRegexExcludeFilters)
+		}
 	}
-	if err := ensurePassiveCircuitBreakerColumn(db); err != nil {
-		return err
-	}
-	if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
-		return err
-	}
-	return setMigrationVersion(driver, stateVersionAddSubscriptionUsageInfo)
+	return nil
 }
 
 func ensurePassiveCircuitBreakerColumn(db *sql.DB) error {

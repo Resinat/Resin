@@ -371,6 +371,26 @@ export function PlatformPage() {
               </div>
 
               <div className="field-group">
+                <label className="field-label field-label-with-info" htmlFor="create-regex-exclude">
+                  <span>{t("节点名正则排除规则（可选）")}</span>
+                  <span
+                    className="subscription-info-icon"
+                    title={t("命中任一排除正则的节点会被排除")}
+                    aria-label={t("命中任一排除正则的节点会被排除")}
+                    tabIndex={0}
+                  >
+                    <Info size={13} />
+                  </span>
+                </label>
+                <Textarea
+                  id="create-regex-exclude"
+                  rows={4}
+                  placeholder={t("每行一条，例如 .*低倍率.* 或 <订阅名>/.*")}
+                  {...createForm.register("regex_exclude_filters_text")}
+                />
+              </div>
+
+              <div className="field-group">
                 <label className="field-label" htmlFor="create-region">
                   {t("地区过滤规则（可选）")}
                 </label>

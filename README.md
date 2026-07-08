@@ -158,6 +158,16 @@ us
 hk
 ```
 
+Regex filters are matched against `<SubscriptionName>/<NodeName>`; all include regexes must match, and any exclude regex removes the node. For example, include a subscription but exclude low-rate nodes:
+
+```
+regex filters:
+^ProviderA/.*
+
+regex exclude filters:
+.*low-rate.*
+```
+
 For forward proxy (HTTP / SOCKS5), include Platform in the auth info. Examples:
 
 ```bash

@@ -168,6 +168,30 @@ func TestNodeEntry_MatchRegexs_MultiSub(t *testing.T) {
 	}
 }
 
+func TestNodeEntry_MatchAnyRegex_DisabledSubSkipped(t *testing.T) {
+	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
+	e := NewNodeEntry(h, nil, time.Now(), 0)
+	e.AddSubscriptionID("sub-disabled")
+	e.AddSubscriptionID("sub-enabled")
+
+	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
+		switch subID {
+		case "sub-disabled":
+			return "Disabled", false, []string{"bad-node"}, true
+		case "sub-enabled":
+			return "Enabled", true, []string{"good-node"}, true
+		}
+		return "", false, nil, false
+	}
+
+	if e.MatchAnyRegex([]*regexp.Regexp{regexp.MustCompile("bad")}, lookup) {
+		t.Fatal("disabled subscriptions should not trigger exclude regex")
+	}
+	if !e.MatchAnyRegex([]*regexp.Regexp{regexp.MustCompile("good")}, lookup) {
+		t.Fatal("enabled subscription tag should trigger exclude regex")
+	}
+}
+
 func TestNodeEntry_HasEnabledSubscription(t *testing.T) {
 	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
 	e := NewNodeEntry(h, nil, time.Now(), 0)

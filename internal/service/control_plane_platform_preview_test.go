@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,5 +160,40 @@ func TestPreviewFilter_RegionNegation_UnknownRegionExcluded(t *testing.T) {
 		if node.NodeHash == fixture.unknownHash {
 			t.Fatalf("node with unknown region %s should not match region filters", fixture.unknownHash)
 		}
+	}
+}
+
+func TestPreviewFilter_RegexExclude(t *testing.T) {
+	fixture := buildPreviewFilterFixture(t)
+
+	nodes, err := fixture.cp.PreviewFilter(PreviewFilterRequest{
+		PlatformSpec: &PlatformSpecFilter{
+			RegexFilters:        []string{".*"},
+			RegexExcludeFilters: []string{"hk"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PreviewFilter: %v", err)
+	}
+	for _, node := range nodes {
+		if node.NodeHash == fixture.hkHash {
+			t.Fatalf("hk node %s should have been excluded", fixture.hkHash)
+		}
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("nodes len = %d, want 2", len(nodes))
+	}
+}
+
+func TestPreviewFilter_InvalidRegexExclude(t *testing.T) {
+	fixture := buildPreviewFilterFixture(t)
+
+	_, err := fixture.cp.PreviewFilter(PreviewFilterRequest{
+		PlatformSpec: &PlatformSpecFilter{
+			RegexExcludeFilters: []string{"(broken"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "regex_exclude_filters[0]") {
+		t.Fatalf("err = %v, want regex_exclude_filters[0]", err)
 	}
 }
