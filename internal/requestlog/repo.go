@@ -38,13 +38,13 @@ type Repo struct {
 
 // NewRepo creates a Repo that manages rolling request log databases.
 // maxBytes controls when the active DB is rotated; retainCount sets
-// how many historical DB files are kept.
+// how many database shard files are kept in total.
 func NewRepo(logDir string, maxBytes int64, retainCount int) *Repo {
 	if maxBytes <= 0 {
 		maxBytes = 512 * 1024 * 1024 // 512 MB default
 	}
 	if retainCount <= 0 {
-		retainCount = 5
+		retainCount = 2
 	}
 	return &Repo{
 		logDir:      logDir,
@@ -574,7 +574,7 @@ func (r *Repo) queryLogs(db *sql.DB, f ListFilter, limit int) ([]LogSummary, err
 			where = append(where, "instr(lower(account), ?) > 0")
 			args = append(args, strings.ToLower(f.Account))
 		} else {
-			where = append(where, "account = ?")
+			where = append(where, "account = ? AND account <> ''")
 			args = append(args, f.Account)
 		}
 	}

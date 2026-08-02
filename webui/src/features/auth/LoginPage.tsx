@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { LockKeyhole, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Info, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -25,6 +25,7 @@ export function LoginPage() {
   const setToken = useAuthStore((state) => state.setToken);
   const storedToken = useAuthStore((state) => state.token);
   const [submitError, setSubmitError] = useState("");
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   const {
     register,
@@ -98,38 +99,53 @@ export function LoginPage() {
   return (
     <main className="login-layout">
       <Card className="login-card">
-        <LanguageSwitcher className="login-locale" />
-
         <div className="login-header">
           <div className="brand-logo" aria-hidden="true">
             <ShieldCheck size={18} />
           </div>
-          <div>
+          <div className="login-heading-copy">
             <h1 className="login-title">{t("管理员登录")}</h1>
           </div>
+          <LanguageSwitcher className="login-locale" />
         </div>
 
-        <p className="login-description">{t("输入后端 `RESIN_ADMIN_TOKEN` 进入控制台。")}</p>
-
         <form className="login-form" onSubmit={onSubmit}>
-          <label className="field-label" htmlFor="token">
-            Admin Token
+          <label className="field-label field-label-with-info login-token-label" htmlFor="token">
+            <span>{t("管理员令牌")}</span>
+            <span
+              className="subscription-info-icon"
+              title={t("管理员令牌通过 `RESIN_ADMIN_TOKEN` 环境变量配置")}
+              aria-label={t("管理员令牌通过 `RESIN_ADMIN_TOKEN` 环境变量配置")}
+              tabIndex={0}
+            >
+              <Info size={14} />
+            </span>
           </label>
-          <div className="input-with-icon">
-            <LockKeyhole size={16} />
+          <div className="login-input-wrap">
             <Input
               id="token"
-              placeholder={t("粘贴 Bearer Token（仅本地保存）")}
+              className="login-token-input"
               autoComplete="off"
+              type={isPasswordVisible ? "text" : "password"}
               invalid={Boolean(errors.token)}
               {...register("token")}
             />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="password-visibility-toggle"
+              aria-label={isPasswordVisible ? t("隐藏管理员令牌") : t("显示管理员令牌")}
+              title={isPasswordVisible ? t("隐藏管理员令牌") : t("显示管理员令牌")}
+              onClick={() => setIsPasswordVisible((visible) => !visible)}
+            >
+              {isPasswordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+            </Button>
           </div>
 
           {errors.token?.message ? <p className="field-error">{t(errors.token.message)}</p> : null}
           {submitError ? <p className="field-error">{submitError}</p> : null}
 
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
+          <Button type="submit" className="w-full login-submit" disabled={isSubmitting}>
             {isSubmitting ? t("校验中...") : t("进入控制台")}
           </Button>
         </form>

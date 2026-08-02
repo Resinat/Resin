@@ -14,7 +14,6 @@ func TestBuildFromModel_Success(t *testing.T) {
 		Name:                             "Platform-1",
 		StickyTTLNs:                      3600,
 		RegexFilters:                     []string{`^us-.*$`},
-		RegexExcludeFilters:              []string{`bad`},
 		RegionFilters:                    []string{"us", "jp"},
 		ReverseProxyMissAction:           "REJECT",
 		ReverseProxyEmptyAccountBehavior: "FIXED_HEADER",
@@ -57,11 +56,8 @@ func TestBuildFromModel_Success(t *testing.T) {
 	if !plat.PassiveCircuitBreakerDisabled {
 		t.Fatal("passive circuit breaker flag mismatch: got false want true")
 	}
-	if len(plat.RegexFilters) != 1 || !plat.RegexFilters[0].MatchString("us-node") {
+	if len(plat.RegexFilters.Any) != 1 || !plat.RegexFilters.Any[0].MatchString("us-node") {
 		t.Fatalf("regex filters not compiled as expected: %+v", plat.RegexFilters)
-	}
-	if len(plat.RegexExcludeFilters) != 1 || !plat.RegexExcludeFilters[0].MatchString("bad-node") {
-		t.Fatalf("regex exclude filters not compiled as expected: %+v", plat.RegexExcludeFilters)
 	}
 	if len(plat.RegionFilters) != 2 || plat.RegionFilters[0] != "us" || plat.RegionFilters[1] != "jp" {
 		t.Fatalf("region filters mismatch: %+v", plat.RegionFilters)
@@ -77,19 +73,6 @@ func TestBuildFromModel_InvalidRegex(t *testing.T) {
 		t.Fatal("expected regex decode error")
 	}
 	if !strings.Contains(err.Error(), "regex_filters") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestBuildFromModel_InvalidRegexExclude(t *testing.T) {
-	_, err := BuildFromModel(model.Platform{
-		ID:                  "plat-1",
-		RegexExcludeFilters: []string{`(broken`},
-	})
-	if err == nil {
-		t.Fatal("expected regex exclude decode error")
-	}
-	if !strings.Contains(err.Error(), "regex_exclude_filters") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -205,12 +188,51 @@ func TestCompileRegexFilters_Invalid(t *testing.T) {
 	}
 }
 
-func TestCompileRegexExcludeFilters_Invalid(t *testing.T) {
-	_, err := CompileRegexExcludeFilters([]string{"(broken"})
-	if err == nil {
-		t.Fatal("expected compile error")
+func TestCompileRegexFilters_RuleKindsAndEscapes(t *testing.T) {
+	compiled, err := CompileRegexFilters([]string{
+		"hk",
+		"jp",
+		"*fast",
+		"!expired",
+		`\!literal-bang`,
+		`\*literal-star`,
+		`*!required-bang`,
+		`*\!required-bang`,
+		`!!blocked-bang`,
+		`!\*blocked-star`,
+	})
+	if err != nil {
+		t.Fatalf("CompileRegexFilters: %v", err)
 	}
-	if !strings.Contains(err.Error(), "regex_exclude_filters[0]") {
+	if len(compiled.Any) != 4 || len(compiled.Must) != 3 || len(compiled.MustNot) != 3 {
+		t.Fatalf("unexpected compiled groups: %+v", compiled)
+	}
+	if !compiled.Any[2].MatchString("!literal-bang") {
+		t.Fatal(`\! at line start should remain a regular escaped regex`)
+	}
+	if !compiled.Any[3].MatchString("*literal-star") {
+		t.Fatal(`\* at line start should remain a regular escaped regex`)
+	}
+	if !compiled.Must[1].MatchString("!required-bang") {
+		t.Fatal("a rule operator must only be parsed once")
+	}
+	if !compiled.Must[2].MatchString("!required-bang") {
+		t.Fatal(`the MUST body should be passed to regexp unchanged`)
+	}
+	if !compiled.MustNot[1].MatchString("!blocked-bang") {
+		t.Fatal("a MUST_NOT body must not be parsed for another operator")
+	}
+	if !compiled.MustNot[2].MatchString("*blocked-star") {
+		t.Fatal(`the MUST_NOT body should be passed to regexp unchanged`)
+	}
+}
+
+func TestCompileRegexFilters_InvalidOperatorBody(t *testing.T) {
+	_, err := CompileRegexFilters([]string{"ok", "*(broken"})
+	if err == nil {
+		t.Fatal("expected invalid MUST regex body")
+	}
+	if !strings.Contains(err.Error(), "regex_filters[1]") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

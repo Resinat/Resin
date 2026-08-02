@@ -7,9 +7,7 @@ import (
 	"fmt"
 )
 
-// CreateDDL defines the schema for request log databases.
-// Each rolling DB gets its own request_logs + request_log_payloads tables.
-const CreateDDL = `
+const requestLogTablesDDL = `
 CREATE TABLE IF NOT EXISTS request_logs (
 	id                    TEXT PRIMARY KEY,
 	ts_ns                 INTEGER NOT NULL,
@@ -53,19 +51,51 @@ CREATE TABLE IF NOT EXISTS request_log_payloads (
 	resp_headers  BLOB,
 	resp_body     BLOB
 );
+`
 
-CREATE INDEX IF NOT EXISTS idx_request_logs_ts_ns        ON request_logs(ts_ns);
-CREATE INDEX IF NOT EXISTS idx_request_logs_proxy_type   ON request_logs(proxy_type);
-CREATE INDEX IF NOT EXISTS idx_request_logs_platform_id  ON request_logs(platform_id);
+const requestLogIndexesDDL = `
+CREATE INDEX IF NOT EXISTS idx_request_logs_ts_id
+	ON request_logs(ts_ns DESC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_request_logs_proxy_type_ts_id
+	ON request_logs(proxy_type, ts_ns DESC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_request_logs_account_ts_id
+	ON request_logs(account, ts_ns DESC, id ASC) WHERE account <> '';
 CREATE INDEX IF NOT EXISTS idx_request_logs_platform_name ON request_logs(platform_name);
 CREATE INDEX IF NOT EXISTS idx_request_logs_plat_acct    ON request_logs(platform_id, account);
 CREATE INDEX IF NOT EXISTS idx_request_logs_target_host  ON request_logs(target_host);
 CREATE INDEX IF NOT EXISTS idx_request_logs_egress_ip    ON request_logs(egress_ip);
 `
 
+const obsoleteRequestLogIndexesDDL = `
+DROP INDEX IF EXISTS idx_request_logs_ts_ns;
+DROP INDEX IF EXISTS idx_request_logs_proxy_type;
+DROP INDEX IF EXISTS idx_request_logs_platform_id;
+`
+
+// CreateDDL defines the schema for each rolling request-log database.
+const CreateDDL = requestLogTablesDDL + requestLogIndexesDDL
+
 func ensureRequestLogSchema(db *sql.DB) error {
-	// 请求日志是滚动持久化数据，新增列需要兼容已经存在的历史 DB 文件。
-	return ensureRequestLogColumn(db, "request_logs", "first_byte_duration_ns", "first_byte_duration_ns INTEGER NOT NULL DEFAULT 0")
+	if err := ensureRequestLogColumn(db, "request_logs", "first_byte_duration_ns", "first_byte_duration_ns INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin request log index migration: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.Exec(requestLogIndexesDDL); err != nil {
+		return fmt.Errorf("create request log indexes: %w", err)
+	}
+	if _, err := tx.Exec(obsoleteRequestLogIndexesDDL); err != nil {
+		return fmt.Errorf("drop obsolete request log indexes: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit request log index migration: %w", err)
+	}
+	return nil
 }
 
 func ensureRequestLogColumn(db *sql.DB, table, column, columnDDL string) error {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/node"
 )
 
 func isLowerAlpha2(s string) bool {
@@ -30,33 +31,39 @@ func ValidateRegionFilters(regionFilters []string) error {
 	return nil
 }
 
-func compileRegexFilters(field string, regexFilters []string) ([]*regexp.Regexp, error) {
-	compiled := make([]*regexp.Regexp, 0, len(regexFilters))
-	for i, re := range regexFilters {
-		c, err := regexp.Compile(re)
-		if err != nil {
-			return nil, fmt.Errorf("%s[%d]: invalid regex: %v", field, i, err)
+// CompileRegexFilters compiles line-oriented tag regex rules.
+// Plain rules are ANY, "*" prefixes MUST, and "!" prefixes MUST_NOT.
+// Only the first byte is interpreted; the remaining regex body is left unchanged.
+func CompileRegexFilters(regexFilters []string) (node.TagFilter, error) {
+	var compiled node.TagFilter
+	for i, rule := range regexFilters {
+		pattern := rule
+		kind := byte(0)
+		if len(rule) > 0 && (rule[0] == '*' || rule[0] == '!') {
+			kind = rule[0]
+			pattern = rule[1:]
 		}
-		compiled = append(compiled, c)
+
+		c, err := regexp.Compile(pattern)
+		if err != nil {
+			return node.TagFilter{}, fmt.Errorf("regex_filters[%d]: invalid regex: %v", i, err)
+		}
+		switch kind {
+		case '*':
+			compiled.Must = append(compiled.Must, c)
+		case '!':
+			compiled.MustNot = append(compiled.MustNot, c)
+		default:
+			compiled.Any = append(compiled.Any, c)
+		}
 	}
 	return compiled, nil
-}
-
-// CompileRegexFilters compiles regex filters in order.
-func CompileRegexFilters(regexFilters []string) ([]*regexp.Regexp, error) {
-	return compileRegexFilters("regex_filters", regexFilters)
-}
-
-// CompileRegexExcludeFilters compiles regex exclusion filters in order.
-func CompileRegexExcludeFilters(regexFilters []string) ([]*regexp.Regexp, error) {
-	return compileRegexFilters("regex_exclude_filters", regexFilters)
 }
 
 // NewConfiguredPlatform builds a runtime platform with non-filter settings applied.
 func NewConfiguredPlatform(
 	id, name string,
-	regexFilters []*regexp.Regexp,
-	regexExcludeFilters []*regexp.Regexp,
+	regexFilters node.TagFilter,
 	regionFilters []string,
 	stickyTTLNs int64,
 	missAction string,
@@ -70,8 +77,7 @@ func NewConfiguredPlatform(
 		normalizedFixedHeaders = strings.TrimSpace(fixedAccountHeader)
 		fixedHeaders = nil
 	}
-	plat := NewPlatform(id, name, regexFilters, regionFilters)
-	plat.RegexExcludeFilters = regexExcludeFilters
+	plat := NewPlatformWithTagFilter(id, name, regexFilters, regionFilters)
 	plat.StickyTTLNs = stickyTTLNs
 	plat.ReverseProxyMissAction = missAction
 	plat.ReverseProxyEmptyAccountBehavior = emptyAccountBehavior
@@ -83,19 +89,10 @@ func NewConfiguredPlatform(
 }
 
 // CompileModelRegexFilters compiles regex filters from persisted model values.
-func CompileModelRegexFilters(platformID string, regexFilters []string) ([]*regexp.Regexp, error) {
+func CompileModelRegexFilters(platformID string, regexFilters []string) (node.TagFilter, error) {
 	compiled, err := CompileRegexFilters(regexFilters)
 	if err != nil {
-		return nil, fmt.Errorf("decode platform %s regex_filters: %w", platformID, err)
-	}
-	return compiled, nil
-}
-
-// CompileModelRegexExcludeFilters compiles regex exclusion filters from persisted model values.
-func CompileModelRegexExcludeFilters(platformID string, regexFilters []string) ([]*regexp.Regexp, error) {
-	compiled, err := CompileRegexExcludeFilters(regexFilters)
-	if err != nil {
-		return nil, fmt.Errorf("decode platform %s regex_exclude_filters: %w", platformID, err)
+		return node.TagFilter{}, fmt.Errorf("decode platform %s regex_filters: %w", platformID, err)
 	}
 	return compiled, nil
 }
@@ -103,10 +100,6 @@ func CompileModelRegexExcludeFilters(platformID string, regexFilters []string) (
 // BuildFromModel builds a runtime platform from a persisted model.Platform.
 func BuildFromModel(mp model.Platform) (*Platform, error) {
 	regexFilters, err := CompileModelRegexFilters(mp.ID, mp.RegexFilters)
-	if err != nil {
-		return nil, err
-	}
-	regexExcludeFilters, err := CompileModelRegexExcludeFilters(mp.ID, mp.RegexExcludeFilters)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +134,6 @@ func BuildFromModel(mp model.Platform) (*Platform, error) {
 		mp.ID,
 		mp.Name,
 		regexFilters,
-		regexExcludeFilters,
 		append([]string(nil), mp.RegionFilters...),
 		mp.StickyTTLNs,
 		string(missAction),

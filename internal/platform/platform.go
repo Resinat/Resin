@@ -29,9 +29,8 @@ type Platform struct {
 	Name string
 
 	// Filter configuration.
-	RegexFilters        []*regexp.Regexp
-	RegexExcludeFilters []*regexp.Regexp
-	RegionFilters       []string // lowercase ISO codes, supports negation "!xx"
+	RegexFilters  node.TagFilter
+	RegionFilters []string // lowercase ISO codes, supports negation "!xx"
 
 	// Other config fields.
 	StickyTTLNs                      int64
@@ -49,7 +48,13 @@ type Platform struct {
 }
 
 // NewPlatform creates a Platform with an empty routable view.
+// The regex slice is treated as MUST rules for compatibility with internal callers.
 func NewPlatform(id, name string, regexFilters []*regexp.Regexp, regionFilters []string) *Platform {
+	return NewPlatformWithTagFilter(id, name, node.TagFilter{Must: regexFilters}, regionFilters)
+}
+
+// NewPlatformWithTagFilter creates a Platform with compiled line-oriented tag rules.
+func NewPlatformWithTagFilter(id, name string, regexFilters node.TagFilter, regionFilters []string) *Platform {
 	return &Platform{
 		ID:            id,
 		Name:          name,
@@ -131,10 +136,7 @@ func (p *Platform) evaluateNode(
 	}
 
 	// 2. Tag regex match.
-	if !entry.MatchRegexs(p.RegexFilters, subLookup) {
-		return false
-	}
-	if entry.MatchAnyRegex(p.RegexExcludeFilters, subLookup) {
+	if !entry.MatchTagFilter(p.RegexFilters, subLookup) {
 		return false
 	}
 

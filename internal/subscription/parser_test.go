@@ -2397,6 +2397,37 @@ socks5h://user-s5h:pass-s5h@proxy.example.net:1082#SOCKS5H%20Node
 	}
 }
 
+func TestParseGeneralSubscription_ProxyURIDefaultTagsDistinguishHTTPS(t *testing.T) {
+	data := []byte(`
+http://1.2.3.4:8080
+https://example.com:8443
+`)
+
+	nodes, err := ParseGeneralSubscription(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 parsed nodes, got %d", len(nodes))
+	}
+
+	httpNode := parseNodeRaw(t, nodes[0].RawOptions)
+	httpsNode := parseNodeRaw(t, nodes[1].RawOptions)
+	if got := httpNode["tag"]; got != "http-1.2.3.4:8080" {
+		t.Fatalf("expected HTTP default tag, got %v", got)
+	}
+	if got := httpsNode["tag"]; got != "https-example.com:8443" {
+		t.Fatalf("expected HTTPS default tag, got %v", got)
+	}
+	if got := httpsNode["type"]; got != "http" {
+		t.Fatalf("expected HTTPS proxy outbound type http, got %v", got)
+	}
+	tls, ok := httpsNode["tls"].(map[string]any)
+	if !ok || tls["enabled"] != true {
+		t.Fatalf("expected HTTPS proxy TLS enabled, got %v", httpsNode["tls"])
+	}
+}
+
 func TestParseGeneralSubscription_ProxyURILinesRejectNonProxyURLs(t *testing.T) {
 	tests := []string{
 		"https://api.example.com",

@@ -138,8 +138,10 @@ func TestPlatform_EvaluateNode_RegexFilter(t *testing.T) {
 }
 
 func TestPlatform_EvaluateNode_RegexExcludeFilter(t *testing.T) {
-	p := NewPlatform("p1", "Test", []*regexp.Regexp{regexp.MustCompile("us")}, nil)
-	p.RegexExcludeFilters = []*regexp.Regexp{regexp.MustCompile("fast")}
+	p := NewPlatformWithTagFilter("p1", "Test", node.TagFilter{
+		Any:     []*regexp.Regexp{regexp.MustCompile("us")},
+		MustNot: []*regexp.Regexp{regexp.MustCompile("fast")},
+	}, nil)
 	h := makeHash(`{"type":"ss"}`)
 	entry := makeFullyRoutableEntry(h, "sub1")
 

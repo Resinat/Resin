@@ -469,8 +469,8 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	}
 
 	name := "new-platform"
-	regexExcludeFilters := []string{"nope"}
-	created, err := cp.CreatePlatform(CreatePlatformRequest{Name: &name, RegexExcludeFilters: regexExcludeFilters})
+	regexFilters := []string{"!nope"}
+	created, err := cp.CreatePlatform(CreatePlatformRequest{Name: &name, RegexFilters: regexFilters})
 	if err != nil {
 		t.Fatalf("CreatePlatform: %v", err)
 	}
@@ -485,14 +485,14 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	if !plat.View().Contains(hash) {
 		t.Fatalf("new platform view should contain seeded hash %s", hash.Hex())
 	}
-	if !reflect.DeepEqual(created.RegexExcludeFilters, regexExcludeFilters) {
-		t.Fatalf("created regex_exclude_filters = %v, want %v", created.RegexExcludeFilters, regexExcludeFilters)
+	if !reflect.DeepEqual(created.RegexFilters, regexFilters) {
+		t.Fatalf("created regex_filters = %v, want %v", created.RegexFilters, regexFilters)
 	}
 	if created.PassiveCircuitBreakerDisabled {
 		t.Fatal("new platform should default passive circuit breaker to not disabled")
 	}
-	if len(plat.RegexExcludeFilters) != 1 || plat.RegexExcludeFilters[0].String() != "nope" {
-		t.Fatalf("runtime regex_exclude_filters = %v, want [nope]", plat.RegexExcludeFilters)
+	if len(plat.RegexFilters.MustNot) != 1 || plat.RegexFilters.MustNot[0].String() != "nope" {
+		t.Fatalf("runtime MUST_NOT filters = %v, want [nope]", plat.RegexFilters.MustNot)
 	}
 	if plat.PassiveCircuitBreakerDisabled {
 		t.Fatal("runtime platform should default passive circuit breaker to not disabled")
@@ -889,8 +889,7 @@ func TestDeletePlatform_DoesNotDecodeCorruptPersistedFiltersJSON(t *testing.T) {
 	pool.RegisterPlatform(platform.NewConfiguredPlatform(
 		platformRow.ID,
 		platformRow.Name,
-		nil,
-		nil,
+		node.TagFilter{},
 		nil,
 		platformRow.StickyTTLNs,
 		platformRow.ReverseProxyMissAction,
@@ -953,8 +952,7 @@ func TestResetPlatformToDefault_SupportsBuiltInDefaultPlatform(t *testing.T) {
 	pool.RegisterPlatform(platform.NewConfiguredPlatform(
 		defaultRow.ID,
 		defaultRow.Name,
-		nil,
-		nil,
+		node.TagFilter{},
 		nil,
 		defaultRow.StickyTTLNs,
 		defaultRow.ReverseProxyMissAction,
@@ -1035,7 +1033,7 @@ func TestResetPlatformToDefault_SupportsBuiltInDefaultPlatform(t *testing.T) {
 	if plat.StickyTTLNs != int64(45*time.Minute) {
 		t.Fatalf("pool sticky_ttl_ns = %d, want %d", plat.StickyTTLNs, int64(45*time.Minute))
 	}
-	if len(plat.RegexFilters) != 1 || plat.RegexFilters[0].String() != "^prod-" {
+	if len(plat.RegexFilters.Any) != 1 || plat.RegexFilters.Any[0].String() != "^prod-" {
 		t.Fatalf("pool regex_filters = %v, want [%q]", plat.RegexFilters, "^prod-")
 	}
 	if !reflect.DeepEqual(plat.RegionFilters, []string{"jp"}) {
@@ -1096,8 +1094,7 @@ func TestResetPlatformToDefault_DoesNotDecodeCorruptPersistedFiltersJSON(t *test
 	pool.RegisterPlatform(platform.NewConfiguredPlatform(
 		platformRow.ID,
 		platformRow.Name,
-		nil,
-		nil,
+		node.TagFilter{},
 		nil,
 		platformRow.StickyTTLNs,
 		platformRow.ReverseProxyMissAction,

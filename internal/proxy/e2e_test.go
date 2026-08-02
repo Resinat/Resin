@@ -137,7 +137,7 @@ func TestForwardProxy_E2EHTTPSuccess(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, upstream.URL+"/v1/ping?q=1", nil)
-	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	req.Header.Set("Proxy-Authorization", basicAuth("plat", "tok"))
 	req.Header.Set("X-Test", "1")
 	w := httptest.NewRecorder()
 
@@ -186,7 +186,7 @@ func TestForwardProxy_E2EHTTPBypassDialsDirect(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, upstream.URL+"/direct", nil)
-	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	req.Header.Set("Proxy-Authorization", basicAuth("plat", "tok"))
 	w := httptest.NewRecorder()
 
 	fp.ServeHTTP(w, req)
@@ -228,7 +228,7 @@ func TestForwardProxy_E2EHTTPDialTimeout_ZeroEgress(t *testing.T) {
 
 	body := strings.Repeat("a", 256*1024)
 	req := httptest.NewRequest(http.MethodPost, "http://example.com/v1/upload", strings.NewReader(body))
-	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	req.Header.Set("Proxy-Authorization", basicAuth("plat", "tok"))
 	req.Header.Set("Content-Type", "application/octet-stream")
 	w := httptest.NewRecorder()
 
@@ -272,7 +272,7 @@ func TestForwardProxy_E2EHTTPClientCanceledBeforeResponse(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "http://example.com/v1/cancel", nil)
-	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	req.Header.Set("Proxy-Authorization", basicAuth("plat", "tok"))
 	ctx, cancel := context.WithCancel(req.Context())
 	cancel()
 	req = req.WithContext(ctx)
@@ -742,7 +742,7 @@ func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
 		targetAddr,
 		targetAddr,
-		basicAuth("tok", "plat"),
+		basicAuth("plat", "tok"),
 	)
 	if _, err := clientConn.Write([]byte(req)); err != nil {
 		t.Fatalf("write connect request: %v", err)
@@ -857,7 +857,7 @@ func TestForwardProxy_CONNECTPreservesBufferedClientBytesAfterHijack(t *testing.
 		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n%s",
 		targetAddr,
 		targetAddr,
-		basicAuth("tok", "plat"),
+		basicAuth("plat", "tok"),
 		payload,
 	)
 	if _, err := clientConn.Write([]byte(req)); err != nil {
@@ -921,7 +921,7 @@ func TestForwardProxy_CONNECTClientCanceledBeforeResponse(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodConnect, "http://example.com:443", nil)
 	req.Host = "example.com:443"
-	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	req.Header.Set("Proxy-Authorization", basicAuth("plat", "tok"))
 	ctx, cancel := context.WithCancel(req.Context())
 	cancel()
 	req = req.WithContext(ctx)
@@ -966,7 +966,7 @@ func TestForwardProxy_CONNECTResponseFlushFailureDoesNotPenalizeNode(t *testing.
 
 	req := httptest.NewRequest(http.MethodConnect, "http://example.com:443", nil)
 	req.Host = "example.com:443"
-	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat"))
+	req.Header.Set("Proxy-Authorization", basicAuth("plat", "tok"))
 
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
@@ -1044,7 +1044,7 @@ func TestForwardProxy_CONNECTZeroTrafficMarkedFailed(t *testing.T) {
 		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
 		targetAddr,
 		targetAddr,
-		basicAuth("tok", "plat"),
+		basicAuth("plat", "tok"),
 	)
 	if _, err := clientConn.Write([]byte(req)); err != nil {
 		t.Fatalf("write connect request: %v", err)
@@ -1148,7 +1148,7 @@ func TestForwardProxy_CONNECTHalfTrafficNotMarkedZeroTraffic(t *testing.T) {
 		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
 		targetAddr,
 		targetAddr,
-		basicAuth("tok", "plat"),
+		basicAuth("plat", "tok"),
 	)
 	if _, err := clientConn.Write([]byte(req)); err != nil {
 		t.Fatalf("write connect request: %v", err)

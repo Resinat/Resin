@@ -106,9 +106,6 @@ func (r *StateRepo) UpsertPlatform(p model.Platform) error {
 	if _, err := platform.CompileRegexFilters(p.RegexFilters); err != nil {
 		return err
 	}
-	if _, err := platform.CompileRegexExcludeFilters(p.RegexExcludeFilters); err != nil {
-		return err
-	}
 	if err := platform.ValidateRegionFilters(p.RegionFilters); err != nil {
 		return err
 	}
@@ -143,10 +140,6 @@ func (r *StateRepo) UpsertPlatform(p model.Platform) error {
 	if err != nil {
 		return fmt.Errorf("encode platform %s regex_filters: %w", p.ID, err)
 	}
-	regexExcludeFiltersJSON, err := encodeStringSliceJSON(p.RegexExcludeFilters)
-	if err != nil {
-		return fmt.Errorf("encode platform %s regex_exclude_filters: %w", p.ID, err)
-	}
 	regionFiltersJSON, err := encodeStringSliceJSON(p.RegionFilters)
 	if err != nil {
 		return fmt.Errorf("encode platform %s region_filters: %w", p.ID, err)
@@ -156,16 +149,15 @@ func (r *StateRepo) UpsertPlatform(p model.Platform) error {
 	defer r.mu.Unlock()
 
 	_, err = r.db.Exec(`
-		INSERT INTO platforms (id, name, sticky_ttl_ns, regex_filters_json, regex_exclude_filters_json, region_filters_json,
+		INSERT INTO platforms (id, name, sticky_ttl_ns, regex_filters_json, region_filters_json,
 		                       reverse_proxy_miss_action, reverse_proxy_empty_account_behavior,
 		                       reverse_proxy_fixed_account_header, allocation_policy,
 		                       passive_circuit_breaker_disabled, updated_at_ns)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name                     = excluded.name,
 			sticky_ttl_ns            = excluded.sticky_ttl_ns,
 			regex_filters_json       = excluded.regex_filters_json,
-			regex_exclude_filters_json = excluded.regex_exclude_filters_json,
 			region_filters_json      = excluded.region_filters_json,
 			reverse_proxy_miss_action = excluded.reverse_proxy_miss_action,
 			reverse_proxy_empty_account_behavior = excluded.reverse_proxy_empty_account_behavior,
@@ -173,7 +165,7 @@ func (r *StateRepo) UpsertPlatform(p model.Platform) error {
 			allocation_policy        = excluded.allocation_policy,
 			passive_circuit_breaker_disabled = excluded.passive_circuit_breaker_disabled,
 			updated_at_ns            = excluded.updated_at_ns
-	`, p.ID, p.Name, p.StickyTTLNs, regexFiltersJSON, regexExcludeFiltersJSON, regionFiltersJSON,
+	`, p.ID, p.Name, p.StickyTTLNs, regexFiltersJSON, regionFiltersJSON,
 		p.ReverseProxyMissAction, p.ReverseProxyEmptyAccountBehavior, p.ReverseProxyFixedAccountHeader,
 		p.AllocationPolicy, p.PassiveCircuitBreakerDisabled, p.UpdatedAtNs)
 	if err != nil {
@@ -228,17 +220,17 @@ func (r *StateRepo) GetPlatformName(id string) (string, error) {
 
 // GetPlatform returns one platform by ID.
 func (r *StateRepo) GetPlatform(id string) (*model.Platform, error) {
-	row := r.db.QueryRow(`SELECT id, name, sticky_ttl_ns, regex_filters_json, regex_exclude_filters_json, region_filters_json,
+	row := r.db.QueryRow(`SELECT id, name, sticky_ttl_ns, regex_filters_json, region_filters_json,
 			reverse_proxy_miss_action, reverse_proxy_empty_account_behavior,
 			reverse_proxy_fixed_account_header, allocation_policy,
 			passive_circuit_breaker_disabled, updated_at_ns
 			FROM platforms WHERE id = ?`, id)
 
 	var p model.Platform
-	var regexFiltersJSON, regexExcludeFiltersJSON, regionFiltersJSON string
+	var regexFiltersJSON, regionFiltersJSON string
 	var passiveCircuitBreakerDisabled int
 	if err := row.Scan(&p.ID, &p.Name, &p.StickyTTLNs, &regexFiltersJSON,
-		&regexExcludeFiltersJSON, &regionFiltersJSON, &p.ReverseProxyMissAction, &p.ReverseProxyEmptyAccountBehavior,
+		&regionFiltersJSON, &p.ReverseProxyMissAction, &p.ReverseProxyEmptyAccountBehavior,
 		&p.ReverseProxyFixedAccountHeader, &p.AllocationPolicy, &passiveCircuitBreakerDisabled, &p.UpdatedAtNs); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
@@ -250,23 +242,18 @@ func (r *StateRepo) GetPlatform(id string) (*model.Platform, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decode platform %s regex_filters_json: %w", p.ID, err)
 	}
-	regexExcludeFilters, err := decodeStringSliceJSON(regexExcludeFiltersJSON)
-	if err != nil {
-		return nil, fmt.Errorf("decode platform %s regex_exclude_filters_json: %w", p.ID, err)
-	}
 	regionFilters, err := decodeStringSliceJSON(regionFiltersJSON)
 	if err != nil {
 		return nil, fmt.Errorf("decode platform %s region_filters_json: %w", p.ID, err)
 	}
 	p.RegexFilters = regexFilters
-	p.RegexExcludeFilters = regexExcludeFilters
 	p.RegionFilters = regionFilters
 	return &p, nil
 }
 
 // ListPlatforms returns all platforms.
 func (r *StateRepo) ListPlatforms() ([]model.Platform, error) {
-	rows, err := r.db.Query("SELECT id, name, sticky_ttl_ns, regex_filters_json, regex_exclude_filters_json, region_filters_json, reverse_proxy_miss_action, reverse_proxy_empty_account_behavior, reverse_proxy_fixed_account_header, allocation_policy, passive_circuit_breaker_disabled, updated_at_ns FROM platforms")
+	rows, err := r.db.Query("SELECT id, name, sticky_ttl_ns, regex_filters_json, region_filters_json, reverse_proxy_miss_action, reverse_proxy_empty_account_behavior, reverse_proxy_fixed_account_header, allocation_policy, passive_circuit_breaker_disabled, updated_at_ns FROM platforms")
 	if err != nil {
 		return nil, err
 	}
@@ -275,10 +262,10 @@ func (r *StateRepo) ListPlatforms() ([]model.Platform, error) {
 	var result []model.Platform
 	for rows.Next() {
 		var p model.Platform
-		var regexFiltersJSON, regexExcludeFiltersJSON, regionFiltersJSON string
+		var regexFiltersJSON, regionFiltersJSON string
 		var passiveCircuitBreakerDisabled int
 		if err := rows.Scan(&p.ID, &p.Name, &p.StickyTTLNs, &regexFiltersJSON,
-			&regexExcludeFiltersJSON, &regionFiltersJSON, &p.ReverseProxyMissAction, &p.ReverseProxyEmptyAccountBehavior,
+			&regionFiltersJSON, &p.ReverseProxyMissAction, &p.ReverseProxyEmptyAccountBehavior,
 			&p.ReverseProxyFixedAccountHeader, &p.AllocationPolicy, &passiveCircuitBreakerDisabled, &p.UpdatedAtNs); err != nil {
 			return nil, err
 		}
@@ -287,16 +274,11 @@ func (r *StateRepo) ListPlatforms() ([]model.Platform, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode platform %s regex_filters_json: %w", p.ID, err)
 		}
-		regexExcludeFilters, err := decodeStringSliceJSON(regexExcludeFiltersJSON)
-		if err != nil {
-			return nil, fmt.Errorf("decode platform %s regex_exclude_filters_json: %w", p.ID, err)
-		}
 		regionFilters, err := decodeStringSliceJSON(regionFiltersJSON)
 		if err != nil {
 			return nil, fmt.Errorf("decode platform %s region_filters_json: %w", p.ID, err)
 		}
 		p.RegexFilters = regexFilters
-		p.RegexExcludeFilters = regexExcludeFilters
 		p.RegionFilters = regionFilters
 		result = append(result, p)
 	}
@@ -394,6 +376,148 @@ func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 		result = append(result, s)
 	}
 	return result, rows.Err()
+}
+
+// --- endpoints ---
+
+// InsertEndpoint persists a new custom endpoint.
+func (r *StateRepo) InsertEndpoint(endpoint model.Endpoint) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	_, err := r.db.Exec(`
+		INSERT INTO endpoints (
+			id, port, enabled, allow_management, allow_proxy, require_proxy_auth_info,
+			allow_http_forward, allow_http_reverse, allow_socks5, created_at_ns, updated_at_ns
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, endpoint.ID, endpoint.Port, endpoint.Enabled, endpoint.AllowManagement, endpoint.AllowProxy,
+		endpoint.RequireProxyAuthInfo, endpoint.AllowHTTPForward, endpoint.AllowHTTPReverse,
+		endpoint.AllowSOCKS5, endpoint.CreatedAtNs, endpoint.UpdatedAtNs)
+	if isSQLiteUniqueConstraint(err) {
+		return fmt.Errorf("%w: endpoint id or port already exists", ErrConflict)
+	}
+	return err
+}
+
+// UpdateEndpoint replaces the mutable fields of an existing custom endpoint.
+func (r *StateRepo) UpdateEndpoint(endpoint model.Endpoint) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	result, err := r.db.Exec(`
+		UPDATE endpoints SET
+			port = ?,
+			enabled = ?,
+			allow_management = ?,
+			allow_proxy = ?,
+			require_proxy_auth_info = ?,
+			allow_http_forward = ?,
+			allow_http_reverse = ?,
+			allow_socks5 = ?,
+			updated_at_ns = ?
+		WHERE id = ?
+	`, endpoint.Port, endpoint.Enabled, endpoint.AllowManagement, endpoint.AllowProxy,
+		endpoint.RequireProxyAuthInfo, endpoint.AllowHTTPForward, endpoint.AllowHTTPReverse,
+		endpoint.AllowSOCKS5, endpoint.UpdatedAtNs, endpoint.ID)
+	if isSQLiteUniqueConstraint(err) {
+		return fmt.Errorf("%w: endpoint port already exists", ErrConflict)
+	}
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteEndpoint removes a custom endpoint by ID.
+func (r *StateRepo) DeleteEndpoint(id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	result, err := r.db.Exec("DELETE FROM endpoints WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GetEndpoint returns one persisted custom endpoint.
+func (r *StateRepo) GetEndpoint(id string) (*model.Endpoint, error) {
+	row := r.db.QueryRow(`
+		SELECT id, port, enabled, allow_management, allow_proxy, require_proxy_auth_info,
+		       allow_http_forward, allow_http_reverse, allow_socks5, created_at_ns, updated_at_ns
+		FROM endpoints WHERE id = ?
+	`, id)
+	endpoint, err := scanEndpoint(row.Scan)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &endpoint, nil
+}
+
+// ListEndpoints returns all persisted custom endpoints ordered by port.
+func (r *StateRepo) ListEndpoints() ([]model.Endpoint, error) {
+	rows, err := r.db.Query(`
+		SELECT id, port, enabled, allow_management, allow_proxy, require_proxy_auth_info,
+		       allow_http_forward, allow_http_reverse, allow_socks5, created_at_ns, updated_at_ns
+		FROM endpoints ORDER BY port ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]model.Endpoint, 0)
+	for rows.Next() {
+		endpoint, scanErr := scanEndpoint(rows.Scan)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		result = append(result, endpoint)
+	}
+	return result, rows.Err()
+}
+
+type endpointScanner func(dest ...any) error
+
+func scanEndpoint(scan endpointScanner) (model.Endpoint, error) {
+	var endpoint model.Endpoint
+	var enabled, allowManagement, allowProxy, requireProxyAuthInfo int
+	var allowHTTPForward, allowHTTPReverse, allowSOCKS5 int
+	err := scan(
+		&endpoint.ID,
+		&endpoint.Port,
+		&enabled,
+		&allowManagement,
+		&allowProxy,
+		&requireProxyAuthInfo,
+		&allowHTTPForward,
+		&allowHTTPReverse,
+		&allowSOCKS5,
+		&endpoint.CreatedAtNs,
+		&endpoint.UpdatedAtNs,
+	)
+	if err != nil {
+		return model.Endpoint{}, err
+	}
+	endpoint.Enabled = enabled != 0
+	endpoint.AllowManagement = allowManagement != 0
+	endpoint.AllowProxy = allowProxy != 0
+	endpoint.RequireProxyAuthInfo = requireProxyAuthInfo != 0
+	endpoint.AllowHTTPForward = allowHTTPForward != 0
+	endpoint.AllowHTTPReverse = allowHTTPReverse != 0
+	endpoint.AllowSOCKS5 = allowSOCKS5 != 0
+	return endpoint, nil
 }
 
 // --- account_header_rules ---

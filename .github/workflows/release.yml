@@ -116,6 +116,18 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Find Release Note
+        id: release_note
+        env:
+          RELEASE_NOTE_PATH: doc/release-notes/${{ github.ref_name }}.md
+        run: |
+          if [[ -f "$RELEASE_NOTE_PATH" ]]; then
+            echo "path=$RELEASE_NOTE_PATH" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download Release Package Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -138,6 +150,7 @@ jobs:
           files: build/*
           fail_on_unmatched_files: true
           overwrite_files: true
+          body_path: ${{ steps.release_note.outputs.path }}
           generate_release_notes: true
           prerelease: ${{ steps.check_prerelease.outputs.is_prerelease == 'true' }}
 

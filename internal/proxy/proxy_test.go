@@ -195,7 +195,7 @@ func TestForwardProxy_AuthRequired_EmitsNoEvents(t *testing.T) {
 func TestForwardProxy_AuthFailed(t *testing.T) {
 	fp := &ForwardProxy{token: "correct-token", events: NoOpEventEmitter{}}
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
-	req.Header.Set("Proxy-Authorization", basicAuth("wrong-token", "plat:acct"))
+	req.Header.Set("Proxy-Authorization", basicAuth("plat.acct", "wrong-token"))
 	w := httptest.NewRecorder()
 	fp.ServeHTTP(w, req)
 
@@ -211,7 +211,7 @@ func TestForwardProxy_AuthFailed_EmitsNoEvents(t *testing.T) {
 	emitter := newMockEventEmitter()
 	fp := &ForwardProxy{token: "tok", events: emitter}
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
-	req.Header.Set("Proxy-Authorization", basicAuth("wrong-token", "plat:acct"))
+	req.Header.Set("Proxy-Authorization", basicAuth("plat.acct", "wrong-token"))
 	w := httptest.NewRecorder()
 
 	fp.ServeHTTP(w, req)
@@ -288,17 +288,34 @@ func TestForwardProxy_Authentication_DisabledWhenProxyTokenEmpty(t *testing.T) {
 	}
 }
 
-func TestForwardProxy_Authentication_Disabled_AllowsOptionalIdentity(t *testing.T) {
-	fp := &ForwardProxy{token: "", events: NoOpEventEmitter{}}
-	req := httptest.NewRequest("GET", "http://example.com/", nil)
-	req.Header.Set("Proxy-Authorization", basicAuth("any-token", "plat:acct"))
-
-	plat, acct, err := fp.authenticate(req)
-	if err != nil {
-		t.Fatalf("unexpected auth error: %v", err)
+func TestForwardProxy_Authentication_RequiredInfoWithEmptyToken(t *testing.T) {
+	rawCredential := func(raw string) string {
+		return "Basic " + base64.StdEncoding.EncodeToString([]byte(raw))
 	}
-	if plat != "plat" || acct != "acct" {
-		t.Fatalf("got plat=%q acct=%q, want plat=%q acct=%q", plat, acct, "plat", "acct")
+
+	fp := &ForwardProxy{token: "", events: NoOpEventEmitter{}}
+	tests := []struct {
+		name    string
+		auth    string
+		wantErr *ProxyError
+	}{
+		{name: "missing", wantErr: ErrAuthRequired},
+		{name: "malformed", auth: "Basic %%%", wantErr: ErrAuthRequired},
+		{name: "empty", auth: rawCredential(":"), wantErr: ErrAuthRequired},
+		{name: "identity", auth: rawCredential("platform:account")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+			req = req.WithContext(ContextWithInboundPolicy(req.Context(), InboundPolicy{RequireProxyAuthInfo: true}))
+			if tt.auth != "" {
+				req.Header.Set("Proxy-Authorization", tt.auth)
+			}
+			_, _, err := fp.authenticate(req)
+			if err != tt.wantErr {
+				t.Fatalf("authenticate error = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -316,37 +333,9 @@ func TestForwardProxy_Authentication_Disabled_AllowsTwoFieldIdentity(t *testing.
 	}
 }
 
-func TestForwardProxy_Authentication_ParsePlatformAccount(t *testing.T) {
-	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
-
-	tests := []struct {
-		pass     string
-		wantPlat string
-		wantAcct string
-	}{
-		{"platform:account", "platform", "account"},
-		{"platform", "platform", ""},
-		{"platform:account:extra", "platform", "account:extra"},
-		{":account", "", "account"},
-	}
-
-	for _, tt := range tests {
-		req := httptest.NewRequest("GET", "http://example.com/", nil)
-		req.Header.Set("Proxy-Authorization", basicAuth("tok", tt.pass))
-		plat, acct, err := fp.authenticate(req)
-		if err != nil {
-			t.Fatalf("pass=%q: unexpected auth error: %v", tt.pass, err)
-		}
-		if plat != tt.wantPlat || acct != tt.wantAcct {
-			t.Fatalf("pass=%q: got plat=%q acct=%q, want plat=%q acct=%q",
-				tt.pass, plat, acct, tt.wantPlat, tt.wantAcct)
-		}
-	}
-}
-
 func TestForwardProxy_Authentication_BasicSchemeCaseInsensitive(t *testing.T) {
 	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
-	credential := base64.StdEncoding.EncodeToString([]byte("tok:plat:acct"))
+	credential := base64.StdEncoding.EncodeToString([]byte("plat.acct:tok"))
 
 	tests := []string{
 		"basic " + credential,
@@ -373,7 +362,7 @@ func TestForwardProxy_Authentication_V1(t *testing.T) {
 		return "Basic " + base64.StdEncoding.EncodeToString([]byte(raw))
 	}
 
-	fp := &ForwardProxy{token: "tok", authVersion: "V1", events: NoOpEventEmitter{}}
+	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	req.Header.Set("Proxy-Authorization", rawCredential("plat.user:tok"))
 
@@ -386,8 +375,8 @@ func TestForwardProxy_Authentication_V1(t *testing.T) {
 	}
 }
 
-func TestForwardProxy_Authentication_V1RejectsLegacyCredentialShape(t *testing.T) {
-	fp := &ForwardProxy{token: "tok", authVersion: "V1", events: NoOpEventEmitter{}}
+func TestForwardProxy_Authentication_V1RejectsTokenFirstCredentialShape(t *testing.T) {
+	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat:acct"))
 
@@ -402,7 +391,7 @@ func TestForwardProxy_Authentication_V1_NoProxyTokenStillAllowsOptionalIdentity(
 		return "Basic " + base64.StdEncoding.EncodeToString([]byte(raw))
 	}
 
-	fp := &ForwardProxy{token: "", authVersion: "V1", events: NoOpEventEmitter{}}
+	fp := &ForwardProxy{token: "", events: NoOpEventEmitter{}}
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	req.Header.Set("Proxy-Authorization", rawCredential("my-platform.account-a:any-token"))
 
@@ -412,51 +401,6 @@ func TestForwardProxy_Authentication_V1_NoProxyTokenStillAllowsOptionalIdentity(
 	}
 	if plat != "my-platform" || acct != "account-a" {
 		t.Fatalf("got plat=%q acct=%q, want plat=%q acct=%q", plat, acct, "my-platform", "account-a")
-	}
-}
-
-func TestForwardProxy_Authentication_V1_NoProxyTokenPreservesLegacyShapes(t *testing.T) {
-	fp := &ForwardProxy{token: "", authVersion: "V1", events: NoOpEventEmitter{}}
-
-	tests := []struct {
-		name     string
-		auth     string
-		wantPlat string
-		wantAcct string
-	}{
-		{
-			name:     "two_field_identity",
-			auth:     basicAuth("legacy-plat", "legacy-acct"),
-			wantPlat: "legacy-plat",
-			wantAcct: "legacy-acct",
-		},
-		{
-			name:     "three_field_legacy_shape",
-			auth:     "Basic " + base64.StdEncoding.EncodeToString([]byte("legacy-token:legacy-plat:legacy-acct")),
-			wantPlat: "legacy-plat",
-			wantAcct: "legacy-acct",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "http://example.com/", nil)
-			req.Header.Set("Proxy-Authorization", tt.auth)
-
-			plat, acct, err := fp.authenticate(req)
-			if err != nil {
-				t.Fatalf("unexpected auth error: %v", err)
-			}
-			if plat != tt.wantPlat || acct != tt.wantAcct {
-				t.Fatalf(
-					"got plat=%q acct=%q, want plat=%q acct=%q",
-					plat,
-					acct,
-					tt.wantPlat,
-					tt.wantAcct,
-				)
-			}
-		})
 	}
 }
 
@@ -566,7 +510,7 @@ func TestForwardProxy_AuthAndSetup(t *testing.T) {
 	}
 
 	req := httptest.NewRequest("GET", upstream.URL, nil)
-	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat:acct"))
+	req.Header.Set("Proxy-Authorization", basicAuth("plat.acct", "tok"))
 	plat, acct, authErr := fp.authenticate(req)
 	if authErr != nil {
 		t.Fatalf("auth failed: %v", authErr)
@@ -809,21 +753,13 @@ func TestReverseParsePath_NoAccount(t *testing.T) {
 }
 
 func TestReverseParsePath_V1_AcceptsIdentityWithoutColon(t *testing.T) {
-	rp := &ReverseProxy{token: "tok", authVersion: "V1", events: NoOpEventEmitter{}}
+	rp := &ReverseProxy{token: "tok", events: NoOpEventEmitter{}}
 	parsed, err := rp.parsePath("/tok/myplat/https/example.com/path")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if parsed.PlatformName != "myplat" || parsed.Account != "" {
 		t.Fatalf("got plat=%q acct=%q, want plat=%q acct=%q", parsed.PlatformName, parsed.Account, "myplat", "")
-	}
-}
-
-func TestReverseParsePath_LegacyRejectsIdentityWithoutColon(t *testing.T) {
-	rp := &ReverseProxy{token: "tok", authVersion: "LEGACY_V0", events: NoOpEventEmitter{}}
-	_, err := rp.parsePath("/tok/myplat/https/example.com/path")
-	if err != ErrURLParseError {
-		t.Fatalf("expected URL_PARSE_ERROR, got %v", err)
 	}
 }
 

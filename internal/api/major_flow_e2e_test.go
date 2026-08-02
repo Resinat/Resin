@@ -296,7 +296,7 @@ func TestMajorFlow_E2E_LocalProxyAndSubscriptionProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse forward proxy url: %v", err)
 	}
-	proxyURL.User = url.UserPassword("tok", platformName+":"+account)
+	proxyURL.User = url.UserPassword(platformName+"."+account, "tok")
 	forwardClient := &http.Client{
 		Transport: &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
@@ -318,7 +318,7 @@ func TestMajorFlow_E2E_LocalProxyAndSubscriptionProvider(t *testing.T) {
 	}
 
 	upstreamHost := strings.TrimPrefix(upstream.URL, "http://")
-	reverseResp, err := http.Get(h.reverseURL + "/tok/" + platformName + ":" + account + "/http/" + upstreamHost + "/reverse/ping?k=v")
+	reverseResp, err := http.Get(h.reverseURL + "/tok/" + platformName + "." + account + "/http/" + upstreamHost + "/reverse/ping?k=v")
 	if err != nil {
 		t.Fatalf("reverse request via proxy failed: %v", err)
 	}

@@ -9,6 +9,7 @@ type OffsetPaginationProps = {
   totalItems: number;
   pageSize: number;
   pageSizeOptions: readonly number[];
+  disabled?: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
 };
@@ -19,6 +20,7 @@ export function OffsetPagination({
   totalItems,
   pageSize,
   pageSizeOptions,
+  disabled = false,
   onPageChange,
   onPageSizeChange,
 }: OffsetPaginationProps) {
@@ -51,7 +53,7 @@ export function OffsetPagination({
       <div className="nodes-pagination-controls">
         <label className="nodes-page-size">
           <span>{t("每页")}</span>
-          <Select value={String(pageSize)} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
+          <Select disabled={disabled} value={String(pageSize)} onChange={(event) => onPageSizeChange(Number(event.target.value))}>
             {pageSizeOptions.map((size) => (
               <option key={size} value={size}>
                 {size}
@@ -66,6 +68,7 @@ export function OffsetPagination({
             value={String(normalizedPage)}
             onChange={(event) => jumpTo(Number(event.target.value))}
             aria-label={t("选择页码")}
+            disabled={disabled}
           >
             {pageOptions.map((index) => (
               <option key={index} value={index}>
@@ -76,14 +79,14 @@ export function OffsetPagination({
           <span>{t("页")}</span>
         </label>
 
-        <Button variant="secondary" size="sm" onClick={() => jumpTo(normalizedPage - 1)} disabled={normalizedPage <= 0}>
+        <Button variant="secondary" size="sm" onClick={() => jumpTo(normalizedPage - 1)} disabled={disabled || normalizedPage <= 0}>
           {t("上一页")}
         </Button>
         <Button
           variant="secondary"
           size="sm"
           onClick={() => jumpTo(normalizedPage + 1)}
-          disabled={normalizedPage >= normalizedTotalPages - 1}
+          disabled={disabled || normalizedPage >= normalizedTotalPages - 1}
         >
           {t("下一页")}
         </Button>

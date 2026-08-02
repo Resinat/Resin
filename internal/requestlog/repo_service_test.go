@@ -1,6 +1,8 @@
 package requestlog
 
 import (
+	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -347,6 +349,171 @@ func TestRepo_OpenCreatesLogDir(t *testing.T) {
 		t.Fatalf("repo.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = repo.Close() })
+}
+
+func TestRepo_OpenCreatesOptimizedIndexes(t *testing.T) {
+	repo := NewRepo(t.TempDir(), 1<<20, 2)
+	if err := repo.Open(); err != nil {
+		t.Fatalf("repo.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = repo.Close() })
+
+	assertRequestLogIndexes(t, repo.activeDB)
+	assertQueryPlanUsesIndex(t, repo.activeDB, "idx_request_logs_proxy_type_ts_id", `
+		SELECT id, ts_ns FROM request_logs
+		WHERE proxy_type = ? ORDER BY ts_ns DESC, id ASC LIMIT 101
+	`, int(proxy.ProxyTypeReverse))
+	assertQueryPlanUsesIndex(t, repo.activeDB, "idx_request_logs_account_ts_id", `
+		SELECT id, ts_ns FROM request_logs
+		WHERE account = ? AND account <> '' ORDER BY ts_ns DESC, id ASC LIMIT 101
+	`, "acct-a")
+}
+
+func TestRepo_OpenMigratesIndexesInHistoricalDBs(t *testing.T) {
+	logDir := t.TempDir()
+	repo := NewRepo(logDir, 1<<20, 2)
+	if err := repo.Open(); err != nil {
+		t.Fatalf("repo.Open: %v", err)
+	}
+	historicalPath := repo.activePath
+
+	legacyIndexesDDL := `
+		DROP INDEX IF EXISTS idx_request_logs_ts_id;
+		DROP INDEX IF EXISTS idx_request_logs_proxy_type_ts_id;
+		DROP INDEX IF EXISTS idx_request_logs_account_ts_id;
+		CREATE INDEX idx_request_logs_ts_ns ON request_logs(ts_ns);
+		CREATE INDEX idx_request_logs_proxy_type ON request_logs(proxy_type);
+		CREATE INDEX idx_request_logs_platform_id ON request_logs(platform_id);
+	`
+	if _, err := repo.activeDB.Exec(legacyIndexesDDL); err != nil {
+		t.Fatalf("prepare legacy indexes: %v", err)
+	}
+
+	time.Sleep(2 * time.Millisecond)
+	if err := repo.rotateDB(); err != nil {
+		t.Fatalf("repo.rotateDB: %v", err)
+	}
+	if err := repo.Close(); err != nil {
+		t.Fatalf("repo.Close: %v", err)
+	}
+
+	reopened := NewRepo(logDir, 1<<20, 2)
+	if err := reopened.Open(); err != nil {
+		t.Fatalf("reopened.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	historicalDB, err := reopened.openReadOnly(historicalPath)
+	if err != nil {
+		t.Fatalf("open historical DB: %v", err)
+	}
+	t.Cleanup(func() { _ = historicalDB.Close() })
+	assertRequestLogIndexes(t, historicalDB)
+}
+
+func TestRepo_CleanupRetainsConfiguredFileCount(t *testing.T) {
+	logDir := t.TempDir()
+	for i := 1; i <= 5; i++ {
+		path := filepath.Join(logDir, fmt.Sprintf("request_logs-%013d.db", i))
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatalf("create shard %d: %v", i, err)
+		}
+	}
+
+	repo := NewRepo(logDir, 1<<20, 2)
+	if err := repo.cleanup(); err != nil {
+		t.Fatalf("repo.cleanup: %v", err)
+	}
+	files, err := repo.listDBFiles()
+	if err != nil {
+		t.Fatalf("repo.listDBFiles: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("retained files: got %d, want 2", len(files))
+	}
+	if got := filepath.Base(files[0]); got != "request_logs-0000000000004.db" {
+		t.Fatalf("oldest retained file: got %q", got)
+	}
+}
+
+func TestNewRepo_DefaultsToTwoHistoricalDBs(t *testing.T) {
+	repo := NewRepo(t.TempDir(), 0, 0)
+	if repo.retainCount != 2 {
+		t.Fatalf("retainCount: got %d, want 2", repo.retainCount)
+	}
+}
+
+func assertRequestLogIndexes(t *testing.T, db *sql.DB) {
+	t.Helper()
+	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'request_logs'`)
+	if err != nil {
+		t.Fatalf("list request-log indexes: %v", err)
+	}
+	defer rows.Close()
+
+	indexes := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan request-log index: %v", err)
+		}
+		indexes[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate request-log indexes: %v", err)
+	}
+
+	for _, name := range []string{
+		"idx_request_logs_ts_id",
+		"idx_request_logs_proxy_type_ts_id",
+		"idx_request_logs_account_ts_id",
+		"idx_request_logs_platform_name",
+		"idx_request_logs_plat_acct",
+		"idx_request_logs_target_host",
+		"idx_request_logs_egress_ip",
+	} {
+		if !indexes[name] {
+			t.Errorf("expected index %q", name)
+		}
+	}
+	for _, name := range []string{
+		"idx_request_logs_ts_ns",
+		"idx_request_logs_proxy_type",
+		"idx_request_logs_platform_id",
+	} {
+		if indexes[name] {
+			t.Errorf("obsolete index %q still exists", name)
+		}
+	}
+}
+
+func assertQueryPlanUsesIndex(t *testing.T, db *sql.DB, indexName, query string, args ...any) {
+	t.Helper()
+	rows, err := db.Query("EXPLAIN QUERY PLAN "+query, args...)
+	if err != nil {
+		t.Fatalf("explain query plan: %v", err)
+	}
+	defer rows.Close()
+
+	var plan strings.Builder
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("scan query plan: %v", err)
+		}
+		plan.WriteString(detail)
+		plan.WriteByte('\n')
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate query plan: %v", err)
+	}
+	if !strings.Contains(plan.String(), indexName) {
+		t.Fatalf("query plan does not use %s:\n%s", indexName, plan.String())
+	}
+	if strings.Contains(plan.String(), "USE TEMP B-TREE FOR ORDER BY") {
+		t.Fatalf("query plan still sorts with a temporary B-tree:\n%s", plan.String())
+	}
 }
 
 func TestRepo_ListAcrossDBsUsesGlobalTsOrdering(t *testing.T) {

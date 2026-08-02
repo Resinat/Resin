@@ -4,7 +4,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/proxy"
+	"github.com/Resinat/Resin/internal/service"
 )
+
+func newInboundMux(proxyToken string, forward, reverse, apiHandler, tokenActionHandler http.Handler) http.Handler {
+	return newEndpointInboundMux(
+		func() model.Endpoint { return service.NewDefaultEndpoint(0) },
+		proxyToken,
+		forward,
+		reverse,
+		apiHandler,
+		tokenActionHandler,
+	)
+}
 
 func tagHandler(tag string, status int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -228,5 +243,97 @@ func TestInboundMux_RoutesTokenInheritLeaseAction(t *testing.T) {
 
 	if rec.Header().Get("X-Route") != "token-action" {
 		t.Fatalf("expected token-action route, got %q", rec.Header().Get("X-Route"))
+	}
+}
+
+func TestEndpointInboundMux_AppliesCapabilities(t *testing.T) {
+	endpoint := model.Endpoint{
+		AllowProxy:       true,
+		AllowHTTPForward: false,
+		AllowHTTPReverse: false,
+	}
+	mux := newEndpointInboundMux(
+		func() model.Endpoint { return endpoint },
+		"",
+		tagHandler("forward", http.StatusOK),
+		tagHandler("reverse", http.StatusOK),
+		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
+	)
+
+	t.Run("health remains available", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+		if rec.Header().Get("X-Route") != "api" {
+			t.Fatalf("health route = %q, want api", rec.Header().Get("X-Route"))
+		}
+	})
+
+	t.Run("management is hidden", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/endpoints", nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want 404", rec.Code)
+		}
+	})
+
+	t.Run("forward is forbidden", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/", nil))
+		if rec.Code != http.StatusForbidden || rec.Header().Get("X-Resin-Error") != "ENDPOINT_CAPABILITY_DISABLED" {
+			t.Fatalf("status/header = %d/%q", rec.Code, rec.Header().Get("X-Resin-Error"))
+		}
+	})
+
+	t.Run("reverse is forbidden", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dummy/Default/https/example.com", nil))
+		if rec.Code != http.StatusForbidden || rec.Header().Get("X-Resin-Error") != "ENDPOINT_CAPABILITY_DISABLED" {
+			t.Fatalf("status/header = %d/%q", rec.Code, rec.Header().Get("X-Resin-Error"))
+		}
+	})
+
+	endpoint.AllowManagement = true
+	endpoint.AllowHTTPReverse = true
+	t.Run("updated capabilities apply without rebuilding mux", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/endpoints", nil))
+		if rec.Header().Get("X-Route") != "api" {
+			t.Fatalf("management route = %q, want api", rec.Header().Get("X-Route"))
+		}
+
+		rec = httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dummy/Default/https/example.com", nil))
+		if rec.Header().Get("X-Route") != "reverse" {
+			t.Fatalf("reverse route = %q, want reverse", rec.Header().Get("X-Route"))
+		}
+	})
+}
+
+func TestEndpointInboundMux_InjectsProxyAuthInfoPolicy(t *testing.T) {
+	seenRequired := false
+	forward := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenRequired = proxy.InboundPolicyFromContext(r.Context()).RequireProxyAuthInfo
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux := newEndpointInboundMux(
+		func() model.Endpoint {
+			return model.Endpoint{
+				AllowProxy:           true,
+				AllowHTTPForward:     true,
+				RequireProxyAuthInfo: true,
+			}
+		},
+		"",
+		forward,
+		tagHandler("reverse", http.StatusOK),
+		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
+	)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://example.com/", nil))
+	if rec.Code != http.StatusNoContent || !seenRequired {
+		t.Fatalf("status/required = %d/%v, want 204/true", rec.Code, seenRequired)
 	}
 }

@@ -150,7 +150,7 @@ func TestForwardProxy_E2ELocalHTTPProxy_FromHTTPSubscription(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse proxy url: %v", err)
 	}
-	proxyURL.User = url.UserPassword("tok", "plat")
+	proxyURL.User = url.UserPassword("plat", "tok")
 
 	client := &http.Client{
 		Transport: &http.Transport{

@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/proxy"
 )
 
@@ -378,9 +377,7 @@ func TestInboundDemux_ShutdownUnblocksSocksHandshakePhase(t *testing.T) {
 		}),
 	}
 
-	socksHandler := proxy.NewSocks5Inbound(proxy.Socks5InboundConfig{
-		AuthVersion: string(config.AuthVersionV1),
-	})
+	socksHandler := proxy.NewSocks5Inbound(proxy.Socks5InboundConfig{})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -572,6 +569,97 @@ func TestInboundDemux_ShutdownTimeoutForceClosesActiveHTTPConnection(t *testing.
 	if _, err := clientConn.Read(buf); !errors.Is(err, io.EOF) {
 		t.Fatalf("active HTTP conn should be closed during forced shutdown, got %v", err)
 	}
+
+	select {
+	case err := <-errCh:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			t.Fatalf("serve error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for demux server to stop")
+	}
+}
+
+func TestInboundDemux_ShutdownClosesHijackedHTTPConnection(t *testing.T) {
+	hijackedConnCh := make(chan net.Conn, 1)
+	handlerErrCh := make(chan error, 1)
+	httpServer := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			hijacker, ok := w.(http.Hijacker)
+			if !ok {
+				handlerErrCh <- errors.New("response writer does not support hijacking")
+				return
+			}
+			conn, rw, err := hijacker.Hijack()
+			if err != nil {
+				handlerErrCh <- err
+				return
+			}
+			if _, err := rw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+				_ = conn.Close()
+				handlerErrCh <- err
+				return
+			}
+			if err := rw.Flush(); err != nil {
+				_ = conn.Close()
+				handlerErrCh <- err
+				return
+			}
+			hijackedConnCh <- conn
+		}),
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	demux := newInboundDemuxServer(httpServer, &stubSocksHandler{})
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- demux.Serve(ln)
+	}()
+
+	clientConn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial http conn: %v", err)
+	}
+	defer clientConn.Close()
+
+	if _, err := io.WriteString(clientConn, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n"); err != nil {
+		t.Fatalf("write CONNECT request: %v", err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(clientConn), &http.Request{Method: http.MethodConnect})
+	if err != nil {
+		t.Fatalf("read CONNECT response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("CONNECT status: got %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var hijackedConn net.Conn
+	select {
+	case hijackedConn = <-hijackedConnCh:
+		defer hijackedConn.Close()
+	case err := <-handlerErrCh:
+		t.Fatalf("hijack handler: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for HTTP connection to be hijacked")
+	}
+	waitForDemuxConnState(t, demux, 1, 0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := demux.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+
+	_ = clientConn.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 1)
+	if _, err := clientConn.Read(buf); !errors.Is(err, io.EOF) {
+		t.Fatalf("hijacked HTTP conn should be closed during shutdown, got %v", err)
+	}
+	waitForDemuxConnState(t, demux, 0, 0)
 
 	select {
 	case err := <-errCh:

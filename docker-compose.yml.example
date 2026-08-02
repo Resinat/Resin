@@ -7,7 +7,6 @@ services:
     container_name: resin
     restart: unless-stopped
     environment:
-      RESIN_AUTH_VERSION: ${RESIN_AUTH_VERSION}
       RESIN_ADMIN_TOKEN: ${RESIN_ADMIN_TOKEN}
       RESIN_PROXY_TOKEN: ${RESIN_PROXY_TOKEN}
       RESIN_LISTEN_ADDRESS: 0.0.0.0

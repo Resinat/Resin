@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Info, Plus, RefreshCw, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, Info, Plus, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -242,8 +242,8 @@ export function PlatformPage() {
           <Card className="modal-card">
             <div className="modal-header">
               <h3>{t("新建平台")}</h3>
-              <Button variant="ghost" size="sm" onClick={() => setCreateModalOpen(false)}>
-                {t("关闭")}
+              <Button variant="ghost" size="sm" aria-label={t("关闭")} onClick={() => setCreateModalOpen(false)}>
+                <X size={16} />
               </Button>
             </div>
 
@@ -348,46 +348,19 @@ export function PlatformPage() {
               </div>
 
               <div className="field-group">
-                <label className="field-label field-label-with-info" htmlFor="create-regex">
-                  <span>{t("节点名正则过滤规则（可选）")}</span>
-                  <span
-                    className="subscription-info-icon"
-                    title={t("满足所有正则表达式的节点才会被选择")}
-                    aria-label={t("满足所有正则表达式的节点才会被选择")}
-                    tabIndex={0}
-                  >
-                    <Info size={13} />
-                  </span>
+                <label className="field-label" htmlFor="create-regex">
+                  {t("节点名正则过滤规则（可选）")}
                 </label>
                 <Textarea
                   id="create-regex"
                   rows={4}
-                  placeholder={t("每行一条，例如 .*专线.* 或 <订阅名>/.*")}
+                  placeholder={t("每行一条正则表达式，例如：\n\n香港\n日本\n*专线\n!过期\n!失效\n\n表示：选择【香港】或【日本】的【专线】节点，并排除包含【过期】或【失效】的节点。")}
                   {...createForm.register("regex_filters_text")}
                 />
-                <p className="muted" style={{ marginTop: 4, fontSize: 12 }}>
-                  {t("技巧：<订阅名>/.* 可筛选来自该订阅的节点。")}
-                </p>
-              </div>
-
-              <div className="field-group">
-                <label className="field-label field-label-with-info" htmlFor="create-regex-exclude">
-                  <span>{t("节点名正则排除规则（可选）")}</span>
-                  <span
-                    className="subscription-info-icon"
-                    title={t("命中任一排除正则的节点会被排除")}
-                    aria-label={t("命中任一排除正则的节点会被排除")}
-                    tabIndex={0}
-                  >
-                    <Info size={13} />
-                  </span>
-                </label>
-                <Textarea
-                  id="create-regex-exclude"
-                  rows={4}
-                  placeholder={t("每行一条，例如 .*低倍率.* 或 <订阅名>/.*")}
-                  {...createForm.register("regex_exclude_filters_text")}
-                />
+                <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+                  <div>{t("普通正则表达式表示满足其一，* 开头表示必须包含，! 开头表示排除。")}</div>
+                  <div>{t("技巧：^<订阅名>/ 可筛选来自该订阅的节点。")}</div>
+                </div>
               </div>
 
               <div className="field-group">

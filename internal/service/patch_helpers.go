@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -74,6 +75,18 @@ func (p mergePatch) optionalBool(field string) (bool, bool, *ServiceError) {
 		return false, true, invalidArg(fmt.Sprintf("%s: must be a boolean", field))
 	}
 	return value, true, nil
+}
+
+func (p mergePatch) optionalInt(field string) (int, bool, *ServiceError) {
+	raw, ok := p[field]
+	if !ok {
+		return 0, false, nil
+	}
+	value, ok := raw.(float64)
+	if !ok || math.Trunc(value) != value || value > float64(math.MaxInt) || value < float64(math.MinInt) {
+		return 0, true, invalidArg(fmt.Sprintf("%s: must be an integer", field))
+	}
+	return int(value), true, nil
 }
 
 func (p mergePatch) optionalStringSlice(field string) ([]string, bool, *ServiceError) {

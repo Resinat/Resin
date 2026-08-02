@@ -558,6 +558,7 @@ a {
   font-size: 11px;
   font-weight: 700;
   padding: 4px 9px;
+  white-space: nowrap;
 }
 
 .badge-neutral {
@@ -1587,7 +1588,20 @@ a {
 
 .subscriptions-row-actions {
   display: inline-flex;
+  align-items: center;
   gap: 6px;
+  white-space: nowrap;
+}
+
+.subscription-enabled-cell {
+  display: inline-flex;
+  align-items: center;
+  min-width: 44px;
+  min-height: 30px;
+}
+
+.subscription-enabled-cell .switch {
+  flex: 0 0 auto;
 }
 
 .platform-card-grid {
@@ -1860,6 +1874,7 @@ a {
   margin-top: 6px;
   font-size: 14px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .checkbox-group {
@@ -2186,8 +2201,18 @@ a {
   min-width: 780px;
 }
 
+.data-table-logs {
+  min-width: 1220px;
+}
+
 .data-table-subs {
   min-width: 900px;
+}
+
+.data-table-subs th:nth-child(8),
+.data-table-subs td:nth-child(8) {
+  width: 1%;
+  white-space: nowrap;
 }
 
 .data-table th,
@@ -3105,9 +3130,27 @@ a {
   width: 100%;
 }
 
-.platform-lease-head>div {
+.platform-lease-heading {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.platform-lease-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.platform-lease-search {
+  width: min(240px, 36vw);
+  margin: 0;
+  gap: 6px;
+}
+
+.platform-lease-search .input {
+  min-width: 0;
+  padding: 6px 10px;
 }
 
 .platform-lease-head .btn {
@@ -3221,52 +3264,247 @@ a {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: 24px;
 }
 
 .login-card {
-  width: min(520px, 100%);
-  padding: 22px;
+  width: min(440px, 100%);
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 20px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 48px rgba(42, 86, 149, 0.12);
 }
 
 .login-locale {
-  align-self: flex-end;
+  flex: 0 0 auto;
+  margin-left: auto;
+  border-radius: 9px;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.login-locale .locale-switch-btn {
+  min-width: 34px;
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 7px;
 }
 
 .login-header {
   display: flex;
-  gap: 12px;
   align-items: center;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.login-heading-copy {
+  min-width: 0;
 }
 
 .login-title {
-  margin-top: 4px;
-  font-size: 24px;
+  font-size: 22px;
+  line-height: 1.2;
 }
 
-.login-description {
-  color: var(--text-muted);
-  font-size: 14px;
+.login-token-label {
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 700;
 }
 
 .login-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
-.input-with-icon {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
+.login-token-label + .login-input-wrap {
+  margin-top: 8px;
+}
+
+.login-input-wrap {
+  position: relative;
+}
+
+.login-token-input {
+  height: 44px;
+  padding-right: 46px;
+  border-radius: 10px;
+}
+
+.login-form>.field-error {
+  margin-top: 8px;
+}
+
+.login-submit {
+  min-height: 44px;
+  margin-top: 14px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+
+@media (max-width: 480px) {
+  .login-layout {
+    padding: 16px;
+  }
+
+  .login-card {
+    padding: 20px;
+  }
+
+  .login-header {
+    gap: 8px;
+  }
+
+  .login-title {
+    font-size: 20px;
+  }
+
+  .login-locale .locale-switch-btn {
+    min-width: 30px;
+    padding: 0 6px;
+  }
+}
+
+.endpoint-toolbar-actions,
+.endpoint-tile-heading,
+.endpoint-tile-badges {
+  display: flex;
   align-items: center;
+  gap: 8px;
 }
 
-.input-with-icon>svg {
+.endpoint-list {
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.endpoint-tile {
+  cursor: pointer;
+  gap: 8px;
+  padding-left: 16px;
+}
+
+.endpoint-tile.is-read-only {
+  cursor: default;
+}
+
+.endpoint-tile.is-read-only:hover {
+  border-color: var(--border);
+  transform: none;
+  box-shadow: none;
+}
+
+.endpoint-enabled-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  flex: 0 0 auto;
+}
+
+.endpoint-tile-bottom {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.endpoint-tile-bottom .endpoint-capabilities {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.endpoint-tile-heading,
+.endpoint-tile-badges {
+  flex-wrap: wrap;
+}
+
+.endpoint-tile-heading {
+  min-width: 0;
+}
+
+.endpoint-status-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: #96a0b2;
+}
+
+.endpoint-status-dot.is-success {
+  background: var(--success);
+}
+
+.endpoint-status-dot.is-warning {
+  background: var(--warning);
+}
+
+.endpoint-status-dot.is-danger {
+  background: var(--danger);
+}
+
+.endpoint-tile-badges .badge {
+  gap: 5px;
+}
+
+.endpoint-capabilities {
+  column-gap: 18px;
+  row-gap: 8px;
+}
+
+.endpoint-capability {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #4f5f78;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.endpoint-capability-indicator {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+}
+
+.endpoint-capability-indicator.is-enabled {
+  background: var(--primary);
+}
+
+.endpoint-capability-indicator.is-disabled {
+  border: 1.5px solid #96a0b2;
+  background: transparent;
+}
+
+.endpoint-capability-state {
   color: var(--text-muted);
+  font-weight: 500;
+}
+
+.endpoint-capability-state::before {
+  content: "·";
+  margin-right: 4px;
+}
+
+.password-visibility-toggle {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 6px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  transform: translateY(-50%);
 }
 
 @media (max-width: 1120px) {
@@ -3439,6 +3677,16 @@ a {
     align-items: flex-start;
   }
 
+  .endpoint-toolbar-card .list-card-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .endpoint-toolbar-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
   .page-title {
     font-size: 22px;
   }
@@ -3468,6 +3716,20 @@ a {
   .platform-detail-tab {
     padding: 8px 12px;
     font-size: 13px;
+  }
+
+  .platform-lease-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .platform-lease-toolbar {
+    width: 100%;
+  }
+
+  .platform-lease-search {
+    width: auto;
+    flex: 1 1 auto;
   }
 
   .filter-grid {

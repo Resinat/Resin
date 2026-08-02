@@ -8,6 +8,7 @@ import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Select";
 import { useI18n } from "../../i18n";
 import { getCurrentLocale, isEnglishLocale } from "../../i18n/locale";
+import type { AppLocale } from "../../i18n/locale";
 import { apiRequest } from "../../lib/api-client";
 import { formatApiErrorMessage } from "../../lib/error-message";
 import type {
@@ -66,6 +67,12 @@ type HistogramBarPoint = {
 type LatencyHistogramProps = {
   buckets: LatencyBucket[];
   emptyText: string;
+};
+
+type TooltipPayloadEntry = {
+  dataKey?: string | number;
+  value?: unknown;
+  payload?: HistogramBarPoint;
 };
 
 const RANGE_OPTIONS: RangeOption[] = [
@@ -178,7 +185,7 @@ function formatLeaseDuration(value: number): string {
   return `${seconds} 秒`;
 }
 
-function formatClock(iso: string): string {
+function formatClock(iso: string, locale: AppLocale): string {
   if (!iso) {
     return "--";
   }
@@ -186,7 +193,7 @@ function formatClock(iso: string): string {
   if (Number.isNaN(date.getTime())) {
     return "--";
   }
-  return new Intl.DateTimeFormat(numberLocale(), {
+  return new Intl.DateTimeFormat(isEnglishLocale(locale) ? "en-US" : "zh-CN", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -465,7 +472,7 @@ async function fetchPlatformSnapshotNodeLatency(platformId: string): Promise<Sna
 
 type TrendTooltipContentProps = {
   active?: boolean;
-  payload?: any[];
+  payload?: TooltipPayloadEntry[];
   label?: string;
   lines: TrendLineDefinition[];
   valueFormatter: (value: number) => string;
@@ -500,7 +507,7 @@ function TrendTooltipContent({ active, payload, label, lines, valueFormatter }: 
   );
 }
 
-function HistogramTooltipContent({ active, payload }: any) {
+function HistogramTooltipContent({ active, payload }: { active?: boolean; payload?: TooltipPayloadEntry[] }) {
   const { t } = useI18n();
 
   if (!active || !payload?.length) {
@@ -794,14 +801,14 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
 
   const leaseTrendData = useMemo(() => {
     return downsampleArray(sortedRealtimeItems, MAX_TREND_POINTS).map((item) => ({
-      label: formatClock(item.ts),
+      label: formatClock(item.ts, locale),
       active_leases: item.active_leases,
     }));
   }, [sortedRealtimeItems, locale]);
 
   const requestTrendData = useMemo(() => {
     return downsampleArray(sortedRequestsItems, MAX_TREND_POINTS).map((item) => ({
-      label: formatClock(item.bucket_start),
+      label: formatClock(item.bucket_start, locale),
       total_requests: item.total_requests,
       success_requests: item.success_requests,
     }));
@@ -809,7 +816,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
 
   const leaseLifetimeTrendData = useMemo(() => {
     return downsampleArray(sortedLeaseLifetimeItems, MAX_TREND_POINTS).map((item) => ({
-      label: formatClock(item.bucket_start),
+      label: formatClock(item.bucket_start, locale),
       p1_ms: item.p1_ms,
       p5_ms: item.p5_ms,
       p50_ms: item.p50_ms,
@@ -979,7 +986,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
             </div>
             <div>
               <span>{t("快照更新时间")}</span>
-              <p>{snapshotLatency?.generated_at ? formatClock(snapshotLatency.generated_at) : "--"}</p>
+              <p>{snapshotLatency?.generated_at ? formatClock(snapshotLatency.generated_at, locale) : "--"}</p>
             </div>
           </div>
         </Card>
@@ -991,7 +998,7 @@ export function PlatformMonitorPanel({ platform }: { platform: Platform }) {
           </div>
           <LatencyHistogram buckets={latestAccessLatency?.buckets ?? []} emptyText={t("暂无访问延迟分布数据")} />
           <div className="dashboard-summary-inline">
-            <span>{t("时间")} {latestAccessLatency ? formatClock(latestAccessLatency.bucket_end) : "--"}</span>
+            <span>{t("时间")} {latestAccessLatency ? formatClock(latestAccessLatency.bucket_end, locale) : "--"}</span>
             <span>{t("样本")} {formatCount(latestAccessLatency?.sample_count ?? 0)}</span>
             <span>{t("溢出")} {formatCount(latestAccessLatency?.overflow_count ?? 0)}</span>
           </div>

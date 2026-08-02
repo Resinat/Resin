@@ -168,27 +168,69 @@ func TestNodeEntry_MatchRegexs_MultiSub(t *testing.T) {
 	}
 }
 
-func TestNodeEntry_MatchAnyRegex_DisabledSubSkipped(t *testing.T) {
+func TestNodeEntry_MatchTagFilter_AnyRulesAreORed(t *testing.T) {
 	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
 	e := NewNodeEntry(h, nil, time.Now(), 0)
-	e.AddSubscriptionID("sub-disabled")
-	e.AddSubscriptionID("sub-enabled")
+	e.AddSubscriptionID("sub-1")
 
-	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
-		switch subID {
-		case "sub-disabled":
-			return "Disabled", false, []string{"bad-node"}, true
-		case "sub-enabled":
-			return "Enabled", true, []string{"good-node"}, true
-		}
-		return "", false, nil, false
+	lookup := func(string, Hash) (string, bool, []string, bool) {
+		return "Provider", true, []string{"jp-node"}, true
 	}
+	filter := TagFilter{Any: []*regexp.Regexp{
+		regexp.MustCompile("hk"),
+		regexp.MustCompile("jp"),
+	}}
+	if !e.MatchTagFilter(filter, lookup) {
+		t.Fatal("one ANY match should satisfy the filter")
+	}
+}
 
-	if e.MatchAnyRegex([]*regexp.Regexp{regexp.MustCompile("bad")}, lookup) {
-		t.Fatal("disabled subscriptions should not trigger exclude regex")
+func TestNodeEntry_MatchTagFilter_PositiveRulesRequireSameTag(t *testing.T) {
+	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
+	e := NewNodeEntry(h, nil, time.Now(), 0)
+	e.AddSubscriptionID("sub-1")
+
+	lookup := func(string, Hash) (string, bool, []string, bool) {
+		return "Provider", true, []string{"us-basic", "eu-fast"}, true
 	}
-	if !e.MatchAnyRegex([]*regexp.Regexp{regexp.MustCompile("good")}, lookup) {
-		t.Fatal("enabled subscription tag should trigger exclude regex")
+	filter := TagFilter{
+		Any:  []*regexp.Regexp{regexp.MustCompile("us")},
+		Must: []*regexp.Regexp{regexp.MustCompile("fast")},
+	}
+	if e.MatchTagFilter(filter, lookup) {
+		t.Fatal("ANY and MUST matches on different tags must not satisfy the filter")
+	}
+}
+
+func TestNodeEntry_MatchTagFilter_MustNotRejectsAcrossAllTags(t *testing.T) {
+	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
+	e := NewNodeEntry(h, nil, time.Now(), 0)
+	e.AddSubscriptionID("sub-1")
+
+	lookup := func(string, Hash) (string, bool, []string, bool) {
+		return "Provider", true, []string{"us-fast", "expired-alias"}, true
+	}
+	filter := TagFilter{
+		Any:     []*regexp.Regexp{regexp.MustCompile("us")},
+		Must:    []*regexp.Regexp{regexp.MustCompile("fast")},
+		MustNot: []*regexp.Regexp{regexp.MustCompile("expired")},
+	}
+	if e.MatchTagFilter(filter, lookup) {
+		t.Fatal("a MUST_NOT match on any tag must reject the whole node")
+	}
+}
+
+func TestNodeEntry_MatchTagFilter_OnlyMustNot(t *testing.T) {
+	h := HashFromRawOptions([]byte(`{"type":"ss"}`))
+	e := NewNodeEntry(h, nil, time.Now(), 0)
+	e.AddSubscriptionID("sub-1")
+
+	lookup := func(string, Hash) (string, bool, []string, bool) {
+		return "Provider", true, nil, true
+	}
+	filter := TagFilter{MustNot: []*regexp.Regexp{regexp.MustCompile("expired")}}
+	if !e.MatchTagFilter(filter, lookup) {
+		t.Fatal("an exclusion-only filter should allow an enabled node with no matching tag")
 	}
 }
 

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { LoginPage } from "../features/auth/LoginPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { EndpointsPage } from "../features/endpoints/EndpointsPage";
 import { GeoIPPage } from "../features/geoip/GeoIPPage";
 import { NodesPage } from "../features/nodes/NodesPage";
 import { RequireAuth } from "../features/auth/RequireAuth";
@@ -35,6 +36,7 @@ export function AppRoutes() {
         <Route path="/platforms/:platformId" element={<PlatformDetailPage />} />
         <Route path="/subscriptions" element={<SubscriptionPage />} />
         <Route path="/nodes" element={<NodesRoute />} />
+        <Route path="/endpoints" element={<EndpointsPage />} />
         <Route path="/rules" element={<RulesPage />} />
         <Route path="/request-logs" element={<RequestLogsPage />} />
         <Route path="/resources" element={<GeoIPPage />} />

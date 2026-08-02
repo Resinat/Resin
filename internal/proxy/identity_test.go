@@ -37,35 +37,6 @@ func TestParseV1PlatformAccountIdentity(t *testing.T) {
 	}
 }
 
-func TestParseLegacyPlatformAccountIdentity(t *testing.T) {
-	tests := []struct {
-		identity string
-		plat     string
-		account  string
-	}{
-		{identity: "", plat: "", account: ""},
-		{identity: "a", plat: "a", account: ""},
-		{identity: "a:", plat: "a", account: ""},
-		{identity: ":b", plat: "", account: "b"},
-		{identity: "a:b:c", plat: "a", account: "b:c"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.identity, func(t *testing.T) {
-			plat, account := parseLegacyPlatformAccountIdentity(tt.identity)
-			if plat != tt.plat || account != tt.account {
-				t.Fatalf(
-					"identity=%q: got plat=%q account=%q, want plat=%q account=%q",
-					tt.identity,
-					plat,
-					account,
-					tt.plat,
-					tt.account,
-				)
-			}
-		})
-	}
-}
-
 func TestParseForwardCredentialV1(t *testing.T) {
 	tests := []struct {
 		credential string
@@ -104,33 +75,6 @@ func TestParseForwardCredentialV1(t *testing.T) {
 	}
 }
 
-func TestParseLegacyAuthDisabledIdentityCredential(t *testing.T) {
-	tests := []struct {
-		credential string
-		plat       string
-		account    string
-	}{
-		{credential: "plat:acct", plat: "plat", account: "acct"},
-		{credential: "legacy-token:legacy-plat:legacy-acct", plat: "legacy-plat", account: "legacy-acct"},
-		{credential: "legacy-plat", plat: "legacy-plat", account: ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.credential, func(t *testing.T) {
-			plat, account := parseLegacyAuthDisabledIdentityCredential(tt.credential)
-			if plat != tt.plat || account != tt.account {
-				t.Fatalf(
-					"credential=%q: got plat=%q account=%q, want plat=%q account=%q",
-					tt.credential,
-					plat,
-					account,
-					tt.plat,
-					tt.account,
-				)
-			}
-		})
-	}
-}
-
 func TestParseForwardCredentialV1WhenAuthDisabled(t *testing.T) {
 	tests := []struct {
 		credential string
@@ -138,7 +82,7 @@ func TestParseForwardCredentialV1WhenAuthDisabled(t *testing.T) {
 		account    string
 	}{
 		{credential: "plat:acct", plat: "plat", account: "acct"},
-		{credential: "legacy-token:legacy-plat:legacy-acct", plat: "legacy-plat", account: "legacy-acct"},
+		{credential: "first:second:ignored-token", plat: "first", account: "second"},
 		{credential: "my-platform.account-a:any-token", plat: "my-platform", account: "account-a"},
 		{credential: ".:c", plat: "", account: ""},
 	}

@@ -4,9 +4,16 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/proxy"
 )
 
-func newInboundMux(proxyToken string, forward, reverse, apiHandler, tokenActionHandler http.Handler) http.Handler {
+func newEndpointInboundMux(
+	currentEndpoint func() model.Endpoint,
+	proxyToken string,
+	forward, reverse, apiHandler, tokenActionHandler http.Handler,
+) http.Handler {
 	if forward == nil {
 		forward = http.NotFoundHandler()
 	}
@@ -21,24 +28,54 @@ func newInboundMux(proxyToken string, forward, reverse, apiHandler, tokenActionH
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		endpoint := model.Endpoint{}
+		if currentEndpoint != nil {
+			endpoint = currentEndpoint()
+		}
 		if shouldRouteForwardProxy(r) {
+			if !endpoint.AllowProxy || !endpoint.AllowHTTPForward {
+				writeEndpointCapabilityDisabled(w)
+				return
+			}
+			r = r.WithContext(proxy.ContextWithInboundPolicy(r.Context(), proxy.InboundPolicy{
+				RequireProxyAuthInfo: endpoint.RequireProxyAuthInfo,
+			}))
 			forward.ServeHTTP(w, r)
 			return
 		}
 		if shouldRouteControlPlane(r) {
+			if r.URL != nil && r.URL.Path != "/healthz" && !endpoint.AllowManagement {
+				http.NotFound(w, r)
+				return
+			}
 			apiHandler.ServeHTTP(w, r)
+			return
+		}
+		if shouldRouteTokenAPI(r, proxyToken) {
+			if !endpoint.AllowProxy {
+				writeEndpointCapabilityDisabled(w)
+				return
+			}
+			tokenActionHandler.ServeHTTP(w, r)
+			return
+		}
+		if !endpoint.AllowProxy || !endpoint.AllowHTTPReverse {
+			writeEndpointCapabilityDisabled(w)
 			return
 		}
 		if shouldRejectReverseProxyByToken(r, proxyToken) {
 			writeInboundAuthFailed(w)
 			return
 		}
-		if shouldRouteTokenAPI(r, proxyToken) {
-			tokenActionHandler.ServeHTTP(w, r)
-			return
-		}
 		reverse.ServeHTTP(w, r)
 	})
+}
+
+func writeEndpointCapabilityDisabled(w http.ResponseWriter) {
+	w.Header().Set("X-Resin-Error", "ENDPOINT_CAPABILITY_DISABLED")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte("Proxy capability is disabled on this endpoint"))
 }
 
 func shouldRouteForwardProxy(r *http.Request) bool {

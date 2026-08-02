@@ -27,6 +27,10 @@ const (
 	stateVersionAddPassiveCircuitBreakerDisabled = 6
 	stateVersionAddSubscriptionUsageInfo         = 7
 	stateVersionAddRegexExcludeFilters           = 8
+	stateVersionAddEndpoints                     = 9
+	stateVersionAddEndpointEnabled               = 10
+	stateVersionPlatformRegexFilterRules         = 11
+	stateLatestVersion                           = stateVersionPlatformRegexFilterRules
 	stateLegacyBaselineVersion                   = stateVersionAddFixedAccountHeader
 
 	stateBaseSchemaMigration = stateMigrationsPath + "/000001_state_base.up.sql"

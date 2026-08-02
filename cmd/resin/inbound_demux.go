@@ -129,9 +129,10 @@ func (s *inboundDemuxServer) Shutdown(ctx context.Context) error {
 			_ = s.httpServer.Close()
 		}
 	}
-	if ctx.Err() != nil {
-		s.closeActiveConns()
-	}
+	// http.Server.Shutdown does not close hijacked connections such as CONNECT
+	// and WebSocket tunnels. Close anything still tracked after graceful HTTP
+	// shutdown so disabling an endpoint also terminates its established tunnels.
+	s.closeActiveConns()
 
 	waitDone := make(chan struct{})
 	go func() {

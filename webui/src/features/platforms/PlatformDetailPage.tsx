@@ -212,7 +212,6 @@ export function PlatformDetailPage() {
   const stickyTTL = platform ? formatGoDuration(platform.sticky_ttl, t("默认")) : t("默认");
   const regionCount = platform?.region_filters.length ?? 0;
   const regexCount = platform?.regex_filters.length ?? 0;
-  const regexExcludeCount = platform?.regex_exclude_filters.length ?? 0;
   const deleteDisabled = !platform || platform.id === ZERO_UUID || deleteMutation.isPending;
 
   return (
@@ -280,10 +279,6 @@ export function PlatformDetailPage() {
                 <span className="platform-fact">
                   <span>{t("正则")}</span>
                   <strong>{regexCount}</strong>
-                </span>
-                <span className="platform-fact">
-                  <span>{t("正则排除")}</span>
-                  <strong>{regexExcludeCount}</strong>
                 </span>
                 <span className="platform-fact">
                   <span>{t("租约时长")}</span>
@@ -482,46 +477,19 @@ export function PlatformDetailPage() {
                   </div>
 
                   <div className="field-group">
-                    <label className="field-label field-label-with-info" htmlFor="detail-edit-regex">
-                      <span>{t("节点名正则过滤规则")}</span>
-                      <span
-                        className="subscription-info-icon"
-                        title={t("满足所有正则表达式的节点才会被选择")}
-                        aria-label={t("满足所有正则表达式的节点才会被选择")}
-                        tabIndex={0}
-                      >
-                        <Info size={13} />
-                      </span>
+                    <label className="field-label" htmlFor="detail-edit-regex">
+                      {t("节点名正则过滤规则")}
                     </label>
                     <Textarea
                       id="detail-edit-regex"
                       rows={6}
-                      placeholder={t("每行一条，例如 .*专线.* 或 <订阅名>/.*")}
+                      placeholder={t("每行一条正则表达式，例如：\n\n香港\n日本\n*专线\n!过期\n!失效\n\n表示：选择【香港】或【日本】的【专线】节点，并排除包含【过期】或【失效】的节点。")}
                       {...editForm.register("regex_filters_text")}
                     />
-                    <p className="muted" style={{ marginTop: 4, fontSize: 12 }}>
-                      {t("技巧：<订阅名>/.* 可筛选来自该订阅的节点。")}
-                    </p>
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label field-label-with-info" htmlFor="detail-edit-regex-exclude">
-                      <span>{t("节点名正则排除规则")}</span>
-                      <span
-                        className="subscription-info-icon"
-                        title={t("命中任一排除正则的节点会被排除")}
-                        aria-label={t("命中任一排除正则的节点会被排除")}
-                        tabIndex={0}
-                      >
-                        <Info size={13} />
-                      </span>
-                    </label>
-                    <Textarea
-                      id="detail-edit-regex-exclude"
-                      rows={6}
-                      placeholder={t("每行一条，例如 .*低倍率.* 或 <订阅名>/.*")}
-                      {...editForm.register("regex_exclude_filters_text")}
-                    />
+                    <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+                      <div>{t("普通正则表达式表示满足其一，* 开头表示必须包含，! 开头表示排除。")}</div>
+                      <div>{t("技巧：^<订阅名>/ 可筛选来自该订阅的节点。")}</div>
+                    </div>
                   </div>
 
                   <div className="field-group">

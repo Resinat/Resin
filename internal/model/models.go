@@ -9,7 +9,6 @@ type Platform struct {
 	Name                             string `json:"name"`
 	StickyTTLNs                      int64  `json:"sticky_ttl_ns"`
 	RegexFilters                     []string
-	RegexExcludeFilters              []string
 	RegionFilters                    []string
 	ReverseProxyMissAction           string `json:"reverse_proxy_miss_action"`
 	ReverseProxyEmptyAccountBehavior string `json:"reverse_proxy_empty_account_behavior"`
@@ -38,6 +37,22 @@ type Subscription struct {
 	UsageUpdatedAtNs          int64  `json:"usage_updated_at_ns"`
 	CreatedAtNs               int64  `json:"created_at_ns"`
 	UpdatedAtNs               int64  `json:"updated_at_ns"`
+}
+
+// Endpoint represents a persisted custom inbound listener. The environment-
+// defined default endpoint is synthesized at runtime and is never stored here.
+type Endpoint struct {
+	ID                   string `json:"id"`
+	Port                 int    `json:"port"`
+	Enabled              bool   `json:"enabled"`
+	AllowManagement      bool   `json:"allow_management"`
+	AllowProxy           bool   `json:"allow_proxy"`
+	RequireProxyAuthInfo bool   `json:"require_proxy_auth_info"`
+	AllowHTTPForward     bool   `json:"allow_http_forward"`
+	AllowHTTPReverse     bool   `json:"allow_http_reverse"`
+	AllowSOCKS5          bool   `json:"allow_socks5"`
+	CreatedAtNs          int64  `json:"created_at_ns"`
+	UpdatedAtNs          int64  `json:"updated_at_ns"`
 }
 
 // AccountHeaderRule defines header extraction rules for reverse proxy account matching.

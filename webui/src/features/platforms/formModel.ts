@@ -32,7 +32,6 @@ export const platformFormSchema = z.object({
     }),
   sticky_ttl: z.string().optional(),
   regex_filters_text: z.string().optional(),
-  regex_exclude_filters_text: z.string().optional(),
   region_filters_text: z.string().optional(),
   reverse_proxy_miss_action: z.enum(missActions),
   reverse_proxy_empty_account_behavior: z.enum(emptyAccountBehaviors),
@@ -58,7 +57,6 @@ export const defaultPlatformFormValues: PlatformFormValues = {
   name: "",
   sticky_ttl: "",
   regex_filters_text: "",
-  regex_exclude_filters_text: "",
   region_filters_text: "",
   reverse_proxy_miss_action: "TREAT_AS_EMPTY",
   reverse_proxy_empty_account_behavior: "RANDOM",
@@ -69,14 +67,12 @@ export const defaultPlatformFormValues: PlatformFormValues = {
 
 export function platformToFormValues(platform: Platform): PlatformFormValues {
   const regexFilters = Array.isArray(platform.regex_filters) ? platform.regex_filters : [];
-  const regexExcludeFilters = Array.isArray(platform.regex_exclude_filters) ? platform.regex_exclude_filters : [];
   const regionFilters = Array.isArray(platform.region_filters) ? platform.region_filters : [];
 
   return {
     name: platform.name,
     sticky_ttl: platform.sticky_ttl,
     regex_filters_text: regexFilters.join("\n"),
-    regex_exclude_filters_text: regexExcludeFilters.join("\n"),
     region_filters_text: regionFilters.join("\n"),
     reverse_proxy_miss_action: platform.reverse_proxy_miss_action,
     reverse_proxy_empty_account_behavior: platform.reverse_proxy_empty_account_behavior,
@@ -90,7 +86,6 @@ function toPlatformPayloadBase(values: PlatformFormValues) {
   return {
     name: values.name.trim(),
     regex_filters: parseLinesToList(values.regex_filters_text),
-    regex_exclude_filters: parseLinesToList(values.regex_exclude_filters_text),
     region_filters: parseLinesToList(values.region_filters_text, (value) => value.toLowerCase()),
     reverse_proxy_miss_action: values.reverse_proxy_miss_action,
     reverse_proxy_empty_account_behavior: values.reverse_proxy_empty_account_behavior,

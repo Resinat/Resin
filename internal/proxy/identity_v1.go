@@ -3,10 +3,7 @@ package proxy
 import "strings"
 
 // parseV1PlatformAccountIdentity parses V1 identity segment:
-// "Platform.Account" (preferred) or "Platform:Account" (compat).
-//
-// V1 behavior is intentionally isolated from legacy parsing code so V1 can
-// evolve independently and LEGACY_V0 can be removed cleanly in the future.
+// "Platform.Account" (preferred) or "Platform:Account".
 func parseV1PlatformAccountIdentity(identity string) (string, string) {
 	dot := strings.IndexByte(identity, '.')
 	colon := strings.IndexByte(identity, ':')
@@ -39,48 +36,18 @@ func parseForwardCredentialV1(credential string) (token string, platform string,
 
 // parseForwardCredentialV1WhenAuthDisabled parses optional identity when
 // RESIN_AUTH_VERSION=V1 and RESIN_PROXY_TOKEN is empty.
-//
-// NOTE:
-//   - This is V1 parser code and must not call legacy parser functions.
-//   - For migration compatibility, colon-only credentials still keep
-//     legacy-compatible extraction semantics via a local fallback branch.
 func parseForwardCredentialV1WhenAuthDisabled(credential string) (platform string, account string) {
 	lastColon := strings.LastIndexByte(credential, ':')
 	if lastColon >= 0 {
 		identity := credential[:lastColon]
-		// Dot in identity indicates explicit V1 shape: Platform.Account:TOKEN.
 		if strings.IndexByte(identity, '.') >= 0 {
 			_, platform, account = parseForwardCredentialV1(credential)
 			return platform, account
 		}
 	}
-	// Colon-only shapes are ambiguous under V1 when token is empty.
-	// Keep migration-compatible behavior, but keep the implementation local to V1.
-	return parseForwardCredentialV1WhenAuthDisabledLegacyCompat(credential)
-}
-
-// parseForwardCredentialV1WhenAuthDisabledLegacyCompat mirrors legacy extraction
-// semantics for V1's token-empty migration mode.
-//
-// This logic intentionally duplicates legacy parsing behavior instead of calling
-// legacy parser functions, so V1 and LEGACY_V0 stay structurally decoupled.
-func parseForwardCredentialV1WhenAuthDisabledLegacyCompat(credential string) (platform string, account string) {
-	// Legacy-compatible two-field shape: "platform:account".
 	if strings.Count(credential, ":") == 1 {
-		if idx := strings.IndexByte(credential, ':'); idx >= 0 {
-			return credential[:idx], credential[idx+1:]
-		}
-		return credential, ""
+		return parseV1PlatformAccountIdentity(credential)
 	}
-
-	// Legacy-compatible three-field shape: "token:platform:account".
-	if idx := strings.IndexByte(credential, ':'); idx >= 0 {
-		rest := credential[idx+1:]
-		if restIdx := strings.IndexByte(rest, ':'); restIdx >= 0 {
-			return rest[:restIdx], rest[restIdx+1:]
-		}
-		return rest, ""
-	}
-
-	return credential, ""
+	_, platform, account = parseForwardCredentialV1(credential)
+	return platform, account
 }

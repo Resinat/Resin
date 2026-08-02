@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +31,6 @@ type PlatformResponse struct {
 	Name                             string   `json:"name"`
 	StickyTTL                        string   `json:"sticky_ttl"`
 	RegexFilters                     []string `json:"regex_filters"`
-	RegexExcludeFilters              []string `json:"regex_exclude_filters"`
 	RegionFilters                    []string `json:"region_filters"`
 	RoutableNodeCount                int      `json:"routable_node_count"`
 	EgressIPCount                    int      `json:"egress_ip_count"`
@@ -54,7 +52,6 @@ func platformToResponse(p model.Platform) PlatformResponse {
 		Name:                             p.Name,
 		StickyTTL:                        time.Duration(p.StickyTTLNs).String(),
 		RegexFilters:                     append([]string(nil), p.RegexFilters...),
-		RegexExcludeFilters:              append([]string(nil), p.RegexExcludeFilters...),
 		RegionFilters:                    append([]string(nil), p.RegionFilters...),
 		RoutableNodeCount:                0,
 		EgressIPCount:                    0,
@@ -113,7 +110,6 @@ type platformConfig struct {
 	Name                             string
 	StickyTTLNs                      int64
 	RegexFilters                     []string
-	RegexExcludeFilters              []string
 	RegionFilters                    []string
 	ReverseProxyMissAction           string
 	ReverseProxyEmptyAccountBehavior string
@@ -141,9 +137,8 @@ func (s *ControlPlaneService) defaultPlatformConfig(name string) platformConfig 
 	return platformConfig{
 		Name:                   name,
 		StickyTTLNs:            int64(s.EnvCfg.DefaultPlatformStickyTTL),
-		RegexFilters:        append([]string(nil), s.EnvCfg.DefaultPlatformRegexFilters...),
-		RegexExcludeFilters: []string{},
-		RegionFilters:       append([]string(nil), s.EnvCfg.DefaultPlatformRegionFilters...),
+		RegexFilters:           append([]string(nil), s.EnvCfg.DefaultPlatformRegexFilters...),
+		RegionFilters:          append([]string(nil), s.EnvCfg.DefaultPlatformRegionFilters...),
 		ReverseProxyMissAction: s.EnvCfg.DefaultPlatformReverseProxyMissAction,
 		ReverseProxyEmptyAccountBehavior: normalizePlatformEmptyAccountBehavior(
 			s.EnvCfg.DefaultPlatformReverseProxyEmptyAccountBehavior,
@@ -160,7 +155,6 @@ func platformConfigFromModel(mp model.Platform) platformConfig {
 		Name:                             mp.Name,
 		StickyTTLNs:                      mp.StickyTTLNs,
 		RegexFilters:                     append([]string(nil), mp.RegexFilters...),
-		RegexExcludeFilters:              append([]string(nil), mp.RegexExcludeFilters...),
 		RegionFilters:                    append([]string(nil), mp.RegionFilters...),
 		ReverseProxyMissAction:           mp.ReverseProxyMissAction,
 		ReverseProxyEmptyAccountBehavior: normalizePlatformEmptyAccountBehavior(mp.ReverseProxyEmptyAccountBehavior),
@@ -176,7 +170,6 @@ func (cfg platformConfig) toModel(id string, updatedAtNs int64) model.Platform {
 		Name:                             cfg.Name,
 		StickyTTLNs:                      cfg.StickyTTLNs,
 		RegexFilters:                     append([]string(nil), cfg.RegexFilters...),
-		RegexExcludeFilters:              append([]string(nil), cfg.RegexExcludeFilters...),
 		RegionFilters:                    append([]string(nil), cfg.RegionFilters...),
 		ReverseProxyMissAction:           cfg.ReverseProxyMissAction,
 		ReverseProxyEmptyAccountBehavior: cfg.ReverseProxyEmptyAccountBehavior,
@@ -192,15 +185,10 @@ func (cfg platformConfig) toRuntime(id string) (*platform.Platform, error) {
 	if err != nil {
 		return nil, err
 	}
-	compiledRegexExcludeFilters, err := platform.CompileRegexExcludeFilters(cfg.RegexExcludeFilters)
-	if err != nil {
-		return nil, err
-	}
 	return platform.NewConfiguredPlatform(
 		id,
 		cfg.Name,
 		compiledRegexFilters,
-		compiledRegexExcludeFilters,
 		cfg.RegionFilters,
 		cfg.StickyTTLNs,
 		cfg.ReverseProxyMissAction,
@@ -380,7 +368,6 @@ type CreatePlatformRequest struct {
 	Name                             *string  `json:"name"`
 	StickyTTL                        *string  `json:"sticky_ttl"`
 	RegexFilters                     []string `json:"regex_filters"`
-	RegexExcludeFilters              []string `json:"regex_exclude_filters"`
 	RegionFilters                    []string `json:"region_filters"`
 	ReverseProxyMissAction           *string  `json:"reverse_proxy_miss_action"`
 	ReverseProxyEmptyAccountBehavior *string  `json:"reverse_proxy_empty_account_behavior"`
@@ -419,9 +406,6 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 	}
 	if req.RegexFilters != nil {
 		cfg.RegexFilters = req.RegexFilters
-	}
-	if req.RegexExcludeFilters != nil {
-		cfg.RegexExcludeFilters = req.RegexExcludeFilters
 	}
 	if req.RegionFilters != nil {
 		cfg.RegionFilters = req.RegionFilters
@@ -523,12 +507,6 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	} else if ok {
 		cfg.RegexFilters = filters
 	}
-	if filters, ok, err := patch.optionalStringSlice("regex_exclude_filters"); err != nil {
-		return nil, err
-	} else if ok {
-		cfg.RegexExcludeFilters = filters
-	}
-
 	regionFiltersPatched := false
 	if filters, ok, err := patch.optionalStringSlice("region_filters"); err != nil {
 		return nil, err
@@ -644,9 +622,8 @@ type PreviewFilterRequest struct {
 }
 
 type PlatformSpecFilter struct {
-	RegexFilters        []string `json:"regex_filters"`
-	RegexExcludeFilters []string `json:"regex_exclude_filters"`
-	RegionFilters       []string `json:"region_filters"`
+	RegexFilters  []string `json:"regex_filters"`
+	RegionFilters []string `json:"region_filters"`
 }
 
 // NodeSummary is the API response for a node.
@@ -868,8 +845,7 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 		return nil, invalidArg("exactly one of platform_id or platform_spec is required")
 	}
 
-	var regexFilters []*regexp.Regexp
-	var regexExcludeFilters []*regexp.Regexp
+	var regexFilters node.TagFilter
 	var regionFilters []string
 
 	if hasPlatformID {
@@ -878,19 +854,13 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 			return nil, notFound("platform not found")
 		}
 		regexFilters = plat.RegexFilters
-		regexExcludeFilters = plat.RegexExcludeFilters
 		regionFilters = plat.RegionFilters
 	} else {
 		compiled, err := platform.CompileRegexFilters(req.PlatformSpec.RegexFilters)
 		if err != nil {
 			return nil, invalidArg(err.Error())
 		}
-		compiledExclude, err := platform.CompileRegexExcludeFilters(req.PlatformSpec.RegexExcludeFilters)
-		if err != nil {
-			return nil, invalidArg(err.Error())
-		}
 		regexFilters = compiled
-		regexExcludeFilters = compiledExclude
 		regionFilters = req.PlatformSpec.RegionFilters
 		if err := platform.ValidateRegionFilters(regionFilters); err != nil {
 			return nil, invalidArg(err.Error())
@@ -903,10 +873,7 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 	}
 	var result []NodeSummary
 	s.Pool.Range(func(h node.Hash, entry *node.NodeEntry) bool {
-		if !entry.MatchRegexs(regexFilters, subLookup) {
-			return true
-		}
-		if entry.MatchAnyRegex(regexExcludeFilters, subLookup) {
+		if !entry.MatchTagFilter(regexFilters, subLookup) {
 			return true
 		}
 		if len(regionFilters) > 0 {

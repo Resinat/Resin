@@ -50,19 +50,21 @@ func internal(msg string, err error) *ServiceError {
 // ControlPlaneService provides all control plane operations.
 // Handlers call its methods; business logic lives here, not in handlers.
 type ControlPlaneService struct {
-	Engine         *state.StateEngine
-	Pool           *topology.GlobalNodePool
-	SubMgr         *topology.SubscriptionManager
-	Scheduler      *topology.SubscriptionScheduler
-	Router         *routing.Router
-	GeoIP          *geoip.Service
-	ProbeMgr       *probe.ProbeManager
-	MatcherRuntime *proxy.AccountMatcherRuntime
-	RuntimeCfg     *atomic.Pointer[config.RuntimeConfig]
-	EnvCfg         *config.EnvConfig
+	Engine          *state.StateEngine
+	Pool            *topology.GlobalNodePool
+	SubMgr          *topology.SubscriptionManager
+	Scheduler       *topology.SubscriptionScheduler
+	Router          *routing.Router
+	GeoIP           *geoip.Service
+	ProbeMgr        *probe.ProbeManager
+	MatcherRuntime  *proxy.AccountMatcherRuntime
+	RuntimeCfg      *atomic.Pointer[config.RuntimeConfig]
+	EnvCfg          *config.EnvConfig
+	EndpointRuntime EndpointRuntime
 
 	configMu      sync.Mutex
 	configVersion int
+	endpointMu    sync.RWMutex
 }
 
 // ------------------------------------------------------------------
@@ -93,7 +95,6 @@ var platformPatchAllowedFields = map[string]bool{
 	"name":                                 true,
 	"sticky_ttl":                           true,
 	"regex_filters":                        true,
-	"regex_exclude_filters":                true,
 	"region_filters":                       true,
 	"reverse_proxy_miss_action":            true,
 	"reverse_proxy_empty_account_behavior": true,

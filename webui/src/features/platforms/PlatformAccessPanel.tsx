@@ -208,7 +208,6 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
 
   const env = envQuery.data;
   const proxyTokenSet = env?.proxy_token_set ?? true;
-  const isLegacy = env?.auth_version === "LEGACY_V0";
   const endpoint = currentProxyEndpoint(env?.resin_port ?? 2260);
   const host = endpoint.host;
   const scheme = endpoint.scheme;
@@ -222,7 +221,7 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
     const platform = platformName.trim() || "Default";
     const acc = account.trim();
     const tokenRaw = proxyTokenSet ? token.trim() : "";
-    const sep = isLegacy ? ":" : ".";
+    const sep = ".";
 
     // Raw identity/credential are used verbatim for the curl -U value.
     const identityRaw = acc ? `${platform}${sep}${acc}` : platform;
@@ -230,22 +229,11 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
     const identityEnc = acc
       ? `${encodeSegment(platform)}${sep}${encodeSegment(acc)}`
       : encodeSegment(platform);
-    const reverseIdentityEnc = isLegacy
-      ? `${encodeSegment(platform)}:${acc ? encodeSegment(acc) : ""}`
-      : identityEnc;
-
     // forward token: literal placeholder only when auth is enabled but unset.
     const forwardToken = tokenRaw || (proxyTokenSet ? TOKEN_PLACEHOLDER : "");
 
-    let forwardCredential: string;
-    let userInfo: string;
-    if (isLegacy) {
-      forwardCredential = forwardToken ? `${forwardToken}:${identityRaw}` : identityRaw;
-      userInfo = forwardToken ? `${encodeSegment(forwardToken)}:${identityEnc}` : identityEnc;
-    } else {
-      forwardCredential = forwardToken ? `${identityRaw}:${forwardToken}` : identityRaw;
-      userInfo = forwardToken ? `${identityEnc}:${encodeSegment(forwardToken)}` : identityEnc;
-    }
+    const forwardCredential = forwardToken ? `${identityRaw}:${forwardToken}` : identityRaw;
+    const userInfo = forwardToken ? `${identityEnc}:${encodeSegment(forwardToken)}` : identityEnc;
 
     const httpForward = `http://${userInfo}@${host}`;
     const socksForward = `socks5h://${userInfo}@${host}`;
@@ -253,7 +241,7 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
     const reverseTokenSeg = proxyTokenSet ? encodeSegment(tokenRaw || TOKEN_PLACEHOLDER) : "";
     const parsed = parseTarget(target);
     const reverseUrl = parsed
-      ? `${scheme}://${host}/${reverseTokenSeg}/${reverseIdentityEnc}/${parsed.protocol}/${parsed.rest}`
+      ? `${scheme}://${host}/${reverseTokenSeg}/${identityEnc}/${parsed.protocol}/${parsed.rest}`
       : "";
 
     const curlForward = [
@@ -267,7 +255,7 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
     const curlReverse = reverseUrl ? `curl ${shellQuote(reverseUrl)}` : "";
 
     return { httpForward, socksForward, reverseUrl, curlForward, curlReverse };
-  }, [platformName, account, token, isLegacy, proxyTokenSet, host, scheme, target]);
+  }, [platformName, account, token, proxyTokenSet, host, scheme, target]);
 
   const copyLabel = t("复制");
   const copiedLabel = t("已复制");
@@ -335,18 +323,12 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
           copyLabel={copyLabel}
           copiedLabel={copiedLabel}
         />
-        {isLegacy ? (
-          <p className="muted" style={{ fontSize: 12 }}>
-            {t("当前为 LEGACY_V0 鉴权，SOCKS5 正向代理未启用。")}
-          </p>
-        ) : (
-          <CopyField
-            label={t("SOCKS5 正向代理")}
-            value={urls.socksForward}
-            copyLabel={copyLabel}
-            copiedLabel={copiedLabel}
-          />
-        )}
+        <CopyField
+          label={t("SOCKS5 正向代理")}
+          value={urls.socksForward}
+          copyLabel={copyLabel}
+          copiedLabel={copiedLabel}
+        />
         <CopyField
           label={t("curl 示例")}
           value={urls.curlForward}

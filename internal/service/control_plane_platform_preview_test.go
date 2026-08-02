@@ -110,6 +110,46 @@ func TestPreviewFilter_RegionNegation(t *testing.T) {
 	}
 }
 
+func TestPreviewFilter_RegexRulesAnyMustAndMustNot(t *testing.T) {
+	fixture := buildPreviewFilterFixture(t)
+
+	nodes, err := fixture.cp.PreviewFilter(PreviewFilterRequest{
+		PlatformSpec: &PlatformSpecFilter{
+			RegexFilters: []string{"hk", "us"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PreviewFilter ANY: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("ANY nodes len = %d, want 2", len(nodes))
+	}
+
+	nodes, err = fixture.cp.PreviewFilter(PreviewFilterRequest{
+		PlatformSpec: &PlatformSpecFilter{
+			RegexFilters: []string{"hk", "us", `*^sub-1/`},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PreviewFilter MUST: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("MUST nodes len = %d, want 2", len(nodes))
+	}
+
+	nodes, err = fixture.cp.PreviewFilter(PreviewFilterRequest{
+		PlatformSpec: &PlatformSpecFilter{
+			RegexFilters: []string{"all", "!hk", "!unknown"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PreviewFilter MUST_NOT: %v", err)
+	}
+	if len(nodes) != 1 || nodes[0].NodeHash != fixture.usHash {
+		t.Fatalf("MUST_NOT nodes = %+v, want only %s", nodes, fixture.usHash)
+	}
+}
+
 func TestPreviewFilter_RegionMixedIncludeExclude(t *testing.T) {
 	fixture := buildPreviewFilterFixture(t)
 
@@ -168,8 +208,7 @@ func TestPreviewFilter_RegexExclude(t *testing.T) {
 
 	nodes, err := fixture.cp.PreviewFilter(PreviewFilterRequest{
 		PlatformSpec: &PlatformSpecFilter{
-			RegexFilters:        []string{".*"},
-			RegexExcludeFilters: []string{"hk"},
+			RegexFilters: []string{"!hk"},
 		},
 	})
 	if err != nil {
@@ -190,10 +229,10 @@ func TestPreviewFilter_InvalidRegexExclude(t *testing.T) {
 
 	_, err := fixture.cp.PreviewFilter(PreviewFilterRequest{
 		PlatformSpec: &PlatformSpecFilter{
-			RegexExcludeFilters: []string{"(broken"},
+			RegexFilters: []string{"!(broken"},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "regex_exclude_filters[0]") {
-		t.Fatalf("err = %v, want regex_exclude_filters[0]", err)
+	if err == nil || !strings.Contains(err.Error(), "regex_filters[0]") {
+		t.Fatalf("err = %v, want regex_filters[0]", err)
 	}
 }
