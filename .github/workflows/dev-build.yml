@@ -1,6 +1,10 @@
 name: Dev Build
+run-name: ${{ github.event.head_commit.message || format('Manual Dev Build - {0}', github.ref_name) }}
 
 on:
+  push:
+    branches:
+      - dev
   workflow_dispatch:
     inputs:
       version_suffix:
