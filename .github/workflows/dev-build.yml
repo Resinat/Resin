@@ -4,7 +4,7 @@ run-name: ${{ github.event.head_commit.message || format('Manual Dev Build - {0}
 on:
   push:
     branches:
-      - dev
+      - master
   workflow_dispatch:
     inputs:
       version_suffix:
