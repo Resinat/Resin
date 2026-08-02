@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
-import { AlertTriangle, Ban, CircleCheck, Eraser, Globe, RefreshCw, Sparkles, Trash2, Zap } from "lucide-react";
+import { AlertTriangle, Ban, CircleCheck, Copy, Eraser, Globe, RefreshCw, Sparkles, Trash2, Zap } from "lucide-react";
 import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
@@ -14,6 +14,7 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
+import { copyText } from "../../lib/clipboard";
 import { formatDateTime, formatRelativeTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
 import type { Platform } from "../platforms/types";
@@ -569,6 +570,33 @@ export function NodesPage() {
     setPage(0);
   };
 
+  const copyNodeProxyURL = async (node: NodeSummary) => {
+    let detail: NodeSummary;
+    try {
+      detail = await queryClient.fetchQuery({
+        queryKey: ["node", node.node_hash],
+        queryFn: () => getNode(node.node_hash),
+        staleTime: 30_000,
+      });
+    } catch (error) {
+      showToast("error", formatApiErrorMessage(error, t));
+      return;
+    }
+
+    const proxyURL = detail.proxy_urls?.[0]?.url;
+    if (!proxyURL) {
+      showToast("error", t("该节点暂无可复制代理地址"));
+      return;
+    }
+
+    try {
+      await copyText(proxyURL);
+      showToast("success", t("代理地址已复制"));
+    } catch {
+      showToast("error", t("复制失败"));
+    }
+  };
+
   const col = createColumnHelper<NodeSummary>();
 
   const nodeColumns = [
@@ -580,11 +608,32 @@ export function NodesPage() {
           <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
         </button>
       ),
-      cell: (info) => (
-        <div className="nodes-tag-cell">
-          <span title={info.getValue() as string}>{info.getValue() as string}</span>
-        </div>
-      ),
+      cell: (info) => {
+        const node = info.row.original;
+        const copyable =
+          node.has_outbound &&
+          (node.node_type === "http" || node.node_type === "socks" || node.node_type === "socks5");
+        return (
+          <div className="nodes-tag-cell">
+            <span title={info.getValue() as string}>{info.getValue() as string}</span>
+            {copyable ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="nodes-copy-proxy-btn"
+                aria-label={t("复制代理地址")}
+                title={t("复制代理地址")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void copyNodeProxyURL(node);
+                }}
+              >
+                <Copy size={14} />
+              </Button>
+            ) : null}
+          </div>
+        );
+      },
     }),
     col.accessor("region", {
       header: () => (

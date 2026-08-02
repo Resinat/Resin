@@ -15,6 +15,7 @@ export type NodeSummary = {
   enabled: boolean;
   manually_disabled?: boolean;
   display_tag?: string;
+  node_type?: string;
   has_outbound: boolean;
   last_error?: string;
   circuit_open_since?: string;

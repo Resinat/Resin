@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 
@@ -146,11 +145,7 @@ func (s *ControlPlaneService) nodeEntryMatchesFilters(
 	subLookup node.SubLookupFunc,
 ) bool {
 	if filters.NodeType != nil {
-		var header struct {
-			Type string `json:"type"`
-		}
-		if err := json.Unmarshal(entry.RawOptions, &header); err != nil ||
-			!strings.EqualFold(header.Type, *filters.NodeType) {
+		if !strings.EqualFold(entry.OutboundType, *filters.NodeType) {
 			return false
 		}
 	}

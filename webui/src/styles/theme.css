@@ -2259,16 +2259,27 @@ a {
 
 .nodes-tag-cell {
   display: inline-flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
 .nodes-tag-cell span {
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 700;
   max-width: 240px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.nodes-copy-proxy-btn.btn-sm {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
 }
 
 .nodes-tag-cell small {

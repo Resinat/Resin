@@ -801,15 +801,15 @@ func loadBootstrapNodeStatics(
 			log.Printf("[bootstrap] skip node %s: %v", ns.Hash, err)
 			continue
 		}
-		entry := &node.NodeEntry{
-			Hash:       hash,
-			RawOptions: append(json.RawMessage(nil), ns.RawOptions...),
-			CreatedAt:  time.Unix(0, ns.CreatedAtNs),
-		}
+		entry := node.NewNodeEntry(
+			hash,
+			append(json.RawMessage(nil), ns.RawOptions...),
+			time.Unix(0, ns.CreatedAtNs),
+			envCfg.MaxLatencyTableEntries,
+		)
 		// Bootstrap default: treat nodes as circuit-open unless a persisted
 		// nodes_dynamic row later overrides this state.
 		entry.CircuitOpenSince.Store(bootstrapNowNs)
-		entry.LatencyTable = node.NewLatencyTable(envCfg.MaxLatencyTableEntries)
 		pool.LoadNodeFromBootstrap(entry)
 		hashes = append(hashes, hash)
 	}

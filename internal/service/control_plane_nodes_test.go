@@ -78,17 +78,17 @@ func TestProxyURLsFromOutbound(t *testing.T) {
 		{
 			name: "http",
 			raw:  `{"type":"http","tag":"plain","server":"proxy.example.com","server_port":8080,"username":"user","password":"pass"}`,
-			want: []NodeProxyURL{{Type: "http", URL: "http://user:pass@proxy.example.com:8080#plain"}},
+			want: []NodeProxyURL{{Type: "http", URL: "http://user:pass@proxy.example.com:8080"}},
 		},
 		{
 			name: "https",
 			raw:  `{"type":"http","tag":"tls","server":"proxy.example.com","server_port":8443,"tls":{"enabled":true,"server_name":"sni.example.com","insecure":true}}`,
-			want: []NodeProxyURL{{Type: "https", URL: "https://proxy.example.com:8443?insecure=true&sni=sni.example.com#tls"}},
+			want: []NodeProxyURL{{Type: "https", URL: "https://proxy.example.com:8443?insecure=true&sni=sni.example.com"}},
 		},
 		{
 			name: "socks5",
 			raw:  `{"type":"socks","tag":"sock","server":"127.0.0.1","server_port":1080,"version":"5"}`,
-			want: []NodeProxyURL{{Type: "socks5", URL: "socks5://127.0.0.1:1080#sock"}},
+			want: []NodeProxyURL{{Type: "socks5", URL: "socks5://127.0.0.1:1080"}},
 		},
 		{
 			name: "unsupported",

@@ -275,7 +275,7 @@ func TestHandleGetNode_IncludesOutboundDetails(t *testing.T) {
 	if !ok {
 		t.Fatalf("proxy_urls[0] type: got %T", proxyURLs[0])
 	}
-	if first["type"] != "http" || first["url"] != "http://user:pass@proxy.example.com:8080#proxy" {
+	if first["type"] != "http" || first["url"] != "http://user:pass@proxy.example.com:8080" {
 		t.Fatalf("proxy url mismatch: %#v", first)
 	}
 
@@ -297,6 +297,9 @@ func TestHandleGetNode_IncludesOutboundDetails(t *testing.T) {
 	}
 	if _, ok := item["proxy_urls"]; ok {
 		t.Fatalf("list item should not include proxy_urls: %#v", item["proxy_urls"])
+	}
+	if item["node_type"] != "http" {
+		t.Fatalf("list item node_type: got %v, want http", item["node_type"])
 	}
 }
 

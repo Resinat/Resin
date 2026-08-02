@@ -365,8 +365,12 @@ Note: Once enabled, requests without authentication information are rejected ins
   "复制": "Copy",
   "已复制": "Copied",
   "复制失败": "Copy failed",
+  "复制代理地址": "Copy proxy URL",
+  "代理地址已复制": "Proxy URL copied",
+  "该节点暂无可复制代理地址": "No copyable proxy URL is available for this node",
   "Outbound JSON": "Outbound JSON",
-  "节点原始 outbound 配置。": "Raw outbound configuration for this node.",
+  "单个 outbound 对象，可粘贴到 sing-box 配置的 outbounds 数组中。":
+    "A single outbound object that can be pasted into the outbounds array of a sing-box configuration.",
   "可复制代理地址": "Copyable proxy URLs",
   "已按后端可安全拼接的协议生成。": "Generated for protocols the backend can safely compose.",
   "租约": "Leases",

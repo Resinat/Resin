@@ -633,6 +633,7 @@ type NodeSummary struct {
 	Enabled                          bool            `json:"enabled"`
 	ManuallyDisabled                 bool            `json:"manually_disabled"`
 	DisplayTag                       string          `json:"display_tag,omitempty"`
+	NodeType                         string          `json:"node_type,omitempty"`
 	HasOutbound                      bool            `json:"has_outbound"`
 	LastError                        string          `json:"last_error,omitempty"`
 	CircuitOpenSince                 *string         `json:"circuit_open_since"`
@@ -673,6 +674,7 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 		NodeHash:     h.Hex(),
 		CreatedAt:    entry.CreatedAt.UTC().Format(time.RFC3339Nano),
 		Enabled:      true,
+		NodeType:     entry.OutboundType,
 		HasOutbound:  entry.HasOutbound(),
 		LastError:    entry.GetLastError(),
 		FailureCount: int(entry.FailureCount.Load()),
@@ -758,7 +760,6 @@ func (s *ControlPlaneService) nodeEntryToDetailSummary(h node.Hash, entry *node.
 
 type simpleProxyOutbound struct {
 	Type       string          `json:"type"`
-	Tag        string          `json:"tag"`
 	Server     string          `json:"server"`
 	ServerPort uint16          `json:"server_port"`
 	Username   string          `json:"username"`
@@ -819,9 +820,6 @@ func buildProxyURL(scheme string, server string, outbound simpleProxyOutbound) s
 		} else {
 			u.User = url.UserPassword(outbound.Username, outbound.Password)
 		}
-	}
-	if tag := strings.TrimSpace(outbound.Tag); tag != "" {
-		u.Fragment = tag
 	}
 	if scheme == "https" && outbound.TLS != nil {
 		query := url.Values{}

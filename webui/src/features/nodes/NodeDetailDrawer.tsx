@@ -5,6 +5,7 @@ import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { useI18n } from "../../i18n";
+import { copyText } from "../../lib/clipboard";
 import { formatDateTime, formatRelativeTime } from "../../lib/time";
 import {
   displayableReferenceLatencyMs,
@@ -24,25 +25,6 @@ type Props = {
   isEgressProbePending: (hash: string) => boolean;
   isLatencyProbePending: (hash: string) => boolean;
 };
-
-async function copyText(value: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-
-  const area = document.createElement("textarea");
-  area.value = value;
-  area.style.position = "fixed";
-  area.style.opacity = "0";
-  document.body.appendChild(area);
-  try {
-    area.select();
-    document.execCommand("copy");
-  } finally {
-    document.body.removeChild(area);
-  }
-}
 
 function CopyButton({ value }: { value: string }) {
   const { t } = useI18n();
@@ -211,7 +193,7 @@ export function NodeDetailDrawer({
               <div className="platform-drawer-section-head node-detail-section-head-row">
                 <div>
                   <h4>{t("Outbound JSON")}</h4>
-                  <p>{t("节点原始 outbound 配置。")}</p>
+                  <p>{t("单个 outbound 对象，可粘贴到 sing-box 配置的 outbounds 数组中。")}</p>
                 </div>
                 <CopyButton value={outboundJSON} />
               </div>
