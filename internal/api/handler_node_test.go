@@ -82,6 +82,35 @@ func TestHandleListNodes_TagKeywordFiltersByNodeName(t *testing.T) {
 	}
 }
 
+func TestHandleListNodes_NodeTypeFilter(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	subA := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	subB := subscription.NewSubscription("22222222-2222-2222-2222-222222222222", "sub-b", "https://example.com/b", true, false)
+	cp.SubMgr.Register(subA)
+	cp.SubMgr.Register(subB)
+
+	addNodeForNodeListTest(t, cp, subA, `{"type":"vmess","server":"1.1.1.1"}`, "")
+	addNodeForNodeListTest(t, cp, subA, `{"type":"trojan","server":"2.2.2.2"}`, "")
+	addNodeForNodeListTest(t, cp, subB, `{"type":"vmess","server":"3.3.3.3"}`, "")
+
+	rec := doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/nodes?subscription_id="+subA.ID+"&node_type=VMESS",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list nodes with node_type status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["total"] != float64(1) {
+		t.Fatalf("node_type total: got %v, want 1", body["total"])
+	}
+}
+
 func TestHandleListNodes_UniqueEgressIPsUsesFilteredResult(t *testing.T) {
 	srv, cp, _ := newControlPlaneTestServer(t)
 

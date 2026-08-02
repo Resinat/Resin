@@ -140,6 +140,9 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 		if v := strings.TrimSpace(q.Get("tag_keyword")); v != "" {
 			filters.TagKeyword = &v
 		}
+		if v := strings.TrimSpace(q.Get("node_type")); v != "" {
+			filters.NodeType = &v
+		}
 
 		circuitOpen, ok := parseBoolQueryOrWriteInvalid(w, r, "circuit_open")
 		if !ok {

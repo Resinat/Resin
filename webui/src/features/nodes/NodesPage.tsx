@@ -40,6 +40,7 @@ type NodeFilterDraft = {
   platform_id: string;
   subscription_id: string;
   tag_keyword: string;
+  node_type: string;
   region: string;
   egress_ip: string;
   status: NodeStatusFilter;
@@ -49,6 +50,7 @@ const defaultFilterDraft: NodeFilterDraft = {
   platform_id: "",
   subscription_id: "",
   tag_keyword: "",
+  node_type: "",
   region: "",
   egress_ip: "",
   status: "all",
@@ -56,6 +58,23 @@ const defaultFilterDraft: NodeFilterDraft = {
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000, 2000, 5000] as const;
 const EMPTY_PLATFORMS: Platform[] = [];
+const NODE_TYPE_OPTIONS = [
+  ["anytls", "AnyTLS"],
+  ["http", "HTTP"],
+  ["hysteria", "Hysteria"],
+  ["hysteria2", "Hysteria 2"],
+  ["naive", "Naive"],
+  ["shadowsocks", "Shadowsocks"],
+  ["shadowtls", "ShadowTLS"],
+  ["socks", "SOCKS"],
+  ["ssh", "SSH"],
+  ["tor", "Tor"],
+  ["trojan", "Trojan"],
+  ["tuic", "TUIC"],
+  ["vless", "VLESS"],
+  ["vmess", "VMess"],
+  ["wireguard", "WireGuard"],
+] as const;
 const NODE_FILTER_ITEM_STYLE: CSSProperties = {
   flex: "1 1 120px",
   minWidth: "80px",
@@ -150,6 +169,7 @@ function draftFromQuery(search: string): NodeFilterDraft {
     platform_id: trimQueryValue(params, "platform_id"),
     subscription_id: trimQueryValue(params, "subscription_id"),
     tag_keyword: tagKeyword,
+    node_type: trimQueryValue(params, "node_type").toLowerCase(),
     region: trimQueryValue(params, "region").toUpperCase(),
     egress_ip: trimQueryValue(params, "egress_ip"),
     status: statusFromQuery(params),
@@ -198,6 +218,7 @@ function draftToActiveFilters(draft: NodeFilterDraft): NodeListFilters {
     platform_id: draft.platform_id,
     subscription_id: draft.subscription_id,
     tag_keyword: draft.tag_keyword,
+    node_type: draft.node_type,
     region: draft.region,
     egress_ip: draft.egress_ip,
     enabled,
@@ -793,6 +814,25 @@ export function NodesPage() {
                 placeholder={t("模糊搜索")}
                 style={NODE_FILTER_CONTROL_STYLE}
               />
+            </div>
+
+            <div style={NODE_FILTER_ITEM_STYLE}>
+              <label htmlFor="node-type" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                {t("节点类型")}
+              </label>
+              <Select
+                id="node-type"
+                value={draftFilters.node_type}
+                onChange={(event) => handleFilterChange("node_type", event.target.value)}
+                style={NODE_FILTER_CONTROL_STYLE}
+              >
+                <option value="">{t("全部")}</option>
+                {NODE_TYPE_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
             </div>
 
             <div style={NODE_FILTER_ITEM_STYLE}>

@@ -54,6 +54,7 @@ export type NodeListFilters = {
   platform_id?: string;
   subscription_id?: string;
   tag_keyword?: string;
+  node_type?: string;
   region?: string;
   egress_ip?: string;
   probed_since?: string;

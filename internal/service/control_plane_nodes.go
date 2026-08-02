@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ type NodeFilters struct {
 	EgressIP         *string
 	ProbedSince      *time.Time
 	TagKeyword       *string
+	NodeType         *string
 }
 
 // ListNodes returns nodes from the pool with optional filters.
@@ -143,6 +145,16 @@ func (s *ControlPlaneService) nodeEntryMatchesFilters(
 	filters NodeFilters,
 	subLookup node.SubLookupFunc,
 ) bool {
+	if filters.NodeType != nil {
+		var header struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(entry.RawOptions, &header); err != nil ||
+			!strings.EqualFold(header.Type, *filters.NodeType) {
+			return false
+		}
+	}
+
 	// Manually disabled filter (admin-controlled flag, independent of subscription state).
 	if filters.ManuallyDisabled != nil {
 		if entry.IsManuallyDisabled() != *filters.ManuallyDisabled {

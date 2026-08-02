@@ -100,7 +100,7 @@ export function AppShell() {
                 </span>
               ) : null}
             </div>
-            <p className="brand-subtitle">{t("高性能粘性代理池 · 管理面板")}</p>
+            <p className="brand-subtitle">{t("粘性代理池")}</p>
           </div>
         </div>
 

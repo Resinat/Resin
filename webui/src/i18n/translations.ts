@@ -5,7 +5,7 @@ const APP_TITLE_EN = "Resin · Sticky Proxy Pool";
 
 const EXACT_ZH_TO_EN: Record<string, string> = {
   "Resin · 高性能粘性代理池": APP_TITLE_EN,
-  "高性能粘性代理池 · 管理面板": "High-performance sticky proxy pool · Admin Console",
+  "粘性代理池": "Sticky Proxy Pool",
   "主导航": "Main Navigation",
   "切换语言": "Switch Language",
   "切换主题": "Toggle Theme",
@@ -177,6 +177,7 @@ Note: Once enabled, requests without authentication information are rejected ins
   "最后访问": "Last Accessed",
   "名称": "Name",
   "节点名": "Node Name",
+  "节点类型": "Node Type",
   "节点": "Node",
   "节点:": "Nodes:",
   "节点数": "Node Count",
