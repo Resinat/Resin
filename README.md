@@ -367,6 +367,8 @@ RESIN_PORT=2260 \
 
 ## 🛠️ FAQ
 
+- **Q: How do I route all node outbounds through an upstream proxy?**
+  - **A**: Set `RESIN_UPSTREAM_PROXY` to any SOCKS5/HTTP/HTTPS proxy URL. Every managed node then dials through that upstream instead of connecting directly from the Resin host/container. Examples: `RESIN_UPSTREAM_PROXY="socks5://127.0.0.1:1080"`, `RESIN_UPSTREAM_PROXY="http://proxy.example.com:8080"`, `RESIN_UPSTREAM_PROXY="https://user:pass@proxy.example.com:8443"`. Scheme-less `host:port` is treated as HTTP. Existing node-level detours are preserved. Leave it empty to keep the default direct dialing behavior.
 - **Q: How do I let LAN or localhost targets skip proxy nodes?**
   - **A**: Set `RESIN_PROXY_BYPASS` to a semicolon/comma/newline-separated rule list. Matching requests are dialed directly by Resin instead of through a proxy node. Example: `RESIN_PROXY_BYPASS="localhost;127.*;10.*;172.16.0.0/12;192.168.*;<local>"`. Supported rules include exact hosts, `*`/`?` wildcards, CIDR ranges, and `<local>` for hostnames without dots.
 - **Q: Startup fails with `RESIN_PROXY_TOKEN` undefined?**

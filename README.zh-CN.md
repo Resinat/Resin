@@ -353,6 +353,8 @@ RESIN_PORT=2260 \
 
 ## 🛠️ 常见错误 (FAQ)
 
+- **Q: 如何让所有节点出站统一走上游代理？**
+  - **A**: 配置 `RESIN_UPSTREAM_PROXY` 为任意 SOCKS5/HTTP/HTTPS 代理地址。之后每个托管节点都会经该上游出站，而不是从 Resin 主机/容器直连。例如：`RESIN_UPSTREAM_PROXY="socks5://127.0.0.1:1080"`、`RESIN_UPSTREAM_PROXY="http://proxy.example.com:8080"`、`RESIN_UPSTREAM_PROXY="https://user:pass@proxy.example.com:8443"`。裸写 `host:port` 时按 HTTP 处理。若节点自身已有 detour，会保留节点级配置。留空则保持默认直连行为。
 - **Q: 如何让内网或本机目标不走代理节点？**
   - **A**: 配置 `RESIN_PROXY_BYPASS`，用分号、逗号或换行分隔规则。命中的请求会由 Resin 本机直连目标，而不是通过代理节点。例如：`RESIN_PROXY_BYPASS="localhost;127.*;10.*;172.16.0.0/12;192.168.*;<local>"`。规则支持精确主机、`*`/`?` 通配符、CIDR 网段，以及表示无点号本地域名的 `<local>`。
 - **Q: 启动失败提示 `RESIN_PROXY_TOKEN` 未定义？**

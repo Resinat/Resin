@@ -22,6 +22,7 @@ type EnvConfig struct {
 
 	// Network
 	ListenAddress string
+	UpstreamProxy string
 
 	// Ports
 	ResinPort       int
@@ -91,6 +92,7 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	cfg.StateDir = envStr("RESIN_STATE_DIR", "/var/lib/resin")
 	cfg.LogDir = envStr("RESIN_LOG_DIR", "/var/log/resin")
 	cfg.ListenAddress = strings.TrimSpace(envStr("RESIN_LISTEN_ADDRESS", "0.0.0.0"))
+	cfg.UpstreamProxy = strings.TrimSpace(envStr("RESIN_UPSTREAM_PROXY", ""))
 
 	// --- Ports ---
 	cfg.ResinPort = envInt("RESIN_PORT", 2260, &errs)
