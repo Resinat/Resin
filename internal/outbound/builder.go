@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/endpoint"
@@ -29,6 +30,12 @@ type SingboxBuilderConfig struct {
 	// DNSUpstreams configures Resin's node DNS chain.
 	// Values are DNS upstream URI strings and the slice must not be empty.
 	DNSUpstreams []string
+
+	// UpstreamProxy optionally routes every node outbound through a generic
+	// upstream proxy via a sing-box detour chain. Accepted forms:
+	// socks5://[user:pass@]host:port, http://[user:pass@]host:port,
+	// https://[user:pass@]host:port, or scheme-less host:port (http).
+	UpstreamProxy string
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +51,7 @@ type SingboxBuilder struct {
 	logFactory          log.Factory
 	dnsTransportManager *dns.TransportManager
 	dnsRouter           *dns.Router
+	upstreamProxy       adapter.Outbound
 }
 
 // NewSingboxBuilderWithConfig creates a SingboxBuilder with a complete
@@ -116,13 +124,33 @@ func NewSingboxBuilderWithConfig(cfg SingboxBuilderConfig) (*SingboxBuilder, err
 
 	registry := service.FromContext[adapter.OutboundRegistry](ctx).(*sbOutbound.Registry)
 
-	return &SingboxBuilder{
+	builder := &SingboxBuilder{
 		registry:            registry,
 		ctx:                 ctx,
 		logFactory:          logFactory,
 		dnsTransportManager: dnsTransportMgr,
 		dnsRouter:           dnsRouter,
-	}, nil
+	}
+
+	// Optionally route every node outbound through a generic upstream proxy
+	// via a sing-box detour chain.
+	if strings.TrimSpace(cfg.UpstreamProxy) != "" {
+		upstream, err := createUpstreamProxy(
+			ctx,
+			outboundMgr,
+			dnsTransportMgr,
+			logger,
+			cfg.UpstreamProxy,
+		)
+		if err != nil {
+			_ = dnsRouter.Close()
+			_ = dnsTransportMgr.Close()
+			return nil, err
+		}
+		builder.upstreamProxy = upstream
+	}
+
+	return builder, nil
 }
 
 // Build parses rawOptions (a complete sing-box outbound JSON object with
@@ -134,6 +162,13 @@ func (b *SingboxBuilder) Build(rawOptions json.RawMessage) (adapter.Outbound, er
 	var outboundConfig option.Outbound
 	if err := sJson.UnmarshalContext(b.ctx, rawOptions, &outboundConfig); err != nil {
 		return nil, fmt.Errorf("parse outbound options: %w", err)
+	}
+
+	// 1b. When an upstream proxy is configured, detour every node outbound
+	//     through it so node connections egress via the proxy instead of the
+	//     container's direct route. Existing node-level detours win.
+	if b.upstreamProxy != nil {
+		injectUpstreamProxyDetour(outboundConfig.Options)
 	}
 
 	// 2. Create the outbound instance via the registry.
@@ -161,9 +196,13 @@ func (b *SingboxBuilder) Build(rawOptions json.RawMessage) (adapter.Outbound, er
 	return ob, nil
 }
 
-// Close shuts down the builder's internal DNS services.
+// Close releases the upstream outbound (if any) and shuts down the builder's
+// internal DNS services.
 func (b *SingboxBuilder) Close() error {
 	var errs []error
+	if b.upstreamProxy != nil {
+		errs = append(errs, common.Close(b.upstreamProxy))
+	}
 	if b.dnsRouter != nil {
 		errs = append(errs, b.dnsRouter.Close())
 	}
