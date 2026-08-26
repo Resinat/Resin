@@ -225,6 +225,22 @@ curl --proxy socks5h://127.0.0.1:2260 \
   https://api.ipify.org
 ```
 
+For HTTP forward proxy clients that can add headers, `X-Resin-Account` supplies
+the Account when `Proxy-Authorization` has no Account and is used for sticky
+routing. An explicit Account in `Proxy-Authorization` takes precedence. The
+proxy token is still required when configured, and the internal header is
+removed before a normal HTTP request reaches the target. The same header can
+be sent on an HTTPS `CONNECT` request; it is consumed during tunnel setup and
+does not enter the tunnel.
+
+```bash
+# HTTP request or HTTPS CONNECT: route both requests as user_tom
+curl -x http://127.0.0.1:2260 \
+  --proxy-user "Default:my-token" \
+  --proxy-header "X-Resin-Account: user_tom" \
+  https://api.ipify.org
+```
+
 #### Method 2: Reverse proxy (URL Account, quick/manual debug)
 
 By replacing your service BaseURL with Resin reverse-proxy URL, traffic goes through Resin directly.

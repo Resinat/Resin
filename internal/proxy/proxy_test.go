@@ -196,6 +196,7 @@ func TestForwardProxy_AuthFailed(t *testing.T) {
 	fp := &ForwardProxy{token: "correct-token", events: NoOpEventEmitter{}}
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	req.Header.Set("Proxy-Authorization", basicAuth("plat.acct", "wrong-token"))
+	req.Header.Set("X-Resin-Account", "header-account")
 	w := httptest.NewRecorder()
 	fp.ServeHTTP(w, req)
 
@@ -204,6 +205,32 @@ func TestForwardProxy_AuthFailed(t *testing.T) {
 	}
 	if w.Header().Get("X-Resin-Error") != "AUTH_FAILED" {
 		t.Fatalf("expected AUTH_FAILED, got %q", w.Header().Get("X-Resin-Error"))
+	}
+}
+
+func TestResolveForwardProxyAccount_HeaderSuppliesMissingAuthenticatedAccount(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set("X-Resin-Account", "header-account")
+
+	if got := resolveForwardProxyAccount(req, ""); got != "header-account" {
+		t.Fatalf("account: got %q, want %q", got, "header-account")
+	}
+}
+
+func TestResolveForwardProxyAccount_AuthenticatedAccountWinsOverHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.Header.Set("X-Resin-Account", "header-account")
+
+	if got := resolveForwardProxyAccount(req, "auth-account"); got != "auth-account" {
+		t.Fatalf("account: got %q, want %q", got, "auth-account")
+	}
+}
+
+func TestResolveForwardProxyAccount_AbsentHeaderPreservesAuthenticatedAccount(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+
+	if got := resolveForwardProxyAccount(req, "auth-account"); got != "auth-account" {
+		t.Fatalf("account: got %q, want %q", got, "auth-account")
 	}
 }
 
@@ -435,6 +462,7 @@ func TestPrepareForwardOutboundRequest_NormalizesClientCloseAndHeaders(t *testin
 	req.RequestURI = "http://example.com/path?q=1"
 	req.Close = true
 	req.Header.Set("Proxy-Authorization", "Basic xxx")
+	req.Header.Set("X-Resin-Account", "header-account")
 	req.Header.Set("Connection", "close, X-Custom-Header")
 	req.Header.Set("X-Custom-Header", "value")
 	req.Header.Set("X-Normal-Header", "keep")
@@ -453,6 +481,9 @@ func TestPrepareForwardOutboundRequest_NormalizesClientCloseAndHeaders(t *testin
 	if out.Header.Get("Proxy-Authorization") != "" {
 		t.Fatal("Proxy-Authorization should be stripped")
 	}
+	if out.Header.Get("X-Resin-Account") != "" {
+		t.Fatal("X-Resin-Account should be stripped")
+	}
 	if out.Header.Get("X-Custom-Header") != "" {
 		t.Fatal("connection-listed header should be stripped")
 	}
@@ -469,6 +500,9 @@ func TestPrepareForwardOutboundRequest_NormalizesClientCloseAndHeaders(t *testin
 	}
 	if req.Header.Get("Proxy-Authorization") == "" {
 		t.Fatal("original Proxy-Authorization should remain unchanged")
+	}
+	if req.Header.Get("X-Resin-Account") == "" {
+		t.Fatal("original X-Resin-Account should remain unchanged")
 	}
 	if req.Header.Get("X-Custom-Header") == "" {
 		t.Fatal("original custom header should remain unchanged")
