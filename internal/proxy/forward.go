@@ -126,6 +126,21 @@ func (p *ForwardProxy) authenticateV1(r *http.Request) (string, string, *ProxyEr
 	return platName, account, nil
 }
 
+// resolveForwardProxyPlatform applies the optional HTTP forward-proxy
+// platform header after proxy authentication has succeeded. An explicit
+// Platform in Proxy-Authorization wins; the header only fills a missing one.
+func resolveForwardProxyPlatform(r *http.Request, authenticatedPlatform string) string {
+	if authenticatedPlatform != "" {
+		return authenticatedPlatform
+	}
+	if r != nil {
+		if platform := r.Header.Get("X-Resin-Platform"); platform != "" {
+			return platform
+		}
+	}
+	return authenticatedPlatform
+}
+
 func requireProxyAuthInfo(r *http.Request) bool {
 	return r != nil && InboundPolicyFromContext(r.Context()).RequireProxyAuthInfo
 }
@@ -211,6 +226,8 @@ func prepareForwardOutboundRequest(in *http.Request) *http.Request {
 	// Do not propagate client-side close semantics to upstream transport reuse.
 	req.Close = false
 	stripHopByHopHeaders(req.Header)
+	// This header controls Resin routing and must not be exposed to the target.
+	req.Header.Del("X-Resin-Platform")
 	return req
 }
 
@@ -220,6 +237,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		writeProxyError(w, authErr)
 		return
 	}
+	platName = resolveForwardProxyPlatform(r, platName)
 
 	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeForward, false)
 	lifecycle.setTarget(r.Host, r.URL.String())
@@ -318,6 +336,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 		writeProxyError(w, authErr)
 		return
 	}
+	platName = resolveForwardProxyPlatform(r, platName)
 
 	lifecycle := newRequestLifecycle(p.events, r, ProxyTypeForward, true)
 	lifecycle.setTarget(target, "")
