@@ -215,6 +215,21 @@ curl --proxy socks5h://127.0.0.1:2260 \
   https://api.ipify.org
 ```
 
+对于支持自定义请求头的 HTTP 正向代理客户端，可以在
+`Proxy-Authorization` 没有 Account 时使用 `X-Resin-Account` 提供 Account，
+并据此启用粘性路由。如果代理认证中已经有 Account，则以认证中的
+Account 为准。代理 Token 在配置时仍然必须提供；普通 HTTP 请求转发到
+目标前会删除这个 Resin 内部请求头。HTTPS `CONNECT` 请求也可以携带该头，
+Resin 只在建立隧道时使用它，不会将它传入隧道。
+
+```bash
+# HTTP 请求或 HTTPS CONNECT：都按 user_tom 进行粘性路由
+curl -x http://127.0.0.1:2260 \
+  --proxy-user "Default:my-token" \
+  --proxy-header "X-Resin-Account: user_tom" \
+  https://api.ipify.org
+```
+
 #### 方式二：反向代理接入（URL 携带 Account，适合简单使用/手动调试）
 你可以通过替换业务的 BaseURL 为 Resin 反代地址，将请求直接发给 Resin。
 URL 格式进阶为：`http://部署IP:2260/密码/平台.账号/协议/目标地址`：

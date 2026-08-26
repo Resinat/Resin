@@ -116,6 +116,9 @@ func TestForwardProxy_E2EHTTPSuccess(t *testing.T) {
 		if got := r.Header.Get("Proxy-Authorization"); got != "" {
 			t.Fatalf("Proxy-Authorization leaked to upstream: %q", got)
 		}
+		if got := r.Header.Get("X-Resin-Account"); got != "" {
+			t.Fatalf("X-Resin-Account leaked to upstream: %q", got)
+		}
 		if got := r.URL.Path; got != "/v1/ping" {
 			t.Fatalf("unexpected path: %q", got)
 		}
@@ -138,6 +141,7 @@ func TestForwardProxy_E2EHTTPSuccess(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, upstream.URL+"/v1/ping?q=1", nil)
 	req.Header.Set("Proxy-Authorization", basicAuth("plat", "tok"))
+	req.Header.Set("X-Resin-Account", "header-account")
 	req.Header.Set("X-Test", "1")
 	w := httptest.NewRecorder()
 
@@ -156,6 +160,9 @@ func TestForwardProxy_E2EHTTPSuccess(t *testing.T) {
 
 	select {
 	case logEv := <-emitter.logCh:
+		if logEv.Account != "header-account" {
+			t.Fatalf("Account: got %q, want %q", logEv.Account, "header-account")
+		}
 		if logEv.EgressBytes <= 0 {
 			t.Fatalf("EgressBytes: got %d, want > 0", logEv.EgressBytes)
 		}
@@ -739,10 +746,11 @@ func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 
 	targetAddr := targetLn.Addr().String()
 	req := fmt.Sprintf(
-		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
+		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\nX-Resin-Account: %s\r\n\r\n",
 		targetAddr,
 		targetAddr,
 		basicAuth("plat", "tok"),
+		"connect-account",
 	)
 	if _, err := clientConn.Write([]byte(req)); err != nil {
 		t.Fatalf("write connect request: %v", err)
@@ -786,6 +794,9 @@ func TestForwardProxy_CONNECTTunnelSemantics(t *testing.T) {
 
 	select {
 	case logEv := <-emitter.logCh:
+		if logEv.Account != "connect-account" {
+			t.Fatalf("CONNECT Account: got %q, want %q", logEv.Account, "connect-account")
+		}
 		if !logEv.NetOK {
 			t.Fatal("CONNECT log net_ok: got false, want true")
 		}
