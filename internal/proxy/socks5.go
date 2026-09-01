@@ -123,8 +123,9 @@ func (s *Socks5Inbound) ServeConnContext(baseCtx context.Context, conn net.Conn)
 		handshake.platformName,
 		handshake.account,
 		handshake.target,
+		routeOverride{},
 	)
-	if prepare.route.PlatformID != "" {
+	if !prepare.route.NodeHash.IsZero() {
 		lifecycle.setRouteResult(prepare.route)
 	}
 	if prepare.session == nil {

@@ -2,6 +2,8 @@ package proxy
 
 import "strings"
 
+const v1NodeOverridePlatform = "Node"
+
 // parseV1PlatformAccountIdentity parses V1 identity segment:
 // "Platform.Account" (preferred) or "Platform:Account".
 func parseV1PlatformAccountIdentity(identity string) (string, string) {
@@ -32,6 +34,15 @@ func parseForwardCredentialV1(credential string) (token string, platform string,
 	}
 	platform, account = parseV1PlatformAccountIdentity(identity)
 	return token, platform, account
+}
+
+func parseForwardCredentialV1RouteOverride(credential string) (override routeOverride, token string, platform string, account string) {
+	token, platform, account = parseForwardCredentialV1(credential)
+	if strings.EqualFold(platform, v1NodeOverridePlatform) && strings.TrimSpace(account) != "" {
+		override.NodeHash = strings.TrimSpace(account)
+		return override, token, "", ""
+	}
+	return override, token, platform, account
 }
 
 // parseForwardCredentialV1WhenAuthDisabled parses optional identity when
