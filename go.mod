@@ -24,7 +24,7 @@ require (
 	github.com/akutz/memconn v0.1.0 // indirect
 	github.com/alexbrainman/sspi v0.0.0-20231016080023-1a75b4708caa // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
-	github.com/anytls/sing-anytls v0.0.11 // indirect
+	github.com/anytls/sing-anytls v0.0.13 // indirect
 	github.com/bits-and-blooms/bitset v1.13.0 // indirect
 	github.com/caddyserver/certmagic v0.23.0 // indirect
 	github.com/caddyserver/zerossl v0.1.3 // indirect
