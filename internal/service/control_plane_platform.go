@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -589,22 +590,23 @@ type PlatformSpecFilter struct {
 
 // NodeSummary is the API response for a node.
 type NodeSummary struct {
-	NodeHash                         string    `json:"node_hash"`
-	CreatedAt                        string    `json:"created_at"`
-	Enabled                          bool      `json:"enabled"`
-	DisplayTag                       string    `json:"display_tag,omitempty"`
-	HasOutbound                      bool      `json:"has_outbound"`
-	LastError                        string    `json:"last_error,omitempty"`
-	CircuitOpenSince                 *string   `json:"circuit_open_since"`
-	FailureCount                     int       `json:"failure_count"`
-	EgressIP                         string    `json:"egress_ip,omitempty"`
-	Region                           string    `json:"region,omitempty"`
-	LastEgressUpdate                 string    `json:"last_egress_update,omitempty"`
-	LastLatencyProbeAttempt          string    `json:"last_latency_probe_attempt,omitempty"`
-	LastAuthorityLatencyProbeAttempt string    `json:"last_authority_latency_probe_attempt,omitempty"`
-	ReferenceLatencyMs               *float64  `json:"reference_latency_ms,omitempty"`
-	LastEgressUpdateAttempt          string    `json:"last_egress_update_attempt,omitempty"`
-	Tags                             []NodeTag `json:"tags"`
+	NodeHash                         string               `json:"node_hash"`
+	CreatedAt                        string               `json:"created_at"`
+	Enabled                          bool                 `json:"enabled"`
+	DisplayTag                       string               `json:"display_tag,omitempty"`
+	HasOutbound                      bool                 `json:"has_outbound"`
+	LastError                        string               `json:"last_error,omitempty"`
+	CircuitOpenSince                 *string              `json:"circuit_open_since"`
+	FailureCount                     int                  `json:"failure_count"`
+	EgressIP                         string               `json:"egress_ip,omitempty"`
+	Region                           string               `json:"region,omitempty"`
+	LastEgressUpdate                 string               `json:"last_egress_update,omitempty"`
+	LastLatencyProbeAttempt          string               `json:"last_latency_probe_attempt,omitempty"`
+	LastAuthorityLatencyProbeAttempt string               `json:"last_authority_latency_probe_attempt,omitempty"`
+	ReferenceLatencyMs               *float64             `json:"reference_latency_ms,omitempty"`
+	Latencies                        []NodeLatencySummary `json:"latencies,omitempty"`
+	LastEgressUpdateAttempt          string               `json:"last_egress_update_attempt,omitempty"`
+	Tags                             []NodeTag            `json:"tags"`
 }
 
 // IsHealthyAndEnabled follows the node-summary health rule used by API/UI
@@ -618,6 +620,12 @@ type NodeTag struct {
 	SubscriptionName        string `json:"subscription_name"`
 	Tag                     string `json:"tag"`
 	SubscriptionCreatedAtNs int64  `json:"-"`
+}
+
+type NodeLatencySummary struct {
+	Domain        string  `json:"domain"`
+	LatencyEWMAMs float64 `json:"latency_ewma_ms"`
+	LastUpdated   string  `json:"last_updated"`
 }
 
 func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEntry) NodeSummary {
@@ -664,6 +672,19 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 				ns.ReferenceLatencyMs = &avgMs
 			}
 		}
+	}
+	if entry.LatencyTable != nil {
+		entry.LatencyTable.Range(func(domain string, stats node.DomainLatencyStats) bool {
+			ns.Latencies = append(ns.Latencies, NodeLatencySummary{
+				Domain:        domain,
+				LatencyEWMAMs: float64(stats.Ewma.Milliseconds()),
+				LastUpdated:   stats.LastUpdated.UTC().Format(time.RFC3339Nano),
+			})
+			return true
+		})
+		sort.Slice(ns.Latencies, func(i, j int) bool {
+			return ns.Latencies[i].Domain < ns.Latencies[j].Domain
+		})
 	}
 	if lastEgressAttempt := entry.LastEgressUpdateAttempt.Load(); lastEgressAttempt > 0 {
 		ns.LastEgressUpdateAttempt = time.Unix(0, lastEgressAttempt).UTC().Format(time.RFC3339Nano)
