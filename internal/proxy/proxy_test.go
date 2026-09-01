@@ -378,6 +378,56 @@ func TestForwardProxy_Authentication_V1(t *testing.T) {
 func TestForwardProxy_Authentication_V1RejectsTokenFirstCredentialShape(t *testing.T) {
 	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
 	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("Proxy-Authorization", basicAuth("Node.00112233445566778899aabbccddeeff:tok", ""))
+
+	_, _, err := fp.authenticate(req)
+	if err != ErrAuthFailed {
+		t.Fatalf("expected ErrAuthFailed, got %v", err)
+	}
+}
+
+func TestForwardProxy_Authentication_V1NodeOverrideCredential(t *testing.T) {
+	rawCredential := func(raw string) string {
+		return "Basic " + base64.StdEncoding.EncodeToString([]byte(raw))
+	}
+
+	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("Proxy-Authorization", rawCredential("Node.00112233445566778899aabbccddeeff:tok"))
+
+	auth, err := fp.authenticateRouteV1(req)
+	if err != nil {
+		t.Fatalf("unexpected auth error: %v", err)
+	}
+	if auth.PlatformName != "" || auth.Account != "" {
+		t.Fatalf("route override should not set identity: %+v", auth)
+	}
+	if auth.Override.NodeHash != "00112233445566778899aabbccddeeff" {
+		t.Fatalf("node override: got %q", auth.Override.NodeHash)
+	}
+}
+
+func TestForwardProxy_Authentication_HeaderNodeOverride(t *testing.T) {
+	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("Proxy-Authorization", basicAuth("plat.acct", "tok"))
+	req.Header.Set("X-Resin-Node-Hash", "00112233445566778899aabbccddeeff")
+
+	auth, err := fp.authenticateRouteV1(req)
+	if err != nil {
+		t.Fatalf("unexpected auth error: %v", err)
+	}
+	if auth.PlatformName != "plat" || auth.Account != "acct" {
+		t.Fatalf("identity: got plat=%q acct=%q", auth.PlatformName, auth.Account)
+	}
+	if auth.Override.NodeHash != "00112233445566778899aabbccddeeff" {
+		t.Fatalf("node override: got %q", auth.Override.NodeHash)
+	}
+}
+
+func TestForwardProxy_Authentication_V1RejectsLegacyCredentialShape(t *testing.T) {
+	fp := &ForwardProxy{token: "tok", events: NoOpEventEmitter{}}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
 	req.Header.Set("Proxy-Authorization", basicAuth("tok", "plat:acct"))
 
 	_, _, err := fp.authenticate(req)
