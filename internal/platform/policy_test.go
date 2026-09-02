@@ -11,6 +11,7 @@ func TestParseAllocationPolicy(t *testing.T) {
 		{name: "balanced", in: "BALANCED", want: AllocationPolicyBalanced},
 		{name: "prefer_low_latency", in: "PREFER_LOW_LATENCY", want: AllocationPolicyPreferLowLatency},
 		{name: "prefer_idle_ip", in: "PREFER_IDLE_IP", want: AllocationPolicyPreferIdleIP},
+		{name: "round_robin", in: "ROUND_ROBIN", want: AllocationPolicyRoundRobin},
 		{name: "invalid_fallback", in: "UNKNOWN", want: AllocationPolicyBalanced},
 		{name: "empty_fallback", in: "", want: AllocationPolicyBalanced},
 	}
@@ -28,6 +29,7 @@ func TestAllocationPolicyIsValid(t *testing.T) {
 		AllocationPolicyBalanced,
 		AllocationPolicyPreferLowLatency,
 		AllocationPolicyPreferIdleIP,
+		AllocationPolicyRoundRobin,
 	}
 	for _, p := range valid {
 		if !p.IsValid() {

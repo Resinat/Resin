@@ -529,6 +529,7 @@ Resin 内置了 GeoIP 服务，用于支持 Platform 的 RegionFilters 功能。
 * 如果 Platform 配置的节点分配策略是“偏好低延迟”，那么 $\text{Score} = \text{Latency}$
 * 如果是“偏好闲置 IP”，那么 $\text{Score} = \text{LeaseCount}$
 * 如果“均衡”，那么 $\text{Score} = (\text{LeaseCount} + 1) \times \text{Latency}$
+* 如果是“轮询”，则跳过 P2C 评分，按可路由集合顺序依次选取节点
 
 > Latency 为空时统一按 LeaseCount 打分（即使策略是 PREFER_LOW_LATENCY）。
 
@@ -1193,7 +1194,7 @@ Body（partial patch 示例）：
   "reverse_proxy_miss_action": "TREAT_AS_EMPTY|REJECT",
   "reverse_proxy_empty_account_behavior": "RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE",
   "reverse_proxy_fixed_account_header": "Authorization\nX-Account-Id",
-  "allocation_policy": "BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP",
+  "allocation_policy": "BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP|ROUND_ROBIN",
   "passive_circuit_breaker_disabled": false,
   "updated_at": "2026-02-10T12:34:56Z"
 }
@@ -1239,7 +1240,7 @@ Body：
 * `sticky_ttl`：合法 Go duration。
 * `regex_filters`：节点标签过滤规则列表，语义与校验见“节点标签过滤规则”。
 * `region_filters`：每项为 ISO 3166-1 alpha-2 小写代码。
-* 枚举字段：`reverse_proxy_miss_action` 仅 `TREAT_AS_EMPTY|REJECT`；`reverse_proxy_empty_account_behavior` 仅 `RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE`；`allocation_policy` 仅 `BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。
+* 枚举字段：`reverse_proxy_miss_action` 仅 `TREAT_AS_EMPTY|REJECT`；`reverse_proxy_empty_account_behavior` 仅 `RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE`；`allocation_policy` 仅 `BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP|ROUND_ROBIN`。
 * `passive_circuit_breaker_disabled`：布尔值。设为 `true` 后，此 Platform 的用户代理请求失败不会增加节点熔断计数；主动探测不受影响。成功请求仍会清除节点连续失败计数并可恢复熔断节点。
 * 组合约束：当 `reverse_proxy_empty_account_behavior=FIXED_HEADER` 时，`reverse_proxy_fixed_account_header` 必填；其值支持多行，每行一个合法 HTTP Header 字段名（会按顺序尝试提取）。
 
@@ -2332,7 +2333,7 @@ GeoIP 与订阅的下载都有错误重试的需求。
 * `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_MISS_ACTION`：默认平台反代 miss 行为。枚举：`TREAT_AS_EMPTY|REJECT`。默认 `TREAT_AS_EMPTY`。
 * `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_EMPTY_ACCOUNT_BEHAVIOR`：默认平台在反代 Account 为空时的行为。枚举：`RANDOM|FIXED_HEADER|ACCOUNT_HEADER_RULE`。默认 `ACCOUNT_HEADER_RULE`。
 * `RESIN_DEFAULT_PLATFORM_REVERSE_PROXY_FIXED_ACCOUNT_HEADER`：默认平台固定提取 Header 列表（多行，每行一个 Header）。仅当上项为 `FIXED_HEADER` 时必须至少提供一个合法 Header。默认 `Authorization`。
-* `RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY`：默认平台分配策略。枚举：`BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP`。默认 `BALANCED`。
+* `RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY`：默认平台分配策略。枚举：`BALANCED|PREFER_LOW_LATENCY|PREFER_IDLE_IP|ROUND_ROBIN`。默认 `BALANCED`。
 * `RESIN_PROBE_TIMEOUT`：单次探测请求超时。默认 "15s"。
 * `RESIN_RESOURCE_FETCH_TIMEOUT`：资源下载（订阅/GeoIP）单次尝试超时。默认 "30s"。
 * `RESIN_NODE_DNS_UPSTREAMS`：Resin 托管节点域名解析上游，JSON 字符串数组。默认值为 `["https://doh.pub/dns-query","https://dns.alidns.com/dns-query","tls://223.5.5.5?sni=dns.alidns.com","local"]`；设置后完全按数组顺序作为 failover 链。仅作用于内部 sing-box builder 解析节点域名，不影响订阅下载、GeoIP 下载等其他资源下载路径。

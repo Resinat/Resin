@@ -18,14 +18,16 @@ type ReadOnlyView interface {
 	Contains(h node.Hash) bool
 	Size() int
 	RandomPick(rng *rand.Rand) (node.Hash, bool)
+	RoundRobinPick() (node.Hash, bool)
 	Range(fn func(node.Hash) bool)
 }
 
 // RoutableView is a 64-shard concurrent set supporting O(1) random pick,
 // O(1) add, O(1) remove, and O(1) contains.
 type RoutableView struct {
-	shards [numShards]shard
-	size   atomic.Int64 // total count across all shards
+	shards        [numShards]shard
+	size          atomic.Int64 // total count across all shards
+	roundRobinSeq atomic.Uint64
 }
 
 type shard struct {
@@ -106,6 +108,7 @@ func (rv *RoutableView) Clear() {
 		s.mu.Unlock()
 	}
 	rv.size.Store(0)
+	rv.roundRobinSeq.Store(0)
 }
 
 // RandomPick selects a random hash from the view.
@@ -115,8 +118,21 @@ func (rv *RoutableView) RandomPick(rng *rand.Rand) (node.Hash, bool) {
 	if total == 0 {
 		return node.Zero, false
 	}
+	return rv.pickByIndex(rng.IntN(total))
+}
 
-	target := rng.IntN(total)
+// RoundRobinPick selects the next hash in round-robin order.
+// Returns ok=false if the view is empty.
+func (rv *RoutableView) RoundRobinPick() (node.Hash, bool) {
+	total := rv.Size()
+	if total == 0 {
+		return node.Zero, false
+	}
+	idx := int(rv.roundRobinSeq.Add(1)-1) % total
+	return rv.pickByIndex(idx)
+}
+
+func (rv *RoutableView) pickByIndex(target int) (node.Hash, bool) {
 	for i := range rv.shards {
 		s := &rv.shards[i]
 		s.mu.RLock()
