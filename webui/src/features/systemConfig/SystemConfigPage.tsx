@@ -75,6 +75,7 @@ const ALLOCATION_POLICY_LABELS: Record<string, string> = {
   BALANCED: "均衡",
   PREFER_LOW_LATENCY: "优先低延迟",
   PREFER_IDLE_IP: "优先空闲出口 IP",
+  ROUND_ROBIN: "轮询",
 };
 
 const MISS_ACTION_LABELS: Record<string, string> = {
