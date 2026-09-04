@@ -11,9 +11,40 @@ services:
       RESIN_PROXY_TOKEN: ${RESIN_PROXY_TOKEN}
       RESIN_LISTEN_ADDRESS: 0.0.0.0
       RESIN_PORT: 2260
+      # --- Free-mode (password-less) ports ---
+      # Opens RESIN_FREE_PORT_COUNT consecutive ports from RESIN_FREE_PORT_START,
+      # all bound to platform RESIN_FREE_PORT_PLATFORM (auto-created if missing).
+      # Each port pins its own sticky egress IP. Default access mode is intranet.
+      RESIN_FREE_PORT_START: 21000
+      RESIN_FREE_PORT_COUNT: 50
+      RESIN_FREE_PORT_PLATFORM: MM
+      RESIN_FREE_PORT_ACCESS_MODE: intranet
+      # RESIN_FREE_PORT_WHITELIST: '["10.0.0.0/8","192.168.0.0/16"]'  # whitelist mode only
       # TZ: <Your Time Zone>
+      # --- Resource / startup tuning (large node pools) ---
+      # Each probe worker opens a real outbound and does an HTTPS request. The
+      # default (64) is safe; raise only on big hosts with many nodes.
+      RESIN_PROBE_CONCURRENCY: 64
+      # Let the Go runtime honor the container's CPU/memory limits below. Without
+      # these, Go sees ALL host cores (GOMAXPROCS) and may over-parallelize
+      # startup work (outbound warmup, subscription refresh) and over-use memory.
+      GOMAXPROCS: "2"
+      GOMEMLIMIT: "900MiB"   # ~85% of the memory limit below
+    # Caps how much CPU/RAM the container (and thus the Go runtime) may use.
+    # Honored by `docker compose up` (Compose v2).
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1g
     ports:
       - "2260:2260"
+      # Free-mode range. Map ONLY the ports you actually open
+      # (RESIN_FREE_PORT_START .. +RESIN_FREE_PORT_COUNT-1). Mapping a wider span
+      # spawns one docker-proxy process PER port (slow start, more memory).
+      # For large ranges or production, prefer `network_mode: host` (drop this
+      # block). The example matches RESIN_FREE_PORT_START=21000 / COUNT=50.
+      - "21000-21049:21000-21049"
     volumes:
       - resin_cache:/var/cache/resin
       - resin_state:/var/lib/resin

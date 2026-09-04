@@ -50,3 +50,12 @@ func ParseCloudflareTrace(body []byte) (netip.Addr, *string, error) {
 	}
 	return ip, &locValue, nil
 }
+
+// ParsePlainIP parses probe endpoints that return only the caller IP.
+func ParsePlainIP(body []byte) (netip.Addr, *string, error) {
+	addr, err := netip.ParseAddr(strings.TrimSpace(string(body)))
+	if err != nil {
+		return netip.Addr{}, nil, err
+	}
+	return addr, nil, nil
+}

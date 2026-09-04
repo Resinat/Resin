@@ -1,4 +1,5 @@
-import { apiRequest } from "../../lib/api-client";
+import { getStoredAuthToken } from "../auth/auth-store";
+import { apiRequest, type JsonValue } from "../../lib/api-client";
 import type { EnvConfig, RuntimeConfig, RuntimeConfigPatch } from "./types";
 
 const path = "/api/v1/system/config";
@@ -102,4 +103,53 @@ export async function patchSystemConfig(patch: RuntimeConfigPatch): Promise<Runt
 
 export async function getEnvConfig(): Promise<EnvConfig> {
   return await apiRequest<EnvConfig>(path + "/env");
+}
+
+// --- Data export / import ---
+
+export type ImportResult = {
+  platforms_created: number;
+  platforms_skipped: number;
+  platforms_overwritten: number;
+  subscriptions_created: number;
+  subscriptions_skipped: number;
+  subscriptions_overwritten: number;
+  errors: string[];
+};
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
+
+export async function exportData(): Promise<void> {
+  const token = getStoredAuthToken();
+  const headers: HeadersInit = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const response = await fetch(`${API_BASE_URL}/api/v1/data/export`, { headers });
+  if (!response.ok) {
+    throw new Error(`Export failed: ${response.statusText}`);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] ?? "resin-export.json";
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function importData(
+  payload: unknown,
+  strategy: "skip" | "overwrite",
+): Promise<ImportResult> {
+  return apiRequest<ImportResult>(`/api/v1/data/import?strategy=${strategy}`, {
+    method: "POST",
+    body: payload as JsonValue,
+  });
 }

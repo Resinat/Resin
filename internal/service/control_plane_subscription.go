@@ -22,22 +22,32 @@ import (
 
 // SubscriptionResponse is the API response for a subscription.
 type SubscriptionResponse struct {
-	ID                      string `json:"id"`
-	Name                    string `json:"name"`
-	SourceType              string `json:"source_type"`
-	URL                     string `json:"url"`
-	Content                 string `json:"content"`
-	UpdateInterval          string `json:"update_interval"`
-	NodeCount               int    `json:"node_count"`
-	HealthyNodeCount        int    `json:"healthy_node_count"`
-	Ephemeral               bool   `json:"ephemeral"`
-	IncrementalAliveNodes   bool   `json:"incremental_alive_nodes"`
-	EphemeralNodeEvictDelay string `json:"ephemeral_node_evict_delay"`
-	Enabled                 bool   `json:"enabled"`
-	CreatedAt               string `json:"created_at"`
-	LastChecked             string `json:"last_checked,omitempty"`
-	LastUpdated             string `json:"last_updated,omitempty"`
-	LastError               string `json:"last_error,omitempty"`
+	ID                      string                     `json:"id"`
+	Name                    string                     `json:"name"`
+	SourceType              string                     `json:"source_type"`
+	URL                     string                     `json:"url"`
+	Content                 string                     `json:"content"`
+	UpdateInterval          string                     `json:"update_interval"`
+	NodeCount               int                        `json:"node_count"`
+	HealthyNodeCount        int                        `json:"healthy_node_count"`
+	Ephemeral               bool                       `json:"ephemeral"`
+	IncrementalAliveNodes   bool                       `json:"incremental_alive_nodes"`
+	EphemeralNodeEvictDelay string                     `json:"ephemeral_node_evict_delay"`
+	Enabled                 bool                       `json:"enabled"`
+	CreatedAt               string                     `json:"created_at"`
+	LastChecked             string                     `json:"last_checked,omitempty"`
+	LastUpdated             string                     `json:"last_updated,omitempty"`
+	LastError               string                     `json:"last_error,omitempty"`
+	Usage                   *SubscriptionUsageResponse `json:"usage,omitempty"`
+	PublicSubscriptionURL   string                     `json:"public_subscription_url"`
+}
+
+type SubscriptionUsageResponse struct {
+	UploadBytes   int64  `json:"upload_bytes"`
+	DownloadBytes int64  `json:"download_bytes"`
+	TotalBytes    int64  `json:"total_bytes"`
+	ExpireUnix    int64  `json:"expire_unix,omitempty"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) SubscriptionResponse {
@@ -78,14 +88,37 @@ func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) Subs
 		Enabled:                 sub.Enabled(),
 		CreatedAt:               time.Unix(0, sub.CreatedAtNs).UTC().Format(time.RFC3339Nano),
 	}
+	if token := sub.PublicToken(); token != "" {
+		resp.PublicSubscriptionURL = "/sub/" + sub.ID + "/" + token
+	}
 	if lc := sub.LastCheckedNs.Load(); lc > 0 {
 		resp.LastChecked = time.Unix(0, lc).UTC().Format(time.RFC3339Nano)
 	}
 	if lu := sub.LastUpdatedNs.Load(); lu > 0 {
 		resp.LastUpdated = time.Unix(0, lu).UTC().Format(time.RFC3339Nano)
 	}
+	if usage := sub.Usage(); usage.UpdatedAtNs > 0 {
+		resp.Usage = &SubscriptionUsageResponse{
+			UploadBytes:   usage.UploadBytes,
+			DownloadBytes: usage.DownloadBytes,
+			TotalBytes:    usage.TotalBytes,
+			ExpireUnix:    usage.ExpireUnix,
+			UpdatedAt:     time.Unix(0, usage.UpdatedAtNs).UTC().Format(time.RFC3339Nano),
+		}
+	}
 	resp.LastError = sub.GetLastError()
 	return resp
+}
+
+func subscriptionUsageToModelFields(usage subscription.UsageInfo, ms *model.Subscription) {
+	if ms == nil {
+		return
+	}
+	ms.UsageUploadBytes = usage.UploadBytes
+	ms.UsageDownloadBytes = usage.DownloadBytes
+	ms.UsageTotalBytes = usage.TotalBytes
+	ms.UsageExpireUnix = usage.ExpireUnix
+	ms.UsageUpdatedAtNs = usage.UpdatedAtNs
 }
 
 // ListSubscriptions returns all subscriptions, optionally filtered by enabled.
@@ -219,6 +252,10 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 
 	id := uuid.New().String()
 	now := time.Now().UnixNano()
+	publicToken, err := subscription.GeneratePublicToken()
+	if err != nil {
+		return nil, internal("generate public subscription token", err)
+	}
 
 	ms := model.Subscription{
 		ID:                        id,
@@ -230,6 +267,7 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 		Enabled:                   enabled,
 		Ephemeral:                 ephemeral,
 		IncrementalAliveNodes:     incrementalAliveNodes,
+		PublicToken:               publicToken,
 		EphemeralNodeEvictDelayNs: int64(ephemeralNodeEvictDelay),
 		CreatedAtNs:               now,
 		UpdatedAtNs:               now,
@@ -243,6 +281,7 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 	sub.SetSourceType(sourceType)
 	sub.SetContent(content)
 	sub.SetIncrementalAliveNodes(incrementalAliveNodes)
+	sub.SetPublicToken(publicToken)
 	sub.SetEphemeralNodeEvictDelayNs(int64(ephemeralNodeEvictDelay))
 	sub.CreatedAtNs = now
 	sub.UpdatedAtNs = now
@@ -250,6 +289,67 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 
 	r := s.subToResponse(sub)
 	return &r, nil
+}
+
+// ResetPublicSubscriptionToken rotates the one public token shared by all
+// output formats for a subscription.
+func (s *ControlPlaneService) ResetPublicSubscriptionToken(id string) (*SubscriptionResponse, error) {
+	sub := s.SubMgr.Lookup(id)
+	if sub == nil {
+		return nil, notFound("subscription not found")
+	}
+	token, err := subscription.GeneratePublicToken()
+	if err != nil {
+		return nil, internal("generate public subscription token", err)
+	}
+	var persistErr error
+	sub.WithOpLock(func() {
+		locked := s.SubMgr.Lookup(id)
+		if locked == nil {
+			persistErr = notFound("subscription not found")
+			return
+		}
+		ms := runtimeSubscriptionModelWithoutToken(locked)
+		ms.PublicToken = token
+		if s.Engine == nil {
+			persistErr = internal("persist public subscription token", fmt.Errorf("state engine is nil"))
+			return
+		}
+		if err := s.Engine.UpsertSubscription(ms); err != nil {
+			persistErr = internal("persist public subscription token", err)
+			return
+		}
+		locked.SetPublicToken(token)
+	})
+	if persistErr != nil {
+		return nil, persistErr
+	}
+	r := s.subToResponse(sub)
+	return &r, nil
+}
+
+func runtimeSubscriptionModelWithoutToken(sub *subscription.Subscription) model.Subscription {
+	usage := sub.Usage()
+	return model.Subscription{
+		ID:                        sub.ID,
+		Name:                      sub.Name(),
+		SourceType:                sub.SourceType(),
+		URL:                       sub.URL(),
+		Content:                   sub.Content(),
+		UpdateIntervalNs:          sub.UpdateIntervalNs(),
+		Enabled:                   sub.Enabled(),
+		Ephemeral:                 sub.Ephemeral(),
+		IncrementalAliveNodes:     sub.IncrementalAliveNodes(),
+		PublicToken:               sub.PublicToken(),
+		EphemeralNodeEvictDelayNs: sub.EphemeralNodeEvictDelayNs(),
+		UsageUploadBytes:          usage.UploadBytes,
+		UsageDownloadBytes:        usage.DownloadBytes,
+		UsageTotalBytes:           usage.TotalBytes,
+		UsageExpireUnix:           usage.ExpireUnix,
+		UsageUpdatedAtNs:          usage.UpdatedAtNs,
+		CreatedAtNs:               sub.CreatedAtNs,
+		UpdatedAtNs:               sub.UpdatedAtNs,
+	}
 }
 
 // UpdateSubscription applies a constrained partial patch to a subscription.
@@ -379,6 +479,7 @@ func (s *ControlPlaneService) UpdateSubscription(id string, patchJSON json.RawMe
 		CreatedAtNs:               sub.CreatedAtNs,
 		UpdatedAtNs:               now,
 	}
+	subscriptionUsageToModelFields(sub.Usage(), &ms)
 	if err := s.Engine.UpsertSubscription(ms); err != nil {
 		return nil, internal("persist subscription", err)
 	}

@@ -1,14 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -25,7 +29,6 @@ import (
 	"github.com/Resinat/Resin/internal/routing"
 	"github.com/Resinat/Resin/internal/service"
 	"github.com/Resinat/Resin/internal/state"
-	"github.com/joho/godotenv"
 )
 
 type resinApp struct {
@@ -41,6 +44,9 @@ type resinApp struct {
 	requestlogSvc   *requestlog.Service
 	endpointManager *endpointRuntimeManager
 	transportPool   *proxy.OutboundTransportPool
+
+	freePortServers   []*inboundDemuxServer
+	freePortListeners []net.Listener
 }
 
 func run() error {
@@ -82,10 +88,45 @@ func run() error {
 }
 
 func loadDotenvFile(path string) error {
-	if err := godotenv.Load(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil
+	file, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("load %s: %w", path, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for lineNo := 1; scanner.Scan(); lineNo++ {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
 		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return fmt.Errorf("load %s:%d: missing '='", path, lineNo)
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return fmt.Errorf("load %s:%d: empty key", path, lineNo)
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 {
+			first, last := value[0], value[len(value)-1]
+			if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("load %s:%d: %w", path, lineNo, err)
+		}
+	}
+	if err := scanner.Err(); err != nil {
 		return fmt.Errorf("load %s: %w", path, err)
 	}
 	return nil
@@ -228,10 +269,15 @@ func (a *resinApp) wireRetryDownloader(retryDL *netutil.RetryDownloader) {
 		}
 		return res.NodeHash, nil
 	}
-	retryDL.ProxyFetch = func(ctx context.Context, hash node.Hash, url string) ([]byte, error) {
-		body, _, err := a.topoRuntime.outboundMgr.FetchWithUserAgent(ctx, hash, url, currentDownloadUserAgent())
-		return body, err
+	proxyFetchMetadata := func(ctx context.Context, hash node.Hash, url string) (netutil.DownloadResponse, error) {
+		resp, _, err := a.topoRuntime.outboundMgr.FetchWithUserAgentMetadata(ctx, hash, url, currentDownloadUserAgent())
+		return resp, err
 	}
+	retryDL.ProxyFetch = func(ctx context.Context, hash node.Hash, url string) ([]byte, error) {
+		resp, err := proxyFetchMetadata(ctx, hash, url)
+		return resp.Body, err
+	}
+	retryDL.ProxyFetchMetadata = proxyFetchMetadata
 	log.Println("RetryDownloader wiring complete")
 }
 
@@ -396,6 +442,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		a.requestlogRepo,
 		a.metricsManager,
 	)
+	publicSubscriptionHandler := api.NewPublicSubscriptionHandler(cpService)
 	tokenActionHandler := api.NewTokenActionHandler(
 		a.envCfg.ProxyToken,
 		cpService,
@@ -456,6 +503,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		tokenActionHandler,
 		socks5Inbound,
 		a.metricsManager,
+		publicSubscriptionHandler,
 	)
 	cpService.EndpointRuntime = endpointManager
 	defaultEndpoint := service.NewDefaultEndpoint(a.envCfg.ResinPort)
@@ -468,6 +516,84 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 	}
 	a.endpointManager = endpointManager
 
+	if a.envCfg.FreePortStart > 0 {
+		if err := a.buildFreePortServers(proxyEvents, outboundTransportCfg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// buildFreePortServers opens the password-less port range. One shared pair of
+// handlers serves the whole range; each connection's account is derived from
+// its local port, so every port pins its own sticky lease (its own egress)
+// within the bound platform. Free-mode forces a V1 SOCKS5 handshake with an
+// empty token (so NO_AUTH is accepted) regardless of the global auth mode, and
+// the HTTP side mounts only the forward proxy — no control plane / reverse
+// proxy is exposed on these ports.
+func (a *resinApp) buildFreePortServers(
+	proxyEvents proxy.ConfigAwareEventEmitter,
+	outboundTransportCfg proxy.OutboundTransportConfig,
+) error {
+	platformName := a.envCfg.FreePortPlatform
+	if _, ok := a.topoRuntime.pool.GetPlatformByName(platformName); !ok {
+		// Should not happen: ensureFreePortPlatform creates it during bootstrap.
+		return fmt.Errorf("free-port platform %q not found", platformName)
+	}
+
+	accessController, err := netutil.NewAccessController(
+		a.envCfg.FreePortAccessMode,
+		a.envCfg.FreePortWhitelist,
+	)
+	if err != nil {
+		return fmt.Errorf("free-port access controller: %w", err)
+	}
+
+	freeForward := proxy.NewForwardProxy(proxy.ForwardProxyConfig{
+		ProxyToken:           "",
+		Router:               a.topoRuntime.router,
+		Pool:                 a.topoRuntime.pool,
+		Health:               a.topoRuntime.pool,
+		Events:               proxyEvents,
+		MetricsSink:          a.metricsManager,
+		OutboundTransport:    outboundTransportCfg,
+		TransportPool:        a.transportPool,
+		ProxyBypassRules:     a.envCfg.ProxyBypassRules,
+		ForcedPlatform:       platformName,
+		AccountFromLocalPort: true,
+	})
+	freeSocks5 := proxy.NewSocks5Inbound(proxy.Socks5InboundConfig{
+		ProxyToken:           "",
+		Router:               a.topoRuntime.router,
+		Pool:                 a.topoRuntime.pool,
+		Health:               a.topoRuntime.pool,
+		Events:               proxyEvents,
+		MetricsSink:          a.metricsManager,
+		ProxyBypassRules:     a.envCfg.ProxyBypassRules,
+		ForcedPlatform:       platformName,
+		AccountFromLocalPort: true,
+	})
+
+	start := a.envCfg.FreePortStart
+	end := start + a.envCfg.FreePortCount - 1
+	opened := 0
+	for port := start; port <= end; port++ {
+		ln, lnErr := net.Listen("tcp", formatListenAddress(a.envCfg.ListenAddress, port))
+		if lnErr != nil {
+			log.Printf("Free-port %d listen failed, skipping: %v", port, lnErr)
+			continue
+		}
+		srv := newInboundDemuxServer(&http.Server{Handler: freeForward}, freeSocks5)
+		srv.connGate = func(c net.Conn) bool { return accessController.Allow(c.RemoteAddr()) }
+		a.freePortServers = append(a.freePortServers, srv)
+		a.freePortListeners = append(a.freePortListeners, proxy.NewCountingListener(ln, a.metricsManager))
+		opened++
+	}
+	log.Printf(
+		"Free-mode ports: %d/%d opened on [%d-%d] -> platform %q (access=%s)",
+		opened, a.envCfg.FreePortCount, start, end, platformName, a.envCfg.FreePortAccessMode,
+	)
 	return nil
 }
 
@@ -515,12 +641,27 @@ func (a *resinApp) buildProxyEvents() proxy.ConfigAwareEventEmitter {
 }
 
 func (a *resinApp) startServers() <-chan error {
-	log.Printf(
-		"Resin default endpoint starting on %s (%s)",
-		formatListenAddress(a.envCfg.ListenAddress, a.envCfg.ResinPort),
-		"HTTP + SOCKS5",
-	)
-	return a.endpointManager.Start()
+	serverErrCh := a.endpointManager.Start()
+	reportServerErr := func(name string, err error) {
+		if err == nil || errors.Is(err, http.ErrServerClosed) {
+			return
+		}
+		wrapped := fmt.Errorf("%s: %w", name, err)
+		select {
+		case a.endpointManager.serverErrCh <- wrapped:
+		default:
+		}
+	}
+
+	for i := range a.freePortServers {
+		srv := a.freePortServers[i]
+		ln := a.freePortListeners[i]
+		go func() {
+			reportServerErr("free-port server", srv.Serve(ln))
+		}()
+	}
+
+	return serverErrCh
 }
 
 func waitForShutdown(serverErrCh <-chan error) error {
@@ -549,6 +690,14 @@ func formatListenURL(listenAddress string, port int) string {
 func (a *resinApp) shutdown(ctx context.Context) {
 	if err := a.endpointManager.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
+	}
+	for _, srv := range a.freePortServers {
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("Free-port server shutdown error: %v", err)
+		}
+	}
+	if len(a.freePortServers) > 0 {
+		log.Printf("Free-mode ports stopped (%d)", len(a.freePortServers))
 	}
 	log.Println("Resin server stopped")
 	if a.transportPool != nil {

@@ -34,9 +34,10 @@ func (f TagFilter) Empty() bool {
 // Static fields are set at creation; dynamic fields use atomics or mutex.
 type NodeEntry struct {
 	// --- Static (immutable after creation) ---
-	Hash       Hash
-	RawOptions json.RawMessage
-	CreatedAt  time.Time
+	Hash         Hash
+	RawOptions   json.RawMessage
+	OutboundType string
+	CreatedAt    time.Time
 
 	// --- Dynamic (guarded by mu) ---
 	mu              sync.RWMutex
@@ -56,6 +57,10 @@ type NodeEntry struct {
 	LastEgressUpdateAttempt          atomic.Int64
 	LatencyTable                     *LatencyTable // per-domain latency stats; nil if not initialized
 
+	// Admin-controlled disable flag. When true, the node is excluded from all
+	// platform views regardless of subscription state. Toggled via the API.
+	ManuallyDisabled atomic.Bool
+
 	// Outbound instance for this node.
 	Outbound atomic.Pointer[adapter.Outbound]
 }
@@ -65,10 +70,16 @@ type NodeEntry struct {
 // partition in the per-domain latency table.
 // Pass 0 to skip latency table initialization (e.g. in tests that don't need it).
 func NewNodeEntry(hash Hash, rawOptions json.RawMessage, createdAt time.Time, maxLatencyTableEntries int) *NodeEntry {
+	var header struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal(rawOptions, &header)
+
 	e := &NodeEntry{
-		Hash:       hash,
-		RawOptions: rawOptions,
-		CreatedAt:  createdAt,
+		Hash:         hash,
+		RawOptions:   rawOptions,
+		OutboundType: strings.ToLower(strings.TrimSpace(header.Type)),
+		CreatedAt:    createdAt,
 	}
 	if maxLatencyTableEntries > 0 {
 		e.LatencyTable = NewLatencyTable(maxLatencyTableEntries)
@@ -232,6 +243,14 @@ func matchesAny(s string, regexes []*regexp.Regexp) bool {
 // IsCircuitOpen returns true if the node is currently circuit-broken.
 func (e *NodeEntry) IsCircuitOpen() bool {
 	return e.CircuitOpenSince.Load() != 0
+}
+
+// IsManuallyDisabled reports whether an admin has flagged this node as disabled.
+func (e *NodeEntry) IsManuallyDisabled() bool {
+	if e == nil {
+		return false
+	}
+	return e.ManuallyDisabled.Load()
 }
 
 // HasLatency returns true if the node has at least one latency record.

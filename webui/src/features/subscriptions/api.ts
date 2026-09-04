@@ -3,10 +3,13 @@ import type {
   PageResponse,
   Subscription,
   SubscriptionCreateInput,
+  SubscriptionPageResponse,
+  SubscriptionSummary,
   SubscriptionUpdateInput,
 } from "./types";
 
 const basePath = "/api/v1/subscriptions";
+const metricsBasePath = "/api/v1/metrics";
 
 type ApiSubscription = Omit<Subscription, "last_checked" | "last_updated" | "last_error"> & {
   source_type?: "remote" | "local";
@@ -14,7 +17,24 @@ type ApiSubscription = Omit<Subscription, "last_checked" | "last_updated" | "las
   last_checked?: string | null;
   last_updated?: string | null;
   last_error?: string | null;
+  usage?: Subscription["usage"] | null;
+  public_subscription_url?: string | null;
 };
+
+type ApiSubscriptionPage = PageResponse<ApiSubscription> & {
+  summary?: Partial<SubscriptionSummary> | null;
+};
+
+type ApiHistoryTrafficResponse = {
+  items?: Array<{
+    ingress_bytes?: number | null;
+    egress_bytes?: number | null;
+  }> | null;
+};
+
+function toNumber(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
 
 function normalizeSubscription(raw: ApiSubscription): Subscription {
   return {
@@ -24,13 +44,28 @@ function normalizeSubscription(raw: ApiSubscription): Subscription {
     last_checked: raw.last_checked || "",
     last_updated: raw.last_updated || "",
     last_error: raw.last_error || "",
+    usage: raw.usage ?? undefined,
+    public_subscription_url: raw.public_subscription_url || "",
   };
 }
 
-function normalizeSubscriptionPage(raw: PageResponse<ApiSubscription>): PageResponse<Subscription> {
+function normalizeSubscriptionSummary(raw: Partial<SubscriptionSummary> | null | undefined): SubscriptionSummary {
+  return {
+    enabled_count: toNumber(raw?.enabled_count),
+    disabled_count: toNumber(raw?.disabled_count),
+    usage_used_bytes: toNumber(raw?.usage_used_bytes),
+    usage_total_bytes: toNumber(raw?.usage_total_bytes),
+    usage_remaining_bytes: toNumber(raw?.usage_remaining_bytes),
+    healthy_node_count: toNumber(raw?.healthy_node_count),
+    node_count: toNumber(raw?.node_count),
+  };
+}
+
+function normalizeSubscriptionPage(raw: ApiSubscriptionPage): SubscriptionPageResponse {
   return {
     ...raw,
     items: raw.items.map(normalizeSubscription),
+    summary: normalizeSubscriptionSummary(raw.summary),
   };
 }
 
@@ -41,12 +76,12 @@ export type ListSubscriptionsInput = {
   keyword?: string;
 };
 
-export async function listSubscriptions(input: ListSubscriptionsInput = {}): Promise<PageResponse<Subscription>> {
+export async function listSubscriptions(input: ListSubscriptionsInput = {}): Promise<SubscriptionPageResponse> {
   const query = new URLSearchParams({
     limit: String(input.limit ?? 50),
     offset: String(input.offset ?? 0),
-    sort_by: "created_at",
-    sort_order: "desc",
+    sort_by: "status",
+    sort_order: "asc",
   });
 
   if (input.enabled !== undefined) {
@@ -57,8 +92,14 @@ export async function listSubscriptions(input: ListSubscriptionsInput = {}): Pro
     query.set("keyword", keyword);
   }
 
-  const data = await apiRequest<PageResponse<ApiSubscription>>(`${basePath}?${query.toString()}`);
+  const data = await apiRequest<ApiSubscriptionPage>(`${basePath}?${query.toString()}`);
   return normalizeSubscriptionPage(data);
+}
+
+export async function getHistoryTrafficTotal(input: { from: string; to: string }): Promise<number> {
+  const query = new URLSearchParams({ from: input.from, to: input.to });
+  const data = await apiRequest<ApiHistoryTrafficResponse>(`${metricsBasePath}/history/traffic?${query.toString()}`);
+  return (data.items ?? []).reduce((sum, item) => sum + toNumber(item.ingress_bytes) + toNumber(item.egress_bytes), 0);
 }
 
 export async function createSubscription(input: SubscriptionCreateInput): Promise<Subscription> {
@@ -81,6 +122,13 @@ export async function deleteSubscription(id: string): Promise<void> {
   await apiRequest<void>(`${basePath}/${id}`, {
     method: "DELETE",
   });
+}
+
+export async function resetPublicSubscriptionToken(id: string): Promise<Subscription> {
+  const data = await apiRequest<ApiSubscription>(`${basePath}/${id}/actions/reset-public-token`, {
+    method: "POST",
+  });
+  return normalizeSubscription(data);
 }
 
 export async function refreshSubscription(id: string): Promise<void> {

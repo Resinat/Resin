@@ -52,3 +52,12 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Dark theme ── */
+[data-theme="dark"] .switch-slider {
+  background-color: rgba(130, 170, 220, 0.18);
+}
+
+[data-theme="dark"] .switch-slider:before {
+  background-color: #c8d4e4;
+}

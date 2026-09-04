@@ -22,6 +22,35 @@ func newTestCacheRepo(t *testing.T) *CacheRepo {
 	return newCacheRepo(db)
 }
 
+func TestMigrateCacheDB_AcceptsCompatVersion4(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/cache.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := MigrateCacheDB(db); err != nil {
+		t.Fatalf("MigrateCacheDB: %v", err)
+	}
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatal("schema_migrations dirty=true")
+	}
+	if version != 4 {
+		t.Fatalf("schema_migrations version: got %d, want 4", version)
+	}
+
+	if err := MigrateCacheDB(db); err != nil {
+		t.Fatalf("MigrateCacheDB existing version 4: %v", err)
+	}
+}
+
 // --- nodes_static ---
 
 func TestCacheRepo_NodesStatic_BulkUpsertAndLoad(t *testing.T) {

@@ -42,7 +42,7 @@ COPY --from=go-builder /out/resin /usr/local/bin/resin
 COPY docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-EXPOSE 2260
+EXPOSE 2260 21000-22000
 VOLUME ["/var/cache/resin", "/var/lib/resin", "/var/log/resin"]
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

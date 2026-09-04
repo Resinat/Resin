@@ -2,6 +2,8 @@
 package subscription
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -9,6 +11,15 @@ import (
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/puzpuzpuz/xsync/v4"
 )
+
+// GeneratePublicToken returns a cryptographically random URL-safe token.
+func GeneratePublicToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
 
 const defaultEphemeralNodeEvictDelayNs = int64(72 * time.Hour)
 
@@ -30,6 +41,15 @@ const (
 type ManagedNode struct {
 	Tags    []string
 	Evicted bool
+}
+
+// UsageInfo contains optional usage metadata reported by a subscription source.
+type UsageInfo struct {
+	UploadBytes   int64
+	DownloadBytes int64
+	TotalBytes    int64
+	ExpireUnix    int64
+	UpdatedAtNs   int64
 }
 
 // ManagedNodes wraps hash->ManagedNode map.
@@ -126,9 +146,11 @@ type Subscription struct {
 	enabled               bool
 	ephemeral             bool
 	incrementalAliveNodes bool
+	publicToken           string
 	// ephemeralNodeEvictDelayNs is the per-subscription eviction delay for
 	// circuit-broken nodes when Ephemeral is enabled.
 	ephemeralNodeEvictDelayNs int64
+	usage                     UsageInfo
 
 	// Persistence timestamps (written under mu or single-writer context).
 	CreatedAtNs int64
@@ -317,6 +339,20 @@ func (s *Subscription) SetIncrementalAliveNodes(v bool) {
 	s.mu.Unlock()
 }
 
+// PublicToken returns the token used by public subscription links.
+func (s *Subscription) PublicToken() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.publicToken
+}
+
+// SetPublicToken updates the token used by public subscription links.
+func (s *Subscription) SetPublicToken(token string) {
+	s.mu.Lock()
+	s.publicToken = token
+	s.mu.Unlock()
+}
+
 // EphemeralNodeEvictDelayNs returns the per-subscription eviction delay in nanoseconds.
 func (s *Subscription) EphemeralNodeEvictDelayNs() int64 {
 	s.mu.RLock()
@@ -328,6 +364,20 @@ func (s *Subscription) EphemeralNodeEvictDelayNs() int64 {
 func (s *Subscription) SetEphemeralNodeEvictDelayNs(v int64) {
 	s.mu.Lock()
 	s.ephemeralNodeEvictDelayNs = v
+	s.mu.Unlock()
+}
+
+// Usage returns the latest subscription usage metadata.
+func (s *Subscription) Usage() UsageInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.usage
+}
+
+// SetUsage updates the latest subscription usage metadata.
+func (s *Subscription) SetUsage(usage UsageInfo) {
+	s.mu.Lock()
+	s.usage = usage
 	s.mu.Unlock()
 }
 

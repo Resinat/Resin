@@ -5,7 +5,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/service"
 )
 
@@ -51,8 +50,8 @@ func platformSortKey(sortBy string, p service.PlatformResponse) string {
 }
 
 func comparePlatformsForList(a, b service.PlatformResponse, sorting Sorting) int {
-	aBuiltin := a.ID == platform.DefaultPlatformID
-	bBuiltin := b.ID == platform.DefaultPlatformID
+	aBuiltin := a.IsBuiltin
+	bBuiltin := b.IsBuiltin
 	if aBuiltin != bBuiltin {
 		if aBuiltin {
 			return -1

@@ -42,6 +42,8 @@ func compareNodeSummaries(sortBy string, a, b service.NodeSummary) int {
 		order = cmp.Compare(a.FailureCount, b.FailureCount)
 	case "region":
 		order = strings.Compare(a.Region, b.Region)
+	case "lease_count":
+		order = cmp.Compare(a.LeaseCount, b.LeaseCount)
 	default:
 		order = strings.Compare(nodeTagSortKey(a), nodeTagSortKey(b))
 	}
@@ -52,6 +54,26 @@ func compareNodeSummaries(sortBy string, a, b service.NodeSummary) int {
 }
 
 func sortNodeSummaries(nodes []service.NodeSummary, sorting Sorting) {
+	if sorting.SortBy == "reference_latency_ms" {
+		slices.SortStableFunc(nodes, func(a, b service.NodeSummary) int {
+			if a.ReferenceLatencyMs == nil && b.ReferenceLatencyMs == nil {
+				return strings.Compare(a.NodeHash, b.NodeHash)
+			}
+			if a.ReferenceLatencyMs == nil {
+				return 1
+			}
+			if b.ReferenceLatencyMs == nil {
+				return -1
+			}
+			order := cmp.Compare(*a.ReferenceLatencyMs, *b.ReferenceLatencyMs)
+			if order != 0 {
+				return applySortOrder(order, sorting.SortOrder)
+			}
+			return strings.Compare(a.NodeHash, b.NodeHash)
+		})
+		return
+	}
+
 	slices.SortStableFunc(nodes, func(a, b service.NodeSummary) int {
 		return applySortOrder(compareNodeSummaries(sorting.SortBy, a, b), sorting.SortOrder)
 	})
@@ -118,6 +140,9 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 		if v := strings.TrimSpace(q.Get("tag_keyword")); v != "" {
 			filters.TagKeyword = &v
 		}
+		if v := strings.TrimSpace(q.Get("node_type")); v != "" {
+			filters.NodeType = &v
+		}
 
 		circuitOpen, ok := parseBoolQueryOrWriteInvalid(w, r, "circuit_open")
 		if !ok {
@@ -137,6 +162,12 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 		}
 		filters.Enabled = enabled
 
+		manuallyDisabled, ok := parseBoolQueryOrWriteInvalid(w, r, "manually_disabled")
+		if !ok {
+			return
+		}
+		filters.ManuallyDisabled = manuallyDisabled
+
 		if v := q.Get("probed_since"); v != "" {
 			t, err := time.Parse(time.RFC3339Nano, v)
 			if err != nil {
@@ -152,7 +183,7 @@ func HandleListNodes(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 
-		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"tag", "created_at", "failure_count", "region"}, "tag", "asc")
+		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"tag", "created_at", "failure_count", "region", "lease_count", "reference_latency_ms"}, "tag", "asc")
 		if !ok {
 			return
 		}
@@ -204,6 +235,74 @@ func HandleProbeLatency(cp *service.ControlPlaneService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		hash := PathParam(r, "hash")
 		result, err := cp.ProbeLatency(hash)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, result)
+	}
+}
+
+// HandleListNodeLeases returns a handler for GET /api/v1/nodes/{hash}/leases.
+// It returns every lease currently bound to the node; pass platform_id=... to
+// scope the result to a single platform.
+func HandleListNodeLeases(cp *service.ControlPlaneService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hash := PathParam(r, "hash")
+		platformID, ok := parseOptionalUUIDQuery(w, r, "platform_id", "platform_id")
+		if !ok {
+			return
+		}
+		pid := ""
+		if platformID != nil {
+			pid = *platformID
+		}
+		leases, err := cp.ListLeasesByNode(hash, pid)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, leases)
+	}
+}
+
+// HandleDisableNode returns a handler for POST /api/v1/nodes/{hash}/actions/disable.
+// Disabling a node removes it from all platform views and releases every lease
+// currently bound to it; the released count is returned in the response.
+func HandleDisableNode(cp *service.ControlPlaneService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hash := PathParam(r, "hash")
+		result, err := cp.SetNodeManualDisable(hash, true)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, result)
+	}
+}
+
+// HandleEnableNode returns a handler for POST /api/v1/nodes/{hash}/actions/enable.
+// Enabling a node clears the admin disable flag so it can be selected again on
+// the next routing decision. No leases are touched on enable.
+func HandleEnableNode(cp *service.ControlPlaneService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hash := PathParam(r, "hash")
+		result, err := cp.SetNodeManualDisable(hash, false)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, result)
+	}
+}
+
+// HandleCleanupNode returns a handler for POST /api/v1/nodes/{hash}/actions/cleanup.
+// Cleaning a node evicts every subscription reference and releases every lease
+// currently bound to it.
+func HandleCleanupNode(cp *service.ControlPlaneService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		hash := PathParam(r, "hash")
+		result, err := cp.CleanupNode(hash)
 		if err != nil {
 			writeServiceError(w, err)
 			return

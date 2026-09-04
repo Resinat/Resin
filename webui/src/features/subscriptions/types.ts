@@ -1,3 +1,11 @@
+export type SubscriptionUsage = {
+  upload_bytes: number;
+  download_bytes: number;
+  total_bytes: number;
+  expire_unix?: number;
+  updated_at: string;
+};
+
 export type Subscription = {
   id: string;
   name: string;
@@ -15,6 +23,18 @@ export type Subscription = {
   last_checked?: string;
   last_updated?: string;
   last_error?: string;
+  usage?: SubscriptionUsage;
+  public_subscription_url: string;
+};
+
+export type SubscriptionSummary = {
+  enabled_count: number;
+  disabled_count: number;
+  usage_used_bytes: number;
+  usage_total_bytes: number;
+  usage_remaining_bytes: number;
+  healthy_node_count: number;
+  node_count: number;
 };
 
 export type PageResponse<T> = {
@@ -22,6 +42,10 @@ export type PageResponse<T> = {
   total: number;
   limit: number;
   offset: number;
+};
+
+export type SubscriptionPageResponse = PageResponse<Subscription> & {
+  summary: SubscriptionSummary;
 };
 
 export type SubscriptionCreateInput = {

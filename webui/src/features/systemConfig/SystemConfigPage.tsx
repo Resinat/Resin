@@ -1,17 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, RefreshCw, RotateCcw, Save, Sparkles } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, Download, RefreshCw, RotateCcw, Save, Sparkles, Upload } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Input } from "../../components/ui/Input";
+import { Select } from "../../components/ui/Select";
 import { Switch } from "../../components/ui/Switch";
 import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import i18next, { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
-import { getEnvConfig, patchSystemConfig, getSystemConfig, getDefaultSystemConfig } from "./api";
+import { getEnvConfig, patchSystemConfig, getSystemConfig, getDefaultSystemConfig, exportData, importData } from "./api";
+import type { ImportResult } from "./api";
 import type { RuntimeConfig, RuntimeConfigPatch } from "./types";
 
 type RuntimeConfigForm = {
@@ -228,6 +230,165 @@ function buildPatch(current: RuntimeConfig, next: RuntimeConfig): RuntimeConfigP
   }
 
   return patch;
+}
+
+// ------------------------------------------------------------------
+// Data Management Card (export / import)
+// ------------------------------------------------------------------
+
+function DataManagementCard({ showToast }: { showToast: (type: "success" | "error", message: string) => void }) {
+  const { t } = useI18n();
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importStrategy, setImportStrategy] = useState<"skip" | "overwrite">("skip");
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const exportMutation = useMutation({
+    mutationFn: exportData,
+    onSuccess: () => showToast("success", t("导出成功")),
+    onError: (err) => showToast("error", formatApiErrorMessage(err, t)),
+  });
+
+  const importMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedFile) throw new Error(t("请先选择 JSON 文件"));
+      const text = await selectedFile.text();
+      let payload: unknown;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        throw new Error(t("JSON 文件解析失败"));
+      }
+      return importData(payload, importStrategy);
+    },
+    onSuccess: (data) => {
+      setImportResult(data);
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      // Invalidate platform / subscription queries so lists refresh.
+      void queryClient.invalidateQueries({ queryKey: ["platforms"] });
+      void queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
+    },
+    onError: (err) => showToast("error", formatApiErrorMessage(err, t)),
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSelectedFile(e.target.files?.[0] ?? null);
+    setImportResult(null);
+  };
+
+  return (
+    <Card className="syscfg-form-card platform-directory-card">
+      <div className="detail-header">
+        <div>
+          <h3>{t("数据管理")}</h3>
+          <p>{t("导出平台与订阅配置为 JSON 文件，用于备份或迁移。")}</p>
+        </div>
+      </div>
+
+      {/* Export */}
+      <section className="syscfg-section">
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void exportMutation.mutateAsync()}
+            disabled={exportMutation.isPending}
+          >
+            <Download size={16} />
+            {exportMutation.isPending ? t("导出中...") : t("导出 JSON")}
+          </Button>
+        </div>
+      </section>
+
+      {/* Import */}
+      <section className="syscfg-section">
+        <h4>{t("导入")}</h4>
+        <p style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "12px" }}>
+          {t("导入 JSON 文件以恢复平台与订阅配置。")}
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleFileChange}
+              style={{ fontSize: "13px" }}
+            />
+
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <label className="field-label" style={{ margin: 0, whiteSpace: "nowrap" }}>
+                {t("冲突策略")}
+              </label>
+              <Select
+                value={importStrategy}
+                onChange={(e) => setImportStrategy(e.target.value as "skip" | "overwrite")}
+                style={{ minWidth: "140px" }}
+              >
+                <option value="skip">{t("跳过已存在")}</option>
+                <option value="overwrite">{t("覆盖已存在")}</option>
+              </Select>
+            </div>
+
+            <Button
+              size="sm"
+              onClick={() => void importMutation.mutateAsync()}
+              disabled={importMutation.isPending || !selectedFile}
+            >
+              <Upload size={16} />
+              {importMutation.isPending ? t("导入中...") : t("导入")}
+            </Button>
+          </div>
+
+          {importResult && (
+            <div
+              style={{
+                background: "var(--surface-sunken, rgba(0,0,0,0.02))",
+                padding: "12px 16px",
+                borderRadius: "8px",
+                border: "1px solid var(--border)",
+                fontSize: "13px",
+              }}
+            >
+              <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", marginBottom: importResult.errors.length ? "8px" : 0 }}>
+                {(importResult.platforms_created > 0 || importResult.subscriptions_created > 0) && (
+                  <Badge variant="success">
+                    {t("平台")} {t("创建 {{count}} 项", { count: importResult.platforms_created })}
+                    {" / "}
+                    {t("订阅")} {t("创建 {{count}} 项", { count: importResult.subscriptions_created })}
+                  </Badge>
+                )}
+                {(importResult.platforms_skipped > 0 || importResult.subscriptions_skipped > 0) && (
+                  <Badge variant="neutral">
+                    {t("平台")} {t("跳过 {{count}} 项", { count: importResult.platforms_skipped })}
+                    {" / "}
+                    {t("订阅")} {t("跳过 {{count}} 项", { count: importResult.subscriptions_skipped })}
+                  </Badge>
+                )}
+                {(importResult.platforms_overwritten > 0 || importResult.subscriptions_overwritten > 0) && (
+                  <Badge variant="warning">
+                    {t("平台")} {t("覆盖 {{count}} 项", { count: importResult.platforms_overwritten })}
+                    {" / "}
+                    {t("订阅")} {t("覆盖 {{count}} 项", { count: importResult.subscriptions_overwritten })}
+                  </Badge>
+                )}
+              </div>
+              {importResult.errors.length > 0 && (
+                <div style={{ color: "var(--destructive)", fontSize: "12px" }}>
+                  {importResult.errors.map((e, i) => (
+                    <div key={i}>{e}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+    </Card>
+  );
 }
 
 export function SystemConfigPage() {
@@ -945,9 +1106,9 @@ export function SystemConfigPage() {
                 </section>
               </Card>
             )}
-          </div>
 
-          <div className="syscfg-side">
+            <DataManagementCard showToast={showToast} />
+          </div>
             <Card className="syscfg-summary-card platform-directory-card">
               <div className="detail-header">
                 <div>
@@ -1005,7 +1166,6 @@ export function SystemConfigPage() {
                 </Button>
               </div>
             </Card>
-          </div>
         </div>
       )}
     </section>

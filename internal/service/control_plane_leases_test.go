@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/netip"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/model"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
@@ -33,11 +35,14 @@ func newLeaseInheritanceTestService() (*ControlPlaneService, *platform.Platform)
 		Authorities: func() []string { return []string{"cloudflare.com"} },
 		P2CWindow:   func() time.Duration { return 10 * time.Minute },
 	})
+	runtimeCfg := &atomic.Pointer[config.RuntimeConfig]{}
+	runtimeCfg.Store(config.NewDefaultRuntimeConfig())
 
 	return &ControlPlaneService{
-		Pool:   pool,
-		SubMgr: subMgr,
-		Router: router,
+		Pool:       pool,
+		SubMgr:     subMgr,
+		Router:     router,
+		RuntimeCfg: runtimeCfg,
 	}, plat
 }
 
@@ -193,6 +198,14 @@ func TestListLeases_NodeTagUsesEarliestSubscriptionThenMinTag(t *testing.T) {
 		60,
 		[]string{"0"},
 	)
+	entry, ok := cp.Pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing", hash.Hex())
+	}
+	entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+		Ewma:        42 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
 
 	now := time.Now().UnixNano()
 	seedLease(t, cp, model.Lease{
@@ -214,6 +227,9 @@ func TestListLeases_NodeTagUsesEarliestSubscriptionThenMinTag(t *testing.T) {
 	}
 	if leases[0].NodeTag != "OldSub/a" {
 		t.Fatalf("node_tag: got %q, want %q", leases[0].NodeTag, "OldSub/a")
+	}
+	if leases[0].ReferenceLatencyMs == nil || *leases[0].ReferenceLatencyMs != 42 {
+		t.Fatalf("reference_latency_ms: got %v, want 42", leases[0].ReferenceLatencyMs)
 	}
 }
 

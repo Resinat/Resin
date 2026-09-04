@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
-import { AlertTriangle, Eye, Filter, Info, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
+import { AlertTriangle, Copy, Eye, Filter, Info, Link as LinkIcon, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
@@ -18,17 +18,21 @@ import { Textarea } from "../../components/ui/Textarea";
 import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
+import { formatBytes } from "../../lib/bytes";
+import { copyText } from "../../lib/clipboard";
 import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatDateTime, formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
   cleanupSubscriptionCircuitOpenNodes,
   createSubscription,
   deleteSubscription,
+  getHistoryTrafficTotal,
   listSubscriptions,
   refreshSubscription,
+  resetPublicSubscriptionToken,
   updateSubscription,
 } from "./api";
-import type { Subscription } from "./types";
+import type { Subscription, SubscriptionSummary } from "./types";
 
 type EnabledFilter = "all" | "enabled" | "disabled";
 type SubscriptionSourceType = "remote" | "local";
@@ -74,12 +78,36 @@ const subscriptionEditSchema = subscriptionCreateSchema;
 
 type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
+type SubscriptionLinkFormat = "auto" | "clash" | "mihomo" | "v2ray" | "sing-box";
+
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
+const EMPTY_SUBSCRIPTION_SUMMARY: SubscriptionSummary = {
+  enabled_count: 0,
+  disabled_count: 0,
+  usage_used_bytes: 0,
+  usage_total_bytes: 0,
+  usage_remaining_bytes: 0,
+  healthy_node_count: 0,
+  node_count: 0,
+};
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const LOCAL_SOURCE_UPDATE_INTERVAL = "12h";
 const SUBSCRIPTION_DISABLE_HINT = "禁用订阅后，相关节点不会参与平台路由、健康统计或自动探测。";
 const SUBSCRIPTION_EPHEMERAL_HINT = "临时订阅的非健康节点会在一段时间后被自动删除。订阅本身不会被删除。";
 const SUBSCRIPTION_INCREMENTAL_HINT = "开启后刷新时保留当前仍存活的旧节点，仅清理失效旧节点，并合并新订阅内容；关闭后仅保留刷新后的订阅内容。";
+const USAGE_WARNING_RATIO = 0.3;
+const USAGE_DANGER_RATIO = 0.1;
+const EXPIRE_WARNING_MS = 7 * 24 * 60 * 60 * 1000;
+const EXPIRE_DANGER_MS = 3 * 24 * 60 * 60 * 1000;
+const SUBSCRIPTION_LINK_FORMATS: Array<{ key: SubscriptionLinkFormat; label: string }> = [
+  { key: "auto", label: "自动识别" },
+  { key: "clash", label: "Clash" },
+  { key: "mihomo", label: "Mihomo" },
+  { key: "v2ray", label: "v2rayN" },
+  { key: "sing-box", label: "sing-box" },
+];
+
+type SubscriptionUsageTone = "neutral" | "success" | "warning" | "danger";
 
 function extractHostname(url: string): string {
   try {
@@ -87,6 +115,17 @@ function extractHostname(url: string): string {
   } catch {
     return url;
   }
+}
+
+function buildPublicSubscriptionURL(subscription: Subscription, format: SubscriptionLinkFormat = "auto"): string {
+  if (!subscription.public_subscription_url) {
+    return "";
+  }
+  const url = new URL(subscription.public_subscription_url, window.location.origin);
+  if (format !== "auto") {
+    url.searchParams.set("format", format);
+  }
+  return url.toString();
 }
 
 function subscriptionToEditForm(subscription: Subscription): SubscriptionEditForm {
@@ -124,8 +163,81 @@ function normalizeSubmitUpdateInterval(sourceType: SubscriptionSourceType, raw: 
   return raw.trim();
 }
 
+function getSubscriptionUsedBytes(subscription: Subscription): number {
+  const usage = subscription.usage;
+  return Math.max(0, usage?.upload_bytes || 0) + Math.max(0, usage?.download_bytes || 0);
+}
+
+function getSubscriptionUsageTone(subscription: Subscription): SubscriptionUsageTone {
+  const totalBytes = subscription.usage?.total_bytes ?? 0;
+  if (totalBytes <= 0) {
+    return "neutral";
+  }
+  const remainingRatio = (totalBytes - getSubscriptionUsedBytes(subscription)) / totalBytes;
+  if (remainingRatio <= USAGE_DANGER_RATIO) {
+    return "danger";
+  }
+  if (remainingRatio <= USAGE_WARNING_RATIO) {
+    return "warning";
+  }
+  return "success";
+}
+
+function getSubscriptionExpireTone(subscription: Subscription): SubscriptionUsageTone {
+  const expireUnix = subscription.usage?.expire_unix ?? 0;
+  if (expireUnix <= 0) {
+    return "neutral";
+  }
+  const remainingMs = expireUnix * 1000 - Date.now();
+  if (remainingMs <= EXPIRE_DANGER_MS) {
+    return "danger";
+  }
+  if (remainingMs <= EXPIRE_WARNING_MS) {
+    return "warning";
+  }
+  return "success";
+}
+
+function formatSubscriptionUsage(subscription: Subscription): string {
+  if (!subscription.usage) {
+    return "-";
+  }
+  const usedBytes = getSubscriptionUsedBytes(subscription);
+  if (subscription.usage.total_bytes > 0) {
+    return `${formatBytes(usedBytes)} / ${formatBytes(subscription.usage.total_bytes)}`;
+  }
+  return formatBytes(usedBytes);
+}
+
+function formatSubscriptionExpire(subscription: Subscription, formatter: (input: string) => string): string {
+  const expireUnix = subscription.usage?.expire_unix ?? 0;
+  if (expireUnix <= 0) {
+    return "-";
+  }
+  return formatter(new Date(expireUnix * 1000).toISOString());
+}
+
+function renderSubscriptionUsage(subscription: Subscription) {
+  return <Badge variant={getSubscriptionUsageTone(subscription)}>{formatSubscriptionUsage(subscription)}</Badge>;
+}
+
+function renderSubscriptionExpire(subscription: Subscription, formatter: (input: string) => string) {
+  return <Badge variant={getSubscriptionExpireTone(subscription)}>{formatSubscriptionExpire(subscription, formatter)}</Badge>;
+}
+
+function getYesterdayTrafficWindow(): { from: string; to: string } {
+  const to = new Date();
+  to.setHours(0, 0, 0, 0);
+  const from = new Date(to);
+  from.setDate(from.getDate() - 1);
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+  };
+}
+
 export function SubscriptionPage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [enabledFilter, setEnabledFilter] = useState<EnabledFilter>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
@@ -133,6 +245,7 @@ export function SubscriptionPage() {
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [subscriptionLinkModal, setSubscriptionLinkModal] = useState<Subscription | null>(null);
   const [pendingRefreshIds, setPendingRefreshIds] = useState<Set<string>>(() => new Set());
   const [pendingEnabledStates, setPendingEnabledStates] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const { toasts, showToast, dismissToast } = useToast();
@@ -165,9 +278,22 @@ export function SubscriptionPage() {
     refetchInterval: 30_000,
     placeholderData: (prev) => prev,
   });
+  const yesterdayTrafficWindow = useMemo(() => getYesterdayTrafficWindow(), []);
+  const yesterdayTrafficQuery = useQuery({
+    queryKey: ["metrics", "history", "traffic", "yesterday", yesterdayTrafficWindow.from, yesterdayTrafficWindow.to],
+    queryFn: () => getHistoryTrafficTotal(yesterdayTrafficWindow),
+    refetchInterval: 300_000,
+    placeholderData: (prev) => prev,
+  });
 
   const subscriptions = subscriptionsQuery.data?.items ?? EMPTY_SUBSCRIPTIONS;
   const totalSubscriptions = subscriptionsQuery.data?.total ?? 0;
+  const subscriptionSummary = subscriptionsQuery.data?.summary ?? EMPTY_SUBSCRIPTION_SUMMARY;
+  const countFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
+  const formatCount = (value: number) => countFormatter.format(Math.round(value));
+  const usageTotalText = subscriptionSummary.usage_total_bytes > 0 ? formatBytes(subscriptionSummary.usage_total_bytes) : "-";
+  const usageRemainingText = subscriptionSummary.usage_total_bytes > 0 ? formatBytes(subscriptionSummary.usage_remaining_bytes) : "-";
+  const yesterdayTrafficText = yesterdayTrafficQuery.isError ? "-" : formatBytes(yesterdayTrafficQuery.data ?? 0);
 
   const totalPages = Math.max(1, Math.ceil(totalSubscriptions / pageSize));
   const currentPage = Math.min(page, totalPages - 1);
@@ -225,7 +351,7 @@ export function SubscriptionPage() {
   }, [selectedSubscription, editForm]);
 
   useEffect(() => {
-    if (!drawerVisible) {
+    if (!drawerVisible && !subscriptionLinkModal) {
       return;
     }
 
@@ -233,12 +359,16 @@ export function SubscriptionPage() {
       if (event.key !== "Escape") {
         return;
       }
-      setDrawerOpen(false);
+      if (subscriptionLinkModal) {
+        setSubscriptionLinkModal(null);
+      } else {
+        setDrawerOpen(false);
+      }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [drawerVisible]);
+  }, [drawerVisible, subscriptionLinkModal]);
 
   const invalidateSubscriptions = async () => {
     await queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
@@ -314,6 +444,9 @@ export function SubscriptionPage() {
         setSelectedSubscriptionId("");
         setDrawerOpen(false);
       }
+      if (subscriptionLinkModal?.id === deleted.id) {
+        setSubscriptionLinkModal(null);
+      }
       showToast("success", t("订阅 {{name}} 已删除", { name: deleted.name }));
     },
     onError: (error) => {
@@ -337,6 +470,18 @@ export function SubscriptionPage() {
     },
   });
   const refreshSubscriptionMutateAsync = refreshMutation.mutateAsync;
+
+  const resetPublicTokenMutation = useMutation({
+    mutationFn: (subscription: Subscription) => resetPublicSubscriptionToken(subscription.id),
+    onSuccess: async (updated) => {
+      await invalidateSubscriptions();
+      setSelectedSubscriptionId(updated.id);
+      showToast("success", t("公开订阅 Token 已重置"));
+    },
+    onError: (error) => {
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
 
   const toggleEnabledMutation = useMutation({
     mutationFn: ({ subscription, enabled }: SubscriptionEnabledMutation) =>
@@ -482,6 +627,26 @@ export function SubscriptionPage() {
     }
   }, [clearRefreshPending, markRefreshPending, refreshSubscriptionMutateAsync]);
 
+  const handleResetPublicToken = async (subscription: Subscription) => {
+    if (!window.confirm(t("确认重置公开订阅 Token？旧链接会立即失效。"))) {
+      return;
+    }
+    await resetPublicTokenMutation.mutateAsync(subscription);
+  };
+
+  const copyPublicSubscriptionURL = async (subscription: Subscription, format: SubscriptionLinkFormat) => {
+    const link = buildPublicSubscriptionURL(subscription, format);
+    if (!link) {
+      return;
+    }
+    try {
+      await copyText(link);
+      showToast("success", t("订阅链接已复制"));
+    } catch {
+      showToast("error", t("复制失败"));
+    }
+  };
+
   const handleEnabledChange = useCallback(async (subscription: Subscription, enabled: boolean) => {
     if (!markEnabledTogglePending(subscription.id, enabled)) {
       return;
@@ -512,23 +677,17 @@ export function SubscriptionPage() {
         header: t("订阅源"),
         cell: (info) => {
           const s = info.row.original;
-          if (s.source_type === "local") {
-            return (
-              <p className="subscriptions-url-cell" title={t("本地订阅")}>
-                {t("本地订阅")}
-              </p>
-            );
-          }
+          const sourceLabel = s.source_type === "local" ? t("本地订阅") : extractHostname(info.getValue());
+          const sourceTitle = s.source_type === "local" ? t("本地订阅") : info.getValue();
           return (
-            <p className="subscriptions-url-cell" title={info.getValue()}>
-              {extractHostname(info.getValue())}
-            </p>
+            <div className="subscriptions-source-cell">
+              <span className="subscriptions-url-cell" title={sourceTitle}>{sourceLabel}</span>
+              <small className="subscriptions-source-interval">
+                {t("更新间隔")}：{formatGoDuration(s.update_interval)}
+              </small>
+            </div>
           );
         },
-      }),
-      col.accessor("update_interval", {
-        header: t("更新间隔"),
-        cell: (info) => formatGoDuration(info.getValue()),
       }),
       col.display({
         id: "node_count",
@@ -537,6 +696,16 @@ export function SubscriptionPage() {
           const s = info.row.original;
           return `${s.healthy_node_count} / ${s.node_count}`;
         },
+      }),
+      col.display({
+        id: "usage",
+        header: t("用量"),
+        cell: (info) => renderSubscriptionUsage(info.row.original),
+      }),
+      col.display({
+        id: "expire",
+        header: t("到期"),
+        cell: (info) => renderSubscriptionExpire(info.row.original, formatRelativeTime),
       }),
       col.display({
         id: "status",
@@ -615,6 +784,15 @@ export function SubscriptionPage() {
               <Button
                 size="sm"
                 variant="ghost"
+                onClick={() => setSubscriptionLinkModal(s)}
+                title={t("订阅管理")}
+                aria-label={t("订阅管理")}
+              >
+                <LinkIcon size={14} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => void handleDelete(s)}
                 disabled={isDeletePending}
                 title={t("删除")}
@@ -656,7 +834,16 @@ export function SubscriptionPage() {
         <div className="list-card-header">
           <div>
             <h3>{t("订阅列表")}</h3>
-            <p>{t("共 {{count}} 个订阅", { count: totalSubscriptions })}</p>
+            <p className="subscriptions-header-meta">
+              <span>{t("共 {{count}} 个订阅", { count: totalSubscriptions })}</span>
+              {subscriptionsQuery.data ? (
+                <>
+                  <span>{t("订阅:")} {t("启用")} {formatCount(subscriptionSummary.enabled_count)} / {t("禁用")} {formatCount(subscriptionSummary.disabled_count)}</span>
+                  <span>{t("节点:")} {`${formatCount(subscriptionSummary.healthy_node_count)} / ${formatCount(subscriptionSummary.node_count)}`}</span>
+                  <span>{t("流量:")} {`${formatBytes(subscriptionSummary.usage_used_bytes)} / ${usageTotalText}`} · {t("剩余")} {usageRemainingText} · {t("昨日")} {yesterdayTrafficText}</span>
+                </>
+              ) : null}
+            </p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
             <label className="subscription-inline-filter" htmlFor="sub-status-filter" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -794,6 +981,22 @@ export function SubscriptionPage() {
                   <div>
                     <span>{t("上次更新")}</span>
                     <p>{formatDateTime(selectedSubscription.last_updated || "")}</p>
+                  </div>
+                  <div>
+                    <span>{t("已用流量")}</span>
+                    <p>{renderSubscriptionUsage(selectedSubscription)}</p>
+                  </div>
+                  <div>
+                    <span>{t("上传流量")}</span>
+                    <p>{selectedSubscription.usage ? formatBytes(selectedSubscription.usage.upload_bytes) : "-"}</p>
+                  </div>
+                  <div>
+                    <span>{t("下载流量")}</span>
+                    <p>{selectedSubscription.usage ? formatBytes(selectedSubscription.usage.download_bytes) : "-"}</p>
+                  </div>
+                  <div>
+                    <span>{t("到期时间")}</span>
+                    <p>{renderSubscriptionExpire(selectedSubscription, formatDateTime)}</p>
                   </div>
                 </div>
 
@@ -954,6 +1157,45 @@ export function SubscriptionPage() {
                     </Button>
                   </div>
                 </form>
+
+                <section className="platform-drawer-section">
+                  <div className="platform-drawer-section-head">
+                    <h4>{t("公开订阅")}</h4>
+                    <p>{t("使用同一个 Token，按格式参数获取健康节点订阅。")}</p>
+                  </div>
+                  {selectedSubscription.public_subscription_url ? (
+                    <div className="node-proxy-url-list">
+                      {SUBSCRIPTION_LINK_FORMATS.map(({ key: format, label }) => {
+                        const link = buildPublicSubscriptionURL(selectedSubscription, format);
+                        return (
+                          <div key={format} className="node-proxy-url-item">
+                            <Badge variant="neutral">{t(label)}</Badge>
+                            <code title={link}>{link}</code>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={t("复制订阅链接")}
+                              title={t("复制订阅链接")}
+                              onClick={() => void copyPublicSubscriptionURL(selectedSubscription, format)}
+                            >
+                              <Copy size={14} />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="muted">{t("暂无公开订阅链接")}</p>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void handleResetPublicToken(selectedSubscription)}
+                    disabled={resetPublicTokenMutation.isPending}
+                  >
+                    {resetPublicTokenMutation.isPending ? t("重置中...") : t("重置公开 Token")}
+                  </Button>
+                </section>
               </section>
 
               <section className="platform-drawer-section platform-ops-section">
@@ -1006,6 +1248,59 @@ export function SubscriptionPage() {
                 </div>
               </section>
             </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {subscriptionLinkModal ? (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("订阅管理")}
+          onClick={() => setSubscriptionLinkModal(null)}
+        >
+          <Card className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>{t("公开订阅链接")}</h3>
+                <p>{subscriptionLinkModal.name}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={t("关闭订阅管理")}
+                title={t("关闭订阅管理")}
+                onClick={() => setSubscriptionLinkModal(null)}
+              >
+                <X size={16} />
+              </Button>
+            </div>
+
+            {subscriptionLinkModal.public_subscription_url ? (
+              <div className="node-proxy-url-list">
+                {SUBSCRIPTION_LINK_FORMATS.map(({ key: format, label }) => {
+                  const link = buildPublicSubscriptionURL(subscriptionLinkModal, format);
+                  return (
+                    <div key={format} className="node-proxy-url-item">
+                      <Badge variant="neutral">{t(label)}</Badge>
+                      <code title={link}>{link}</code>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={t("复制订阅链接")}
+                        title={t("复制订阅链接")}
+                        onClick={() => void copyPublicSubscriptionURL(subscriptionLinkModal, format)}
+                      >
+                        <Copy size={14} />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="muted">{t("暂无公开订阅链接")}</p>
+            )}
           </Card>
         </div>
       ) : null}

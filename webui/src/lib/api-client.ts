@@ -3,7 +3,7 @@ import { getStoredAuthToken } from "../features/auth/auth-store";
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
 
 type Primitive = string | number | boolean | null;
-type JsonValue = Primitive | JsonValue[] | { [key: string]: JsonValue };
+export type JsonValue = Primitive | JsonValue[] | { [key: string]: JsonValue };
 
 export type ApiErrorBody = {
   error?: {

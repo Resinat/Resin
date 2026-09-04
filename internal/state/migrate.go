@@ -25,10 +25,13 @@ const (
 	stateVersionNormalizeMissAction              = 4
 	stateVersionAddIncrementalAliveNodes         = 5
 	stateVersionAddPassiveCircuitBreakerDisabled = 6
-	stateVersionAddEndpoints                     = 7
-	stateVersionAddEndpointEnabled               = 8
-	stateVersionPlatformRegexFilterRules         = 9
-	stateLatestVersion                           = stateVersionPlatformRegexFilterRules
+	stateVersionAddSubscriptionUsageInfo         = 7
+	stateVersionAddRegexExcludeFilters           = 8
+	stateVersionAddEndpoints                     = 9
+	stateVersionAddEndpointEnabled               = 10
+	stateVersionPlatformRegexFilterRules         = 11
+	stateVersionAddSubscriptionPublicToken       = 12
+	stateLatestVersion                           = stateVersionAddSubscriptionPublicToken
 	stateLegacyBaselineVersion                   = stateVersionAddFixedAccountHeader
 
 	stateBaseSchemaMigration = stateMigrationsPath + "/000001_state_base.up.sql"
@@ -41,7 +44,10 @@ type preMigrateHook func(db *sql.DB, driver migratedb.Driver) error
 
 // MigrateStateDB applies state.db migrations.
 func MigrateStateDB(db *sql.DB) error {
-	return migrateSQLiteDB(db, stateMigrationsPath, migrateDefaultTable, prepareLegacyStateBaseline)
+	if err := migrateSQLiteDB(db, stateMigrationsPath, migrateDefaultTable, prepareLegacyStateBaseline); err != nil {
+		return err
+	}
+	return ensureSubscriptionPublicTokenColumn(db)
 }
 
 // MigrateCacheDB applies cache.db migrations.
@@ -93,7 +99,7 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 		return err
 	}
 	if hasVersion {
-		return nil
+		return repairStateMigrationMetadata(db, driver)
 	}
 
 	hasPlatforms, err := hasTable(db, "platforms")
@@ -120,10 +126,43 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 	if err != nil {
 		return err
 	}
+	hasSubscriptionUsageInfo, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns")
+	if err != nil {
+		return err
+	}
+	hasRegexExcludeFilters, err := hasTableColumn(db, "platforms", "regex_exclude_filters_json")
+	if err != nil {
+		return err
+	}
 
 	switch {
+	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasPassiveCircuitBreakerDisabled && hasSubscriptionUsageInfo:
+		if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
+			return err
+		}
+		if hasRegexExcludeFilters {
+			return setLegacyMigrationVersion(db, driver, stateVersionAddRegexExcludeFilters)
+		}
+		return setLegacyMigrationVersion(db, driver, stateVersionAddSubscriptionUsageInfo)
 	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasPassiveCircuitBreakerDisabled:
+		if hasRegexExcludeFilters {
+			if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
+				return err
+			}
+			return setLegacyMigrationVersion(db, driver, stateVersionAddRegexExcludeFilters)
+		}
 		return setLegacyMigrationVersion(db, driver, stateVersionAddPassiveCircuitBreakerDisabled)
+	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes && hasSubscriptionUsageInfo:
+		if err := ensurePassiveCircuitBreakerColumn(db); err != nil {
+			return err
+		}
+		if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
+			return err
+		}
+		if hasRegexExcludeFilters {
+			return setLegacyMigrationVersion(db, driver, stateVersionAddRegexExcludeFilters)
+		}
+		return setLegacyMigrationVersion(db, driver, stateVersionAddSubscriptionUsageInfo)
 	case hasEmptyBehavior && hasFixedHeader && hasIncrementalAliveNodes:
 		return setLegacyMigrationVersion(db, driver, stateVersionAddIncrementalAliveNodes)
 	case hasEmptyBehavior && hasFixedHeader:
@@ -145,6 +184,82 @@ func prepareLegacyStateBaseline(db *sql.DB, driver migratedb.Driver) error {
 		// No baseline metadata: migrate from base schema.
 		return nil
 	}
+}
+
+func repairStateMigrationMetadata(db *sql.DB, driver migratedb.Driver) error {
+	version, dirty, err := driver.Version()
+	if err != nil {
+		return fmt.Errorf("read migration version: %w", err)
+	}
+	if dirty {
+		return nil
+	}
+
+	switch version {
+	case stateVersionAddPassiveCircuitBreakerDisabled:
+		if err := ensureStateBaseSchema(db); err != nil {
+			return err
+		}
+		if err := ensurePassiveCircuitBreakerColumn(db); err != nil {
+			return err
+		}
+		if err := ensureSubscriptionUsageInfoColumns(db); err != nil {
+			return err
+		}
+		hasRegexExcludeFilters, err := hasTableColumn(db, "platforms", "regex_exclude_filters_json")
+		if err != nil {
+			return err
+		}
+		if hasRegexExcludeFilters {
+			return setMigrationVersion(driver, stateVersionAddRegexExcludeFilters)
+		}
+		return setMigrationVersion(driver, stateVersionAddSubscriptionUsageInfo)
+	case stateVersionAddSubscriptionUsageInfo:
+		hasRegexExcludeFilters, err := hasTableColumn(db, "platforms", "regex_exclude_filters_json")
+		if err != nil {
+			return err
+		}
+		if hasRegexExcludeFilters {
+			return setMigrationVersion(driver, stateVersionAddRegexExcludeFilters)
+		}
+	}
+	return nil
+}
+
+func ensureSubscriptionPublicTokenColumn(db *sql.DB) error {
+	exists, err := hasTable(db, "subscriptions")
+	if err != nil || !exists {
+		return err
+	}
+	return ensureTableColumn(db, "subscriptions", "public_token", `public_token TEXT NOT NULL DEFAULT ''`)
+}
+
+func ensurePassiveCircuitBreakerColumn(db *sql.DB) error {
+	return ensureTableColumn(
+		db,
+		"platforms",
+		"passive_circuit_breaker_disabled",
+		`passive_circuit_breaker_disabled INTEGER NOT NULL DEFAULT 0`,
+	)
+}
+
+func ensureSubscriptionUsageInfoColumns(db *sql.DB) error {
+	columns := []struct {
+		name string
+		ddl  string
+	}{
+		{"usage_upload_bytes", `usage_upload_bytes INTEGER NOT NULL DEFAULT 0`},
+		{"usage_download_bytes", `usage_download_bytes INTEGER NOT NULL DEFAULT 0`},
+		{"usage_total_bytes", `usage_total_bytes INTEGER NOT NULL DEFAULT 0`},
+		{"usage_expire_unix", `usage_expire_unix INTEGER NOT NULL DEFAULT 0`},
+		{"usage_updated_at_ns", `usage_updated_at_ns INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, column := range columns {
+		if err := ensureTableColumn(db, "subscriptions", column.name, column.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func hasMigrationVersion(db *sql.DB, table string) (bool, error) {

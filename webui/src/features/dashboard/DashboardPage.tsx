@@ -712,7 +712,7 @@ function historyRefreshMsFromBuckets(bucketSeconds: Array<number | undefined>): 
 
 export function DashboardPage() {
   const { t } = useI18n();
-  const [rangeKey, setRangeKey] = useState<RangeKey>("6h");
+  const [rangeKey, setRangeKey] = useState<RangeKey>("24h");
   const queryClient = useQueryClient();
 
   const globalRealtimeQuery = useQuery({
@@ -873,7 +873,9 @@ export function DashboardPage() {
   const latestConnections = latestValue(connectionsInbound) + latestValue(connectionsOutbound);
   const latestLeases = latestValue(leasesValues);
 
-  const totalTrafficBytes = sum(trafficIngress) + sum(trafficEgress);
+  const totalIngressBytes = sum(trafficIngress);
+  const totalEgressBytes = sum(trafficEgress);
+  const totalTrafficBytes = totalIngressBytes + totalEgressBytes;
   const totalRequests = sum(requestTotals);
   const successRequests = requestItems.reduce((acc, item) => acc + item.success_requests, 0);
 
@@ -912,20 +914,7 @@ export function DashboardPage() {
       ) : null}
 
       <div className="dashboard-kpi-grid">
-        <Card className="dashboard-kpi-card">
-          <div className="dashboard-kpi-icon waves">
-            <Waves size={18} />
-          </div>
-          <div>
-            <p className="dashboard-kpi-label">{t("实时吞吐")}</p>
-            <p className="dashboard-kpi-value">{formatBps(latestIngress + latestEgress)}</p>
-            <p className="dashboard-kpi-sub">
-              {t("下载")} {formatBps(latestIngress)} · {t("上传")} {formatBps(latestEgress)}
-            </p>
-          </div>
-        </Card>
-
-        <Card className="dashboard-kpi-card">
+        <Card className="dashboard-kpi-card dashboard-kpi-card-connections">
           <div className="dashboard-kpi-icon gauge">
             <Gauge size={18} />
           </div>
@@ -938,7 +927,33 @@ export function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="dashboard-kpi-card dashboard-kpi-card-with-badge">
+        <Card className="dashboard-kpi-card dashboard-kpi-card-traffic">
+          <div className="dashboard-kpi-icon waves">
+            <Waves size={18} />
+          </div>
+          <div>
+            <p className="dashboard-kpi-label">{t("实时吞吐")}</p>
+            <p className="dashboard-kpi-value">{formatBps(latestIngress + latestEgress)}</p>
+            <p className="dashboard-kpi-sub">
+              {t("下载")} {formatBps(latestIngress)} · {t("上传")} {formatBps(latestEgress)}
+            </p>
+          </div>
+        </Card>
+
+        <Card className="dashboard-kpi-card dashboard-kpi-card-requests">
+          <div className="dashboard-kpi-icon server">
+            <Server size={18} />
+          </div>
+          <div>
+            <p className="dashboard-kpi-label">{t("请求情况")}</p>
+            <p className="dashboard-kpi-value">{formatBytes(totalTrafficBytes)}</p>
+            <p className="dashboard-kpi-sub">
+              {t("请求")} {formatCount(totalRequests)} · {t("成功")} {formatCount(successRequests)} · {t("下载")} {formatBytes(totalIngressBytes)} · {t("上传")} {formatBytes(totalEgressBytes)}
+            </p>
+          </div>
+        </Card>
+
+        <Card className="dashboard-kpi-card dashboard-kpi-card-health dashboard-kpi-card-with-badge">
           <div className="dashboard-kpi-icon shield">
             <Shield size={18} />
           </div>
@@ -954,14 +969,14 @@ export function DashboardPage() {
           </Badge>
         </Card>
 
-        <Card className="dashboard-kpi-card">
+        <Card className="dashboard-kpi-card dashboard-kpi-card-leases">
           <div className="dashboard-kpi-icon lease">
             <Layers size={18} />
           </div>
           <div>
             <p className="dashboard-kpi-label">{t("活跃租约数")}</p>
             <p className="dashboard-kpi-value">{formatCount(latestLeases)}</p>
-            <p className="dashboard-kpi-sub">{t("来自所有平台租约总和")}</p>
+            <p className="dashboard-kpi-sub">{t("所有平台")}</p>
           </div>
         </Card>
       </div>

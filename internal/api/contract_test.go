@@ -478,6 +478,14 @@ func TestAPIContract_GetLease_IncludesNodeTag(t *testing.T) {
 	raw := json.RawMessage(`{"type":"ss","server":"198.51.100.50","port":443}`)
 	cp.Pool.AddNodeFromSub(hash, raw, older.ID)
 	cp.Pool.AddNodeFromSub(hash, raw, newer.ID)
+	entry, ok := cp.Pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing", hash.Hex())
+	}
+	entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+		Ewma:        58 * time.Millisecond,
+		LastUpdated: time.Now(),
+	})
 
 	now := time.Now().UnixNano()
 	cp.Router.RestoreLeases([]model.Lease{
@@ -507,6 +515,106 @@ func TestAPIContract_GetLease_IncludesNodeTag(t *testing.T) {
 	if body["node_tag"] != "Z-Provider/aa" {
 		t.Fatalf("node_tag: got %v, want %q", body["node_tag"], "Z-Provider/aa")
 	}
+	if body["reference_latency_ms"] != float64(58) {
+		t.Fatalf("reference_latency_ms: got %v, want 58", body["reference_latency_ms"])
+	}
+}
+
+func TestAPIContract_ListLeases_SortByReferenceLatency(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	platformID := mustCreatePlatform(t, srv, "lease-latency-sort")
+	sub := subscription.NewSubscription("lease-latency-sub", "Latency", "https://example.com/latency", true, false)
+	cp.SubMgr.Register(sub)
+
+	addNode := func(raw []byte, tag, egressIP string, latencyMs int) node.Hash {
+		t.Helper()
+		hash := node.HashFromRawOptions(raw)
+		sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{tag}})
+		cp.Pool.AddNodeFromSub(hash, raw, sub.ID)
+		entry, ok := cp.Pool.GetEntry(hash)
+		if !ok {
+			t.Fatalf("node %s missing", hash.Hex())
+		}
+		entry.SetEgressIP(netip.MustParseAddr(egressIP))
+		if latencyMs >= 0 {
+			entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+				Ewma:        time.Duration(latencyMs) * time.Millisecond,
+				LastUpdated: time.Now(),
+			})
+		}
+		return hash
+	}
+
+	fast := addNode([]byte(`{"type":"ss","server":"198.51.100.61","port":443}`), "fast", "203.0.113.61", 20)
+	slow := addNode([]byte(`{"type":"ss","server":"198.51.100.62","port":443}`), "slow", "203.0.113.62", 80)
+	unknown := addNode([]byte(`{"type":"ss","server":"198.51.100.63","port":443}`), "unknown", "203.0.113.63", -1)
+
+	now := time.Now().UnixNano()
+	cp.Router.RestoreLeases([]model.Lease{
+		{
+			PlatformID:     platformID,
+			Account:        "slow",
+			NodeHash:       slow.Hex(),
+			EgressIP:       "203.0.113.62",
+			CreatedAtNs:    now,
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		},
+		{
+			PlatformID:     platformID,
+			Account:        "unknown",
+			NodeHash:       unknown.Hex(),
+			EgressIP:       "203.0.113.63",
+			CreatedAtNs:    now,
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		},
+		{
+			PlatformID:     platformID,
+			Account:        "fast",
+			NodeHash:       fast.Hex(),
+			EgressIP:       "203.0.113.61",
+			CreatedAtNs:    now,
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		},
+	})
+
+	assertOrder := func(sortOrder string, want []string) {
+		t.Helper()
+		rec := doJSONRequest(
+			t,
+			srv,
+			http.MethodGet,
+			"/api/v1/platforms/"+platformID+"/leases?sort_by=reference_latency_ms&sort_order="+sortOrder,
+			nil,
+			true,
+		)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list leases status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := decodeJSONMap(t, rec)
+		items, ok := body["items"].([]any)
+		if !ok {
+			t.Fatalf("items type: got %T", body["items"])
+		}
+		if len(items) != len(want) {
+			t.Fatalf("items len: got %d, want %d", len(items), len(want))
+		}
+		for i, item := range items {
+			row, ok := item.(map[string]any)
+			if !ok {
+				t.Fatalf("item type: got %T", item)
+			}
+			if row["account"] != want[i] {
+				t.Fatalf("account[%d]: got %v, want %q (body=%s)", i, row["account"], want[i], rec.Body.String())
+			}
+		}
+	}
+
+	assertOrder("asc", []string{"fast", "slow", "unknown"})
+	assertOrder("desc", []string{"slow", "fast", "unknown"})
 }
 
 func TestAPIContract_ListLeases_AccountFuzzySearch(t *testing.T) {
@@ -652,24 +760,44 @@ func TestAPIContract_PlatformListIncludesRoutableNodeCount(t *testing.T) {
 	sub := subscription.NewSubscription("sub-test", "sub-test", "https://example.com/sub", true, false)
 	cp.SubMgr.Register(sub)
 
-	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
-	hash := node.HashFromRawOptions(raw)
-	cp.Pool.AddNodeFromSub(hash, raw, "sub-test")
-	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"seed"}})
+	addRoutableNode := func(raw []byte, tag string) node.Hash {
+		t.Helper()
+		hash := node.HashFromRawOptions(raw)
+		cp.Pool.AddNodeFromSub(hash, raw, "sub-test")
+		sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{tag}})
 
-	entry, ok := cp.Pool.GetEntry(hash)
-	if !ok {
-		t.Fatalf("node %s missing after AddNodeFromSub", hash.Hex())
+		entry, ok := cp.Pool.GetEntry(hash)
+		if !ok {
+			t.Fatalf("node %s missing after AddNodeFromSub", hash.Hex())
+		}
+		entry.SetEgressIP(netip.MustParseAddr("203.0.113.10"))
+		if entry.LatencyTable == nil {
+			t.Fatalf("node %s latency table not initialized", hash.Hex())
+		}
+		entry.LatencyTable.Update("example.com", 25*time.Millisecond, 10*time.Minute)
+		ob := testutil.NewNoopOutbound()
+		entry.Outbound.Store(&ob)
+		cp.Pool.RecordResult(hash, true)
+		cp.Pool.NotifyNodeDirty(hash)
+		return hash
 	}
-	entry.SetEgressIP(netip.MustParseAddr("203.0.113.10"))
-	if entry.LatencyTable == nil {
-		t.Fatalf("node %s latency table not initialized", hash.Hex())
+
+	hashA := addRoutableNode([]byte(`{"type":"ss","server":"1.1.1.1","port":443}`), "seed-a")
+	hashB := addRoutableNode([]byte(`{"type":"ss","server":"2.2.2.2","port":443}`), "seed-b")
+	now := time.Now().UnixNano()
+	for account, hash := range map[string]node.Hash{"acct-a": hashA, "acct-b": hashB} {
+		if err := cp.Router.UpsertLease(model.Lease{
+			PlatformID:     platformID,
+			Account:        account,
+			NodeHash:       hash.Hex(),
+			EgressIP:       "203.0.113.10",
+			CreatedAtNs:    now,
+			ExpiryNs:       now + int64(time.Hour),
+			LastAccessedNs: now,
+		}); err != nil {
+			t.Fatalf("upsert lease: %v", err)
+		}
 	}
-	entry.LatencyTable.Update("example.com", 25*time.Millisecond, 10*time.Minute)
-	ob := testutil.NewNoopOutbound()
-	entry.Outbound.Store(&ob)
-	cp.Pool.RecordResult(hash, true)
-	cp.Pool.NotifyNodeDirty(hash)
 
 	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/platforms?keyword=routable-count-target", nil, true)
 	if rec.Code != http.StatusOK {
@@ -691,8 +819,17 @@ func TestAPIContract_PlatformListIncludesRoutableNodeCount(t *testing.T) {
 	if item["id"] != platformID {
 		t.Fatalf("item id: got %v, want %s", item["id"], platformID)
 	}
-	if item["routable_node_count"] != float64(1) {
-		t.Fatalf("routable_node_count: got %v, want %v", item["routable_node_count"], 1)
+	if item["routable_node_count"] != float64(2) {
+		t.Fatalf("routable_node_count: got %v, want %v", item["routable_node_count"], 2)
+	}
+	if item["egress_ip_count"] != float64(1) {
+		t.Fatalf("egress_ip_count: got %v, want %v", item["egress_ip_count"], 1)
+	}
+	if item["active_lease_count"] != float64(2) {
+		t.Fatalf("active_lease_count: got %v, want %v", item["active_lease_count"], 2)
+	}
+	if item["is_builtin"] != false {
+		t.Fatalf("is_builtin: got %v, want false", item["is_builtin"])
 	}
 
 	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/platforms/"+platformID, nil, true)
@@ -700,8 +837,14 @@ func TestAPIContract_PlatformListIncludesRoutableNodeCount(t *testing.T) {
 		t.Fatalf("get platform status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body = decodeJSONMap(t, rec)
-	if body["routable_node_count"] != float64(1) {
-		t.Fatalf("get platform routable_node_count: got %v, want %v", body["routable_node_count"], 1)
+	if body["routable_node_count"] != float64(2) {
+		t.Fatalf("get platform routable_node_count: got %v, want %v", body["routable_node_count"], 2)
+	}
+	if body["egress_ip_count"] != float64(1) {
+		t.Fatalf("get platform egress_ip_count: got %v, want %v", body["egress_ip_count"], 1)
+	}
+	if body["active_lease_count"] != float64(2) {
+		t.Fatalf("get platform active_lease_count: got %v, want %v", body["active_lease_count"], 2)
 	}
 }
 
@@ -753,6 +896,34 @@ func TestAPIContract_PlatformList_BuiltInFirstWithSortBy(t *testing.T) {
 			"unexpected order: [%v,%v,%v]",
 			item0["name"], item1["name"], item2["name"],
 		)
+	}
+}
+
+func TestAPIContract_PlatformList_FreePortPlatformIsBuiltin(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+	cp.EnvCfg.FreePortStart = 21000
+	cp.EnvCfg.FreePortPlatform = "MM"
+
+	platformID := mustCreatePlatform(t, srv, "MM")
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/platforms?keyword=MM", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list platforms status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	body := decodeJSONMap(t, rec)
+	items, ok := body["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items mismatch: got %T len=%d", body["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if item["id"] != platformID {
+		t.Fatalf("item id: got %v, want %s", item["id"], platformID)
+	}
+	if item["is_builtin"] != true {
+		t.Fatalf("is_builtin: got %v, want true", item["is_builtin"])
 	}
 }
 
@@ -817,13 +988,47 @@ func TestAPIContract_KeywordFilteringOnListEndpoints(t *testing.T) {
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create subscription banana status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
 	}
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/subscriptions", map[string]any{
+		"name":    "Aardvark Feed",
+		"url":     "https://example.com/aardvark",
+		"enabled": false,
+	}, true)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create subscription disabled status: got %d, want %d, body=%s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions?keyword=Feed&enabled=true", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list subscriptions default status sort status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body = decodeJSONMap(t, rec)
+	subItems, ok := body["items"].([]any)
+	if !ok {
+		t.Fatalf("subscription status sort items type: got %T", body["items"])
+	}
+	if len(subItems) != 2 {
+		t.Fatalf("subscription enabled items len: got %d, want %d, body=%s", len(subItems), 2, rec.Body.String())
+	}
+	if got := subItems[0].(map[string]any)["name"]; got != "Apple Feed" {
+		t.Fatalf("subscription status sort first: got %v, want %q", got, "Apple Feed")
+	}
+	if got := subItems[1].(map[string]any)["name"]; got != "Banana Feed" {
+		t.Fatalf("subscription status sort second: got %v, want %q", got, "Banana Feed")
+	}
+	summary, ok := body["summary"].(map[string]any)
+	if !ok {
+		t.Fatalf("subscription summary type: got %T", body["summary"])
+	}
+	if summary["enabled_count"] != float64(2) || summary["disabled_count"] != float64(1) {
+		t.Fatalf("subscription summary counts: got enabled=%v disabled=%v, want 2/1", summary["enabled_count"], summary["disabled_count"])
+	}
 
 	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/subscriptions?keyword=BANANA&sort_by=name&sort_order=asc", nil, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list subscriptions keyword status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body = decodeJSONMap(t, rec)
-	subItems, ok := body["items"].([]any)
+	subItems, ok = body["items"].([]any)
 	if !ok {
 		t.Fatalf("subscription items type: got %T", body["items"])
 	}

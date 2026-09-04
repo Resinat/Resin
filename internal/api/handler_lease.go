@@ -19,6 +19,12 @@ func validateAccountPath(r *http.Request) (string, error) {
 
 func leaseSortKey(sortBy string, l service.LeaseResponse) string {
 	switch sortBy {
+	case "node_tag":
+		return l.NodeTag
+	case "egress_ip":
+		return l.EgressIP
+	case "created_at":
+		return l.CreatedAt
 	case "expiry":
 		return l.Expiry
 	case "last_accessed":
@@ -26,6 +32,25 @@ func leaseSortKey(sortBy string, l service.LeaseResponse) string {
 	default:
 		return l.Account
 	}
+}
+
+func sortLeaseResponsesByLatency(leases []service.LeaseResponse, sorting Sorting) {
+	slices.SortStableFunc(leases, func(a, b service.LeaseResponse) int {
+		if a.ReferenceLatencyMs == nil && b.ReferenceLatencyMs == nil {
+			return strings.Compare(a.Account, b.Account)
+		}
+		if a.ReferenceLatencyMs == nil {
+			return 1
+		}
+		if b.ReferenceLatencyMs == nil {
+			return -1
+		}
+		order := cmp.Compare(*a.ReferenceLatencyMs, *b.ReferenceLatencyMs)
+		if order != 0 {
+			return applySortOrder(order, sorting.SortOrder)
+		}
+		return strings.Compare(a.Account, b.Account)
+	})
 }
 
 func compareIPLoadEntries(sortBy string, a, b service.IPLoadEntry) int {
@@ -92,13 +117,17 @@ func HandleListLeases(cp *service.ControlPlaneService) http.HandlerFunc {
 			leases = filtered
 		}
 
-		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"account", "expiry", "last_accessed"}, "expiry", "asc")
+		sorting, ok := parseSortingOrWriteInvalid(w, r, []string{"account", "node_tag", "egress_ip", "reference_latency_ms", "created_at", "expiry", "last_accessed"}, "expiry", "asc")
 		if !ok {
 			return
 		}
-		SortSlice(leases, sorting, func(l service.LeaseResponse) string {
-			return leaseSortKey(sorting.SortBy, l)
-		})
+		if sorting.SortBy == "reference_latency_ms" {
+			sortLeaseResponsesByLatency(leases, sorting)
+		} else {
+			SortSlice(leases, sorting, func(l service.LeaseResponse) string {
+				return leaseSortKey(sorting.SortBy, l)
+			})
+		}
 
 		pg, ok := parsePaginationOrWriteInvalid(w, r)
 		if !ok {
@@ -161,6 +190,35 @@ func HandleDeleteAllLeases(cp *service.ControlPlaneService) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// HandleBindLease returns a handler for PUT /api/v1/platforms/{id}/leases/{account}.
+func HandleBindLease(cp *service.ControlPlaneService) http.HandlerFunc {
+	type bindRequest struct {
+		NodeHash string `json:"node_hash"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		platformID, ok := requireUUIDPathParam(w, r, "id", "platform_id")
+		if !ok {
+			return
+		}
+		account, err := validateAccountPath(r)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		var req bindRequest
+		if err := DecodeBody(r, &req); err != nil {
+			writeDecodeBodyError(w, err)
+			return
+		}
+		lease, err := cp.BindLease(platformID, account, req.NodeHash)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, lease)
 	}
 }
 

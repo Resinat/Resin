@@ -29,7 +29,13 @@ type Subscription struct {
 	Enabled                   bool   `json:"enabled"`
 	Ephemeral                 bool   `json:"ephemeral"`
 	IncrementalAliveNodes     bool   `json:"incremental_alive_nodes"`
+	PublicToken               string `json:"-"`
 	EphemeralNodeEvictDelayNs int64  `json:"ephemeral_node_evict_delay_ns"`
+	UsageUploadBytes          int64  `json:"usage_upload_bytes"`
+	UsageDownloadBytes        int64  `json:"usage_download_bytes"`
+	UsageTotalBytes           int64  `json:"usage_total_bytes"`
+	UsageExpireUnix           int64  `json:"usage_expire_unix"`
+	UsageUpdatedAtNs          int64  `json:"usage_updated_at_ns"`
 	CreatedAtNs               int64  `json:"created_at_ns"`
 	UpdatedAtNs               int64  `json:"updated_at_ns"`
 }
@@ -75,6 +81,7 @@ type NodeDynamic struct {
 	LastLatencyProbeAttemptNs          int64  `json:"last_latency_probe_attempt_ns"`
 	LastAuthorityLatencyProbeAttemptNs int64  `json:"last_authority_latency_probe_attempt_ns"`
 	LastEgressUpdateAttemptNs          int64  `json:"last_egress_update_attempt_ns"`
+	ManuallyDisabled                   bool   `json:"manually_disabled"`
 }
 
 // NodeLatency holds per-domain latency statistics for a node.
