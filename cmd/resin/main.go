@@ -365,11 +365,22 @@ func bootstrapTopology(
 		return fmt.Errorf("load subscriptions: %w", err)
 	}
 	for _, ms := range dbSubs {
+		if ms.PublicToken == "" {
+			token, tokenErr := subscription.GeneratePublicToken()
+			if tokenErr != nil {
+				return fmt.Errorf("generate public subscription token for %s: %w", ms.ID, tokenErr)
+			}
+			ms.PublicToken = token
+			if err := engine.UpsertSubscription(ms); err != nil {
+				return fmt.Errorf("persist public subscription token for %s: %w", ms.ID, err)
+			}
+		}
 		sub := subscription.NewSubscription(ms.ID, ms.Name, ms.URL, ms.Enabled, ms.Ephemeral)
 		sub.SetFetchConfig(ms.URL, ms.UpdateIntervalNs)
 		sub.SetSourceType(ms.SourceType)
 		sub.SetContent(ms.Content)
 		sub.SetIncrementalAliveNodes(ms.IncrementalAliveNodes)
+		sub.SetPublicToken(ms.PublicToken)
 		sub.SetEphemeralNodeEvictDelayNs(ms.EphemeralNodeEvictDelayNs)
 		sub.SetUsage(subscription.UsageInfo{
 			UploadBytes:   ms.UsageUploadBytes,
@@ -424,6 +435,7 @@ func runtimeSubscriptionToModel(sub *subscription.Subscription) model.Subscripti
 		Enabled:                   sub.Enabled(),
 		Ephemeral:                 sub.Ephemeral(),
 		IncrementalAliveNodes:     sub.IncrementalAliveNodes(),
+		PublicToken:               sub.PublicToken(),
 		EphemeralNodeEvictDelayNs: sub.EphemeralNodeEvictDelayNs(),
 		UsageUploadBytes:          usage.UploadBytes,
 		UsageDownloadBytes:        usage.DownloadBytes,

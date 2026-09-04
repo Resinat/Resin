@@ -30,7 +30,8 @@ const (
 	stateVersionAddEndpoints                     = 9
 	stateVersionAddEndpointEnabled               = 10
 	stateVersionPlatformRegexFilterRules         = 11
-	stateLatestVersion                           = stateVersionPlatformRegexFilterRules
+	stateVersionAddSubscriptionPublicToken       = 12
+	stateLatestVersion                           = stateVersionAddSubscriptionPublicToken
 	stateLegacyBaselineVersion                   = stateVersionAddFixedAccountHeader
 
 	stateBaseSchemaMigration = stateMigrationsPath + "/000001_state_base.up.sql"
@@ -43,7 +44,10 @@ type preMigrateHook func(db *sql.DB, driver migratedb.Driver) error
 
 // MigrateStateDB applies state.db migrations.
 func MigrateStateDB(db *sql.DB) error {
-	return migrateSQLiteDB(db, stateMigrationsPath, migrateDefaultTable, prepareLegacyStateBaseline)
+	if err := migrateSQLiteDB(db, stateMigrationsPath, migrateDefaultTable, prepareLegacyStateBaseline); err != nil {
+		return err
+	}
+	return ensureSubscriptionPublicTokenColumn(db)
 }
 
 // MigrateCacheDB applies cache.db migrations.
@@ -220,6 +224,14 @@ func repairStateMigrationMetadata(db *sql.DB, driver migratedb.Driver) error {
 		}
 	}
 	return nil
+}
+
+func ensureSubscriptionPublicTokenColumn(db *sql.DB) error {
+	exists, err := hasTable(db, "subscriptions")
+	if err != nil || !exists {
+		return err
+	}
+	return ensureTableColumn(db, "subscriptions", "public_token", `public_token TEXT NOT NULL DEFAULT ''`)
 }
 
 func ensurePassiveCircuitBreakerColumn(db *sql.DB) error {

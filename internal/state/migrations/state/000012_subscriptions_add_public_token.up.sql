@@ -1,0 +1,2 @@
+-- Column creation is applied idempotently after migrations so databases with
+-- repaired/forked version metadata do not fail on a duplicate ALTER TABLE.

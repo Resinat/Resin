@@ -18,6 +18,7 @@ type ApiSubscription = Omit<Subscription, "last_checked" | "last_updated" | "las
   last_updated?: string | null;
   last_error?: string | null;
   usage?: Subscription["usage"] | null;
+  public_subscription_url?: string | null;
 };
 
 type ApiSubscriptionPage = PageResponse<ApiSubscription> & {
@@ -44,6 +45,7 @@ function normalizeSubscription(raw: ApiSubscription): Subscription {
     last_updated: raw.last_updated || "",
     last_error: raw.last_error || "",
     usage: raw.usage ?? undefined,
+    public_subscription_url: raw.public_subscription_url || "",
   };
 }
 
@@ -120,6 +122,13 @@ export async function deleteSubscription(id: string): Promise<void> {
   await apiRequest<void>(`${basePath}/${id}`, {
     method: "DELETE",
   });
+}
+
+export async function resetPublicSubscriptionToken(id: string): Promise<Subscription> {
+  const data = await apiRequest<ApiSubscription>(`${basePath}/${id}/actions/reset-public-token`, {
+    method: "POST",
+  });
+  return normalizeSubscription(data);
 }
 
 export async function refreshSubscription(id: string): Promise<void> {

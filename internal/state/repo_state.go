@@ -308,9 +308,10 @@ func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
 	_, err := r.db.Exec(`
 			INSERT INTO subscriptions (id, name, source_type, url, content, update_interval_ns, enabled,
 			                           ephemeral, incremental_alive_nodes, ephemeral_node_evict_delay_ns,
+			                           public_token,
 			                           usage_upload_bytes, usage_download_bytes, usage_total_bytes,
 			                           usage_expire_unix, usage_updated_at_ns, created_at_ns, updated_at_ns)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				name               = excluded.name,
 				source_type        = excluded.source_type,
@@ -321,6 +322,7 @@ func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
 				ephemeral          = excluded.ephemeral,
 				incremental_alive_nodes = excluded.incremental_alive_nodes,
 				ephemeral_node_evict_delay_ns = excluded.ephemeral_node_evict_delay_ns,
+				public_token        = CASE WHEN excluded.public_token <> '' THEN excluded.public_token ELSE subscriptions.public_token END,
 				usage_upload_bytes = excluded.usage_upload_bytes,
 				usage_download_bytes = excluded.usage_download_bytes,
 				usage_total_bytes = excluded.usage_total_bytes,
@@ -328,7 +330,7 @@ func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
 				usage_updated_at_ns = excluded.usage_updated_at_ns,
 				updated_at_ns      = excluded.updated_at_ns
 		`, s.ID, s.Name, s.SourceType, s.URL, s.Content, s.UpdateIntervalNs, s.Enabled,
-		s.Ephemeral, s.IncrementalAliveNodes, s.EphemeralNodeEvictDelayNs,
+		s.Ephemeral, s.IncrementalAliveNodes, s.EphemeralNodeEvictDelayNs, s.PublicToken,
 		s.UsageUploadBytes, s.UsageDownloadBytes, s.UsageTotalBytes,
 		s.UsageExpireUnix, s.UsageUpdatedAtNs, s.CreatedAtNs, s.UpdatedAtNs)
 	return err
@@ -353,7 +355,7 @@ func (r *StateRepo) DeleteSubscription(id string) error {
 // ListSubscriptions returns all subscriptions.
 func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 	rows, err := r.db.Query(`SELECT id, name, source_type, url, content, update_interval_ns, enabled,
-		ephemeral, incremental_alive_nodes, ephemeral_node_evict_delay_ns,
+		ephemeral, incremental_alive_nodes, ephemeral_node_evict_delay_ns, public_token,
 		usage_upload_bytes, usage_download_bytes, usage_total_bytes, usage_expire_unix, usage_updated_at_ns,
 		created_at_ns, updated_at_ns FROM subscriptions`)
 	if err != nil {
@@ -365,7 +367,7 @@ func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 	for rows.Next() {
 		var s model.Subscription
 		if err := rows.Scan(&s.ID, &s.Name, &s.SourceType, &s.URL, &s.Content, &s.UpdateIntervalNs, &s.Enabled,
-			&s.Ephemeral, &s.IncrementalAliveNodes, &s.EphemeralNodeEvictDelayNs,
+			&s.Ephemeral, &s.IncrementalAliveNodes, &s.EphemeralNodeEvictDelayNs, &s.PublicToken,
 			&s.UsageUploadBytes, &s.UsageDownloadBytes, &s.UsageTotalBytes, &s.UsageExpireUnix, &s.UsageUpdatedAtNs,
 			&s.CreatedAtNs, &s.UpdatedAtNs); err != nil {
 			return nil, err

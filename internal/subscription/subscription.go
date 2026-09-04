@@ -2,6 +2,8 @@
 package subscription
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -9,6 +11,15 @@ import (
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/puzpuzpuz/xsync/v4"
 )
+
+// GeneratePublicToken returns a cryptographically random URL-safe token.
+func GeneratePublicToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
 
 const defaultEphemeralNodeEvictDelayNs = int64(72 * time.Hour)
 
@@ -135,6 +146,7 @@ type Subscription struct {
 	enabled               bool
 	ephemeral             bool
 	incrementalAliveNodes bool
+	publicToken           string
 	// ephemeralNodeEvictDelayNs is the per-subscription eviction delay for
 	// circuit-broken nodes when Ephemeral is enabled.
 	ephemeralNodeEvictDelayNs int64
@@ -324,6 +336,20 @@ func (s *Subscription) IncrementalAliveNodes() bool {
 func (s *Subscription) SetIncrementalAliveNodes(v bool) {
 	s.mu.Lock()
 	s.incrementalAliveNodes = v
+	s.mu.Unlock()
+}
+
+// PublicToken returns the token used by public subscription links.
+func (s *Subscription) PublicToken() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.publicToken
+}
+
+// SetPublicToken updates the token used by public subscription links.
+func (s *Subscription) SetPublicToken(token string) {
+	s.mu.Lock()
+	s.publicToken = token
 	s.mu.Unlock()
 }
 

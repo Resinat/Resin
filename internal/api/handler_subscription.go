@@ -261,6 +261,23 @@ func HandleRefreshSubscription(cp *service.ControlPlaneService) http.HandlerFunc
 	}
 }
 
+// HandleResetPublicSubscriptionToken returns a handler for
+// POST /api/v1/subscriptions/{id}/actions/reset-public-token.
+func HandleResetPublicSubscriptionToken(cp *service.ControlPlaneService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := requireUUIDPathParam(w, r, "id", "subscription_id")
+		if !ok {
+			return
+		}
+		updated, err := cp.ResetPublicSubscriptionToken(id)
+		if err != nil {
+			writeServiceError(w, err)
+			return
+		}
+		WriteJSON(w, http.StatusOK, updated)
+	}
+}
+
 // HandleCleanupSubscriptionCircuitOpenNodes returns a handler for
 // POST /api/v1/subscriptions/{id}/actions/cleanup-circuit-open-nodes.
 func HandleCleanupSubscriptionCircuitOpenNodes(cp *service.ControlPlaneService) http.HandlerFunc {

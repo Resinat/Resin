@@ -1571,11 +1571,27 @@ a {
   font-weight: 700;
 }
 
+.subscriptions-source-cell {
+  max-width: 180px;
+  min-width: 0;
+}
+
 .subscriptions-url-cell {
+  display: block;
   max-width: 180px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+
+.subscriptions-source-interval {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
   color: var(--text-muted);
 }
 
@@ -2209,8 +2225,8 @@ a {
   min-width: 900px;
 }
 
-.data-table-subs th:nth-child(8),
-.data-table-subs td:nth-child(8) {
+.data-table-subs th:last-child,
+.data-table-subs td:last-child {
   width: 1%;
   white-space: nowrap;
 }

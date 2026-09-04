@@ -24,6 +24,7 @@ export type Subscription = {
   last_updated?: string;
   last_error?: string;
   usage?: SubscriptionUsage;
+  public_subscription_url: string;
 };
 
 export type SubscriptionSummary = {

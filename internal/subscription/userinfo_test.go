@@ -27,3 +27,17 @@ func TestParseSubscriptionUserinfo_Empty(t *testing.T) {
 		t.Fatalf("empty userinfo parsed: ok=%v info=%+v", ok, info)
 	}
 }
+
+func TestFormatSubscriptionUserinfo(t *testing.T) {
+	got := FormatSubscriptionUserinfo(UsageInfo{
+		UploadBytes:   1024,
+		DownloadBytes: 2048,
+		TotalBytes:    4096,
+		ExpireUnix:    1893456000,
+		UpdatedAtNs:   1,
+	})
+	want := "upload=1024; download=2048; total=4096; expire=1893456000"
+	if got != want {
+		t.Fatalf("FormatSubscriptionUserinfo = %q, want %q", got, want)
+	}
+}

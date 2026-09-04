@@ -1,7 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
-import { AlertTriangle, Eye, Filter, Info, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
+import { AlertTriangle, Copy, Eye, Filter, Info, Link as LinkIcon, Pencil, Plus, RefreshCw, Search, Sparkles, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link } from "react-router-dom";
@@ -19,6 +19,7 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
 import { formatBytes } from "../../lib/bytes";
+import { copyText } from "../../lib/clipboard";
 import { formatApiErrorMessage } from "../../lib/error-message";
 import { formatDateTime, formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
@@ -28,6 +29,7 @@ import {
   getHistoryTrafficTotal,
   listSubscriptions,
   refreshSubscription,
+  resetPublicSubscriptionToken,
   updateSubscription,
 } from "./api";
 import type { Subscription, SubscriptionSummary } from "./types";
@@ -76,6 +78,8 @@ const subscriptionEditSchema = subscriptionCreateSchema;
 
 type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
+type SubscriptionLinkFormat = "auto" | "clash" | "mihomo" | "v2ray" | "sing-box";
+
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
 const EMPTY_SUBSCRIPTION_SUMMARY: SubscriptionSummary = {
   enabled_count: 0,
@@ -95,6 +99,13 @@ const USAGE_WARNING_RATIO = 0.3;
 const USAGE_DANGER_RATIO = 0.1;
 const EXPIRE_WARNING_MS = 7 * 24 * 60 * 60 * 1000;
 const EXPIRE_DANGER_MS = 3 * 24 * 60 * 60 * 1000;
+const SUBSCRIPTION_LINK_FORMATS: Array<{ key: SubscriptionLinkFormat; label: string }> = [
+  { key: "auto", label: "自动识别" },
+  { key: "clash", label: "Clash" },
+  { key: "mihomo", label: "Mihomo" },
+  { key: "v2ray", label: "v2rayN" },
+  { key: "sing-box", label: "sing-box" },
+];
 
 type SubscriptionUsageTone = "neutral" | "success" | "warning" | "danger";
 
@@ -104,6 +115,17 @@ function extractHostname(url: string): string {
   } catch {
     return url;
   }
+}
+
+function buildPublicSubscriptionURL(subscription: Subscription, format: SubscriptionLinkFormat = "auto"): string {
+  if (!subscription.public_subscription_url) {
+    return "";
+  }
+  const url = new URL(subscription.public_subscription_url, window.location.origin);
+  if (format !== "auto") {
+    url.searchParams.set("format", format);
+  }
+  return url.toString();
 }
 
 function subscriptionToEditForm(subscription: Subscription): SubscriptionEditForm {
@@ -223,6 +245,7 @@ export function SubscriptionPage() {
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [subscriptionLinkModal, setSubscriptionLinkModal] = useState<Subscription | null>(null);
   const [pendingRefreshIds, setPendingRefreshIds] = useState<Set<string>>(() => new Set());
   const [pendingEnabledStates, setPendingEnabledStates] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const { toasts, showToast, dismissToast } = useToast();
@@ -328,7 +351,7 @@ export function SubscriptionPage() {
   }, [selectedSubscription, editForm]);
 
   useEffect(() => {
-    if (!drawerVisible) {
+    if (!drawerVisible && !subscriptionLinkModal) {
       return;
     }
 
@@ -336,12 +359,16 @@ export function SubscriptionPage() {
       if (event.key !== "Escape") {
         return;
       }
-      setDrawerOpen(false);
+      if (subscriptionLinkModal) {
+        setSubscriptionLinkModal(null);
+      } else {
+        setDrawerOpen(false);
+      }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [drawerVisible]);
+  }, [drawerVisible, subscriptionLinkModal]);
 
   const invalidateSubscriptions = async () => {
     await queryClient.invalidateQueries({ queryKey: ["subscriptions"] });
@@ -417,6 +444,9 @@ export function SubscriptionPage() {
         setSelectedSubscriptionId("");
         setDrawerOpen(false);
       }
+      if (subscriptionLinkModal?.id === deleted.id) {
+        setSubscriptionLinkModal(null);
+      }
       showToast("success", t("订阅 {{name}} 已删除", { name: deleted.name }));
     },
     onError: (error) => {
@@ -440,6 +470,18 @@ export function SubscriptionPage() {
     },
   });
   const refreshSubscriptionMutateAsync = refreshMutation.mutateAsync;
+
+  const resetPublicTokenMutation = useMutation({
+    mutationFn: (subscription: Subscription) => resetPublicSubscriptionToken(subscription.id),
+    onSuccess: async (updated) => {
+      await invalidateSubscriptions();
+      setSelectedSubscriptionId(updated.id);
+      showToast("success", t("公开订阅 Token 已重置"));
+    },
+    onError: (error) => {
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
 
   const toggleEnabledMutation = useMutation({
     mutationFn: ({ subscription, enabled }: SubscriptionEnabledMutation) =>
@@ -585,6 +627,26 @@ export function SubscriptionPage() {
     }
   }, [clearRefreshPending, markRefreshPending, refreshSubscriptionMutateAsync]);
 
+  const handleResetPublicToken = async (subscription: Subscription) => {
+    if (!window.confirm(t("确认重置公开订阅 Token？旧链接会立即失效。"))) {
+      return;
+    }
+    await resetPublicTokenMutation.mutateAsync(subscription);
+  };
+
+  const copyPublicSubscriptionURL = async (subscription: Subscription, format: SubscriptionLinkFormat) => {
+    const link = buildPublicSubscriptionURL(subscription, format);
+    if (!link) {
+      return;
+    }
+    try {
+      await copyText(link);
+      showToast("success", t("订阅链接已复制"));
+    } catch {
+      showToast("error", t("复制失败"));
+    }
+  };
+
   const handleEnabledChange = useCallback(async (subscription: Subscription, enabled: boolean) => {
     if (!markEnabledTogglePending(subscription.id, enabled)) {
       return;
@@ -615,23 +677,17 @@ export function SubscriptionPage() {
         header: t("订阅源"),
         cell: (info) => {
           const s = info.row.original;
-          if (s.source_type === "local") {
-            return (
-              <p className="subscriptions-url-cell" title={t("本地订阅")}>
-                {t("本地订阅")}
-              </p>
-            );
-          }
+          const sourceLabel = s.source_type === "local" ? t("本地订阅") : extractHostname(info.getValue());
+          const sourceTitle = s.source_type === "local" ? t("本地订阅") : info.getValue();
           return (
-            <p className="subscriptions-url-cell" title={info.getValue()}>
-              {extractHostname(info.getValue())}
-            </p>
+            <div className="subscriptions-source-cell">
+              <span className="subscriptions-url-cell" title={sourceTitle}>{sourceLabel}</span>
+              <small className="subscriptions-source-interval">
+                {t("更新间隔")}：{formatGoDuration(s.update_interval)}
+              </small>
+            </div>
           );
         },
-      }),
-      col.accessor("update_interval", {
-        header: t("更新间隔"),
-        cell: (info) => formatGoDuration(info.getValue()),
       }),
       col.display({
         id: "node_count",
@@ -724,6 +780,15 @@ export function SubscriptionPage() {
                 title={t("刷新")}
               >
                 <RefreshCw size={14} />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSubscriptionLinkModal(s)}
+                title={t("订阅管理")}
+                aria-label={t("订阅管理")}
+              >
+                <LinkIcon size={14} />
               </Button>
               <Button
                 size="sm"
@@ -1092,6 +1157,45 @@ export function SubscriptionPage() {
                     </Button>
                   </div>
                 </form>
+
+                <section className="platform-drawer-section">
+                  <div className="platform-drawer-section-head">
+                    <h4>{t("公开订阅")}</h4>
+                    <p>{t("使用同一个 Token，按格式参数获取健康节点订阅。")}</p>
+                  </div>
+                  {selectedSubscription.public_subscription_url ? (
+                    <div className="node-proxy-url-list">
+                      {SUBSCRIPTION_LINK_FORMATS.map(({ key: format, label }) => {
+                        const link = buildPublicSubscriptionURL(selectedSubscription, format);
+                        return (
+                          <div key={format} className="node-proxy-url-item">
+                            <Badge variant="neutral">{t(label)}</Badge>
+                            <code title={link}>{link}</code>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={t("复制订阅链接")}
+                              title={t("复制订阅链接")}
+                              onClick={() => void copyPublicSubscriptionURL(selectedSubscription, format)}
+                            >
+                              <Copy size={14} />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="muted">{t("暂无公开订阅链接")}</p>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void handleResetPublicToken(selectedSubscription)}
+                    disabled={resetPublicTokenMutation.isPending}
+                  >
+                    {resetPublicTokenMutation.isPending ? t("重置中...") : t("重置公开 Token")}
+                  </Button>
+                </section>
               </section>
 
               <section className="platform-drawer-section platform-ops-section">
@@ -1144,6 +1248,59 @@ export function SubscriptionPage() {
                 </div>
               </section>
             </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {subscriptionLinkModal ? (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("订阅管理")}
+          onClick={() => setSubscriptionLinkModal(null)}
+        >
+          <Card className="modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h3>{t("公开订阅链接")}</h3>
+                <p>{subscriptionLinkModal.name}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={t("关闭订阅管理")}
+                title={t("关闭订阅管理")}
+                onClick={() => setSubscriptionLinkModal(null)}
+              >
+                <X size={16} />
+              </Button>
+            </div>
+
+            {subscriptionLinkModal.public_subscription_url ? (
+              <div className="node-proxy-url-list">
+                {SUBSCRIPTION_LINK_FORMATS.map(({ key: format, label }) => {
+                  const link = buildPublicSubscriptionURL(subscriptionLinkModal, format);
+                  return (
+                    <div key={format} className="node-proxy-url-item">
+                      <Badge variant="neutral">{t(label)}</Badge>
+                      <code title={link}>{link}</code>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={t("复制订阅链接")}
+                        title={t("复制订阅链接")}
+                        onClick={() => void copyPublicSubscriptionURL(subscriptionLinkModal, format)}
+                      >
+                        <Copy size={14} />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="muted">{t("暂无公开订阅链接")}</p>
+            )}
           </Card>
         </div>
       ) : null}

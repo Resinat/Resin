@@ -442,6 +442,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		a.requestlogRepo,
 		a.metricsManager,
 	)
+	publicSubscriptionHandler := api.NewPublicSubscriptionHandler(cpService)
 	tokenActionHandler := api.NewTokenActionHandler(
 		a.envCfg.ProxyToken,
 		cpService,
@@ -502,6 +503,7 @@ func (a *resinApp) buildNetworkServers(engine *state.StateEngine) error {
 		tokenActionHandler,
 		socks5Inbound,
 		a.metricsManager,
+		publicSubscriptionHandler,
 	)
 	cpService.EndpointRuntime = endpointManager
 	defaultEndpoint := service.NewDefaultEndpoint(a.envCfg.ResinPort)

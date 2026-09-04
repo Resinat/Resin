@@ -13,6 +13,7 @@ func newEndpointInboundMux(
 	currentEndpoint func() model.Endpoint,
 	proxyToken string,
 	forward, reverse, apiHandler, tokenActionHandler http.Handler,
+	publicSubscriptionHandlers ...http.Handler,
 ) http.Handler {
 	if forward == nil {
 		forward = http.NotFoundHandler()
@@ -25,6 +26,10 @@ func newEndpointInboundMux(
 	}
 	if tokenActionHandler == nil {
 		tokenActionHandler = http.NotFoundHandler()
+	}
+	publicSubscriptionHandler := http.NotFoundHandler()
+	if len(publicSubscriptionHandlers) > 0 && publicSubscriptionHandlers[0] != nil {
+		publicSubscriptionHandler = publicSubscriptionHandlers[0]
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +64,10 @@ func newEndpointInboundMux(
 			tokenActionHandler.ServeHTTP(w, r)
 			return
 		}
+		if shouldRoutePublicSubscription(r) {
+			publicSubscriptionHandler.ServeHTTP(w, r)
+			return
+		}
 		if !endpoint.AllowProxy || !endpoint.AllowHTTPReverse {
 			writeEndpointCapabilityDisabled(w)
 			return
@@ -69,6 +78,13 @@ func newEndpointInboundMux(
 		}
 		reverse.ServeHTTP(w, r)
 	})
+}
+
+func shouldRoutePublicSubscription(r *http.Request) bool {
+	if r == nil || r.URL == nil || r.Method != http.MethodGet {
+		return false
+	}
+	return r.URL.Path == "/sub" || strings.HasPrefix(r.URL.Path, "/sub/")
 }
 
 func writeEndpointCapabilityDisabled(w http.ResponseWriter) {

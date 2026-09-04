@@ -29,6 +29,7 @@ type Subscription struct {
 	Enabled                   bool   `json:"enabled"`
 	Ephemeral                 bool   `json:"ephemeral"`
 	IncrementalAliveNodes     bool   `json:"incremental_alive_nodes"`
+	PublicToken               string `json:"-"`
 	EphemeralNodeEvictDelayNs int64  `json:"ephemeral_node_evict_delay_ns"`
 	UsageUploadBytes          int64  `json:"usage_upload_bytes"`
 	UsageDownloadBytes        int64  `json:"usage_download_bytes"`

@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -46,4 +47,25 @@ func ParseSubscriptionUserinfo(raw string, updatedAtNs int64) (UsageInfo, bool) 
 		return UsageInfo{}, false
 	}
 	return info, true
+}
+
+// FormatSubscriptionUserinfo formats usage metadata using the common
+// Subscription-Userinfo response-header convention.
+func FormatSubscriptionUserinfo(info UsageInfo) string {
+	if info.UpdatedAtNs <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d",
+		nonNegative(info.UploadBytes),
+		nonNegative(info.DownloadBytes),
+		nonNegative(info.TotalBytes),
+		nonNegative(info.ExpireUnix),
+	)
+}
+
+func nonNegative(v int64) int64 {
+	if v < 0 {
+		return 0
+	}
+	return v
 }

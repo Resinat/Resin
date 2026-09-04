@@ -1514,6 +1514,26 @@ API 阻塞到更新完成为止。
 { "status": "ok" }
 ```
 
+#### 重置公开订阅 Token（Action）
+
+**POST** `/subscriptions/{subscription_id}/actions/reset-public-token`
+
+为该订阅生成新的公开 Token。旧公开链接立即失效；同一订阅的 Clash/Mihomo、v2rayN 与 sing-box 三种输出共用该 Token。
+
+返回订阅对象，其中 `public_subscription_url` 为公开订阅基础地址。
+
+#### 公开健康订阅
+
+**GET** `/sub/{subscription_id}/{token}?format=clash|v2ray|sing-box`
+
+该接口不经过管理 API 鉴权。所有已启用且正在监听的接入点都提供该资源，不受 `allow_proxy` 或 `allow_management` 限制。订阅必须启用，节点必须未驱逐、未手动禁用、Outbound 已就绪、未熔断、已有出口 IP 和延迟记录。
+
+* `format=sing-box`：返回筛选后的 sing-box JSON，覆盖 Resin 管理的全部节点类型。
+* `format=clash`（也接受 `mihomo`）：返回 Clash/Mihomo YAML；无法可靠映射的节点跳过，并以 `X-Resin-Skipped-Nodes` 返回数量。
+* `format=v2ray`：返回整体 Base64 编码的 v2rayN 分享链接；支持 `vmess`、`vless`、`trojan`、`ss`、`socks`、`hysteria2`、`tuic`、`wireguard`、`anytls`、`naive` 等可表达协议，无法可靠映射的节点跳过。
+
+如果源订阅刷新时提供 `Subscription-Userinfo`，公开响应会继续返回同名响应头，格式为 `upload=...; download=...; total=...; expire=...`。
+
 #### 清理订阅中的异常节点（Action）
 
 **POST** `/subscriptions/{subscription_id}/actions/cleanup-circuit-open-nodes`
