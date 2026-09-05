@@ -31,6 +31,15 @@ func ValidateRegionFilters(regionFilters []string) error {
 	return nil
 }
 
+// ValidateEgressIPVersion validates the egress IP version filter value.
+// "" means no filtering; "ipv4" / "ipv6" restrict egress IP family.
+func ValidateEgressIPVersion(v string) error {
+	if v != "" && v != "ipv4" && v != "ipv6" {
+		return fmt.Errorf("egress_ip_version: must be \"ipv4\", \"ipv6\", or empty (any)")
+	}
+	return nil
+}
+
 // CompileRegexFilters compiles line-oriented tag regex rules.
 // Plain rules are ANY, "*" prefixes MUST, and "!" prefixes MUST_NOT.
 // Only the first byte is interpreted; the remaining regex body is left unchanged.
@@ -71,6 +80,7 @@ func NewConfiguredPlatform(
 	fixedAccountHeader string,
 	allocationPolicy string,
 	passiveCircuitBreakerDisabled bool,
+	egressIPVersion string,
 ) *Platform {
 	normalizedFixedHeaders, fixedHeaders, err := NormalizeFixedAccountHeaders(fixedAccountHeader)
 	if err != nil {
@@ -85,6 +95,7 @@ func NewConfiguredPlatform(
 	plat.ReverseProxyFixedAccountHeaders = append([]string(nil), fixedHeaders...)
 	plat.AllocationPolicy = ParseAllocationPolicy(allocationPolicy)
 	plat.PassiveCircuitBreakerDisabled = passiveCircuitBreakerDisabled
+	plat.EgressIPVersion = egressIPVersion
 	return plat
 }
 
@@ -141,5 +152,6 @@ func BuildFromModel(mp model.Platform) (*Platform, error) {
 		fixedHeader,
 		mp.AllocationPolicy,
 		mp.PassiveCircuitBreakerDisabled,
+		mp.EgressIPVersion,
 	), nil
 }
