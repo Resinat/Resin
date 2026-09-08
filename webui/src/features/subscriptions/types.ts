@@ -25,6 +25,7 @@ export type Subscription = {
   last_error?: string;
   usage?: SubscriptionUsage;
   public_subscription_url: string;
+  available_regions: string[];
 };
 
 export type SubscriptionSummary = {

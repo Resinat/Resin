@@ -747,9 +747,13 @@ Note: Once enabled, requests without authentication information are rejected ins
   "订阅 {{name}} 已手动刷新": "Subscription {{name}} refreshed manually",
   "公开订阅": "Public Subscription",
   "公开订阅链接": "Public Subscription Links",
+  "国家/地区": "Country/Region",
+  "全部地区": "All regions",
+  "最大延迟（ms）": "Maximum latency (ms)",
+  "全部延迟": "All latencies",
   "关闭订阅管理": "Close subscription management",
-  "使用同一个 Token，按格式参数获取健康节点订阅。":
-    "Use one token and choose the output format through the query parameter.",
+  "使用同一个 Token，通过参数筛选地区、延迟和格式。":
+    "Use one token and filter by region, latency, and format through query parameters.",
   "自动识别": "Auto detect",
   "Clash": "Clash",
   "Mihomo": "Mihomo",

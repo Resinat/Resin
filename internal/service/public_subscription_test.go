@@ -3,11 +3,14 @@ package service
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
@@ -35,9 +38,42 @@ func newPublicSubscriptionTestService(t *testing.T) (*ControlPlaneService, *subs
 	entry.Outbound.Store(&ob)
 	entry.CircuitOpenSince.Store(0)
 	entry.SetEgressIP(netip.MustParseAddr("203.0.113.10"))
+	entry.SetEgressRegion("us")
 	entry.LatencyTable.Update("example.com", 20*time.Millisecond, time.Minute)
 
-	return &ControlPlaneService{Pool: pool, SubMgr: subMgr}, sub, h
+	var runtimeCfg atomic.Pointer[config.RuntimeConfig]
+	runtimeCfg.Store(&config.RuntimeConfig{LatencyAuthorities: []string{"example.com"}})
+	return &ControlPlaneService{Pool: pool, SubMgr: subMgr, RuntimeCfg: &runtimeCfg}, sub, h
+}
+
+func addPublicSubscriptionTestNode(
+	t *testing.T,
+	cp *ControlPlaneService,
+	sub *subscription.Subscription,
+	name, region string,
+	latency time.Duration,
+	createdAt time.Time,
+) node.Hash {
+	t.Helper()
+	raw := []byte(fmt.Sprintf(
+		`{"type":"socks","tag":%q,"server":%q,"server_port":1080}`,
+		name, name+".example.com",
+	))
+	h := node.HashFromRawOptions(raw)
+	cp.Pool.AddNodeFromSub(h, raw, sub.ID)
+	sub.ManagedNodes().StoreNode(h, subscription.ManagedNode{Tags: []string{name}})
+	entry, ok := cp.Pool.GetEntry(h)
+	if !ok {
+		t.Fatal("node missing")
+	}
+	entry.CreatedAt = createdAt
+	ob := testutil.NewNoopOutbound()
+	entry.Outbound.Store(&ob)
+	entry.CircuitOpenSince.Store(0)
+	entry.SetEgressIP(netip.MustParseAddr("203.0.113.20"))
+	entry.SetEgressRegion(region)
+	entry.LatencyTable.Update("example.com", latency, time.Minute)
+	return h
 }
 
 func TestRenderPublicSubscription_SingBoxKeepsHealthyNodeAndSkipsUnhealthy(t *testing.T) {
@@ -50,7 +86,7 @@ func TestRenderPublicSubscription_SingBoxKeepsHealthyNodeAndSkipsUnhealthy(t *te
 		UpdatedAtNs:   1,
 	})
 
-	rendered, err := cp.RenderPublicSubscription(sub.ID, "public-token", PublicSubscriptionFormatSingBox)
+	rendered, err := cp.RenderPublicSubscription(sub.ID, "public-token", PublicSubscriptionFormatSingBox, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +109,62 @@ func TestRenderPublicSubscription_SingBoxKeepsHealthyNodeAndSkipsUnhealthy(t *te
 
 func TestRenderPublicSubscription_RejectsInvalidToken(t *testing.T) {
 	cp, sub, _ := newPublicSubscriptionTestService(t)
-	if _, err := cp.RenderPublicSubscription(sub.ID, "wrong", PublicSubscriptionFormatSingBox); err == nil {
+	if _, err := cp.RenderPublicSubscription(sub.ID, "wrong", PublicSubscriptionFormatSingBox, nil, 0); err == nil {
 		t.Fatal("expected invalid token error")
+	}
+}
+
+func TestPublicSubscriptionNodes_SortsOldestFirst(t *testing.T) {
+	cp, sub, originalHash := newPublicSubscriptionTestService(t)
+	base := time.Now().UTC()
+	original, _ := cp.Pool.GetEntry(originalHash)
+	original.CreatedAt = base.Add(-time.Hour)
+	addPublicSubscriptionTestNode(t, cp, sub, "newest", "jp", 5*time.Millisecond, base)
+	addPublicSubscriptionTestNode(t, cp, sub, "oldest", "hk", 2*time.Second, base.Add(-2*time.Hour))
+
+	nodes := cp.publicSubscriptionNodes(sub, nil, 0)
+	if len(nodes) != 3 {
+		t.Fatalf("nodes = %d, want 3", len(nodes))
+	}
+	if got := []string{nodes[0].name, nodes[1].name, nodes[2].name}; strings.Join(got, ",") != "oldest,vmess-node,newest" {
+		t.Fatalf("order = %v", got)
+	}
+}
+
+func TestPublicSubscriptionNodes_FiltersRegionAndLatency(t *testing.T) {
+	cp, sub, _ := newPublicSubscriptionTestService(t)
+	addPublicSubscriptionTestNode(t, cp, sub, "jp-slow", "jp", 1500*time.Millisecond, time.Now())
+
+	if nodes := cp.publicSubscriptionNodes(sub, nil, 0); len(nodes) != 2 {
+		t.Fatalf("unfiltered nodes = %d, want 2", len(nodes))
+	}
+	if nodes := cp.publicSubscriptionNodes(sub, []string{"us"}, 0); len(nodes) != 1 || nodes[0].name != "vmess-node" {
+		t.Fatalf("US nodes = %+v", nodes)
+	}
+	if nodes := cp.publicSubscriptionNodes(sub, nil, 1000); len(nodes) != 1 || nodes[0].name != "vmess-node" {
+		t.Fatalf("<=1000ms nodes = %+v", nodes)
+	}
+	if nodes := cp.publicSubscriptionNodes(sub, []string{"jp"}, 1000); len(nodes) != 0 {
+		t.Fatalf("JP <=1000ms nodes = %+v, want none", nodes)
+	}
+}
+
+func TestSubscriptionResponse_IncludesAvailableRegions(t *testing.T) {
+	cp, sub, _ := newPublicSubscriptionTestService(t)
+	addPublicSubscriptionTestNode(t, cp, sub, "jp-node", "jp", 10*time.Millisecond, time.Now())
+
+	if got := strings.Join(cp.subToResponse(sub).AvailableRegions, ","); got != "jp,us" {
+		t.Fatalf("available_regions = %q, want jp,us", got)
+	}
+}
+
+func TestRenderPublicSubscription_RejectsInvalidFilters(t *testing.T) {
+	cp, sub, _ := newPublicSubscriptionTestService(t)
+	if _, err := cp.RenderPublicSubscription(sub.ID, sub.PublicToken(), PublicSubscriptionFormatSingBox, []string{"usa"}, 0); err == nil {
+		t.Fatal("expected invalid region error")
+	}
+	if _, err := cp.RenderPublicSubscription(sub.ID, sub.PublicToken(), PublicSubscriptionFormatSingBox, nil, -1); err == nil {
+		t.Fatal("expected invalid latency error")
 	}
 }
 
@@ -90,7 +180,7 @@ func TestRenderPublicSubscription_FormatsAndUsage(t *testing.T) {
 
 	for _, format := range []string{PublicSubscriptionFormatClash, PublicSubscriptionFormatV2Ray, PublicSubscriptionFormatSingBox} {
 		t.Run(format, func(t *testing.T) {
-			result, err := cp.RenderPublicSubscription(sub.ID, sub.PublicToken(), format)
+			result, err := cp.RenderPublicSubscription(sub.ID, sub.PublicToken(), format, nil, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -115,7 +205,7 @@ func TestRenderPublicSubscription_FormatsAndUsage(t *testing.T) {
 
 func TestRenderPublicSubscription_ClashIncludesBaseConfigAndExpandedProxyGroups(t *testing.T) {
 	cp, sub, _ := newPublicSubscriptionTestService(t)
-	result, err := cp.RenderPublicSubscription(sub.ID, sub.PublicToken(), PublicSubscriptionFormatClash)
+	result, err := cp.RenderPublicSubscription(sub.ID, sub.PublicToken(), PublicSubscriptionFormatClash, nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

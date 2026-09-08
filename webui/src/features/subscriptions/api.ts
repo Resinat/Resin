@@ -19,6 +19,7 @@ type ApiSubscription = Omit<Subscription, "last_checked" | "last_updated" | "las
   last_error?: string | null;
   usage?: Subscription["usage"] | null;
   public_subscription_url?: string | null;
+  available_regions?: string[] | null;
 };
 
 type ApiSubscriptionPage = PageResponse<ApiSubscription> & {
@@ -46,6 +47,7 @@ function normalizeSubscription(raw: ApiSubscription): Subscription {
     last_error: raw.last_error || "",
     usage: raw.usage ?? undefined,
     public_subscription_url: raw.public_subscription_url || "",
+    available_regions: raw.available_regions ?? [],
   };
 }
 

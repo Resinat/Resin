@@ -11,9 +11,9 @@ import (
 )
 
 // NewPublicSubscriptionHandler returns the unauthenticated handler for
-// /sub/{id}/{token}?format=.... An omitted format is auto-detected. Endpoint
-// capability checks happen in the endpoint inbound mux before this handler is
-// invoked.
+// /sub/{id}/{token}?format=...&region=us,jp&max_latency_ms=1000. An omitted
+// format is auto-detected. Endpoint capability checks happen in the inbound mux
+// before this handler is invoked.
 func NewPublicSubscriptionHandler(cp *service.ControlPlaneService) http.Handler {
 	if cp == nil {
 		return http.NotFoundHandler()
@@ -32,10 +32,22 @@ func HandlePublicSubscription(cp *service.ControlPlaneService) http.HandlerFunc 
 			format = detectPublicSubscriptionFormat(r)
 		}
 
+		maxLatencyMs := 0
+		if raw := strings.TrimSpace(r.URL.Query().Get("max_latency_ms")); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value <= 0 {
+				maxLatencyMs = -1
+			} else {
+				maxLatencyMs = value
+			}
+		}
+
 		result, err := cp.RenderPublicSubscription(
 			PathParam(r, "id"),
 			PathParam(r, "token"),
 			format,
+			r.URL.Query()["region"],
+			maxLatencyMs,
 		)
 		if err != nil {
 			writeServiceError(w, err)

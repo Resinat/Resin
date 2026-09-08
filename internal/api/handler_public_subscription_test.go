@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/service"
 	"github.com/Resinat/Resin/internal/subscription"
@@ -42,10 +44,13 @@ func newPublicSubscriptionHandlerTestService(t *testing.T) (*service.ControlPlan
 	entry.Outbound.Store(&ob)
 	entry.CircuitOpenSince.Store(0)
 	entry.SetEgressIP(netip.MustParseAddr("203.0.113.1"))
+	entry.SetEgressRegion("us")
 	entry.LatencyTable.Update("example.com", 10*time.Millisecond, time.Minute)
 	sub.SetUsage(subscription.UsageInfo{UploadBytes: 1, DownloadBytes: 2, TotalBytes: 3, ExpireUnix: 4, UpdatedAtNs: 1})
 
-	return &service.ControlPlaneService{Pool: pool, SubMgr: subMgr}, sub
+	var runtimeCfg atomic.Pointer[config.RuntimeConfig]
+	runtimeCfg.Store(&config.RuntimeConfig{LatencyAuthorities: []string{"example.com"}})
+	return &service.ControlPlaneService{Pool: pool, SubMgr: subMgr, RuntimeCfg: &runtimeCfg}, sub
 }
 
 func TestPublicSubscriptionHandler_ServesRequestedFormatAndUsage(t *testing.T) {
@@ -152,6 +157,50 @@ func TestPublicSubscriptionHandler_AutoDetectsClientFormat(t *testing.T) {
 			}
 			tt.check(t, rec.Body.Bytes())
 		})
+	}
+}
+
+func TestPublicSubscriptionHandler_FiltersRegionAndLatency(t *testing.T) {
+	cp, sub := newPublicSubscriptionHandlerTestService(t)
+	handler := NewPublicSubscriptionHandler(cp)
+
+	for _, tt := range []struct {
+		query string
+		want  int
+	}{
+		{query: "region=jp,US&max_latency_ms=10", want: 1},
+		{query: "region=jp", want: 0},
+		{query: "max_latency_ms=9", want: 0},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/sub/"+sub.ID+"/token?format=sing-box&"+tt.query, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("query %q status = %d, body=%s", tt.query, rec.Code, rec.Body.String())
+		}
+		var body struct {
+			Outbounds []json.RawMessage `json:"outbounds"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("query %q decode response: %v", tt.query, err)
+		}
+		if len(body.Outbounds) != tt.want {
+			t.Fatalf("query %q outbounds = %d, want %d", tt.query, len(body.Outbounds), tt.want)
+		}
+	}
+}
+
+func TestPublicSubscriptionHandler_RejectsInvalidFilters(t *testing.T) {
+	cp, sub := newPublicSubscriptionHandlerTestService(t)
+	handler := NewPublicSubscriptionHandler(cp)
+
+	for _, query := range []string{"region=usa", "max_latency_ms=0", "max_latency_ms=-1", "max_latency_ms=fast"} {
+		req := httptest.NewRequest(http.MethodGet, "/sub/"+sub.ID+"/token?"+query, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("query %q status = %d, want 400", query, rec.Code)
+		}
 	}
 }
 

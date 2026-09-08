@@ -9,8 +9,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/subscription"
 	"gopkg.in/yaml.v3"
 )
@@ -29,16 +31,19 @@ type PublicSubscriptionResult struct {
 }
 
 type publicSubscriptionNode struct {
-	hash       node.Hash
-	raw        json.RawMessage
-	name       string
-	latencyMs  float64
-	hasLatency bool
+	hash      node.Hash
+	raw       json.RawMessage
+	name      string
+	createdAt time.Time
 }
 
 // RenderPublicSubscription validates the public token and renders the
 // subscription in one of the supported client formats.
-func (s *ControlPlaneService) RenderPublicSubscription(id, token, format string) (*PublicSubscriptionResult, error) {
+func (s *ControlPlaneService) RenderPublicSubscription(
+	id, token, format string,
+	regionFilters []string,
+	maxLatencyMs int,
+) (*PublicSubscriptionResult, error) {
 	sub := s.SubMgr.Lookup(id)
 	if sub == nil || !publicTokenEqual(sub.PublicToken(), token) || !sub.Enabled() {
 		return nil, notFound("subscription not found")
@@ -60,7 +65,15 @@ func (s *ControlPlaneService) RenderPublicSubscription(id, token, format string)
 		return nil, invalidArg("format: must be auto, clash, mihomo, v2ray, or sing-box")
 	}
 
-	nodes := s.publicSubscriptionNodes(sub)
+	regionFilters = normalizePublicSubscriptionRegionFilters(regionFilters)
+	if err := platform.ValidateRegionFilters(regionFilters); err != nil {
+		return nil, invalidArg(err.Error())
+	}
+	if maxLatencyMs < 0 {
+		return nil, invalidArg("max_latency_ms: must be a positive integer")
+	}
+
+	nodes := s.publicSubscriptionNodes(sub, regionFilters, maxLatencyMs)
 	result := &PublicSubscriptionResult{Usage: sub.Usage()}
 	switch format {
 	case PublicSubscriptionFormatSingBox:
@@ -76,6 +89,25 @@ func (s *ControlPlaneService) RenderPublicSubscription(id, token, format string)
 	return result, nil
 }
 
+func normalizePublicSubscriptionRegionFilters(values []string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		for _, item := range strings.Split(value, ",") {
+			item = strings.ToLower(strings.TrimSpace(item))
+			if item == "" {
+				continue
+			}
+			if _, ok := seen[item]; ok {
+				continue
+			}
+			seen[item] = struct{}{}
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 func publicTokenEqual(expected, actual string) bool {
 	if expected == "" || actual == "" {
 		return false
@@ -83,7 +115,11 @@ func publicTokenEqual(expected, actual string) bool {
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(actual)) == 1
 }
 
-func (s *ControlPlaneService) publicSubscriptionNodes(sub *subscription.Subscription) []publicSubscriptionNode {
+func (s *ControlPlaneService) publicSubscriptionNodes(
+	sub *subscription.Subscription,
+	regionFilters []string,
+	maxLatencyMs int,
+) []publicSubscriptionNode {
 	if sub == nil || s == nil || s.Pool == nil || !sub.Enabled() {
 		return nil
 	}
@@ -108,30 +144,39 @@ func (s *ControlPlaneService) publicSubscriptionNodes(sub *subscription.Subscrip
 			return true
 		}
 
+		if len(regionFilters) > 0 {
+			region := entry.GetRegion(nil)
+			if s.GeoIP != nil {
+				region = entry.GetRegion(s.GeoIP.Lookup)
+			}
+			if !platform.MatchRegionFilter(region, regionFilters) {
+				return true
+			}
+		}
+		if maxLatencyMs > 0 {
+			avg, ok := node.AverageEWMAForDomainsMs(entry, authorities)
+			if !ok || avg > float64(maxLatencyMs) {
+				return true
+			}
+		}
+
 		name := smallestTag(managed.Tags)
 		if name == "" {
 			name = h.Hex()
 		}
-		candidate := publicSubscriptionNode{
-			hash: h,
-			raw:  append(json.RawMessage(nil), entry.RawOptions...),
-			name: name,
-		}
-		if avg, ok := node.AverageEWMAForDomainsMs(entry, authorities); ok {
-			candidate.latencyMs = avg
-			candidate.hasLatency = true
-		}
-		result = append(result, candidate)
+		result = append(result, publicSubscriptionNode{
+			hash:      h,
+			raw:       append(json.RawMessage(nil), entry.RawOptions...),
+			name:      name,
+			createdAt: entry.CreatedAt,
+		})
 		return true
 	})
 
-	sort.SliceStable(result, func(i, j int) bool {
+	sort.Slice(result, func(i, j int) bool {
 		a, b := result[i], result[j]
-		if a.hasLatency != b.hasLatency {
-			return a.hasLatency
-		}
-		if a.hasLatency && a.latencyMs != b.latencyMs {
-			return a.latencyMs < b.latencyMs
+		if !a.createdAt.Equal(b.createdAt) {
+			return a.createdAt.Before(b.createdAt)
 		}
 		if a.name != b.name {
 			return a.name < b.name

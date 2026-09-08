@@ -117,7 +117,12 @@ function extractHostname(url: string): string {
   }
 }
 
-function buildPublicSubscriptionURL(subscription: Subscription, format: SubscriptionLinkFormat = "auto"): string {
+function buildPublicSubscriptionURL(
+  subscription: Subscription,
+  format: SubscriptionLinkFormat = "auto",
+  regions: string[] = [],
+  maxLatencyMs: number | "" = "",
+): string {
   if (!subscription.public_subscription_url) {
     return "";
   }
@@ -125,7 +130,92 @@ function buildPublicSubscriptionURL(subscription: Subscription, format: Subscrip
   if (format !== "auto") {
     url.searchParams.set("format", format);
   }
+  if (regions.length > 0) {
+    url.searchParams.set("region", [...regions].sort().join(","));
+  }
+  if (maxLatencyMs !== "") {
+    url.searchParams.set("max_latency_ms", String(maxLatencyMs));
+  }
   return url.toString();
+}
+
+type PublicSubscriptionLinksProps = {
+  subscription: Subscription;
+  t: (text: string) => string;
+  onCopy: (link: string) => Promise<void>;
+};
+
+function PublicSubscriptionLinks({ subscription, t, onCopy }: PublicSubscriptionLinksProps) {
+  const [regions, setRegions] = useState<string[]>([]);
+  const [maxLatencyMs, setMaxLatencyMs] = useState<number | "">("");
+
+  if (!subscription.public_subscription_url) {
+    return <p className="muted">{t("暂无公开订阅链接")}</p>;
+  }
+
+  return (
+    <>
+      <div className="form-grid">
+        <label className="field-group">
+          <span className="field-label">{t("国家/地区")}</span>
+          <Select
+            multiple
+            size={Math.min(6, subscription.available_regions.length + 1)}
+            value={regions.length > 0 ? regions : [""]}
+            onChange={(event) => {
+              const selected = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
+              if (selected.includes("")) {
+                setRegions(regions.length === 0 ? selected.filter(Boolean) : []);
+                return;
+              }
+              setRegions(selected);
+            }}
+          >
+            <option value="">{t("全部地区")}</option>
+            {subscription.available_regions.map((region) => (
+              <option key={region} value={region}>
+                {region.toUpperCase()}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="field-group">
+          <span className="field-label">{t("最大延迟（ms）")}</span>
+          <Input
+            type="number"
+            min={1}
+            step={1}
+            placeholder={t("全部延迟")}
+            value={maxLatencyMs}
+            onChange={(event) => {
+              const value = event.currentTarget.valueAsNumber;
+              setMaxLatencyMs(Number.isFinite(value) && value > 0 ? Math.trunc(value) : "");
+            }}
+          />
+        </label>
+      </div>
+      <div className="node-proxy-url-list row-gap-sm">
+        {SUBSCRIPTION_LINK_FORMATS.map(({ key: format, label }) => {
+          const link = buildPublicSubscriptionURL(subscription, format, regions, maxLatencyMs);
+          return (
+            <div key={format} className="node-proxy-url-item">
+              <Badge variant="neutral">{t(label)}</Badge>
+              <code title={link}>{link}</code>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={t("复制订阅链接")}
+                title={t("复制订阅链接")}
+                onClick={() => void onCopy(link)}
+              >
+                <Copy size={14} />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
 }
 
 function subscriptionToEditForm(subscription: Subscription): SubscriptionEditForm {
@@ -634,11 +724,7 @@ export function SubscriptionPage() {
     await resetPublicTokenMutation.mutateAsync(subscription);
   };
 
-  const copyPublicSubscriptionURL = async (subscription: Subscription, format: SubscriptionLinkFormat) => {
-    const link = buildPublicSubscriptionURL(subscription, format);
-    if (!link) {
-      return;
-    }
+  const copyPublicSubscriptionURL = async (link: string) => {
     try {
       await copyText(link);
       showToast("success", t("订阅链接已复制"));
@@ -1161,32 +1247,14 @@ export function SubscriptionPage() {
                 <section className="platform-drawer-section">
                   <div className="platform-drawer-section-head">
                     <h4>{t("公开订阅")}</h4>
-                    <p>{t("使用同一个 Token，按格式参数获取健康节点订阅。")}</p>
+                    <p>{t("使用同一个 Token，通过参数筛选地区、延迟和格式。")}</p>
                   </div>
-                  {selectedSubscription.public_subscription_url ? (
-                    <div className="node-proxy-url-list">
-                      {SUBSCRIPTION_LINK_FORMATS.map(({ key: format, label }) => {
-                        const link = buildPublicSubscriptionURL(selectedSubscription, format);
-                        return (
-                          <div key={format} className="node-proxy-url-item">
-                            <Badge variant="neutral">{t(label)}</Badge>
-                            <code title={link}>{link}</code>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              aria-label={t("复制订阅链接")}
-                              title={t("复制订阅链接")}
-                              onClick={() => void copyPublicSubscriptionURL(selectedSubscription, format)}
-                            >
-                              <Copy size={14} />
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="muted">{t("暂无公开订阅链接")}</p>
-                  )}
+                  <PublicSubscriptionLinks
+                    key={selectedSubscription.id}
+                    subscription={selectedSubscription}
+                    t={t}
+                    onCopy={copyPublicSubscriptionURL}
+                  />
                   <Button
                     size="sm"
                     variant="secondary"
@@ -1277,30 +1345,12 @@ export function SubscriptionPage() {
               </Button>
             </div>
 
-            {subscriptionLinkModal.public_subscription_url ? (
-              <div className="node-proxy-url-list">
-                {SUBSCRIPTION_LINK_FORMATS.map(({ key: format, label }) => {
-                  const link = buildPublicSubscriptionURL(subscriptionLinkModal, format);
-                  return (
-                    <div key={format} className="node-proxy-url-item">
-                      <Badge variant="neutral">{t(label)}</Badge>
-                      <code title={link}>{link}</code>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-label={t("复制订阅链接")}
-                        title={t("复制订阅链接")}
-                        onClick={() => void copyPublicSubscriptionURL(subscriptionLinkModal, format)}
-                      >
-                        <Copy size={14} />
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="muted">{t("暂无公开订阅链接")}</p>
-            )}
+            <PublicSubscriptionLinks
+              key={subscriptionLinkModal.id}
+              subscription={subscriptionLinkModal}
+              t={t}
+              onCopy={copyPublicSubscriptionURL}
+            />
           </Card>
         </div>
       ) : null}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -40,6 +41,7 @@ type SubscriptionResponse struct {
 	LastError               string                     `json:"last_error,omitempty"`
 	Usage                   *SubscriptionUsageResponse `json:"usage,omitempty"`
 	PublicSubscriptionURL   string                     `json:"public_subscription_url"`
+	AvailableRegions        []string                   `json:"available_regions"`
 }
 
 type SubscriptionUsageResponse struct {
@@ -53,6 +55,7 @@ type SubscriptionUsageResponse struct {
 func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) SubscriptionResponse {
 	nodeCount := 0
 	healthyNodeCount := 0
+	regionSet := make(map[string]struct{})
 	var isHealthyAndEnabled func(*node.NodeEntry) bool
 	if sub.Enabled() && s != nil && s.Pool != nil {
 		isHealthyAndEnabled = s.Pool.MakeHealthyAndEnabledEvaluator()
@@ -63,15 +66,31 @@ func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) Subs
 				return true
 			}
 			nodeCount++
-			if isHealthyAndEnabled != nil {
-				entry, ok := s.Pool.GetEntry(h)
-				if ok && isHealthyAndEnabled(entry) {
-					healthyNodeCount++
-				}
+			if s == nil || s.Pool == nil {
+				return true
+			}
+			entry, ok := s.Pool.GetEntry(h)
+			if !ok || entry == nil {
+				return true
+			}
+			if isHealthyAndEnabled != nil && isHealthyAndEnabled(entry) {
+				healthyNodeCount++
+			}
+			region := entry.GetRegion(nil)
+			if s.GeoIP != nil {
+				region = entry.GetRegion(s.GeoIP.Lookup)
+			}
+			if region != "" {
+				regionSet[region] = struct{}{}
 			}
 			return true
 		})
 	}
+	availableRegions := make([]string, 0, len(regionSet))
+	for region := range regionSet {
+		availableRegions = append(availableRegions, region)
+	}
+	sort.Strings(availableRegions)
 
 	resp := SubscriptionResponse{
 		ID:                      sub.ID,
@@ -87,6 +106,7 @@ func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) Subs
 		EphemeralNodeEvictDelay: time.Duration(sub.EphemeralNodeEvictDelayNs()).String(),
 		Enabled:                 sub.Enabled(),
 		CreatedAt:               time.Unix(0, sub.CreatedAtNs).UTC().Format(time.RFC3339Nano),
+		AvailableRegions:        availableRegions,
 	}
 	if token := sub.PublicToken(); token != "" {
 		resp.PublicSubscriptionURL = "/sub/" + sub.ID + "/" + token
