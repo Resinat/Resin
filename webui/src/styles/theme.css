@@ -1912,6 +1912,18 @@ a {
   accent-color: var(--primary);
 }
 
+.subscription-region-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  min-height: 42px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  padding: 10px 12px;
+}
+
 .subscription-switch-group {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

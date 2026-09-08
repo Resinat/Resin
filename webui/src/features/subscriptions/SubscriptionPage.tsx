@@ -148,6 +148,7 @@ type PublicSubscriptionLinksProps = {
 function PublicSubscriptionLinks({ subscription, t, onCopy }: PublicSubscriptionLinksProps) {
   const [regions, setRegions] = useState<string[]>([]);
   const [maxLatencyMs, setMaxLatencyMs] = useState<number | "">("");
+  const selectedRegions = regions.filter((region) => subscription.available_regions.includes(region));
 
   if (!subscription.public_subscription_url) {
     return <p className="muted">{t("暂无公开订阅链接")}</p>;
@@ -156,29 +157,35 @@ function PublicSubscriptionLinks({ subscription, t, onCopy }: PublicSubscription
   return (
     <>
       <div className="form-grid">
-        <label className="field-group">
+        <div className="field-group">
           <span className="field-label">{t("国家/地区")}</span>
-          <Select
-            multiple
-            size={Math.min(6, subscription.available_regions.length + 1)}
-            value={regions.length > 0 ? regions : [""]}
-            onChange={(event) => {
-              const selected = Array.from(event.currentTarget.selectedOptions, (option) => option.value);
-              if (selected.includes("")) {
-                setRegions(regions.length === 0 ? selected.filter(Boolean) : []);
-                return;
-              }
-              setRegions(selected);
-            }}
-          >
-            <option value="">{t("全部地区")}</option>
+          <div className="subscription-region-options">
+            <label className="checkbox-line">
+              <input
+                type="checkbox"
+                checked={selectedRegions.length === 0}
+                onChange={() => setRegions([])}
+              />
+              <span>{t("全部地区")}</span>
+            </label>
             {subscription.available_regions.map((region) => (
-              <option key={region} value={region}>
-                {region.toUpperCase()}
-              </option>
+              <label key={region} className="checkbox-line">
+                <input
+                  type="checkbox"
+                  checked={selectedRegions.includes(region)}
+                  onChange={(event) => {
+                    setRegions((current) =>
+                      event.currentTarget.checked
+                        ? [...current.filter((item) => item !== region), region]
+                        : current.filter((item) => item !== region),
+                    );
+                  }}
+                />
+                <span>{region.toUpperCase()}</span>
+              </label>
             ))}
-          </Select>
-        </label>
+          </div>
+        </div>
         <label className="field-group">
           <span className="field-label">{t("最大延迟（ms）")}</span>
           <Input
@@ -196,7 +203,7 @@ function PublicSubscriptionLinks({ subscription, t, onCopy }: PublicSubscription
       </div>
       <div className="node-proxy-url-list row-gap-sm">
         {SUBSCRIPTION_LINK_FORMATS.map(({ key: format, label }) => {
-          const link = buildPublicSubscriptionURL(subscription, format, regions, maxLatencyMs);
+          const link = buildPublicSubscriptionURL(subscription, format, selectedRegions, maxLatencyMs);
           return (
             <div key={format} className="node-proxy-url-item">
               <Badge variant="neutral">{t(label)}</Badge>
