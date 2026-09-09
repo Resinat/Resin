@@ -174,8 +174,9 @@ function PublicSubscriptionLinks({ subscription, t, onCopy }: PublicSubscription
                   type="checkbox"
                   checked={selectedRegions.includes(region)}
                   onChange={(event) => {
+                    const checked = event.currentTarget.checked;
                     setRegions((current) =>
-                      event.currentTarget.checked
+                      checked
                         ? [...current.filter((item) => item !== region), region]
                         : current.filter((item) => item !== region),
                     );
