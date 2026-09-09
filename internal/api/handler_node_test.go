@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/model"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/probe"
 	"github.com/Resinat/Resin/internal/service"
@@ -78,6 +79,35 @@ func TestHandleListNodes_TagKeywordFiltersByNodeName(t *testing.T) {
 	body := decodeJSONMap(t, rec)
 	if body["total"] != float64(1) {
 		t.Fatalf("tag_keyword total: got %v, want 1", body["total"])
+	}
+}
+
+func TestHandleListNodes_NodeTypeFilter(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	subA := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	subB := subscription.NewSubscription("22222222-2222-2222-2222-222222222222", "sub-b", "https://example.com/b", true, false)
+	cp.SubMgr.Register(subA)
+	cp.SubMgr.Register(subB)
+
+	addNodeForNodeListTest(t, cp, subA, `{"type":"vmess","server":"1.1.1.1"}`, "")
+	addNodeForNodeListTest(t, cp, subA, `{"type":"trojan","server":"2.2.2.2"}`, "")
+	addNodeForNodeListTest(t, cp, subB, `{"type":"vmess","server":"3.3.3.3"}`, "")
+
+	rec := doJSONRequest(
+		t,
+		srv,
+		http.MethodGet,
+		"/api/v1/nodes?subscription_id="+subA.ID+"&node_type=VMESS",
+		nil,
+		true,
+	)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list nodes with node_type status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["total"] != float64(1) {
+		t.Fatalf("node_type total: got %v, want 1", body["total"])
 	}
 }
 
@@ -215,6 +245,141 @@ func TestHandleListNodes_IncludesReferenceLatencyMs(t *testing.T) {
 	}
 }
 
+func TestHandleGetNode_IncludesOutboundDetails(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	sub := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	cp.SubMgr.Register(sub)
+
+	raw := `{"type":"http","tag":"proxy","server":"proxy.example.com","server_port":8080,"username":"user","password":"pass"}`
+	hash := node.HashFromRawOptions([]byte(raw))
+	addNodeForNodeListTestWithTag(t, cp, sub, raw, "203.0.113.10", "proxy")
+
+	rec := doJSONRequest(t, srv, http.MethodGet, "/api/v1/nodes/"+hash.Hex(), nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get node status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	outbound, ok := body["outbound"].(map[string]any)
+	if !ok {
+		t.Fatalf("outbound type: got %T", body["outbound"])
+	}
+	if outbound["type"] != "http" || outbound["server"] != "proxy.example.com" {
+		t.Fatalf("outbound mismatch: %#v", outbound)
+	}
+	proxyURLs, ok := body["proxy_urls"].([]any)
+	if !ok || len(proxyURLs) != 1 {
+		t.Fatalf("proxy_urls mismatch: got %T %#v", body["proxy_urls"], body["proxy_urls"])
+	}
+	first, ok := proxyURLs[0].(map[string]any)
+	if !ok {
+		t.Fatalf("proxy_urls[0] type: got %T", proxyURLs[0])
+	}
+	if first["type"] != "http" || first["url"] != "http://user:pass@proxy.example.com:8080" {
+		t.Fatalf("proxy url mismatch: %#v", first)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodGet, "/api/v1/nodes?subscription_id="+sub.ID, nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list nodes status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	listBody := decodeJSONMap(t, rec)
+	items, ok := listBody["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("items mismatch: got %T len=%d", listBody["items"], len(items))
+	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("item type: got %T", items[0])
+	}
+	if _, ok := item["outbound"]; ok {
+		t.Fatalf("list item should not include outbound: %#v", item["outbound"])
+	}
+	if _, ok := item["proxy_urls"]; ok {
+		t.Fatalf("list item should not include proxy_urls: %#v", item["proxy_urls"])
+	}
+	if item["node_type"] != "http" {
+		t.Fatalf("list item node_type: got %v, want http", item["node_type"])
+	}
+}
+
+func TestHandleListNodes_SortsByReferenceLatencyMs(t *testing.T) {
+	srv, cp, runtimeCfg := newControlPlaneTestServer(t)
+
+	cfg := config.NewDefaultRuntimeConfig()
+	cfg.LatencyAuthorities = []string{"cloudflare.com"}
+	runtimeCfg.Store(cfg)
+
+	subA := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	cp.SubMgr.Register(subA)
+
+	rawFast := `{"type":"ss","server":"1.1.1.1","port":443}`
+	rawSlow := `{"type":"ss","server":"2.2.2.2","port":443}`
+	rawUnknown := `{"type":"ss","server":"3.3.3.3","port":443}`
+	addNodeForNodeListTestWithTag(t, cp, subA, rawFast, "", "fast")
+	addNodeForNodeListTestWithTag(t, cp, subA, rawSlow, "", "slow")
+	addNodeForNodeListTestWithTag(t, cp, subA, rawUnknown, "", "unknown")
+
+	fastHash := node.HashFromRawOptions([]byte(rawFast))
+	slowHash := node.HashFromRawOptions([]byte(rawSlow))
+	unknownHash := node.HashFromRawOptions([]byte(rawUnknown))
+	for hash, latency := range map[node.Hash]time.Duration{
+		fastHash: 20 * time.Millisecond,
+		slowHash: 80 * time.Millisecond,
+	} {
+		entry, ok := cp.Pool.GetEntry(hash)
+		if !ok {
+			t.Fatalf("node %s missing after add", hash.Hex())
+		}
+		entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+			Ewma:        latency,
+			LastUpdated: time.Now(),
+		})
+	}
+
+	hashesFromResponse := func(path string) []string {
+		t.Helper()
+		rec := doJSONRequest(t, srv, http.MethodGet, path, nil, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("list nodes status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := decodeJSONMap(t, rec)
+		items, ok := body["items"].([]any)
+		if !ok {
+			t.Fatalf("items type: got %T", body["items"])
+		}
+		hashes := make([]string, 0, len(items))
+		for _, rawItem := range items {
+			item, ok := rawItem.(map[string]any)
+			if !ok {
+				t.Fatalf("item type: got %T", rawItem)
+			}
+			hash, ok := item["node_hash"].(string)
+			if !ok {
+				t.Fatalf("node_hash type: got %T", item["node_hash"])
+			}
+			hashes = append(hashes, hash)
+		}
+		return hashes
+	}
+
+	basePath := "/api/v1/nodes?subscription_id=" + subA.ID + "&sort_by=reference_latency_ms"
+	assertOrder := func(label string, got []string, want []node.Hash) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s len: got %d, want %d (%v)", label, len(got), len(want), got)
+		}
+		for i, h := range want {
+			if got[i] != h.Hex() {
+				t.Fatalf("%s[%d]: got %s, want %s (all=%v)", label, i, got[i], h.Hex(), got)
+			}
+		}
+	}
+
+	assertOrder("asc", hashesFromResponse(basePath+"&sort_order=asc"), []node.Hash{fastHash, slowHash, unknownHash})
+	assertOrder("desc", hashesFromResponse(basePath+"&sort_order=desc"), []node.Hash{slowHash, fastHash, unknownHash})
+}
+
 func TestHandleProbeEgress_ReturnsRegion(t *testing.T) {
 	srv, cp, _ := newControlPlaneTestServer(t)
 
@@ -250,6 +415,59 @@ func TestHandleProbeEgress_ReturnsRegion(t *testing.T) {
 	}
 	if body["region"] != "jp" {
 		t.Fatalf("region: got %v, want %q", body["region"], "jp")
+	}
+}
+
+func TestHandleCleanupNode_RemovesNodeAndLeases(t *testing.T) {
+	srv, cp, _ := newControlPlaneTestServer(t)
+
+	sub := subscription.NewSubscription("11111111-1111-1111-1111-111111111111", "sub-a", "https://example.com/a", true, false)
+	cp.SubMgr.Register(sub)
+
+	raw := []byte(`{"type":"ss","server":"1.1.1.1","port":443}`)
+	hash := node.HashFromRawOptions(raw)
+	cp.Pool.AddNodeFromSub(hash, raw, sub.ID)
+	sub.ManagedNodes().StoreNode(hash, subscription.ManagedNode{Tags: []string{"tag"}})
+
+	now := time.Now().UnixNano()
+	if err := cp.Router.UpsertLease(model.Lease{
+		PlatformID:     "platform-a",
+		Account:        "alice",
+		NodeHash:       hash.Hex(),
+		EgressIP:       "203.0.113.10",
+		CreatedAtNs:    now,
+		ExpiryNs:       now + int64(time.Hour),
+		LastAccessedNs: now,
+	}); err != nil {
+		t.Fatalf("upsert lease: %v", err)
+	}
+
+	rec := doJSONRequest(t, srv, http.MethodPost, "/api/v1/nodes/"+hash.Hex()+"/actions/cleanup", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cleanup status: got %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	body := decodeJSONMap(t, rec)
+	if body["evicted_subscription_count"] != float64(1) {
+		t.Fatalf("evicted_subscription_count: got %v, want 1", body["evicted_subscription_count"])
+	}
+	if body["released_lease_count"] != float64(1) {
+		t.Fatalf("released_lease_count: got %v, want 1", body["released_lease_count"])
+	}
+	if _, ok := cp.Pool.GetEntry(hash); ok {
+		t.Fatal("node should be removed from pool")
+	}
+	managed, ok := sub.ManagedNodes().LoadNode(hash)
+	if !ok || !managed.Evicted {
+		t.Fatalf("managed node evicted = %v, ok=%v; want true", managed.Evicted, ok)
+	}
+
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/nodes/not-hex/actions/cleanup", nil, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid hash status: got %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	rec = doJSONRequest(t, srv, http.MethodPost, "/api/v1/nodes/"+hash.Hex()+"/actions/cleanup", nil, true)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing node status: got %d, want %d, body=%s", rec.Code, http.StatusNotFound, rec.Body.String())
 	}
 }
 

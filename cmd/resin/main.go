@@ -29,6 +29,7 @@ import (
 	"github.com/Resinat/Resin/internal/state"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/topology"
+	"github.com/google/uuid"
 )
 
 type topologyRuntime struct {
@@ -309,6 +310,11 @@ func newTopologyRuntime(
 		SubManager: subManager,
 		Pool:       pool,
 		Downloader: downloader,
+		OnSubUpdated: func(sub *subscription.Subscription) {
+			if err := engine.UpsertSubscription(runtimeSubscriptionToModel(sub)); err != nil {
+				log.Printf("persist subscription %s: %v", sub.ID, err)
+			}
+		},
 		OnSubReenabledNode: func(hash node.Hash) {
 			outboundMgr.EnsureNodeOutbound(hash)
 			probeMgr.TriggerImmediateEgressProbe(hash)
@@ -359,12 +365,30 @@ func bootstrapTopology(
 		return fmt.Errorf("load subscriptions: %w", err)
 	}
 	for _, ms := range dbSubs {
+		if ms.PublicToken == "" {
+			token, tokenErr := subscription.GeneratePublicToken()
+			if tokenErr != nil {
+				return fmt.Errorf("generate public subscription token for %s: %w", ms.ID, tokenErr)
+			}
+			ms.PublicToken = token
+			if err := engine.UpsertSubscription(ms); err != nil {
+				return fmt.Errorf("persist public subscription token for %s: %w", ms.ID, err)
+			}
+		}
 		sub := subscription.NewSubscription(ms.ID, ms.Name, ms.URL, ms.Enabled, ms.Ephemeral)
 		sub.SetFetchConfig(ms.URL, ms.UpdateIntervalNs)
 		sub.SetSourceType(ms.SourceType)
 		sub.SetContent(ms.Content)
 		sub.SetIncrementalAliveNodes(ms.IncrementalAliveNodes)
+		sub.SetPublicToken(ms.PublicToken)
 		sub.SetEphemeralNodeEvictDelayNs(ms.EphemeralNodeEvictDelayNs)
+		sub.SetUsage(subscription.UsageInfo{
+			UploadBytes:   ms.UsageUploadBytes,
+			DownloadBytes: ms.UsageDownloadBytes,
+			TotalBytes:    ms.UsageTotalBytes,
+			ExpireUnix:    ms.UsageExpireUnix,
+			UpdatedAtNs:   ms.UsageUpdatedAtNs,
+		})
 		sub.CreatedAtNs = ms.CreatedAtNs
 		sub.UpdatedAtNs = ms.UpdatedAtNs
 		subManager.Register(sub)
@@ -381,6 +405,9 @@ func bootstrapTopology(
 	if err := ensureDefaultPlatform(engine, envCfg, dbPlats); err != nil {
 		return fmt.Errorf("ensure default platform: %w", err)
 	}
+	if err := ensureFreePortPlatform(engine, envCfg, dbPlats); err != nil {
+		return fmt.Errorf("ensure free-port platform: %w", err)
+	}
 	dbPlats, err = engine.ListPlatforms()
 	if err != nil {
 		return fmt.Errorf("reload platforms: %w", err)
@@ -394,6 +421,30 @@ func bootstrapTopology(
 	}
 	log.Printf("Loaded %d platforms from state.db", len(dbPlats))
 	return nil
+}
+
+func runtimeSubscriptionToModel(sub *subscription.Subscription) model.Subscription {
+	usage := sub.Usage()
+	return model.Subscription{
+		ID:                        sub.ID,
+		Name:                      sub.Name(),
+		SourceType:                sub.SourceType(),
+		URL:                       sub.URL(),
+		Content:                   sub.Content(),
+		UpdateIntervalNs:          sub.UpdateIntervalNs(),
+		Enabled:                   sub.Enabled(),
+		Ephemeral:                 sub.Ephemeral(),
+		IncrementalAliveNodes:     sub.IncrementalAliveNodes(),
+		PublicToken:               sub.PublicToken(),
+		EphemeralNodeEvictDelayNs: sub.EphemeralNodeEvictDelayNs(),
+		UsageUploadBytes:          usage.UploadBytes,
+		UsageDownloadBytes:        usage.DownloadBytes,
+		UsageTotalBytes:           usage.TotalBytes,
+		UsageExpireUnix:           usage.ExpireUnix,
+		UsageUpdatedAtNs:          usage.UpdatedAtNs,
+		CreatedAtNs:               sub.CreatedAtNs,
+		UpdatedAtNs:               sub.UpdatedAtNs,
+	}
 }
 
 func validatePersistedPlatformNamesForV1(platformsInDB []model.Platform) error {
@@ -445,6 +496,42 @@ func ensureDefaultPlatform(
 		return err
 	}
 	log.Println("Created built-in Default platform")
+	return nil
+}
+
+// ensureFreePortPlatform auto-creates the platform bound to the free-mode ports
+// when it does not already exist, mirroring ensureDefaultPlatform. The feature
+// is disabled when RESIN_FREE_PORT_START is 0/unset.
+func ensureFreePortPlatform(
+	engine *state.StateEngine,
+	envCfg *config.EnvConfig,
+	platformsInDB []model.Platform,
+) error {
+	if envCfg == nil || envCfg.FreePortStart == 0 || envCfg.FreePortPlatform == "" {
+		return nil
+	}
+	for _, p := range platformsInDB {
+		if p.Name == envCfg.FreePortPlatform {
+			return nil // already exists; reuse it
+		}
+	}
+
+	freePlatform := model.Platform{
+		ID:                               uuid.NewString(),
+		Name:                             envCfg.FreePortPlatform,
+		StickyTTLNs:                      int64(envCfg.DefaultPlatformStickyTTL),
+		RegexFilters:                     append([]string(nil), envCfg.DefaultPlatformRegexFilters...),
+		RegionFilters:                    append([]string(nil), envCfg.DefaultPlatformRegionFilters...),
+		ReverseProxyMissAction:           envCfg.DefaultPlatformReverseProxyMissAction,
+		ReverseProxyEmptyAccountBehavior: envCfg.DefaultPlatformReverseProxyEmptyAccountBehavior,
+		ReverseProxyFixedAccountHeader:   envCfg.DefaultPlatformReverseProxyFixedAccountHeader,
+		AllocationPolicy:                 envCfg.DefaultPlatformAllocationPolicy,
+		UpdatedAtNs:                      time.Now().UnixNano(),
+	}
+	if err := engine.UpsertPlatform(freePlatform); err != nil {
+		return err
+	}
+	log.Printf("Created free-port platform %q (免密专用)", envCfg.FreePortPlatform)
 	return nil
 }
 
@@ -510,6 +597,7 @@ func newFlushReaders(
 				LastLatencyProbeAttemptNs:          entry.LastLatencyProbeAttempt.Load(),
 				LastAuthorityLatencyProbeAttemptNs: entry.LastAuthorityLatencyProbeAttempt.Load(),
 				LastEgressUpdateAttemptNs:          entry.LastEgressUpdateAttempt.Load(),
+				ManuallyDisabled:                   entry.IsManuallyDisabled(),
 			}
 		},
 		ReadNodeLatency: func(key model.NodeLatencyKey) *model.NodeLatency {
@@ -725,15 +813,15 @@ func loadBootstrapNodeStatics(
 			log.Printf("[bootstrap] skip node %s: %v", ns.Hash, err)
 			continue
 		}
-		entry := &node.NodeEntry{
-			Hash:       hash,
-			RawOptions: append(json.RawMessage(nil), ns.RawOptions...),
-			CreatedAt:  time.Unix(0, ns.CreatedAtNs),
-		}
+		entry := node.NewNodeEntry(
+			hash,
+			append(json.RawMessage(nil), ns.RawOptions...),
+			time.Unix(0, ns.CreatedAtNs),
+			envCfg.MaxLatencyTableEntries,
+		)
 		// Bootstrap default: treat nodes as circuit-open unless a persisted
 		// nodes_dynamic row later overrides this state.
 		entry.CircuitOpenSince.Store(bootstrapNowNs)
-		entry.LatencyTable = node.NewLatencyTable(envCfg.MaxLatencyTableEntries)
 		pool.LoadNodeFromBootstrap(entry)
 		hashes = append(hashes, hash)
 	}
@@ -840,6 +928,7 @@ func restoreBootstrapNodeDynamics(
 		entry.LastLatencyProbeAttempt.Store(nd.LastLatencyProbeAttemptNs)
 		entry.LastAuthorityLatencyProbeAttempt.Store(nd.LastAuthorityLatencyProbeAttemptNs)
 		entry.LastEgressUpdateAttempt.Store(nd.LastEgressUpdateAttemptNs)
+		entry.ManuallyDisabled.Store(nd.ManuallyDisabled)
 		if nd.EgressIP != "" {
 			if ip, err := netip.ParseAddr(nd.EgressIP); err == nil {
 				entry.SetEgressIP(ip)

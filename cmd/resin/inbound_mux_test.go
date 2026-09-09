@@ -310,6 +310,29 @@ func TestEndpointInboundMux_AppliesCapabilities(t *testing.T) {
 	})
 }
 
+func TestEndpointInboundMux_PublicSubscriptionIgnoresProxyCapability(t *testing.T) {
+	publicSubscription := tagHandler("public-subscription", http.StatusOK)
+	mux := newEndpointInboundMux(
+		func() model.Endpoint {
+			return model.Endpoint{AllowProxy: false}
+		},
+		"",
+		tagHandler("forward", http.StatusOK),
+		tagHandler("reverse", http.StatusOK),
+		tagHandler("api", http.StatusOK),
+		tagHandler("token-action", http.StatusOK),
+		publicSubscription,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/sub/sub-id/token?format=v2ray", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Header().Get("X-Route") != "public-subscription" {
+		t.Fatalf("status/route = %d/%q, want 200/public-subscription", rec.Code, rec.Header().Get("X-Route"))
+	}
+}
+
 func TestEndpointInboundMux_InjectsProxyAuthInfoPolicy(t *testing.T) {
 	seenRequired := false
 	forward := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

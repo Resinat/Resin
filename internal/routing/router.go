@@ -229,6 +229,9 @@ func (r *Router) createOrAbortStickyLease(
 	hadPreviousLease bool,
 	invalidation leaseInvalidationReason,
 ) (Lease, xsync.ComputeOp, RouteResult, error) {
+	state.allocationMu.Lock()
+	defer state.allocationMu.Unlock()
+
 	newLease, createdResult, err := r.createLease(plat, state, targetDomain, now, nowNs)
 	if err != nil {
 		r.cleanupPreviousLease(state, previous, hadPreviousLease, invalidation, plat.ID, account)
@@ -261,6 +264,16 @@ func (r *Router) tryLeaseHit(
 
 	newLease := current
 	newLease.LastAccessedNs = nowNs
+
+	// Auto-renew: extend lease when within 1 minute of expiry.
+	if newLease.ExpiryNs-nowNs < int64(time.Minute) {
+		ttl := plat.StickyTTLNs
+		if ttl <= 0 {
+			ttl = int64(24 * time.Hour)
+		}
+		newLease.ExpiryNs = nowNs + ttl
+	}
+
 	r.emitLeaseEvent(LeaseEvent{
 		Type:       LeaseTouch,
 		PlatformID: plat.ID,
@@ -297,6 +310,16 @@ func (r *Router) tryLeaseSameIPRotation(
 	newLease := current
 	newLease.NodeHash = bestHash
 	newLease.LastAccessedNs = nowNs
+
+	// Auto-renew: extend lease when within 1 minute of expiry.
+	if newLease.ExpiryNs-nowNs < int64(time.Minute) {
+		ttl := plat.StickyTTLNs
+		if ttl <= 0 {
+			ttl = int64(24 * time.Hour)
+		}
+		newLease.ExpiryNs = nowNs + ttl
+	}
+
 	r.emitLeaseEvent(LeaseEvent{
 		Type:       LeaseReplace,
 		PlatformID: plat.ID,
@@ -393,6 +416,12 @@ func (r *Router) selectLiveRandomRoute(
 	stats *IPLoadStats,
 	targetDomain string,
 ) (node.Hash, *node.NodeEntry, error) {
+	if plat.AllocationPolicy == platform.AllocationPolicyPreferIdleIP {
+		if h, entry, ok := r.selectIdleIPRoute(plat, stats, targetDomain); ok {
+			return h, entry, nil
+		}
+	}
+
 	var lastMissing node.Hash
 	for i := 0; i < livePickAttempts; i++ {
 		h, err := randomRoute(plat, stats, r.pool, targetDomain, r.authorities(), r.p2cWindow())
@@ -409,6 +438,79 @@ func (r *Router) selectLiveRandomRoute(
 		return node.Zero, nil, fmt.Errorf("%w: selected node %s no longer in pool", ErrNoAvailableNodes, lastMissing.Hex())
 	}
 	return node.Zero, nil, ErrNoAvailableNodes
+}
+
+type idleIPRouteCandidate struct {
+	hash       node.Hash
+	entry      *node.NodeEntry
+	latency    time.Duration
+	hasLatency bool
+	createdAt  time.Time
+}
+
+func (r *Router) selectIdleIPRoute(
+	plat *platform.Platform,
+	stats *IPLoadStats,
+	targetDomain string,
+) (node.Hash, *node.NodeEntry, bool) {
+	authorities := r.authorities()
+	window := r.p2cWindow()
+	candidates := make(map[netip.Addr]idleIPRouteCandidate)
+
+	plat.View().Range(func(h node.Hash) bool {
+		entry, ok := r.pool.GetEntry(h)
+		if !ok {
+			return true
+		}
+		ip := entry.GetEgressIP()
+		if !ip.IsValid() || stats.Get(ip) > 0 {
+			return true
+		}
+
+		latency, hasLatency := sameIPCandidateLatency(entry, targetDomain, authorities, window)
+		next := idleIPRouteCandidate{
+			hash:       h,
+			entry:      entry,
+			latency:    latency,
+			hasLatency: hasLatency,
+			createdAt:  entry.CreatedAt,
+		}
+		if current, ok := candidates[ip]; !ok || isBetterIdleIPCandidate(next, current) {
+			candidates[ip] = next
+		}
+		return true
+	})
+
+	best, ok := bestIdleIPCandidate(candidates)
+	if !ok {
+		return node.Zero, nil, false
+	}
+	return best.hash, best.entry, true
+}
+
+func bestIdleIPCandidate(candidates map[netip.Addr]idleIPRouteCandidate) (idleIPRouteCandidate, bool) {
+	var best idleIPRouteCandidate
+	ok := false
+	for _, candidate := range candidates {
+		if !ok || isBetterIdleIPCandidate(candidate, best) {
+			best = candidate
+			ok = true
+		}
+	}
+	return best, ok
+}
+
+func isBetterIdleIPCandidate(next, current idleIPRouteCandidate) bool {
+	if next.hasLatency != current.hasLatency {
+		return next.hasLatency
+	}
+	if next.hasLatency && next.latency != current.latency {
+		return next.latency < current.latency
+	}
+	if !next.createdAt.Equal(current.createdAt) {
+		return next.createdAt.Before(current.createdAt)
+	}
+	return next.hash.Hex() < current.hash.Hex()
 }
 
 func chooseSameIPRotationCandidate(
@@ -586,6 +688,52 @@ func (r *Router) RangeLeases(platformID string, fn func(account string, lease Le
 	return true
 }
 
+// RangeAllLeases iterates over all leases across every platform.
+// fn receives the owning platform ID alongside the account/lease pair.
+// Returning false from fn stops the iteration early.
+func (r *Router) RangeAllLeases(fn func(platformID, account string, lease Lease) bool) {
+	r.states.Range(func(platformID string, state *PlatformRoutingState) bool {
+		keepGoing := true
+		state.Leases.Range(func(account string, lease Lease) bool {
+			if !fn(platformID, account, lease) {
+				keepGoing = false
+				return false
+			}
+			return true
+		})
+		return keepGoing
+	})
+}
+
+// SnapshotNodeLoad returns a best-effort point-in-time count of leases per
+// node hash for a single platform. Empty map if the platform has no state.
+func (r *Router) SnapshotNodeLoad(platformID string) map[node.Hash]int64 {
+	state, ok := r.states.Load(platformID)
+	if !ok {
+		return map[node.Hash]int64{}
+	}
+	out := make(map[node.Hash]int64)
+	state.Leases.Range(func(_ string, lease Lease) bool {
+		out[lease.NodeHash]++
+		return true
+	})
+	return out
+}
+
+// SnapshotNodeLoadAll returns a best-effort point-in-time count of leases per
+// node hash, aggregated across every platform.
+func (r *Router) SnapshotNodeLoadAll() map[node.Hash]int64 {
+	out := make(map[node.Hash]int64)
+	r.states.Range(func(_ string, state *PlatformRoutingState) bool {
+		state.Leases.Range(func(_ string, lease Lease) bool {
+			out[lease.NodeHash]++
+			return true
+		})
+		return true
+	})
+	return out
+}
+
 // DeleteLease removes a single lease by platform and account.
 // Returns true if a lease was deleted. Emits a LeaseRemove event.
 func (r *Router) DeleteLease(platformID, account string) bool {
@@ -629,6 +777,36 @@ func (r *Router) DeleteAllLeases(platformID string) int {
 			})
 			count++
 		}
+		return true
+	})
+	return count
+}
+
+// DeleteLeasesByNode removes every lease whose node_hash matches the target,
+// across all platforms. Returns the total number of leases deleted. Emits a
+// LeaseRemove event per deletion so persistence and metrics stay in sync.
+func (r *Router) DeleteLeasesByNode(target node.Hash) int {
+	count := 0
+	r.states.Range(func(platformID string, state *PlatformRoutingState) bool {
+		state.Leases.Range(func(account string, lease Lease) bool {
+			if lease.NodeHash != target {
+				return true
+			}
+			removed, deleted := state.Leases.DeleteLease(account)
+			if !deleted {
+				return true
+			}
+			r.emitLeaseEvent(LeaseEvent{
+				Type:        LeaseRemove,
+				PlatformID:  platformID,
+				Account:     account,
+				NodeHash:    removed.NodeHash,
+				EgressIP:    removed.EgressIP,
+				CreatedAtNs: removed.CreatedAtNs,
+			})
+			count++
+			return true
+		})
 		return true
 	})
 	return count

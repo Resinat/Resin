@@ -134,15 +134,30 @@ func (m *OutboundManager) FetchWithUserAgent(
 	url string,
 	userAgent string,
 ) ([]byte, time.Duration, error) {
+	resp, latency, err := m.FetchWithUserAgentMetadata(ctx, hash, url, userAgent)
+	if err != nil {
+		return nil, latency, err
+	}
+	return resp.Body, latency, nil
+}
+
+// FetchWithUserAgentMetadata executes HTTP request using the node's outbound,
+// applies the given User-Agent if non-empty, and preserves response headers.
+func (m *OutboundManager) FetchWithUserAgentMetadata(
+	ctx context.Context,
+	hash node.Hash,
+	url string,
+	userAgent string,
+) (netutil.DownloadResponse, time.Duration, error) {
 	entry, ok := m.pool.GetEntry(hash)
 	if !ok {
-		return nil, 0, errors.New("node not found")
+		return netutil.DownloadResponse{}, 0, errors.New("node not found")
 	}
 	outboundPtr := entry.Outbound.Load() // *adapter.Outbound
 	if outboundPtr == nil {
-		return nil, 0, ErrOutboundNotReady
+		return netutil.DownloadResponse{}, 0, ErrOutboundNotReady
 	}
-	return netutil.HTTPGetViaOutbound(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
+	return netutil.HTTPGetViaOutboundWithMetadata(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
 		RequireStatusOK: true,
 		UserAgent:       userAgent,
 	})

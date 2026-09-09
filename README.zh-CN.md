@@ -184,6 +184,39 @@ curl --proxy socks5h://127.0.0.1:2260 \
 curl http://127.0.0.1:2260/my-token/MyPlatform/https/api.ipify.org
 ```
 
+## 🔓 免密端口段（Free-Mode Ports）
+
+如果你希望在**不填密码**的前提下使用代理，并且让“**一个本地端口 = 一个固定出口 IP**”，可以开启免密端口段。
+
+它会在主端口之外额外监听一段连续端口（默认从 `21000` 起）。整段端口固定绑定到一个平台（默认 `MM`，不存在时**自动创建**，标注为“免密专用”）；段内**每个端口**通过粘性租约稳定绑定该平台下的一个出口节点/IP——同一端口出口保持稳定，不同端口对应不同出口。免密端口同时支持 **HTTP 正向代理与 SOCKS5**，且**不暴露**管理后台 / 反向代理。
+
+### 开启方式（环境变量）
+
+| 变量 | 说明 | 默认 |
+| --- | --- | --- |
+| `RESIN_FREE_PORT_START` | 起始端口；`0` 或不设表示关闭该功能 | `0` |
+| `RESIN_FREE_PORT_COUNT` | 监听端口数量（上限 256） | `0` |
+| `RESIN_FREE_PORT_PLATFORM` | 整段绑定的平台名（不存在则自动创建） | 空 |
+| `RESIN_FREE_PORT_ACCESS_MODE` | 访问控制：`intranet`（内网）/ `whitelist`（白名单） | `intranet` |
+| `RESIN_FREE_PORT_WHITELIST` | 白名单模式下的 IP/CIDR 列表（JSON 数组） | `[]` |
+
+> ⚠️ 安全：免密端口的安全完全由访问控制兜底。默认 `intranet` 仅允许内网/回环/链路本地地址访问；`whitelist` 仅允许指定 IP/CIDR。**切勿在公网暴露白名单为空或范围过宽的免密端口。**
+
+### 使用示例
+
+```bash
+# HTTP 正向代理：端口 21000，无需任何认证
+curl -x http://127.0.0.1:21000 https://api.ipify.org
+
+# SOCKS5：同一端口同时支持
+curl --proxy socks5h://127.0.0.1:21000 https://api.ipify.org
+
+# 不同端口 = 不同固定出口
+curl -x http://127.0.0.1:21001 https://api.ipify.org
+```
+
+> Docker 部署时，`docker-compose.yml.example` 已默认映射 `21000-22000`。注意：映射整段会拉起约 1000 个 docker-proxy 进程，生产建议把映射收窄到实际数量，或使用 `network_mode: host`。
+
 ## 📖 进阶使用：粘性代理
 
 当业务遇到**对 IP 变化敏感**的服务，或者需要持续交互时，你需要使用 Resin 的核心特性：**粘性代理**。

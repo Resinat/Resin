@@ -401,6 +401,22 @@ func (p *GlobalNodePool) IsNodeDisabled(hash node.Hash) bool {
 	return entry.IsDisabledBySubscriptions(p.MakeSubLookup())
 }
 
+// SetNodeManualDisable flips the admin-controlled disable flag and triggers
+// per-platform re-evaluation so the node is added to or removed from each
+// platform's routable view in the same call. Returns true when the flag value
+// actually changed (i.e. the caller transitioned the node).
+func (p *GlobalNodePool) SetNodeManualDisable(hash node.Hash, disabled bool) bool {
+	entry, ok := p.GetEntry(hash)
+	if !ok || entry == nil {
+		return false
+	}
+	if entry.ManuallyDisabled.Swap(disabled) == disabled {
+		return false
+	}
+	p.notifyAllPlatformsDirty(hash)
+	return true
+}
+
 // MakeHealthyAndEnabledEvaluator builds a predicate for pool-context health
 // aggregates: the node must not be disabled by subscription state and must
 // satisfy the entry-local health checks.

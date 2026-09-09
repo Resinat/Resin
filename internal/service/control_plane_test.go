@@ -469,7 +469,8 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	}
 
 	name := "new-platform"
-	created, err := cp.CreatePlatform(CreatePlatformRequest{Name: &name})
+	regexFilters := []string{"!nope"}
+	created, err := cp.CreatePlatform(CreatePlatformRequest{Name: &name, RegexFilters: regexFilters})
 	if err != nil {
 		t.Fatalf("CreatePlatform: %v", err)
 	}
@@ -484,8 +485,14 @@ func TestCreatePlatform_BuildsRoutableViewBeforePublish(t *testing.T) {
 	if !plat.View().Contains(hash) {
 		t.Fatalf("new platform view should contain seeded hash %s", hash.Hex())
 	}
+	if !reflect.DeepEqual(created.RegexFilters, regexFilters) {
+		t.Fatalf("created regex_filters = %v, want %v", created.RegexFilters, regexFilters)
+	}
 	if created.PassiveCircuitBreakerDisabled {
 		t.Fatal("new platform should default passive circuit breaker to not disabled")
+	}
+	if len(plat.RegexFilters.MustNot) != 1 || plat.RegexFilters.MustNot[0].String() != "nope" {
+		t.Fatalf("runtime MUST_NOT filters = %v, want [nope]", plat.RegexFilters.MustNot)
 	}
 	if plat.PassiveCircuitBreakerDisabled {
 		t.Fatal("runtime platform should default passive circuit breaker to not disabled")

@@ -17,30 +17,41 @@ type RetryDownloader struct {
 	ProxyAttemptTimeout time.Duration
 	NodePicker          func(target string) (node.Hash, error)
 	ProxyFetch          func(ctx context.Context, hash node.Hash, url string) ([]byte, error)
+	ProxyFetchMetadata  func(ctx context.Context, hash node.Hash, url string) (DownloadResponse, error)
 }
 
 // Download attempts direct download first, then falls back to proxy retries.
 func (r *RetryDownloader) Download(ctx context.Context, url string) ([]byte, error) {
+	resp, err := r.DownloadWithMetadata(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
+}
+
+// DownloadWithMetadata attempts direct download first, then falls back to proxy
+// retries while preserving response headers when the selected path provides them.
+func (r *RetryDownloader) DownloadWithMetadata(ctx context.Context, url string) (DownloadResponse, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	body, err := r.Direct.Download(ctx, url)
+	resp, err := r.directDownloadWithMetadata(ctx, url)
 	if err == nil {
-		return body, nil
+		return resp, nil
 	}
 
 	if !shouldRetryViaProxy(err) {
-		return nil, err
+		return DownloadResponse{}, err
 	}
 
-	if r.NodePicker == nil || r.ProxyFetch == nil {
-		return nil, err
+	if r.NodePicker == nil || (r.ProxyFetch == nil && r.ProxyFetchMetadata == nil) {
+		return DownloadResponse{}, err
 	}
 
 	// Respect caller cancellation/deadline: don't extend lifecycle beyond caller ctx.
 	if ctx.Err() != nil {
-		return nil, err
+		return DownloadResponse{}, err
 	}
 
 	attemptTimeout := r.proxyAttemptTimeout()
@@ -48,7 +59,7 @@ func (r *RetryDownloader) Download(ctx context.Context, url string) ([]byte, err
 	// Retry 2 times with random proxy nodes.
 	for i := 0; i < 2; i++ {
 		if ctx.Err() != nil {
-			return nil, err
+			return DownloadResponse{}, err
 		}
 
 		hash, pickErr := r.NodePicker(url)
@@ -61,14 +72,36 @@ func (r *RetryDownloader) Download(ctx context.Context, url string) ([]byte, err
 		if attemptTimeout > 0 {
 			attemptCtx, cancel = context.WithTimeout(ctx, attemptTimeout)
 		}
-		body, fetchErr := r.ProxyFetch(attemptCtx, hash, url)
+		resp, fetchErr := r.proxyFetchWithMetadata(attemptCtx, hash, url)
 		cancel()
 		if fetchErr == nil {
-			return body, nil
+			return resp, nil
 		}
 	}
 
-	return nil, err
+	return DownloadResponse{}, err
+}
+
+func (r *RetryDownloader) directDownloadWithMetadata(ctx context.Context, url string) (DownloadResponse, error) {
+	if direct, ok := r.Direct.(MetadataDownloader); ok {
+		return direct.DownloadWithMetadata(ctx, url)
+	}
+	body, err := r.Direct.Download(ctx, url)
+	if err != nil {
+		return DownloadResponse{}, err
+	}
+	return DownloadResponse{Body: body}, nil
+}
+
+func (r *RetryDownloader) proxyFetchWithMetadata(ctx context.Context, hash node.Hash, url string) (DownloadResponse, error) {
+	if r.ProxyFetchMetadata != nil {
+		return r.ProxyFetchMetadata(ctx, hash, url)
+	}
+	body, err := r.ProxyFetch(ctx, hash, url)
+	if err != nil {
+		return DownloadResponse{}, err
+	}
+	return DownloadResponse{Body: body}, nil
 }
 
 func shouldRetryViaProxy(err error) bool {

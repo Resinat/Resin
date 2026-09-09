@@ -35,7 +35,6 @@ import {
 } from "./formModel";
 import type { Platform } from "./types";
 
-const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
 const EMPTY_PLATFORMS: Platform[] = [];
 const PAGE_SIZE_OPTIONS = [12, 24, 48, 96] as const;
 
@@ -188,11 +187,19 @@ export function PlatformPage() {
               >
                 <div className="platform-tile-head">
                   <p>{platform.name}</p>
-                  <Badge variant={platform.id === ZERO_UUID ? "warning" : "success"}>
-                    {platform.id === ZERO_UUID ? t("内置平台") : t("自定义平台")}
+                  <Badge variant={platform.is_builtin ? "warning" : "success"}>
+                    {platform.is_builtin ? t("内置平台") : t("自定义平台")}
                   </Badge>
                 </div>
                 <div className="platform-tile-facts">
+                  <span className="platform-fact">
+                    <span>{t("出口 IP")}</span>
+                    <strong>{platform.egress_ip_count}</strong>
+                  </span>
+                  <span className="platform-fact">
+                    <span>{t("活跃租约")}</span>
+                    <strong>{platform.active_lease_count}</strong>
+                  </span>
                   <span className="platform-fact">
                     <span>{t("区域")}</span>
                     <strong>{regionCount}</strong>

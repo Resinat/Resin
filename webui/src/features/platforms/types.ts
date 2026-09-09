@@ -9,6 +9,9 @@ export type Platform = {
   regex_filters: string[];
   region_filters: string[];
   routable_node_count: number;
+  egress_ip_count: number;
+  active_lease_count: number;
+  is_builtin: boolean;
   reverse_proxy_miss_action: PlatformMissAction;
   reverse_proxy_empty_account_behavior: PlatformEmptyAccountBehavior;
   reverse_proxy_fixed_account_header: string;
@@ -48,17 +51,27 @@ export type PlatformUpdateInput = {
   passive_circuit_breaker_disabled?: boolean;
 };
 
-export type PlatformLease = {
+export type LeaseResponse = {
   platform_id: string;
   account: string;
   node_hash: string;
   node_tag: string;
   egress_ip: string;
+  reference_latency_ms?: number;
+  created_at: string;
   expiry: string;
   last_accessed: string;
 };
 
-export type PlatformLeaseSortBy = "account" | "expiry" | "last_accessed";
+export type PlatformLease = LeaseResponse;
+export type PlatformLeaseSortBy =
+  | "account"
+  | "node_tag"
+  | "egress_ip"
+  | "reference_latency_ms"
+  | "created_at"
+  | "expiry"
+  | "last_accessed";
 export type SortOrder = "asc" | "desc";
 
 export type ListPlatformLeasesInput = {

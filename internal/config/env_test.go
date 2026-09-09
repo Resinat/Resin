@@ -45,7 +45,7 @@ func TestLoadEnvConfig_Defaults(t *testing.T) {
 
 	// Core
 	assertEqual(t, "MaxLatencyTableEntries", cfg.MaxLatencyTableEntries, 12)
-	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 1000)
+	assertEqual(t, "ProbeConcurrency", cfg.ProbeConcurrency, 64)
 	assertEqual(t, "GeoIPUpdateSchedule", cfg.GeoIPUpdateSchedule, "0 7 * * *")
 	assertEqual(t, "DefaultPlatformStickyTTL", cfg.DefaultPlatformStickyTTL, 7*24*time.Hour)
 	assertEqual(t, "DefaultPlatformRegexFiltersLength", len(cfg.DefaultPlatformRegexFilters), 0)
@@ -585,6 +585,103 @@ func TestLoadEnvConfig_InvalidProxyTransportSettings(t *testing.T) {
 	}
 	assertContains(t, err.Error(), "RESIN_PROXY_TRANSPORT_IDLE_CONN_TIMEOUT")
 	assertContains(t, err.Error(), "RESIN_PROXY_TRANSPORT_MAX_IDLE_CONNS_PER_HOST")
+}
+
+func TestLoadEnvConfig_FreePortDisabledByDefault(t *testing.T) {
+	setEnvs(t, requiredEnvs())
+	cfg, err := LoadEnvConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertEqual(t, "FreePortStart", cfg.FreePortStart, 0)
+}
+
+func TestLoadEnvConfig_FreePortEnabled(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_FREE_PORT_START"] = "21000"
+	envs["RESIN_FREE_PORT_COUNT"] = "50"
+	envs["RESIN_FREE_PORT_PLATFORM"] = "MM"
+	setEnvs(t, envs)
+
+	cfg, err := LoadEnvConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertEqual(t, "FreePortStart", cfg.FreePortStart, 21000)
+	assertEqual(t, "FreePortCount", cfg.FreePortCount, 50)
+	assertEqual(t, "FreePortPlatform", cfg.FreePortPlatform, "MM")
+	assertEqual(t, "FreePortAccessMode", cfg.FreePortAccessMode, "intranet")
+}
+
+func TestLoadEnvConfig_FreePortMissingCount(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_FREE_PORT_START"] = "21000"
+	envs["RESIN_FREE_PORT_PLATFORM"] = "MM"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error when free-port count missing")
+	}
+	assertContains(t, err.Error(), "RESIN_FREE_PORT_COUNT")
+}
+
+func TestLoadEnvConfig_FreePortMissingPlatform(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_FREE_PORT_START"] = "21000"
+	envs["RESIN_FREE_PORT_COUNT"] = "10"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error when free-port platform missing")
+	}
+	assertContains(t, err.Error(), "RESIN_FREE_PORT_PLATFORM")
+}
+
+func TestLoadEnvConfig_FreePortOverlapsMainPort(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_PORT"] = "21010"
+	envs["RESIN_FREE_PORT_START"] = "21000"
+	envs["RESIN_FREE_PORT_COUNT"] = "50"
+	envs["RESIN_FREE_PORT_PLATFORM"] = "MM"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error when main port falls within free-port range")
+	}
+	assertContains(t, err.Error(), "RESIN_PORT")
+}
+
+func TestLoadEnvConfig_FreePortWhitelistRequired(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_FREE_PORT_START"] = "21000"
+	envs["RESIN_FREE_PORT_COUNT"] = "10"
+	envs["RESIN_FREE_PORT_PLATFORM"] = "MM"
+	envs["RESIN_FREE_PORT_ACCESS_MODE"] = "whitelist"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for whitelist mode with empty whitelist")
+	}
+	assertContains(t, err.Error(), "RESIN_FREE_PORT")
+}
+
+func TestLoadEnvConfig_FreePortInvalidPlatformNameV1(t *testing.T) {
+	envs := requiredEnvs()
+	envs["RESIN_AUTH_VERSION"] = "V1"
+	envs["RESIN_FREE_PORT_START"] = "21000"
+	envs["RESIN_FREE_PORT_COUNT"] = "10"
+	envs["RESIN_FREE_PORT_PLATFORM"] = "Bad.Name"
+	setEnvs(t, envs)
+
+	_, err := LoadEnvConfig()
+	if err == nil {
+		t.Fatal("expected error for invalid V1 free-port platform name")
+	}
+	assertContains(t, err.Error(), "RESIN_FREE_PORT_PLATFORM")
 }
 
 // --- test helpers ---

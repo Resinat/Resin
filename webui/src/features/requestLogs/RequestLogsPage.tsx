@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle, Eraser, RefreshCw, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -543,18 +543,20 @@ export function RequestLogsPage() {
     let cancelled = false;
     const payload = payloadQuery.data;
 
-    if (!payload) {
-      setPayloadData({ headers: "", body: "" });
-      setPayloadDecodePending(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setPayloadData({ headers: "", body: "" });
-    setPayloadDecodePending(true);
-
     const decodePayload = async () => {
+	  await Promise.resolve();
+	  if (cancelled) {
+	    return;
+	  }
+	  if (!payload) {
+	    setPayloadData({ headers: "", body: "" });
+	    setPayloadDecodePending(false);
+	    return;
+	  }
+
+	  setPayloadData({ headers: "", body: "" });
+	  setPayloadDecodePending(true);
+
       const [headersBase64, bodyBase64] =
         payloadTab === "request"
           ? [payload.req_headers_b64, payload.req_body_b64]
@@ -587,7 +589,7 @@ export function RequestLogsPage() {
   }, [payloadQuery.data, payloadTab, t]);
 
   const hasMore = Boolean(logsQuery.data?.has_more && logsQuery.data?.next_cursor);
-  const renderProxyTypeBadge = (proxyType: number, context: "table" | "drawer" = "table") => {
+  const renderProxyTypeBadge = useCallback((proxyType: number, context: "table" | "drawer" = "table") => {
     const className = proxyTypeBadgeClassName(proxyType);
     if (!className) {
       return t(proxyTypeLabel(proxyType));
@@ -603,7 +605,7 @@ export function RequestLogsPage() {
     }
 
     return <Badge className={className}>{label}</Badge>;
-  };
+  }, [t]);
 
   const col = useMemo(() => createColumnHelper<RequestLogItem>(), []);
 
@@ -718,7 +720,7 @@ export function RequestLogsPage() {
         },
       }),
     ],
-    [col, t]
+    [col, renderProxyTypeBadge, t]
   );
 
   return (

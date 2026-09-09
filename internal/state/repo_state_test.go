@@ -1,6 +1,7 @@
 package state
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -26,6 +27,20 @@ func newTestStateRepo(t *testing.T) *StateRepo {
 	}
 	t.Cleanup(func() { db.Close() })
 	return newStateRepo(db)
+}
+
+func requireTableColumn(t *testing.T, db *sql.DB, table, column string) {
+	t.Helper()
+	if ok, err := hasTableColumn(db, table, column); err != nil || !ok {
+		t.Fatalf("expected migrated column %s.%s, ok=%v err=%v", table, column, ok, err)
+	}
+}
+
+func forceStateMigrationVersion(t *testing.T, db *sql.DB, version int) {
+	t.Helper()
+	if _, err := db.Exec("UPDATE schema_migrations SET version = ?, dirty = 0", version); err != nil {
+		t.Fatalf("force schema_migrations version: %v", err)
+	}
 }
 
 func TestMigrateStateDB_UpgradesLegacyPlatformsColumns(t *testing.T) {
@@ -81,10 +96,11 @@ func TestMigrateStateDB_AddsEnabledToExistingEndpoints(t *testing.T) {
 
 	_, err = db.Exec(`
 		CREATE TABLE schema_migrations (version uint64 NOT NULL PRIMARY KEY, dirty bool NOT NULL);
-		INSERT INTO schema_migrations (version, dirty) VALUES (7, 0);
+		INSERT INTO schema_migrations (version, dirty) VALUES (9, 0);
 		CREATE TABLE platforms (
 			id TEXT PRIMARY KEY,
-			regex_filters_json TEXT NOT NULL DEFAULT '[]'
+			regex_filters_json TEXT NOT NULL DEFAULT '[]',
+			regex_exclude_filters_json TEXT NOT NULL DEFAULT '[]'
 		);
 		CREATE TABLE endpoints (
 			id TEXT PRIMARY KEY,
@@ -104,7 +120,7 @@ func TestMigrateStateDB_AddsEnabledToExistingEndpoints(t *testing.T) {
 		) VALUES ('existing', 32000, 1, 1, 0, 1, 1, 1, 1, 1);
 	`)
 	if err != nil {
-		t.Fatalf("create version 7 endpoint schema: %v", err)
+		t.Fatalf("create version 9 endpoint schema: %v", err)
 	}
 
 	if err := MigrateStateDB(db); err != nil {
@@ -132,13 +148,14 @@ func TestMigrateStateDB_ConvertsLegacyRegexFiltersToMustRules(t *testing.T) {
 		INSERT INTO schema_migrations (version, dirty) VALUES (8, 0);
 		CREATE TABLE platforms (
 			id TEXT PRIMARY KEY,
-			regex_filters_json TEXT NOT NULL DEFAULT '[]'
+			regex_filters_json TEXT NOT NULL DEFAULT '[]',
+			regex_exclude_filters_json TEXT NOT NULL DEFAULT '[]'
 		);
-		INSERT INTO platforms (id, regex_filters_json) VALUES
-			('legacy', '["^Provider/.*","!literal","\\!escaped",""]'),
-			('single', '["^Provider/.*"]'),
-			('single-bang', '["!literal"]'),
-			('empty', '[]');
+		INSERT INTO platforms (id, regex_filters_json, regex_exclude_filters_json) VALUES
+			('legacy', '["^Provider/.*","!literal","\\!escaped",""]', '["expired","^bad"]'),
+			('single', '["^Provider/.*"]', '[]'),
+			('single-bang', '["!literal"]', '[]'),
+			('empty', '[]', '[]');
 	`)
 	if err != nil {
 		t.Fatalf("create version 8 schema: %v", err)
@@ -156,7 +173,7 @@ func TestMigrateStateDB_ConvertsLegacyRegexFiltersToMustRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode migrated filters: %v", err)
 	}
-	want := []string{"*^Provider/.*", "*!literal", `*\!escaped`, "*"}
+	want := []string{"*^Provider/.*", "*!literal", `*\!escaped`, "*", "!expired", "!^bad"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("migrated filters: got %v, want %v", got, want)
 	}
@@ -190,7 +207,7 @@ func TestMigrateStateDB_ConvertsLegacyRegexFiltersToMustRules(t *testing.T) {
 }
 
 func TestPlatformRegexFilterRulesMigrationIsIrreversible(t *testing.T) {
-	const downMigration = stateMigrationsPath + "/000009_platform_regex_filter_rules.down.sql"
+	const downMigration = stateMigrationsPath + "/000011_platform_regex_filter_rules.down.sql"
 	file, err := migrationsFS.Open(downMigration)
 	if file != nil {
 		_ = file.Close()
@@ -245,8 +262,80 @@ func TestMigrateStateDB_LegacyBaselineAdvancesToLatest(t *testing.T) {
 	if ok, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.incremental_alive_nodes, ok=%v err=%v", ok, err)
 	}
+	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
+		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
+	}
 	if ok, err := hasTableColumn(db, "platforms", "passive_circuit_breaker_disabled"); err != nil || !ok {
 		t.Fatalf("expected migrated column platforms.passive_circuit_breaker_disabled, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestMigrateStateDB_LegacyBaselineWithRegexExcludeColumn(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		CREATE TABLE platforms (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			sticky_ttl_ns INTEGER NOT NULL,
+			regex_filters_json TEXT NOT NULL DEFAULT '[]',
+			regex_exclude_filters_json TEXT NOT NULL DEFAULT '[]',
+			region_filters_json TEXT NOT NULL DEFAULT '[]',
+			reverse_proxy_miss_action TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_empty_account_behavior TEXT NOT NULL DEFAULT 'RANDOM',
+			reverse_proxy_fixed_account_header TEXT NOT NULL DEFAULT '',
+			allocation_policy TEXT NOT NULL DEFAULT 'BALANCED',
+			passive_circuit_breaker_disabled INTEGER NOT NULL DEFAULT 0,
+			updated_at_ns INTEGER NOT NULL
+		);
+
+		CREATE TABLE subscriptions (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			source_type TEXT NOT NULL DEFAULT 'remote',
+			url TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			update_interval_ns INTEGER NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			ephemeral INTEGER NOT NULL DEFAULT 0,
+			incremental_alive_nodes INTEGER NOT NULL DEFAULT 0,
+			ephemeral_node_evict_delay_ns INTEGER NOT NULL,
+			usage_upload_bytes INTEGER NOT NULL DEFAULT 0,
+			usage_download_bytes INTEGER NOT NULL DEFAULT 0,
+			usage_total_bytes INTEGER NOT NULL DEFAULT 0,
+			usage_expire_unix INTEGER NOT NULL DEFAULT 0,
+			usage_updated_at_ns INTEGER NOT NULL DEFAULT 0,
+			created_at_ns INTEGER NOT NULL,
+			updated_at_ns INTEGER NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create latest-like legacy tables: %v", err)
+	}
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	if ok, err := hasTableColumn(db, "platforms", "regex_exclude_filters_json"); err != nil || ok {
+		t.Fatalf("expected migrated column platforms.regex_exclude_filters_json to be removed, ok=%v err=%v", ok, err)
+	}
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateLatestVersion {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateLatestVersion)
 	}
 }
 
@@ -308,6 +397,9 @@ func TestMigrateStateDB_AddsIncrementalAliveNodesToLegacySubscriptions(t *testin
 	}
 	if version != stateLatestVersion {
 		t.Fatalf("schema_migrations version: got %d, want %d", version, stateLatestVersion)
+	}
+	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
+		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
 	}
 	if ok, err := hasTableColumn(db, "platforms", "passive_circuit_breaker_disabled"); err != nil || !ok {
 		t.Fatalf("expected migrated column platforms.passive_circuit_breaker_disabled, ok=%v err=%v", ok, err)
@@ -387,8 +479,140 @@ func TestMigrateStateDB_NormalizesLegacyRandomMissAction(t *testing.T) {
 	if ok, err := hasTableColumn(db, "subscriptions", "incremental_alive_nodes"); err != nil || !ok {
 		t.Fatalf("expected migrated column subscriptions.incremental_alive_nodes, ok=%v err=%v", ok, err)
 	}
+	if ok, err := hasTableColumn(db, "subscriptions", "usage_updated_at_ns"); err != nil || !ok {
+		t.Fatalf("expected migrated column subscriptions.usage_updated_at_ns, ok=%v err=%v", ok, err)
+	}
 	if ok, err := hasTableColumn(db, "platforms", "passive_circuit_breaker_disabled"); err != nil || !ok {
 		t.Fatalf("expected migrated column platforms.passive_circuit_breaker_disabled, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestMigrateStateDB_RepairsForkVersion6SubscriptionUsage(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("initial MigrateStateDB: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE platforms DROP COLUMN passive_circuit_breaker_disabled"); err != nil {
+		t.Fatalf("simulate fork version 6 schema: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE platforms ADD COLUMN regex_exclude_filters_json TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		t.Fatalf("restore fork regex exclusion column: %v", err)
+	}
+	if _, err := db.Exec("DROP TABLE endpoints"); err != nil {
+		t.Fatalf("remove future endpoints table: %v", err)
+	}
+	forceStateMigrationVersion(t, db, stateVersionAddPassiveCircuitBreakerDisabled)
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	requireTableColumn(t, db, "platforms", "passive_circuit_breaker_disabled")
+	requireTableColumn(t, db, "subscriptions", "usage_updated_at_ns")
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateLatestVersion {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateLatestVersion)
+	}
+}
+
+func TestMigrateStateDB_RepairsUpstreamVersion6PassiveCircuitBreaker(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("initial MigrateStateDB: %v", err)
+	}
+	for _, column := range []string{
+		"usage_updated_at_ns",
+		"usage_expire_unix",
+		"usage_total_bytes",
+		"usage_download_bytes",
+		"usage_upload_bytes",
+	} {
+		if _, err := db.Exec("ALTER TABLE subscriptions DROP COLUMN " + column); err != nil {
+			t.Fatalf("simulate upstream version 6 schema: drop %s: %v", column, err)
+		}
+	}
+	if _, err := db.Exec("DROP TABLE endpoints"); err != nil {
+		t.Fatalf("remove future endpoints table: %v", err)
+	}
+	forceStateMigrationVersion(t, db, stateVersionAddPassiveCircuitBreakerDisabled)
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	requireTableColumn(t, db, "platforms", "passive_circuit_breaker_disabled")
+	requireTableColumn(t, db, "subscriptions", "usage_updated_at_ns")
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateLatestVersion {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateLatestVersion)
+	}
+}
+
+func TestMigrateStateDB_RepairsVersion7WithRegexExcludeColumn(t *testing.T) {
+	dir := t.TempDir()
+	db, err := OpenDB(dir + "/state.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("initial MigrateStateDB: %v", err)
+	}
+	if _, err := db.Exec("ALTER TABLE platforms ADD COLUMN regex_exclude_filters_json TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		t.Fatalf("restore fork regex exclusion column: %v", err)
+	}
+	if _, err := db.Exec("DROP TABLE endpoints"); err != nil {
+		t.Fatalf("remove future endpoints table: %v", err)
+	}
+	forceStateMigrationVersion(t, db, stateVersionAddSubscriptionUsageInfo)
+
+	if err := MigrateStateDB(db); err != nil {
+		t.Fatalf("MigrateStateDB: %v", err)
+	}
+
+	if ok, err := hasTableColumn(db, "platforms", "regex_exclude_filters_json"); err != nil || ok {
+		t.Fatalf("expected migrated column platforms.regex_exclude_filters_json to be removed, ok=%v err=%v", ok, err)
+	}
+
+	var version int
+	var dirty bool
+	if err := db.QueryRow("SELECT version, dirty FROM schema_migrations LIMIT 1").Scan(&version, &dirty); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if dirty {
+		t.Fatalf("schema_migrations dirty=true")
+	}
+	if version != stateLatestVersion {
+		t.Fatalf("schema_migrations version: got %d, want %d", version, stateLatestVersion)
 	}
 }
 
@@ -602,6 +826,13 @@ func TestStateRepo_Platform_ValidationRejectsInvalidRegex(t *testing.T) {
 		t.Fatal("expected error for uncompilable regex")
 	}
 
+	// Uncompilable exclusion-rule body.
+	bad = base
+	bad.RegexFilters = []string{"!(unclosed"}
+	if err := repo.UpsertPlatform(bad); err == nil {
+		t.Fatal("expected error for uncompilable exclusion rule")
+	}
+
 	// Invalid region_filters.
 	bad = base
 	bad.RegionFilters = []string{""}
@@ -610,7 +841,7 @@ func TestStateRepo_Platform_ValidationRejectsInvalidRegex(t *testing.T) {
 	}
 
 	// Valid config should still succeed.
-	base.RegexFilters = []string{"^ss$", "vmess"}
+	base.RegexFilters = []string{"^ss$", "vmess", "!bad"}
 	base.RegionFilters = []string{"us", "jp"}
 	if err := repo.UpsertPlatform(base); err != nil {
 		t.Fatalf("valid platform rejected: %v", err)
@@ -620,6 +851,9 @@ func TestStateRepo_Platform_ValidationRejectsInvalidRegex(t *testing.T) {
 	list, _ := repo.ListPlatforms()
 	if len(list) != 1 {
 		t.Fatalf("expected 1 platform, got %d", len(list))
+	}
+	if !reflect.DeepEqual(list[0].RegexFilters, []string{"^ss$", "vmess", "!bad"}) {
+		t.Fatalf("regex_filters = %v", list[0].RegexFilters)
 	}
 }
 
@@ -764,6 +998,45 @@ func TestStateRepo_Subscription_LocalSourcePersists(t *testing.T) {
 	}
 	if list[0].Content != "vmess://example" {
 		t.Fatalf("content: got %q", list[0].Content)
+	}
+}
+
+func TestStateRepo_Subscription_UsageInfoPersists(t *testing.T) {
+	repo := newTestStateRepo(t)
+	now := time.Now().UnixNano()
+
+	s := model.Subscription{
+		ID:                        "sub-usage",
+		Name:                      "UsageSub",
+		SourceType:                "remote",
+		URL:                       "https://example.com/sub",
+		UpdateIntervalNs:          int64(time.Hour),
+		Enabled:                   true,
+		Ephemeral:                 false,
+		EphemeralNodeEvictDelayNs: int64(72 * time.Hour),
+		UsageUploadBytes:          1024,
+		UsageDownloadBytes:        2048,
+		UsageTotalBytes:           4096,
+		UsageExpireUnix:           1893456000,
+		UsageUpdatedAtNs:          now,
+		CreatedAtNs:               now,
+		UpdatedAtNs:               now,
+	}
+	if err := repo.UpsertSubscription(s); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := repo.ListSubscriptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 subscription, got %d", len(list))
+	}
+	got := list[0]
+	if got.UsageUploadBytes != 1024 || got.UsageDownloadBytes != 2048 || got.UsageTotalBytes != 4096 ||
+		got.UsageExpireUnix != 1893456000 || got.UsageUpdatedAtNs != now {
+		t.Fatalf("unexpected usage fields: %+v", got)
 	}
 }
 

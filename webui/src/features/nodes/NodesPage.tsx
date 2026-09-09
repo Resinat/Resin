@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
-import { AlertTriangle, Eraser, Globe, RefreshCw, Sparkles, X, Zap } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { AlertTriangle, Ban, CircleCheck, Copy, Eraser, Globe, RefreshCw, Sparkles, Trash2, Zap } from "lucide-react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { useLocation } from "react-router-dom";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -14,23 +14,34 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
+import { copyText } from "../../lib/clipboard";
 import { formatDateTime, formatRelativeTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
 import type { Platform } from "../platforms/types";
 import { listSubscriptions } from "../subscriptions/api";
-import { getNode, listNodes, probeEgress, probeLatency } from "./api";
+import { cleanupNode, disableNode, enableNode, getNode, listNodes, probeEgress, probeLatency } from "./api";
+import { NodeDetailDrawer } from "./NodeDetailDrawer";
+import { NodeLeasesModal } from "./NodeLeasesModal";
 import type { NodeSummary } from "./types";
-import { getAllRegions, getRegionName } from "./regions";
+import { getAllRegions } from "./regions";
+import {
+  displayableReferenceLatencyMs,
+  firstTag,
+  formatLatency,
+  getNodeDisplayStatus,
+  referenceLatencyColor,
+  regionToFlag,
+} from "./nodeFormat";
 import type { NodeListFilters, NodeSortBy, SortOrder } from "./types";
 
-type NodeStatusFilter = "all" | "healthy" | "circuit_open" | "error" | "disabled";
-type NodeDisplayStatus = "healthy" | "circuit_open" | "pending_test" | "error" | "disabled";
+type NodeStatusFilter = "all" | "healthy" | "circuit_open" | "error" | "disabled" | "manually_disabled";
 type ProbeAction = "egress" | "latency";
 
 type NodeFilterDraft = {
   platform_id: string;
   subscription_id: string;
   tag_keyword: string;
+  node_type: string;
   region: string;
   egress_ip: string;
   status: NodeStatusFilter;
@@ -40,6 +51,7 @@ const defaultFilterDraft: NodeFilterDraft = {
   platform_id: "",
   subscription_id: "",
   tag_keyword: "",
+  node_type: "",
   region: "",
   egress_ip: "",
   status: "all",
@@ -47,6 +59,23 @@ const defaultFilterDraft: NodeFilterDraft = {
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200, 500, 1000, 2000, 5000] as const;
 const EMPTY_PLATFORMS: Platform[] = [];
+const NODE_TYPE_OPTIONS = [
+  ["anytls", "AnyTLS"],
+  ["http", "HTTP"],
+  ["hysteria", "Hysteria"],
+  ["hysteria2", "Hysteria 2"],
+  ["naive", "Naive"],
+  ["shadowsocks", "Shadowsocks"],
+  ["shadowtls", "ShadowTLS"],
+  ["socks", "SOCKS"],
+  ["ssh", "SSH"],
+  ["tor", "Tor"],
+  ["trojan", "Trojan"],
+  ["tuic", "TUIC"],
+  ["vless", "VLESS"],
+  ["vmess", "VMess"],
+  ["wireguard", "WireGuard"],
+] as const;
 const NODE_FILTER_ITEM_STYLE: CSSProperties = {
   flex: "1 1 120px",
   minWidth: "80px",
@@ -84,7 +113,14 @@ function parseStatusParam(value: string | null): NodeStatusFilter | undefined {
   }
 
   const normalized = value.trim().toLowerCase();
-  if (normalized === "all" || normalized === "healthy" || normalized === "circuit_open" || normalized === "error" || normalized === "disabled") {
+  if (
+    normalized === "all" ||
+    normalized === "healthy" ||
+    normalized === "circuit_open" ||
+    normalized === "error" ||
+    normalized === "disabled" ||
+    normalized === "manually_disabled"
+  ) {
     return normalized;
   }
 
@@ -100,7 +136,11 @@ function statusFromQuery(params: URLSearchParams): NodeStatusFilter {
   const hasOutbound = parseBoolParam(params.get("has_outbound"));
   const circuitOpen = parseBoolParam(params.get("circuit_open"));
   const enabled = parseBoolParam(params.get("enabled"));
+  const manuallyDisabled = parseBoolParam(params.get("manually_disabled"));
 
+  if (manuallyDisabled === true) {
+    return "manually_disabled";
+  }
   if (enabled === false) {
     return "disabled";
   }
@@ -130,6 +170,7 @@ function draftFromQuery(search: string): NodeFilterDraft {
     platform_id: trimQueryValue(params, "platform_id"),
     subscription_id: trimQueryValue(params, "subscription_id"),
     tag_keyword: tagKeyword,
+    node_type: trimQueryValue(params, "node_type").toLowerCase(),
     region: trimQueryValue(params, "region").toUpperCase(),
     egress_ip: trimQueryValue(params, "egress_ip"),
     status: statusFromQuery(params),
@@ -142,24 +183,32 @@ function draftToActiveFilters(draft: NodeFilterDraft): NodeListFilters {
   let circuit_open: boolean | undefined = undefined;
   let has_outbound: boolean | undefined = undefined;
   let enabled: boolean | undefined = undefined;
+  let manually_disabled: boolean | undefined = undefined;
 
   switch (draft.status) {
     case "healthy":
       enabled = true;
       has_outbound = true;
       circuit_open = false;
+      manually_disabled = false;
       break;
     case "circuit_open":
       enabled = true;
       has_outbound = true;
       circuit_open = true;
+      manually_disabled = false;
       break;
     case "error":
       enabled = true;
       has_outbound = false;
+      manually_disabled = false;
       break;
     case "disabled":
       enabled = false;
+      manually_disabled = false;
+      break;
+    case "manually_disabled":
+      manually_disabled = true;
       break;
     case "all":
     default:
@@ -170,77 +219,14 @@ function draftToActiveFilters(draft: NodeFilterDraft): NodeListFilters {
     platform_id: draft.platform_id,
     subscription_id: draft.subscription_id,
     tag_keyword: draft.tag_keyword,
+    node_type: draft.node_type,
     region: draft.region,
     egress_ip: draft.egress_ip,
     enabled,
+    manually_disabled,
     circuit_open,
     has_outbound,
   };
-}
-
-function firstTag(node: { display_tag?: string; tags: { tag: string }[] }): string {
-  if (node.display_tag && node.display_tag.trim()) {
-    return node.display_tag;
-  }
-  if (!node.tags.length) {
-    return "-";
-  }
-  return node.tags[0].tag;
-}
-
-function hasReferenceLatency(node: NodeSummary): node is NodeSummary & { reference_latency_ms: number } {
-  return typeof node.reference_latency_ms === "number";
-}
-
-function isPendingTestNode(node: NodeSummary): boolean {
-  return Boolean(node.circuit_open_since) && node.failure_count === 0;
-}
-
-function getNodeDisplayStatus(node: NodeSummary): NodeDisplayStatus {
-  if (!node.enabled) {
-    return "disabled";
-  }
-  if (!node.has_outbound) {
-    return "error";
-  }
-  if (isPendingTestNode(node)) {
-    return "pending_test";
-  }
-  if (node.circuit_open_since) {
-    return "circuit_open";
-  }
-  return "healthy";
-}
-
-function referenceLatencyColor(latencyMs: number): string {
-  if (!Number.isFinite(latencyMs)) {
-    return "var(--text-secondary)";
-  }
-  if (latencyMs <= 400) {
-    return "var(--success)";
-  }
-  if (latencyMs <= 1000) {
-    return "var(--warning)";
-  }
-  return "var(--danger)";
-}
-
-function displayableReferenceLatencyMs(node: NodeSummary): number | null {
-  if (getNodeDisplayStatus(node) !== "healthy") {
-    return null;
-  }
-  if (!hasReferenceLatency(node)) {
-    return null;
-  }
-  return node.reference_latency_ms;
-}
-
-
-function formatLatency(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "-";
-  }
-  return `${value.toFixed(0)} ms`;
 }
 
 function sortIndicator(active: boolean, order: SortOrder): string {
@@ -250,18 +236,8 @@ function sortIndicator(active: boolean, order: SortOrder): string {
   return order === "asc" ? "▲" : "▼";
 }
 
-function regionToFlag(region: string | undefined): string {
-  if (!region || region.length !== 2) {
-    return region || "-";
-  }
-  const code = region.toUpperCase();
-  const flag = String.fromCodePoint(...[...code].map((c) => c.charCodeAt(0) + 127397));
-  const name = getRegionName(code);
-  return name ? `${flag} ${code} (${name})` : `${flag} ${code}`;
-}
-
 export function NodesPage() {
-  const { locale, t } = useI18n();
+  const { t } = useI18n();
   const location = useLocation();
   const [draftFilters, setDraftFilters] = useState<NodeFilterDraft>(() => draftFromQuery(location.search));
   const [activeFilters, setActiveFilters] = useState<NodeListFilters>(() =>
@@ -273,6 +249,7 @@ export function NodesPage() {
   const [pageSize, setPageSize] = useState<number>(200);
   const [selectedNodeHash, setSelectedNodeHash] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [leasesModalNodeHash, setLeasesModalNodeHash] = useState<string | null>(null);
   const [pendingEgressHashes, setPendingEgressHashes] = useState<Set<string>>(() => new Set());
   const [pendingLatencyHashes, setPendingLatencyHashes] = useState<Set<string>>(() => new Set());
   const { toasts, showToast, dismissToast } = useToast();
@@ -281,7 +258,7 @@ export function NodesPage() {
 
   const queryClient = useQueryClient();
 
-  const allRegions = useMemo(() => getAllRegions(), [locale]);
+  const allRegions = getAllRegions();
 
   const platformsQuery = useQuery({
     queryKey: ["platforms", "all"],
@@ -354,22 +331,6 @@ export function NodesPage() {
   const detailNode = nodeDetailQuery.data ?? selectedNode;
   const drawerVisible = drawerOpen && Boolean(detailNode);
 
-  useEffect(() => {
-    if (!drawerVisible) {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      setDrawerOpen(false);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [drawerVisible]);
-
   const openDrawer = (hash: string) => {
     setSelectedNodeHash(hash);
     setDrawerOpen(true);
@@ -412,6 +373,96 @@ export function NodesPage() {
       showToast("error", formatApiErrorMessage(error, t));
     },
   });
+
+  const disableNodeMutation = useMutation({
+    mutationFn: async (hash: string) => disableNode(hash),
+    onSuccess: async (result) => {
+      await refreshNodes();
+      const count = result.released_lease_count ?? 0;
+      if (count > 0) {
+        showToast("success", t("已禁用，解除 {{count}} 个绑定", { count }));
+      } else {
+        showToast("success", t("已禁用"));
+      }
+    },
+    onError: async (error) => {
+      await refreshNodes();
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
+
+  const enableNodeMutation = useMutation({
+    mutationFn: async (hash: string) => enableNode(hash),
+    onSuccess: async () => {
+      await refreshNodes();
+      showToast("success", t("已启用"));
+    },
+    onError: async (error) => {
+      await refreshNodes();
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
+
+  const cleanupNodeMutation = useMutation({
+    mutationFn: async (hash: string) => cleanupNode(hash),
+    onSuccess: async (result, hash) => {
+      if (selectedHash === hash) {
+        setDrawerOpen(false);
+        setSelectedNodeHash("");
+      }
+      if (leasesModalNodeHash === hash) {
+        setLeasesModalNodeHash(null);
+      }
+      await refreshNodes();
+      const count = result.released_lease_count ?? 0;
+      if (count > 0) {
+        showToast("success", t("节点已清理，解除 {{count}} 个绑定", { count }));
+      } else {
+        showToast("success", t("节点已清理"));
+      }
+    },
+    onError: async (error) => {
+      await refreshNodes();
+      showToast("error", formatApiErrorMessage(error, t));
+    },
+  });
+
+  const runDisableNode = async (hash: string) => {
+    try {
+      await disableNodeMutation.mutateAsync(hash);
+    } catch {
+      // Mutation callbacks already surface the failure to the user.
+    }
+  };
+
+  const runEnableNode = async (hash: string) => {
+    try {
+      await enableNodeMutation.mutateAsync(hash);
+    } catch {
+      // Mutation callbacks already surface the failure to the user.
+    }
+  };
+
+  const runCleanupNode = async (node: NodeSummary) => {
+    const confirmed = window.confirm(
+      t("确认清理节点 {{name}}？该节点会从节点池移除，并解除相关租约。", { name: firstTag(node) })
+    );
+    if (!confirmed) {
+      return;
+    }
+    try {
+      await cleanupNodeMutation.mutateAsync(node.node_hash);
+    } catch {
+      // Mutation callbacks already surface the failure to the user.
+    }
+  };
+
+  const isDisableActionPending = (hash: string): boolean =>
+    (disableNodeMutation.isPending && disableNodeMutation.variables === hash) ||
+    (enableNodeMutation.isPending && enableNodeMutation.variables === hash);
+
+  const isCleanupActionPending = (hash: string): boolean =>
+    cleanupNodeMutation.isPending && cleanupNodeMutation.variables === hash;
 
   const markProbePending = (hash: string, action: ProbeAction): boolean => {
     if (action === "egress") {
@@ -519,6 +570,33 @@ export function NodesPage() {
     setPage(0);
   };
 
+  const copyNodeProxyURL = async (node: NodeSummary) => {
+    let detail: NodeSummary;
+    try {
+      detail = await queryClient.fetchQuery({
+        queryKey: ["node", node.node_hash],
+        queryFn: () => getNode(node.node_hash),
+        staleTime: 30_000,
+      });
+    } catch (error) {
+      showToast("error", formatApiErrorMessage(error, t));
+      return;
+    }
+
+    const proxyURL = detail.proxy_urls?.[0]?.url;
+    if (!proxyURL) {
+      showToast("error", t("该节点暂无可复制代理地址"));
+      return;
+    }
+
+    try {
+      await copyText(proxyURL);
+      showToast("success", t("代理地址已复制"));
+    } catch {
+      showToast("error", t("复制失败"));
+    }
+  };
+
   const col = createColumnHelper<NodeSummary>();
 
   const nodeColumns = [
@@ -530,11 +608,32 @@ export function NodesPage() {
           <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
         </button>
       ),
-      cell: (info) => (
-        <div className="nodes-tag-cell">
-          <span title={info.getValue() as string}>{info.getValue() as string}</span>
-        </div>
-      ),
+      cell: (info) => {
+        const node = info.row.original;
+        const copyable =
+          node.has_outbound &&
+          (node.node_type === "http" || node.node_type === "socks" || node.node_type === "socks5");
+        return (
+          <div className="nodes-tag-cell">
+            <span title={info.getValue() as string}>{info.getValue() as string}</span>
+            {copyable ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="nodes-copy-proxy-btn"
+                aria-label={t("复制代理地址")}
+                title={t("复制代理地址")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void copyNodeProxyURL(node);
+                }}
+              >
+                <Copy size={14} />
+              </Button>
+            ) : null}
+          </div>
+        );
+      },
     }),
     col.accessor("region", {
       header: () => (
@@ -565,7 +664,12 @@ export function NodesPage() {
     }),
     col.display({
       id: "reference_latency_ms",
-      header: t("参考延迟"),
+      header: () => (
+        <button type="button" className="table-sort-btn" onClick={() => changeSort("reference_latency_ms")}>
+          {t("参考延迟")}
+          <span>{sortIndicator(sortBy === "reference_latency_ms", sortOrder)}</span>
+        </button>
+      ),
       cell: (info) => {
         const node = info.row.original;
         const latencyMs = displayableReferenceLatencyMs(node);
@@ -601,11 +705,38 @@ export function NodesPage() {
       cell: (info) => {
         const node = info.row.original;
         const status = getNodeDisplayStatus(node);
+        if (status === "manually_disabled") return <Badge variant="danger">{t("手动禁用")}</Badge>;
         if (status === "disabled") return <Badge variant="neutral">{t("禁用")}</Badge>;
         if (status === "error") return <Badge variant="danger">{t("错误")}</Badge>;
         if (status === "pending_test") return <Badge variant="muted">{t("待测")}</Badge>;
         if (status === "circuit_open") return <Badge variant="warning">{t("熔断")}</Badge>;
         return <Badge variant="success">{t("健康")}</Badge>;
+      },
+    }),
+    col.accessor("lease_count", {
+      header: () => (
+        <button type="button" className="table-sort-btn" onClick={() => changeSort("lease_count")}>
+          {t("租约数")}
+          <span>{sortIndicator(sortBy === "lease_count", sortOrder)}</span>
+        </button>
+      ),
+      cell: (info) => {
+        const node = info.row.original;
+        const count = node.lease_count ?? 0;
+        return (
+          <button
+            type="button"
+            className="lease-count-link"
+            onClick={(event) => {
+              event.stopPropagation();
+              setLeasesModalNodeHash(node.node_hash);
+            }}
+            disabled={count === 0}
+            title={count === 0 ? t("暂无租约") : t("查看租约详情")}
+          >
+            {count}
+          </button>
+        );
       },
     }),
     col.accessor("created_at", {
@@ -635,6 +766,8 @@ export function NodesPage() {
       header: t("操作"),
       cell: (info) => {
         const node = info.row.original;
+        const disablePending = isDisableActionPending(node.node_hash);
+        const cleanupPending = isCleanupActionPending(node.node_hash);
         return (
           <div className="subscriptions-row-actions" onClick={(event) => event.stopPropagation()}>
             <Button
@@ -654,6 +787,37 @@ export function NodesPage() {
               disabled={isProbePending(node.node_hash, "latency")}
             >
               <Zap size={14} />
+            </Button>
+            {node.manually_disabled ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                title={t("启用节点")}
+                onClick={() => void runEnableNode(node.node_hash)}
+                disabled={disablePending || cleanupPending}
+              >
+                <CircleCheck size={14} />
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                title={t("禁用节点（立即解除全部租约）")}
+                onClick={() => void runDisableNode(node.node_hash)}
+                disabled={disablePending || cleanupPending}
+              >
+                <Ban size={14} />
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              title={t("清理节点")}
+              onClick={() => void runCleanupNode(node)}
+              disabled={disablePending || cleanupPending}
+              style={{ color: "var(--delete-btn-color, #c27070)" }}
+            >
+              <Trash2 size={14} />
             </Button>
           </div>
         );
@@ -699,6 +863,25 @@ export function NodesPage() {
                 placeholder={t("模糊搜索")}
                 style={NODE_FILTER_CONTROL_STYLE}
               />
+            </div>
+
+            <div style={NODE_FILTER_ITEM_STYLE}>
+              <label htmlFor="node-type" style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                {t("节点类型")}
+              </label>
+              <Select
+                id="node-type"
+                value={draftFilters.node_type}
+                onChange={(event) => handleFilterChange("node_type", event.target.value)}
+                style={NODE_FILTER_CONTROL_STYLE}
+              >
+                <option value="">{t("全部")}</option>
+                {NODE_TYPE_OPTIONS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
             </div>
 
             <div style={NODE_FILTER_ITEM_STYLE}>
@@ -786,6 +969,7 @@ export function NodesPage() {
                 <option value="circuit_open">{t("熔断 / 待测")}</option>
                 <option value="error">{t("错误")}</option>
                 <option value="disabled">{t("禁用")}</option>
+                <option value="manually_disabled">{t("手动禁用")}</option>
               </Select>
             </div>
 
@@ -841,164 +1025,33 @@ export function NodesPage() {
       </Card>
 
       {drawerVisible && detailNode ? (
-        <div
-          className="drawer-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("节点详情 {{name}}", { name: firstTag(detailNode) })}
-          onClick={() => setDrawerOpen(false)}
-        >
-          <Card className="drawer-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <h3>{firstTag(detailNode)}</h3>
-                <p>{detailNode.node_hash}</p>
-              </div>
-              <div className="drawer-header-actions">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={t("关闭详情面板")}
-                  onClick={() => setDrawerOpen(false)}
-                >
-                  <X size={16} />
-                </Button>
-              </div>
-            </div>
-
-            <div className="platform-drawer-layout">
-              <section className="platform-drawer-section">
-                <div className="platform-drawer-section-head">
-                  <h4>{t("节点状态")}</h4>
-                  <p>{t("节点的网络出口、探测状态以及失败历史。")}</p>
-                </div>
-
-                <div className="stats-grid">
-                  <div>
-                    <span>{t("创建时间")}</span>
-                    <p>{formatDateTime(detailNode.created_at)}</p>
-                  </div>
-                  <div>
-                    <span>{t("连续失败")}</span>
-                    <p>{!detailNode.has_outbound ? "-" : detailNode.failure_count}</p>
-                  </div>
-                  <div>
-                    <span>{t("状态")}</span>
-                    <div>
-                      {(() => {
-                        const status = getNodeDisplayStatus(detailNode);
-                        return (
-                          <div style={{ display: "flex", alignItems: "baseline", gap: "4px", flexWrap: "wrap" }}>
-                            {status === "error" ? (
-                              <Badge variant="danger">{t("错误")}</Badge>
-                            ) : status === "disabled" ? (
-                              <Badge variant="neutral">{t("禁用")}</Badge>
-                            ) : status === "pending_test" ? (
-                              <Badge variant="muted">{t("待测")}</Badge>
-                            ) : status === "circuit_open" ? (
-                              <Badge variant="warning">{t("熔断")}</Badge>
-                            ) : (
-                              <Badge variant="success">{t("健康")}</Badge>
-                            )}
-                            {(status === "circuit_open" || status === "pending_test") && detailNode.circuit_open_since ? (
-                              <span
-                                style={{
-                                  fontSize: "11px",
-                                  color: "var(--text-muted)",
-                                  fontWeight: "normal",
-                                }}
-                              >
-                                ({formatRelativeTime(detailNode.circuit_open_since)})
-                              </span>
-                            ) : null}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  <div>
-                    <span>{t("出口 / 区域")}</span>
-                    <p>
-                      {detailNode.egress_ip || "-"} / {regionToFlag(detailNode.region)}
-                    </p>
-                  </div>
-                  <div>
-                    <span>{t("参考延迟")}</span>
-                    {(() => {
-                      const latencyMs = displayableReferenceLatencyMs(detailNode);
-                      if (latencyMs === null) {
-                        return <p>-</p>;
-                      }
-                      return <p style={{ color: referenceLatencyColor(latencyMs) }}>{formatLatency(latencyMs)}</p>;
-                    })()}
-                  </div>
-                  <div>
-                    <span>{t("上次探测")}</span>
-                    <p>{formatDateTime(detailNode.last_latency_probe_attempt || "")}</p>
-                  </div>
-                </div>
-
-                {detailNode.last_error ? (
-                  <div className="callout callout-error">{t("最近错误：{{message}}", { message: detailNode.last_error })}</div>
-                ) : null}
-              </section>
-
-              <section className="platform-drawer-section">
-                <div className="platform-drawer-section-head">
-                  <h4>{t("节点别名")}</h4>
-                </div>
-                {!detailNode.tags.length ? (
-                  <p className="muted">{t("无节点名信息")}</p>
-                ) : (
-                  <div className="tag-list">
-                    {detailNode.tags.map((tag) => (
-                      <div key={`${tag.subscription_id}:${tag.tag}`} className="tag-item">
-                        <p>{tag.tag}</p>
-                        <span>{tag.subscription_name}</span>
-                        <code>{tag.subscription_id}</code>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              <section className="platform-drawer-section platform-ops-section">
-                <div className="platform-drawer-section-head">
-                  <h4>{t("运维操作")}</h4>
-                </div>
-                <div className="platform-ops-list">
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>{t("出口探测")}</h5>
-                      <p className="platform-op-hint">{t("检查节点当前出口 IP。")}</p>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void runProbeEgress(detailNode.node_hash)}
-                      disabled={isProbePending(detailNode.node_hash, "egress")}
-                    >
-                      {isProbePending(detailNode.node_hash, "egress") ? t("探测中...") : t("触发出口探测")}
-                    </Button>
-                  </div>
-                  <div className="platform-op-item">
-                    <div className="platform-op-copy">
-                      <h5>{t("延迟探测")}</h5>
-                      <p className="platform-op-hint">{t("检测节点网络延迟。")}</p>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void runProbeLatency(detailNode.node_hash)}
-                      disabled={isProbePending(detailNode.node_hash, "latency")}
-                    >
-                      {isProbePending(detailNode.node_hash, "latency") ? t("探测中...") : t("触发延迟探测")}
-                    </Button>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </Card>
-        </div>
+        <NodeDetailDrawer
+          node={detailNode}
+          onClose={() => setDrawerOpen(false)}
+          onProbeEgress={(hash) => void runProbeEgress(hash)}
+          onProbeLatency={(hash) => void runProbeLatency(hash)}
+          isEgressProbePending={(hash) => isProbePending(hash, "egress")}
+          isLatencyProbePending={(hash) => isProbePending(hash, "latency")}
+        />
       ) : null}
+
+      {leasesModalNodeHash
+        ? (() => {
+            const targetNode =
+              nodes.find((item) => item.node_hash === leasesModalNodeHash) ?? null;
+            if (!targetNode) {
+              return null;
+            }
+            return (
+              <NodeLeasesModal
+                node={targetNode}
+                platformId={activeFilters.platform_id || undefined}
+                onClose={() => setLeasesModalNodeHash(null)}
+                showToast={showToast}
+              />
+            );
+          })()
+        : null}
     </section>
   );
 }

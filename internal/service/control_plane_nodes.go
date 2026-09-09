@@ -15,15 +15,17 @@ import (
 
 // NodeFilters holds query filters for listing nodes.
 type NodeFilters struct {
-	PlatformID     *string
-	SubscriptionID *string
-	Enabled        *bool
-	Region         *string
-	CircuitOpen    *bool
-	HasOutbound    *bool
-	EgressIP       *string
-	ProbedSince    *time.Time
-	TagKeyword     *string
+	PlatformID       *string
+	SubscriptionID   *string
+	Enabled          *bool
+	ManuallyDisabled *bool
+	Region           *string
+	CircuitOpen      *bool
+	HasOutbound      *bool
+	EgressIP         *string
+	ProbedSince      *time.Time
+	TagKeyword       *string
+	NodeType         *string
 }
 
 // ListNodes returns nodes from the pool with optional filters.
@@ -115,6 +117,25 @@ func (s *ControlPlaneService) ListNodes(filters NodeFilters) ([]NodeSummary, err
 	if result == nil {
 		result = []NodeSummary{}
 	}
+
+	if s.Router != nil {
+		var leaseLoads map[node.Hash]int64
+		if filters.PlatformID != nil {
+			leaseLoads = s.Router.SnapshotNodeLoad(*filters.PlatformID)
+		} else {
+			leaseLoads = s.Router.SnapshotNodeLoadAll()
+		}
+		if len(leaseLoads) > 0 {
+			for i := range result {
+				h, err := node.ParseHex(result[i].NodeHash)
+				if err != nil {
+					continue
+				}
+				result[i].LeaseCount = leaseLoads[h]
+			}
+		}
+	}
+
 	return result, nil
 }
 
@@ -123,6 +144,19 @@ func (s *ControlPlaneService) nodeEntryMatchesFilters(
 	filters NodeFilters,
 	subLookup node.SubLookupFunc,
 ) bool {
+	if filters.NodeType != nil {
+		if !strings.EqualFold(entry.OutboundType, *filters.NodeType) {
+			return false
+		}
+	}
+
+	// Manually disabled filter (admin-controlled flag, independent of subscription state).
+	if filters.ManuallyDisabled != nil {
+		if entry.IsManuallyDisabled() != *filters.ManuallyDisabled {
+			return false
+		}
+	}
+
 	// Enabled/disabled filter.
 	if filters.Enabled != nil {
 		enabled := true
@@ -215,7 +249,7 @@ func (s *ControlPlaneService) GetNode(hashStr string) (*NodeSummary, error) {
 	if !ok {
 		return nil, notFound("node not found")
 	}
-	ns := s.nodeEntryToSummary(h, entry)
+	ns := s.nodeEntryToDetailSummary(h, entry)
 	return &ns, nil
 }
 
@@ -254,4 +288,100 @@ func (s *ControlPlaneService) ProbeLatency(hashStr string) (*probe.LatencyProbeR
 		return nil, internal("latency probe failed", err)
 	}
 	return result, nil
+}
+
+// SetNodeManualDisableResult is returned by SetNodeManualDisable. When the
+// caller disables a node we report the number of bound leases that were
+// released as a side effect, so the UI can surface it.
+type SetNodeManualDisableResult struct {
+	ReleasedLeaseCount int `json:"released_lease_count"`
+}
+
+type CleanupNodeResult struct {
+	EvictedSubscriptionCount int `json:"evicted_subscription_count"`
+	ReleasedLeaseCount       int `json:"released_lease_count"`
+}
+
+// SetNodeManualDisable toggles the admin-controlled disable flag on a node.
+// When transitioning to disabled, all leases currently bound to the node are
+// immediately released so connected platforms reroute to other nodes. The
+// flag is persisted via the node-dynamic dirty-set on the next flush.
+func (s *ControlPlaneService) SetNodeManualDisable(hashStr string, disable bool) (SetNodeManualDisableResult, error) {
+	h, err := node.ParseHex(hashStr)
+	if err != nil {
+		return SetNodeManualDisableResult{}, invalidArg("node_hash: invalid format")
+	}
+	if _, ok := s.Pool.GetEntry(h); !ok {
+		return SetNodeManualDisableResult{}, notFound("node not found")
+	}
+
+	// Flip the flag and trigger platform-view rebuilds so the node is removed
+	// from (or restored to) all routable views before we touch any leases.
+	s.Pool.SetNodeManualDisable(h, disable)
+	if s.Engine != nil {
+		s.Engine.MarkNodeDynamic(strings.ToLower(hashStr))
+	}
+
+	if !disable {
+		return SetNodeManualDisableResult{}, nil
+	}
+
+	released := 0
+	if s.Router != nil {
+		released = s.Router.DeleteLeasesByNode(h)
+	}
+	return SetNodeManualDisableResult{ReleasedLeaseCount: released}, nil
+}
+
+func (s *ControlPlaneService) CleanupNode(hashStr string) (CleanupNodeResult, error) {
+	h, err := node.ParseHex(hashStr)
+	if err != nil {
+		return CleanupNodeResult{}, invalidArg("node_hash: invalid format")
+	}
+	entry, ok := s.Pool.GetEntry(h)
+	if !ok {
+		return CleanupNodeResult{}, notFound("node not found")
+	}
+
+	evictedSubIDs := make([]string, 0, entry.SubscriptionCount())
+	for _, subID := range entry.SubscriptionIDs() {
+		sub := s.SubMgr.Lookup(subID)
+		if sub == nil {
+			s.Pool.RemoveNodeFromSub(h, subID)
+			continue
+		}
+
+		evicted := false
+		sub.WithOpLock(func() {
+			lockedSub := s.SubMgr.Lookup(subID)
+			if lockedSub == nil {
+				return
+			}
+			managed, ok := lockedSub.ManagedNodes().LoadNode(h)
+			if ok && !managed.Evicted {
+				managed.Evicted = true
+				lockedSub.ManagedNodes().StoreNode(h, managed)
+				evicted = true
+			}
+			s.Pool.RemoveNodeFromSub(h, subID)
+		})
+		if evicted {
+			evictedSubIDs = append(evictedSubIDs, subID)
+		}
+	}
+
+	if s.Engine != nil {
+		for _, subID := range evictedSubIDs {
+			s.Engine.MarkSubscriptionNode(subID, h.Hex())
+		}
+	}
+
+	released := 0
+	if s.Router != nil {
+		released = s.Router.DeleteLeasesByNode(h)
+	}
+	return CleanupNodeResult{
+		EvictedSubscriptionCount: len(evictedSubIDs),
+		ReleasedLeaseCount:       released,
+	}, nil
 }

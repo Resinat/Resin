@@ -44,8 +44,23 @@ func HTTPGetViaOutbound(
 	url string,
 	opts OutboundHTTPOptions,
 ) ([]byte, time.Duration, error) {
+	resp, latency, err := HTTPGetViaOutboundWithMetadata(ctx, outbound, url, opts)
+	if err != nil {
+		return nil, latency, err
+	}
+	return resp.Body, latency, nil
+}
+
+// HTTPGetViaOutboundWithMetadata executes an HTTP GET through the provided
+// outbound and preserves response headers.
+func HTTPGetViaOutboundWithMetadata(
+	ctx context.Context,
+	outbound adapter.Outbound,
+	url string,
+	opts OutboundHTTPOptions,
+) (DownloadResponse, time.Duration, error) {
 	if outbound == nil {
-		return nil, 0, fmt.Errorf("outbound fetch: outbound is nil")
+		return DownloadResponse{}, 0, fmt.Errorf("outbound fetch: outbound is nil")
 	}
 
 	transport := &http.Transport{
@@ -70,7 +85,7 @@ func HTTPGetViaOutbound(
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, err
+		return DownloadResponse{}, 0, err
 	}
 
 	userAgent := opts.UserAgent
@@ -93,20 +108,20 @@ func HTTPGetViaOutbound(
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return DownloadResponse{}, 0, err
 	}
 	defer resp.Body.Close()
 
 	if opts.RequireStatusOK && resp.StatusCode != http.StatusOK {
-		return nil, latency, fmt.Errorf("outbound fetch: unexpected status %d from %s", resp.StatusCode, url)
+		return DownloadResponse{}, latency, fmt.Errorf("outbound fetch: unexpected status %d from %s", resp.StatusCode, url)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, latency, err
+		return DownloadResponse{}, latency, err
 	}
 
-	return body, latency, nil
+	return DownloadResponse{Body: body, Header: resp.Header.Clone()}, latency, nil
 }
 
 // connCloseHook wraps a net.Conn and calls onClose exactly once on Close.

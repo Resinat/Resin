@@ -94,6 +94,37 @@ func TestScheduler_UpdateSubscription_Success(t *testing.T) {
 	}
 }
 
+func TestScheduler_UpdateSubscription_StoresUsageFromResponseHeader(t *testing.T) {
+	subMgr := NewSubscriptionManager()
+	sub := subscription.NewSubscription("s1", "TestSub", "http://example.com", true, false)
+	sub.SetFetchConfig(sub.URL(), int64(time.Hour))
+	subMgr.Register(sub)
+
+	pool := newTestPool(subMgr)
+	body := makeSubscriptionJSON(
+		`{"type":"shadowsocks","tag":"us-1","server":"1.1.1.1","server_port":443}`,
+	)
+	sched := NewSubscriptionScheduler(SchedulerConfig{
+		SubManager: subMgr,
+		Pool:       pool,
+		MetadataFetcher: func(string) (netutil.DownloadResponse, error) {
+			header := http.Header{}
+			header.Set(subscription.SubscriptionUserinfoHeader, "upload=1024; download=2048; total=4096; expire=1893456000")
+			return netutil.DownloadResponse{Body: body, Header: header}, nil
+		},
+	})
+
+	sched.UpdateSubscription(sub)
+
+	usage := sub.Usage()
+	if usage.UploadBytes != 1024 || usage.DownloadBytes != 2048 || usage.TotalBytes != 4096 || usage.ExpireUnix != 1893456000 {
+		t.Fatalf("unexpected usage: %+v", usage)
+	}
+	if usage.UpdatedAtNs == 0 {
+		t.Fatal("usage updated_at should be set")
+	}
+}
+
 func TestScheduler_UpdateSubscription_DownloadViaHTTPServer(t *testing.T) {
 	subMgr := NewSubscriptionManager()
 	pool := newTestPool(subMgr)

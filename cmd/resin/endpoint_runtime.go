@@ -35,20 +35,21 @@ func (r *managedEndpointRuntime) current() model.Endpoint {
 }
 
 type endpointRuntimeManager struct {
-	mu            sync.Mutex
-	listenAddress string
-	proxyToken    string
-	forward       http.Handler
-	reverse       http.Handler
-	apiHandler    http.Handler
-	tokenAPI      http.Handler
-	socks5        inboundConnHandler
-	metricsSink   proxy.MetricsEventSink
-	runtimes      map[string]*managedEndpointRuntime
-	statuses      map[string]service.EndpointRuntimeStatus
-	started       bool
-	stopping      bool
-	serverErrCh   chan error
+	mu                        sync.Mutex
+	listenAddress             string
+	proxyToken                string
+	forward                   http.Handler
+	reverse                   http.Handler
+	apiHandler                http.Handler
+	tokenAPI                  http.Handler
+	publicSubscriptionHandler http.Handler
+	socks5                    inboundConnHandler
+	metricsSink               proxy.MetricsEventSink
+	runtimes                  map[string]*managedEndpointRuntime
+	statuses                  map[string]service.EndpointRuntimeStatus
+	started                   bool
+	stopping                  bool
+	serverErrCh               chan error
 }
 
 func newEndpointRuntimeManager(
@@ -57,20 +58,29 @@ func newEndpointRuntimeManager(
 	forward, reverse, apiHandler, tokenAPI http.Handler,
 	socks5 inboundConnHandler,
 	metricsSink proxy.MetricsEventSink,
+	publicSubscriptionHandlers ...http.Handler,
 ) *endpointRuntimeManager {
 	return &endpointRuntimeManager{
-		listenAddress: listenAddress,
-		proxyToken:    proxyToken,
-		forward:       forward,
-		reverse:       reverse,
-		apiHandler:    apiHandler,
-		tokenAPI:      tokenAPI,
-		socks5:        socks5,
-		metricsSink:   metricsSink,
-		runtimes:      make(map[string]*managedEndpointRuntime),
-		statuses:      make(map[string]service.EndpointRuntimeStatus),
-		serverErrCh:   make(chan error, 1),
+		listenAddress:             listenAddress,
+		proxyToken:                proxyToken,
+		forward:                   forward,
+		reverse:                   reverse,
+		apiHandler:                apiHandler,
+		tokenAPI:                  tokenAPI,
+		publicSubscriptionHandler: firstHandler(publicSubscriptionHandlers),
+		socks5:                    socks5,
+		metricsSink:               metricsSink,
+		runtimes:                  make(map[string]*managedEndpointRuntime),
+		statuses:                  make(map[string]service.EndpointRuntimeStatus),
+		serverErrCh:               make(chan error, 1),
 	}
+}
+
+func firstHandler(handlers []http.Handler) http.Handler {
+	if len(handlers) > 0 && handlers[0] != nil {
+		return handlers[0]
+	}
+	return http.NotFoundHandler()
 }
 
 func (m *endpointRuntimeManager) ApplyEndpoint(endpoint model.Endpoint) error {
@@ -114,6 +124,7 @@ func (m *endpointRuntimeManager) ApplyEndpoint(endpoint model.Endpoint) error {
 		m.reverse,
 		m.apiHandler,
 		m.tokenAPI,
+		m.publicSubscriptionHandler,
 	)
 	runtime.server = newInboundDemuxServer(
 		&http.Server{Handler: httpHandler},

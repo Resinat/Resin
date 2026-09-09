@@ -1,9 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +17,7 @@ import (
 	"github.com/Resinat/Resin/internal/model"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
+	"github.com/Resinat/Resin/internal/routing"
 	"github.com/Resinat/Resin/internal/state"
 )
 
@@ -27,6 +33,9 @@ type PlatformResponse struct {
 	RegexFilters                     []string `json:"regex_filters"`
 	RegionFilters                    []string `json:"region_filters"`
 	RoutableNodeCount                int      `json:"routable_node_count"`
+	EgressIPCount                    int      `json:"egress_ip_count"`
+	ActiveLeaseCount                 int      `json:"active_lease_count"`
+	IsBuiltin                        bool     `json:"is_builtin"`
 	ReverseProxyMissAction           string   `json:"reverse_proxy_miss_action"`
 	ReverseProxyEmptyAccountBehavior string   `json:"reverse_proxy_empty_account_behavior"`
 	ReverseProxyFixedAccountHeader   string   `json:"reverse_proxy_fixed_account_header"`
@@ -45,6 +54,9 @@ func platformToResponse(p model.Platform) PlatformResponse {
 		RegexFilters:                     append([]string(nil), p.RegexFilters...),
 		RegionFilters:                    append([]string(nil), p.RegionFilters...),
 		RoutableNodeCount:                0,
+		EgressIPCount:                    0,
+		ActiveLeaseCount:                 0,
+		IsBuiltin:                        false,
 		ReverseProxyMissAction:           p.ReverseProxyMissAction,
 		ReverseProxyEmptyAccountBehavior: behavior,
 		ReverseProxyFixedAccountHeader:   fixedHeader,
@@ -54,15 +66,43 @@ func platformToResponse(p model.Platform) PlatformResponse {
 	}
 }
 
-func (s *ControlPlaneService) withRoutableNodeCount(resp PlatformResponse) PlatformResponse {
-	if s == nil || s.Pool == nil {
+func (s *ControlPlaneService) withPlatformRuntimeStats(resp PlatformResponse) PlatformResponse {
+	resp.IsBuiltin = resp.ID == platform.DefaultPlatformID ||
+		(s != nil && s.EnvCfg != nil && s.EnvCfg.FreePortStart > 0 &&
+			s.EnvCfg.FreePortPlatform != "" && resp.Name == s.EnvCfg.FreePortPlatform)
+
+	if s == nil {
 		return resp
 	}
-	plat, ok := s.Pool.GetPlatform(resp.ID)
-	if !ok || plat == nil {
-		return resp
+
+	if s.Pool != nil {
+		plat, ok := s.Pool.GetPlatform(resp.ID)
+		if ok && plat != nil {
+			seen := make(map[netip.Addr]struct{})
+			view := plat.View()
+			resp.RoutableNodeCount = view.Size()
+			view.Range(func(h node.Hash) bool {
+				entry, ok := s.Pool.GetEntry(h)
+				if !ok || entry == nil {
+					return true
+				}
+				ip := entry.GetEgressIP()
+				if ip.IsValid() {
+					seen[ip] = struct{}{}
+				}
+				return true
+			})
+			resp.EgressIPCount = len(seen)
+		}
 	}
-	resp.RoutableNodeCount = plat.View().Size()
+
+	if s.Router != nil {
+		s.Router.RangeLeases(resp.ID, func(_ string, _ routing.Lease) bool {
+			resp.ActiveLeaseCount++
+			return true
+		})
+	}
+
 	return resp
 }
 
@@ -297,7 +337,7 @@ func (s *ControlPlaneService) ListPlatforms() ([]PlatformResponse, error) {
 	}
 	resp := make([]PlatformResponse, len(platforms))
 	for i, p := range platforms {
-		resp[i] = s.withRoutableNodeCount(platformToResponse(p))
+		resp[i] = s.withPlatformRuntimeStats(platformToResponse(p))
 	}
 	return resp, nil
 }
@@ -319,7 +359,7 @@ func (s *ControlPlaneService) GetPlatform(id string) (*PlatformResponse, error) 
 	if err != nil {
 		return nil, err
 	}
-	r := s.withRoutableNodeCount(platformToResponse(*mp))
+	r := s.withPlatformRuntimeStats(platformToResponse(*mp))
 	return &r, nil
 }
 
@@ -407,7 +447,7 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 	s.Pool.RebuildPlatform(plat)
 	s.Pool.RegisterPlatform(plat)
 
-	r := s.withRoutableNodeCount(platformToResponse(mp))
+	r := s.withPlatformRuntimeStats(platformToResponse(mp))
 	return &r, nil
 }
 
@@ -467,7 +507,6 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	} else if ok {
 		cfg.RegexFilters = filters
 	}
-
 	regionFiltersPatched := false
 	if filters, ok, err := patch.optionalStringSlice("region_filters"); err != nil {
 		return nil, err
@@ -522,7 +561,7 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 		return nil, internal("replace platform in pool", err)
 	}
 
-	r := s.withRoutableNodeCount(platformToResponse(mp))
+	r := s.withPlatformRuntimeStats(platformToResponse(mp))
 	return &r, nil
 }
 
@@ -562,7 +601,7 @@ func (s *ControlPlaneService) ResetPlatformToDefault(id string) (*PlatformRespon
 		return nil, internal("replace platform in pool", err)
 	}
 
-	r := s.withRoutableNodeCount(platformToResponse(mp))
+	r := s.withPlatformRuntimeStats(platformToResponse(mp))
 	return &r, nil
 }
 
@@ -589,28 +628,38 @@ type PlatformSpecFilter struct {
 
 // NodeSummary is the API response for a node.
 type NodeSummary struct {
-	NodeHash                         string    `json:"node_hash"`
-	CreatedAt                        string    `json:"created_at"`
-	Enabled                          bool      `json:"enabled"`
-	DisplayTag                       string    `json:"display_tag,omitempty"`
-	HasOutbound                      bool      `json:"has_outbound"`
-	LastError                        string    `json:"last_error,omitempty"`
-	CircuitOpenSince                 *string   `json:"circuit_open_since"`
-	FailureCount                     int       `json:"failure_count"`
-	EgressIP                         string    `json:"egress_ip,omitempty"`
-	Region                           string    `json:"region,omitempty"`
-	LastEgressUpdate                 string    `json:"last_egress_update,omitempty"`
-	LastLatencyProbeAttempt          string    `json:"last_latency_probe_attempt,omitempty"`
-	LastAuthorityLatencyProbeAttempt string    `json:"last_authority_latency_probe_attempt,omitempty"`
-	ReferenceLatencyMs               *float64  `json:"reference_latency_ms,omitempty"`
-	LastEgressUpdateAttempt          string    `json:"last_egress_update_attempt,omitempty"`
-	Tags                             []NodeTag `json:"tags"`
+	NodeHash                         string          `json:"node_hash"`
+	CreatedAt                        string          `json:"created_at"`
+	Enabled                          bool            `json:"enabled"`
+	ManuallyDisabled                 bool            `json:"manually_disabled"`
+	DisplayTag                       string          `json:"display_tag,omitempty"`
+	NodeType                         string          `json:"node_type,omitempty"`
+	HasOutbound                      bool            `json:"has_outbound"`
+	LastError                        string          `json:"last_error,omitempty"`
+	CircuitOpenSince                 *string         `json:"circuit_open_since"`
+	FailureCount                     int             `json:"failure_count"`
+	EgressIP                         string          `json:"egress_ip,omitempty"`
+	Region                           string          `json:"region,omitempty"`
+	LastEgressUpdate                 string          `json:"last_egress_update,omitempty"`
+	LastLatencyProbeAttempt          string          `json:"last_latency_probe_attempt,omitempty"`
+	LastAuthorityLatencyProbeAttempt string          `json:"last_authority_latency_probe_attempt,omitempty"`
+	ReferenceLatencyMs               *float64        `json:"reference_latency_ms,omitempty"`
+	LastEgressUpdateAttempt          string          `json:"last_egress_update_attempt,omitempty"`
+	LeaseCount                       int64           `json:"lease_count"`
+	Tags                             []NodeTag       `json:"tags"`
+	Outbound                         json.RawMessage `json:"outbound,omitempty"`
+	ProxyURLs                        []NodeProxyURL  `json:"proxy_urls,omitempty"`
+}
+
+type NodeProxyURL struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
 }
 
 // IsHealthyAndEnabled follows the node-summary health rule used by API/UI
 // aggregates: enabled, outbound-ready, and not circuit-open.
 func (n NodeSummary) IsHealthyAndEnabled() bool {
-	return n.Enabled && n.HasOutbound && n.CircuitOpenSince == nil
+	return n.Enabled && !n.ManuallyDisabled && n.HasOutbound && n.CircuitOpenSince == nil
 }
 
 type NodeTag struct {
@@ -625,6 +674,7 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 		NodeHash:     h.Hex(),
 		CreatedAt:    entry.CreatedAt.UTC().Format(time.RFC3339Nano),
 		Enabled:      true,
+		NodeType:     entry.OutboundType,
 		HasOutbound:  entry.HasOutbound(),
 		LastError:    entry.GetLastError(),
 		FailureCount: int(entry.FailureCount.Load()),
@@ -634,6 +684,7 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 		ns.Enabled = !s.Pool.IsNodeDisabled(h)
 		ns.DisplayTag = s.Pool.ResolveNodeDisplayTag(h)
 	}
+	ns.ManuallyDisabled = entry.IsManuallyDisabled()
 
 	if cos := entry.CircuitOpenSince.Load(); cos > 0 {
 		t := time.Unix(0, cos).UTC().Format(time.RFC3339Nano)
@@ -694,6 +745,93 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 		ns.Tags = []NodeTag{}
 	}
 	return ns
+}
+
+func (s *ControlPlaneService) nodeEntryToDetailSummary(h node.Hash, entry *node.NodeEntry) NodeSummary {
+	ns := s.nodeEntryToSummary(h, entry)
+	raw := bytes.TrimSpace(entry.RawOptions)
+	if len(raw) == 0 || !json.Valid(raw) {
+		return ns
+	}
+	ns.Outbound = append(json.RawMessage(nil), raw...)
+	ns.ProxyURLs = proxyURLsFromOutbound(raw)
+	return ns
+}
+
+type simpleProxyOutbound struct {
+	Type       string          `json:"type"`
+	Server     string          `json:"server"`
+	ServerPort uint16          `json:"server_port"`
+	Username   string          `json:"username"`
+	Password   string          `json:"password"`
+	Version    string          `json:"version"`
+	TLS        *simpleProxyTLS `json:"tls"`
+}
+
+type simpleProxyTLS struct {
+	Enabled    bool   `json:"enabled"`
+	ServerName string `json:"server_name"`
+	Insecure   bool   `json:"insecure"`
+}
+
+func proxyURLsFromOutbound(raw json.RawMessage) []NodeProxyURL {
+	var outbound simpleProxyOutbound
+	if err := json.Unmarshal(raw, &outbound); err != nil {
+		return nil
+	}
+	server := strings.TrimSpace(outbound.Server)
+	if server == "" || outbound.ServerPort == 0 {
+		return nil
+	}
+
+	switch strings.ToLower(strings.TrimSpace(outbound.Type)) {
+	case "http":
+		if outbound.TLS != nil && outbound.TLS.Enabled {
+			return []NodeProxyURL{{Type: "https", URL: buildProxyURL("https", server, outbound)}}
+		}
+		return []NodeProxyURL{{Type: "http", URL: buildProxyURL("http", server, outbound)}}
+	case "socks", "socks5":
+		if !isSocks5Version(outbound.Version) {
+			return nil
+		}
+		return []NodeProxyURL{{Type: "socks5", URL: buildProxyURL("socks5", server, outbound)}}
+	default:
+		return nil
+	}
+}
+
+func isSocks5Version(version string) bool {
+	switch strings.ToLower(strings.TrimSpace(version)) {
+	case "", "5", "5h", "socks5", "socks5h":
+		return true
+	default:
+		return false
+	}
+}
+
+func buildProxyURL(scheme string, server string, outbound simpleProxyOutbound) string {
+	u := url.URL{
+		Scheme: scheme,
+		Host:   net.JoinHostPort(server, strconv.Itoa(int(outbound.ServerPort))),
+	}
+	if outbound.Username != "" || outbound.Password != "" {
+		if outbound.Password == "" {
+			u.User = url.User(outbound.Username)
+		} else {
+			u.User = url.UserPassword(outbound.Username, outbound.Password)
+		}
+	}
+	if scheme == "https" && outbound.TLS != nil {
+		query := url.Values{}
+		if serverName := strings.TrimSpace(outbound.TLS.ServerName); serverName != "" {
+			query.Set("sni", serverName)
+		}
+		if outbound.TLS.Insecure {
+			query.Set("insecure", "true")
+		}
+		u.RawQuery = query.Encode()
+	}
+	return u.String()
 }
 
 // PreviewFilter returns nodes matching the given filter spec.

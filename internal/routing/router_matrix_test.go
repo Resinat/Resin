@@ -246,6 +246,53 @@ func TestChooseSameIPRotationCandidate_PicksLowestLatency(t *testing.T) {
 	}
 }
 
+func TestSelectIdleIPRoutePrefersLatencyThenOlderCreatedAt(t *testing.T) {
+	pool := newRouterTestPool()
+	plat := platform.NewPlatform("plat-idle-ranking", "Plat-Idle-Ranking", nil, nil)
+	pool.addPlatform(plat)
+
+	now := time.Now()
+	oldHash, oldEntry := newRoutableEntry(t, `{"id":"idle-old"}`, "198.51.100.81")
+	youngHash, youngEntry := newRoutableEntry(t, `{"id":"idle-young"}`, "198.51.100.82")
+	oldEntry.CreatedAt = now.Add(-time.Hour)
+	youngEntry.CreatedAt = now
+
+	oldEntry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+		Ewma:        80 * time.Millisecond,
+		LastUpdated: now,
+	})
+	youngEntry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+		Ewma:        20 * time.Millisecond,
+		LastUpdated: now,
+	})
+
+	pool.addEntry(oldHash, oldEntry)
+	pool.addEntry(youngHash, youngEntry)
+	pool.rebuildPlatformView(plat)
+
+	router := newTestRouter(pool, nil)
+	stats := NewIPLoadStats()
+	got, _, ok := router.selectIdleIPRoute(plat, stats, "example.com")
+	if !ok {
+		t.Fatal("expected idle IP candidate")
+	}
+	if got != youngHash {
+		t.Fatalf("expected lower-latency young node %s, got %s", youngHash.Hex(), got.Hex())
+	}
+
+	youngEntry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+		Ewma:        80 * time.Millisecond,
+		LastUpdated: now,
+	})
+	got, _, ok = router.selectIdleIPRoute(plat, stats, "example.com")
+	if !ok {
+		t.Fatal("expected idle IP candidate after latency tie")
+	}
+	if got != oldHash {
+		t.Fatalf("expected older node %s on latency tie, got %s", oldHash.Hex(), got.Hex())
+	}
+}
+
 func TestRouteRequest_SameIPRotationMissRecreatesLease(t *testing.T) {
 	pool := newRouterTestPool()
 	plat := platform.NewPlatform("plat-miss", "Plat-Miss", nil, nil)

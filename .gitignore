@@ -2,10 +2,16 @@
 .env
 sing-box-reference
 .agents
+.ace-tool/
+.claude/
+.cursor/
+.trellis/
+AGENTS.md
+data/
+start.sh
 .devcontainer
 start-instance.sh
 
 # Claude Code / OMC tooling and local runtime data
-.claude/
 .omc/
 .local/

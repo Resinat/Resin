@@ -21,6 +21,7 @@ import { useAuthStore } from "../features/auth/auth-store";
 import { getEnvConfig } from "../features/systemConfig/api";
 import { useI18n } from "../i18n";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import { ThemeToggle } from "./ThemeToggle";
 
 type NavItem = {
   label: string;
@@ -99,7 +100,7 @@ export function AppShell() {
                 </span>
               ) : null}
             </div>
-            <p className="brand-subtitle">{t("高性能粘性代理池 · 管理面板")}</p>
+            <p className="brand-subtitle">{t("粘性代理池")}</p>
           </div>
         </div>
 
@@ -153,6 +154,7 @@ export function AppShell() {
             ) : (
               <span className="sidebar-tool-spacer" aria-hidden="true" />
             )}
+            <ThemeToggle className="sidebar-locale" />
             <LanguageSwitcher className="sidebar-locale" compact />
           </div>
         </div>

@@ -96,6 +96,7 @@ func NewServerWithAddress(
 		authed.Handle("GET /api/v1/platforms/{id}/leases", HandleListLeases(cp))
 		authed.Handle("DELETE /api/v1/platforms/{id}/leases", HandleDeleteAllLeases(cp))
 		authed.Handle("GET /api/v1/platforms/{id}/leases/{account}", HandleGetLease(cp))
+		authed.Handle("PUT /api/v1/platforms/{id}/leases/{account}", HandleBindLease(cp))
 		authed.Handle("DELETE /api/v1/platforms/{id}/leases/{account}", HandleDeleteLease(cp))
 		authed.Handle("GET /api/v1/platforms/{id}/ip-load", HandleIPLoad(cp))
 
@@ -106,6 +107,7 @@ func NewServerWithAddress(
 		authed.Handle("PATCH /api/v1/subscriptions/{id}", HandleUpdateSubscription(cp))
 		authed.Handle("DELETE /api/v1/subscriptions/{id}", HandleDeleteSubscription(cp))
 		authed.Handle("POST /api/v1/subscriptions/{id}/actions/refresh", HandleRefreshSubscription(cp))
+		authed.Handle("POST /api/v1/subscriptions/{id}/actions/reset-public-token", HandleResetPublicSubscriptionToken(cp))
 		authed.Handle("POST /api/v1/subscriptions/{id}/actions/cleanup-circuit-open-nodes", HandleCleanupSubscriptionCircuitOpenNodes(cp))
 
 		// Account header rules.
@@ -118,14 +120,22 @@ func NewServerWithAddress(
 		// Nodes.
 		authed.Handle("GET /api/v1/nodes", HandleListNodes(cp))
 		authed.Handle("GET /api/v1/nodes/{hash}", HandleGetNode(cp))
+		authed.Handle("GET /api/v1/nodes/{hash}/leases", HandleListNodeLeases(cp))
 		authed.Handle("POST /api/v1/nodes/{hash}/actions/probe-egress", HandleProbeEgress(cp))
 		authed.Handle("POST /api/v1/nodes/{hash}/actions/probe-latency", HandleProbeLatency(cp))
+		authed.Handle("POST /api/v1/nodes/{hash}/actions/disable", HandleDisableNode(cp))
+		authed.Handle("POST /api/v1/nodes/{hash}/actions/enable", HandleEnableNode(cp))
+		authed.Handle("POST /api/v1/nodes/{hash}/actions/cleanup", HandleCleanupNode(cp))
 
 		// GeoIP.
 		authed.Handle("GET /api/v1/geoip/status", HandleGeoIPStatus(cp))
 		authed.Handle("GET /api/v1/geoip/lookup", HandleGeoIPLookup(cp))
 		authed.Handle("POST /api/v1/geoip/lookup", HandleGeoIPLookupPost(cp))
 		authed.Handle("POST /api/v1/geoip/actions/update-now", HandleGeoIPUpdate(cp))
+
+		// Data export / import.
+		authed.Handle("GET /api/v1/data/export", HandleExportData(cp))
+		authed.Handle("POST /api/v1/data/import", HandleImportData(cp))
 	}
 
 	// Request log endpoints (always registered if repo is available).

@@ -57,6 +57,31 @@ func TestHTTPGetViaOutbound_AllowNon200(t *testing.T) {
 	}
 }
 
+func TestHTTPGetViaOutboundWithMetadata_PreservesHeaders(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Subscription-Userinfo", "upload=1; download=2; total=3")
+		_, _ = w.Write([]byte("subscription-body"))
+	}))
+	defer srv.Close()
+
+	ob, err := (&testutil.StubOutboundBuilder{}).Build(nil)
+	if err != nil {
+		t.Fatalf("build outbound: %v", err)
+	}
+	resp, _, err := HTTPGetViaOutboundWithMetadata(context.Background(), ob, srv.URL, OutboundHTTPOptions{
+		RequireStatusOK: true,
+	})
+	if err != nil {
+		t.Fatalf("expected metadata response, got: %v", err)
+	}
+	if string(resp.Body) != "subscription-body" {
+		t.Fatalf("unexpected body %q", string(resp.Body))
+	}
+	if got := resp.Header.Get("Subscription-Userinfo"); got != "upload=1; download=2; total=3" {
+		t.Fatalf("unexpected subscription userinfo %q", got)
+	}
+}
+
 func TestConnCloseHook_CloseIsIdempotentAndConcurrentSafe(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()

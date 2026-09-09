@@ -25,7 +25,8 @@ type SubscriptionScheduler struct {
 
 	// Fetcher fetches subscription data from a URL.
 	// Defaults to downloader.Download; injectable for testing.
-	Fetcher func(url string) ([]byte, error)
+	Fetcher         func(url string) ([]byte, error)
+	MetadataFetcher func(url string) (netutil.DownloadResponse, error)
 
 	// For persistence.
 	onSubUpdated func(sub *subscription.Subscription)
@@ -39,11 +40,13 @@ type SubscriptionScheduler struct {
 
 // SchedulerConfig configures the SubscriptionScheduler.
 type SchedulerConfig struct {
-	SubManager   *SubscriptionManager
-	Pool         *GlobalNodePool
-	Downloader   netutil.Downloader               // shared downloader
-	Fetcher      func(url string) ([]byte, error) // optional, defaults to Downloader.Download
-	OnSubUpdated func(sub *subscription.Subscription)
+	SubManager *SubscriptionManager
+	Pool       *GlobalNodePool
+	Downloader netutil.Downloader               // shared downloader
+	Fetcher    func(url string) ([]byte, error) // optional, defaults to Downloader.Download
+	// MetadataFetcher is optional and preserves response headers for subscription usage.
+	MetadataFetcher func(url string) (netutil.DownloadResponse, error)
+	OnSubUpdated    func(sub *subscription.Subscription)
 	// OnSubReenabledNode is fired after false->true enabled transition.
 	OnSubReenabledNode func(hash node.Hash)
 }
@@ -65,6 +68,11 @@ func NewSubscriptionScheduler(cfg SchedulerConfig) *SubscriptionScheduler {
 		sched.Fetcher = cfg.Fetcher
 	} else {
 		sched.Fetcher = sched.fetchViaDownloader
+	}
+	if cfg.MetadataFetcher != nil {
+		sched.MetadataFetcher = cfg.MetadataFetcher
+	} else if cfg.Fetcher == nil {
+		sched.MetadataFetcher = sched.fetchViaDownloaderWithMetadata
 	}
 	return sched
 }
@@ -200,13 +208,15 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 
 	// 1. Fetch/read content (lock-free).
 	var (
-		body []byte
-		err  error
+		body     []byte
+		usage    subscription.UsageInfo
+		hasUsage bool
+		err      error
 	)
 	if attemptSourceType == subscription.SourceTypeLocal {
 		body = []byte(attemptContent)
 	} else {
-		body, err = s.Fetcher(attemptURL)
+		body, usage, hasUsage, err = s.fetchRemoteSubscription(attemptURL)
 		if err != nil {
 			s.handleUpdateFailure(sub, attemptStartedNs, attemptSeq, attemptConfigVersion, "fetch", err)
 			return
@@ -323,6 +333,12 @@ func (s *SubscriptionScheduler) UpdateSubscription(sub *subscription.Subscriptio
 		now := time.Now().UnixNano()
 		sub.LastCheckedNs.Store(now)
 		sub.LastUpdatedNs.Store(now)
+		if hasUsage {
+			usage.UpdatedAtNs = now
+			sub.SetUsage(usage)
+		} else {
+			sub.SetUsage(subscription.UsageInfo{})
+		}
 		sub.MarkAppliedAttempt(attemptSeq)
 		sub.SetLastError("")
 		applied = true
@@ -449,4 +465,35 @@ func (s *SubscriptionScheduler) RenameSubscription(sub *subscription.Subscriptio
 
 func (s *SubscriptionScheduler) fetchViaDownloader(url string) ([]byte, error) {
 	return s.downloader.Download(s.downloadCtx, url)
+}
+
+func (s *SubscriptionScheduler) fetchViaDownloaderWithMetadata(url string) (netutil.DownloadResponse, error) {
+	if downloader, ok := s.downloader.(netutil.MetadataDownloader); ok {
+		return downloader.DownloadWithMetadata(s.downloadCtx, url)
+	}
+	body, err := s.downloader.Download(s.downloadCtx, url)
+	if err != nil {
+		return netutil.DownloadResponse{}, err
+	}
+	return netutil.DownloadResponse{Body: body}, nil
+}
+
+func (s *SubscriptionScheduler) fetchRemoteSubscription(url string) ([]byte, subscription.UsageInfo, bool, error) {
+	if s.MetadataFetcher != nil {
+		resp, err := s.MetadataFetcher(url)
+		if err != nil {
+			return nil, subscription.UsageInfo{}, false, err
+		}
+		usage, ok := subscription.ParseSubscriptionUserinfo(
+			resp.Header.Get(subscription.SubscriptionUserinfoHeader),
+			0,
+		)
+		return resp.Body, usage, ok, nil
+	}
+
+	body, err := s.Fetcher(url)
+	if err != nil {
+		return nil, subscription.UsageInfo{}, false, err
+	}
+	return body, subscription.UsageInfo{}, false, nil
 }

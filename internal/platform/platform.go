@@ -120,6 +120,11 @@ func (p *Platform) evaluateNode(
 	subLookup node.SubLookupFunc,
 	geoLookup GeoLookupFunc,
 ) bool {
+	// -1. Admin manually disabled — short-circuit before any other check.
+	if entry.IsManuallyDisabled() {
+		return false
+	}
+
 	// 0. Disabled nodes are never routable.
 	if entry.IsDisabledBySubscriptions(subLookup) {
 		return false

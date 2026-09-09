@@ -1,6 +1,7 @@
 package node
 
 import (
+	"encoding/json"
 	"net/netip"
 	"regexp"
 	"testing"
@@ -8,6 +9,13 @@ import (
 
 	"github.com/Resinat/Resin/internal/testutil"
 )
+
+func TestNewNodeEntryCachesOutboundType(t *testing.T) {
+	e := NewNodeEntry(Hash{}, json.RawMessage(`{"type":" VMess "}`), time.Now(), 0)
+	if e.OutboundType != "vmess" {
+		t.Fatalf("OutboundType = %q, want vmess", e.OutboundType)
+	}
+}
 
 func TestNodeEntry_SubscriptionIDs(t *testing.T) {
 	e := NewNodeEntry(Hash{}, nil, time.Now(), 0)

@@ -202,6 +202,78 @@ func TestStickyLease_CreateAndHit(t *testing.T) {
 	}
 }
 
+func TestStickyLease_PreferIdleIPUsesEveryIdleIPBeforeRepeating(t *testing.T) {
+	pool, subMgr := setupPool(t)
+	plat, ok := pool.GetPlatform(platID)
+	if !ok {
+		t.Fatal("platform not found")
+	}
+	plat.AllocationPolicy = platform.AllocationPolicyPreferIdleIP
+
+	makeRoutableNode(t, pool, subMgr, `{"idle":"1a"}`, "10.0.0.1", "cloudflare.com", 50*time.Millisecond)
+	makeRoutableNode(t, pool, subMgr, `{"idle":"1b"}`, "10.0.0.1", "cloudflare.com", 40*time.Millisecond)
+	makeRoutableNode(t, pool, subMgr, `{"idle":"2"}`, "10.0.0.2", "cloudflare.com", 60*time.Millisecond)
+	makeRoutableNode(t, pool, subMgr, `{"idle":"3"}`, "10.0.0.3", "cloudflare.com", 70*time.Millisecond)
+
+	router := makeRouter(pool, nil)
+	seen := map[netip.Addr]bool{}
+	for _, account := range []string{"user-idle-a", "user-idle-b", "user-idle-c"} {
+		res, err := router.RouteRequest(platName, account, "example.com")
+		if err != nil {
+			t.Fatalf("route %s: %v", account, err)
+		}
+		if seen[res.EgressIP] {
+			t.Fatalf("egress IP %s repeated before all idle IPs were used", res.EgressIP)
+		}
+		seen[res.EgressIP] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("used idle IP count = %d, want 3", len(seen))
+	}
+}
+
+func TestStickyLease_PreferIdleIPConcurrentCreatesDoNotRepeatIdleIP(t *testing.T) {
+	pool, subMgr := setupPool(t)
+	plat, ok := pool.GetPlatform(platID)
+	if !ok {
+		t.Fatal("platform not found")
+	}
+	plat.AllocationPolicy = platform.AllocationPolicyPreferIdleIP
+
+	makeRoutableNode(t, pool, subMgr, `{"idle-concurrent":"1"}`, "10.0.1.1", "cloudflare.com", 50*time.Millisecond)
+	makeRoutableNode(t, pool, subMgr, `{"idle-concurrent":"2"}`, "10.0.1.2", "cloudflare.com", 50*time.Millisecond)
+	makeRoutableNode(t, pool, subMgr, `{"idle-concurrent":"3"}`, "10.0.1.3", "cloudflare.com", 50*time.Millisecond)
+
+	router := makeRouter(pool, nil)
+	var wg sync.WaitGroup
+	results := make(chan netip.Addr, 3)
+	for _, account := range []string{"concurrent-a", "concurrent-b", "concurrent-c"} {
+		wg.Add(1)
+		go func(account string) {
+			defer wg.Done()
+			res, err := router.RouteRequest(platName, account, "example.com")
+			if err != nil {
+				t.Errorf("route %s: %v", account, err)
+				return
+			}
+			results <- res.EgressIP
+		}(account)
+	}
+	wg.Wait()
+	close(results)
+
+	seen := map[netip.Addr]bool{}
+	for ip := range results {
+		if seen[ip] {
+			t.Fatalf("egress IP %s repeated during concurrent idle allocation", ip)
+		}
+		seen[ip] = true
+	}
+	if len(seen) != 3 {
+		t.Fatalf("allocated IP count = %d, want 3", len(seen))
+	}
+}
+
 func TestDeleteLease_EmitsLeaseRemoveWithLifetimeFields(t *testing.T) {
 	pool, subMgr := setupPool(t)
 	makeRoutableNode(t, pool, subMgr, `{"delete":"1"}`, "10.0.0.9", "cloudflare.com", 50*time.Millisecond)

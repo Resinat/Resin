@@ -2,6 +2,7 @@ import { apiRequest } from "../../lib/api-client";
 import type {
   EgressProbeResult,
   LatencyProbeResult,
+  NodeLease,
   NodeListQuery,
   NodeSummary,
   PageResponse,
@@ -9,9 +10,10 @@ import type {
 
 const basePath = "/api/v1/nodes";
 
-type ApiNodeSummary = Omit<NodeSummary, "tags"> & {
+type ApiNodeSummary = Omit<NodeSummary, "tags" | "lease_count"> & {
   tags?: NodeSummary["tags"] | null;
   enabled?: boolean | null;
+  manually_disabled?: boolean | null;
   display_tag?: string | null;
   last_error?: string | null;
   circuit_open_since?: string | null;
@@ -22,6 +24,7 @@ type ApiNodeSummary = Omit<NodeSummary, "tags"> & {
   last_latency_probe_attempt?: string | null;
   last_authority_latency_probe_attempt?: string | null;
   last_egress_update_attempt?: string | null;
+  lease_count?: number | null;
 };
 
 function normalizeNode(raw: ApiNodeSummary): NodeSummary {
@@ -29,6 +32,7 @@ function normalizeNode(raw: ApiNodeSummary): NodeSummary {
   const normalized: NodeSummary = {
     ...rest,
     enabled: raw.enabled !== false,
+    manually_disabled: Boolean(raw.manually_disabled),
     display_tag: raw.display_tag || "",
     tags: Array.isArray(raw.tags) ? raw.tags : [],
     last_error: raw.last_error || "",
@@ -39,6 +43,7 @@ function normalizeNode(raw: ApiNodeSummary): NodeSummary {
     last_latency_probe_attempt: raw.last_latency_probe_attempt || "",
     last_authority_latency_probe_attempt: raw.last_authority_latency_probe_attempt || "",
     last_egress_update_attempt: raw.last_egress_update_attempt || "",
+    lease_count: typeof raw.lease_count === "number" ? raw.lease_count : 0,
   };
 
   // Backend uses `omitempty`; field missing means "no reference latency".
@@ -71,6 +76,7 @@ export async function listNodes(filters: NodeListQuery): Promise<PageResponse<No
   appendIfNotEmpty("platform_id", filters.platform_id);
   appendIfNotEmpty("subscription_id", filters.subscription_id);
   appendIfNotEmpty("tag_keyword", filters.tag_keyword);
+  appendIfNotEmpty("node_type", filters.node_type);
   appendIfNotEmpty("region", filters.region?.toLowerCase());
   appendIfNotEmpty("egress_ip", filters.egress_ip);
   appendIfNotEmpty("probed_since", filters.probed_since);
@@ -83,6 +89,9 @@ export async function listNodes(filters: NodeListQuery): Promise<PageResponse<No
   }
   if (filters.enabled !== undefined) {
     query.set("enabled", String(filters.enabled));
+  }
+  if (filters.manually_disabled !== undefined) {
+    query.set("manually_disabled", String(filters.manually_disabled));
   }
 
   const data = await apiRequest<PageResponse<ApiNodeSummary>>(`${basePath}?${query.toString()}`);
@@ -105,6 +114,45 @@ export async function probeEgress(hash: string): Promise<EgressProbeResult> {
 
 export async function probeLatency(hash: string): Promise<LatencyProbeResult> {
   return apiRequest<LatencyProbeResult>(`${basePath}/${hash}/actions/probe-latency`, {
+    method: "POST",
+  });
+}
+
+export async function listNodeLeases(hash: string, platformId?: string): Promise<NodeLease[]> {
+  const query = new URLSearchParams();
+  const pid = platformId?.trim();
+  if (pid) {
+    query.set("platform_id", pid);
+  }
+  const qs = query.toString();
+  const path = qs ? `${basePath}/${hash}/leases?${qs}` : `${basePath}/${hash}/leases`;
+  const data = await apiRequest<NodeLease[] | null>(path);
+  return Array.isArray(data) ? data : [];
+}
+
+export type DisableNodeResult = {
+  released_lease_count: number;
+};
+
+export type CleanupNodeResult = {
+  evicted_subscription_count: number;
+  released_lease_count: number;
+};
+
+export async function disableNode(hash: string): Promise<DisableNodeResult> {
+  return apiRequest<DisableNodeResult>(`${basePath}/${hash}/actions/disable`, {
+    method: "POST",
+  });
+}
+
+export async function enableNode(hash: string): Promise<DisableNodeResult> {
+  return apiRequest<DisableNodeResult>(`${basePath}/${hash}/actions/enable`, {
+    method: "POST",
+  });
+}
+
+export async function cleanupNode(hash: string): Promise<CleanupNodeResult> {
+  return apiRequest<CleanupNodeResult>(`${basePath}/${hash}/actions/cleanup`, {
     method: "POST",
   });
 }

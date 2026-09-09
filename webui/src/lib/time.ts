@@ -106,7 +106,9 @@ export function formatRelativeTime(input: string | null | undefined, emptyLabel 
   }
 
   const now = new Date();
-  const diff = Math.max(0, now.getTime() - time.getTime());
+  const rawDiff = now.getTime() - time.getTime();
+  const isFuture = rawDiff < 0;
+  const diff = Math.abs(rawDiff);
 
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -116,18 +118,19 @@ export function formatRelativeTime(input: string | null | undefined, emptyLabel 
   const years = Math.floor(days / 365);
 
   if (english) {
-    if (years > 0) return `${years} year${years === 1 ? "" : "s"} ago`;
-    if (months > 0) return `${months} month${months === 1 ? "" : "s"} ago`;
-    if (days > 0) return `${days} day${days === 1 ? "" : "s"} ago`;
-    if (hours > 0) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-    if (minutes > 0) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+    if (years > 0) return isFuture ? `in ${years} year${years === 1 ? "" : "s"}` : `${years} year${years === 1 ? "" : "s"} ago`;
+    if (months > 0) return isFuture ? `in ${months} month${months === 1 ? "" : "s"}` : `${months} month${months === 1 ? "" : "s"} ago`;
+    if (days > 0) return isFuture ? `in ${days} day${days === 1 ? "" : "s"}` : `${days} day${days === 1 ? "" : "s"} ago`;
+    if (hours > 0) return isFuture ? `in ${hours} hour${hours === 1 ? "" : "s"}` : `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    if (minutes > 0) return isFuture ? `in ${minutes} minute${minutes === 1 ? "" : "s"}` : `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
     return "just now";
   }
 
-  if (years > 0) return `${years} 年前`;
-  if (months > 0) return `${months} 个月前`;
-  if (days > 0) return `${days} 天前`;
-  if (hours > 0) return `${hours} 小时前`;
-  if (minutes > 0) return `${minutes} 分钟前`;
+  const suffix = isFuture ? "后" : "前";
+  if (years > 0) return `${years} 年${suffix}`;
+  if (months > 0) return `${months} 个月${suffix}`;
+  if (days > 0) return `${days} 天${suffix}`;
+  if (hours > 0) return `${hours} 小时${suffix}`;
+  if (minutes > 0) return `${minutes} 分钟${suffix}`;
   return "刚刚";
 }

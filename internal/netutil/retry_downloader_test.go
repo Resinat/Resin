@@ -3,6 +3,7 @@ package netutil
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strconv"
 	"testing"
 	"time"
@@ -130,6 +131,40 @@ func TestRetryDownloader_RetryOnNetworkError(t *testing.T) {
 	}
 	if string(body) != "via-proxy" {
 		t.Fatalf("unexpected body %q", string(body))
+	}
+	if pickerCalls != 1 || proxyCalls != 1 {
+		t.Fatalf("expected single successful retry, got picker=%d proxy=%d", pickerCalls, proxyCalls)
+	}
+}
+
+func TestRetryDownloader_DownloadWithMetadataPreservesProxyHeaders(t *testing.T) {
+	var pickerCalls, proxyCalls int
+
+	r := &RetryDownloader{
+		Direct: downloaderFunc(func(_ context.Context, _ string) ([]byte, error) {
+			return nil, context.DeadlineExceeded
+		}),
+		NodePicker: func(_ string) (node.Hash, error) {
+			pickerCalls++
+			return node.HashFromRawOptions([]byte(`{"id":"retry-node-metadata"}`)), nil
+		},
+		ProxyFetchMetadata: func(_ context.Context, _ node.Hash, _ string) (DownloadResponse, error) {
+			proxyCalls++
+			header := http.Header{}
+			header.Set("Subscription-Userinfo", "upload=1; download=2; total=3")
+			return DownloadResponse{Body: []byte("via-proxy"), Header: header}, nil
+		},
+	}
+
+	resp, err := r.DownloadWithMetadata(context.Background(), "https://example.com")
+	if err != nil {
+		t.Fatalf("expected proxy metadata success, got %v", err)
+	}
+	if string(resp.Body) != "via-proxy" {
+		t.Fatalf("unexpected body %q", string(resp.Body))
+	}
+	if got := resp.Header.Get("Subscription-Userinfo"); got != "upload=1; download=2; total=3" {
+		t.Fatalf("unexpected subscription userinfo %q", got)
 	}
 	if pickerCalls != 1 || proxyCalls != 1 {
 		t.Fatalf("expected single successful retry, got picker=%d proxy=%d", pickerCalls, proxyCalls)
