@@ -63,6 +63,7 @@
    * 接入点可随时配置“当系统未设定代理令牌时，也强制客户端发送代理认证信息”（默认关闭）。`RESIN_PROXY_TOKEN` 非空时始终执行令牌认证；为空且此选项启用时，HTTP 正向代理缺少可解析且非空的 Basic 用户名会返回 407，SOCKS5 仅接受 `0x02` 并要求用户名和密码均非空，但不校验密码内容。空令牌下，此选项只用于强制携带身份，不构成安全认证。当启用此选项，客户端发来空认证不再视为 Default 平台请求。
 4. HTTP 正向代理：
    * 格式：`Proxy-Authorization: Basic Platform.Account:PROXY_TOKEN`（user=Platform.Account，pass=PROXY_TOKEN）；解析时先按最右侧 `:` 切 Token，再对左侧身份串按第一个出现的 `.` 或 `:` 切 `Platform` 与 `Account`。
+   * 可选请求头 `X-Resin-Account` 在代理认证成功后为缺失的 Account 提供值；若认证身份中已有 Account，则以认证中的 Account 为准。该头只用于 Resin 路由，普通 HTTP 转发到目标前会删除；HTTPS `CONNECT` 只在建隧道时消费，不会进入隧道。代理 Token 仍按原规则校验。
 5. SOCKS5 正向代理：
    * 仅支持 SOCKS5 `CONNECT`；成功后进入原始双向 TCP 隧道。
    * `RESIN_PROXY_TOKEN` 非空时，仅接受 RFC1929 用户名密码认证（method `0x02`）：`username=<Platform.Account|Platform:Account>`，`password=<PROXY_TOKEN>`。
