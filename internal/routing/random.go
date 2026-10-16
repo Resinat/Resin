@@ -37,6 +37,14 @@ func randomRoute(
 		return node.Zero, ErrNoAvailableNodes
 	}
 
+	if plat.AllocationPolicy == platform.AllocationPolicyRoundRobin {
+		h, ok := view.RoundRobinPick()
+		if !ok {
+			return node.Zero, ErrNoAvailableNodes
+		}
+		return h, nil
+	}
+
 	rng := randomRouteRNGPool.Get().(*rand.Rand)
 	defer randomRouteRNGPool.Put(rng)
 

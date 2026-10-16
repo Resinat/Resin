@@ -7,6 +7,7 @@ const (
 	AllocationPolicyBalanced         AllocationPolicy = "BALANCED"
 	AllocationPolicyPreferLowLatency AllocationPolicy = "PREFER_LOW_LATENCY"
 	AllocationPolicyPreferIdleIP     AllocationPolicy = "PREFER_IDLE_IP"
+	AllocationPolicyRoundRobin       AllocationPolicy = "ROUND_ROBIN"
 )
 
 // ParseAllocationPolicy normalizes external string input into a supported policy.
@@ -21,7 +22,7 @@ func ParseAllocationPolicy(raw string) AllocationPolicy {
 
 func (p AllocationPolicy) IsValid() bool {
 	switch p {
-	case AllocationPolicyBalanced, AllocationPolicyPreferLowLatency, AllocationPolicyPreferIdleIP:
+	case AllocationPolicyBalanced, AllocationPolicyPreferLowLatency, AllocationPolicyPreferIdleIP, AllocationPolicyRoundRobin:
 		return true
 	default:
 		return false

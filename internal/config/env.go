@@ -252,11 +252,12 @@ func LoadEnvConfig() (*EnvConfig, error) {
 	}
 	if !platform.AllocationPolicy(cfg.DefaultPlatformAllocationPolicy).IsValid() {
 		errs = append(errs, fmt.Sprintf(
-			"RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY: invalid value %q (allowed: %s, %s, %s)",
+			"RESIN_DEFAULT_PLATFORM_ALLOCATION_POLICY: invalid value %q (allowed: %s, %s, %s, %s)",
 			cfg.DefaultPlatformAllocationPolicy,
 			platform.AllocationPolicyBalanced,
 			platform.AllocationPolicyPreferLowLatency,
 			platform.AllocationPolicyPreferIdleIP,
+			platform.AllocationPolicyRoundRobin,
 		))
 	}
 	if cfg.ProbeTimeout <= 0 {
