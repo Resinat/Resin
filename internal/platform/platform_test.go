@@ -350,3 +350,62 @@ func TestPlatform_FullRebuild_ClearsOld(t *testing.T) {
 		t.Fatal("h2 should have been removed by rebuild")
 	}
 }
+
+func TestPlatform_EvaluateNode_EgressIPVersionFilter(t *testing.T) {
+	mkEntry := func(egress string) (node.Hash, *node.NodeEntry) {
+		h := makeHash(`{"type":"ss","server":"` + egress + `"}`)
+		e := makeFullyRoutableEntry(h, "sub1")
+		e.SetEgressIP(netip.MustParseAddr(egress))
+		return h, e
+	}
+	v4h, v4 := mkEntry("1.2.3.4")
+	v6h, v6 := mkEntry("2001:db8::1")
+	poolRange := func(fn func(node.Hash, *node.NodeEntry) bool) {
+		fn(v4h, v4)
+		fn(v6h, v6)
+	}
+
+	tests := []struct {
+		name      string
+		version   string
+		wantCount int
+	}{
+		{"any keeps both", "", 2},
+		{"ipv4 keeps only v4 egress", "ipv4", 1},
+		{"ipv6 keeps only v6 egress", "ipv6", 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := NewPlatform("p1", "Test", nil, nil)
+			p.EgressIPVersion = tc.version
+			p.FullRebuild(poolRange, alwaysLookup, usGeoLookup)
+			if got := p.View().Size(); got != tc.wantCount {
+				t.Fatalf("want %d routable, got %d", tc.wantCount, got)
+			}
+		})
+	}
+
+	// Exact membership check for the ipv4 case.
+	p := NewPlatform("p1", "Test", nil, nil)
+	p.EgressIPVersion = "ipv4"
+	p.FullRebuild(poolRange, alwaysLookup, usGeoLookup)
+	if !p.View().Contains(v4h) {
+		t.Fatal("ipv4 node must be routable under ipv4 filter")
+	}
+	if p.View().Contains(v6h) {
+		t.Fatal("ipv6 node must NOT be routable under ipv4 filter")
+	}
+}
+
+func TestValidateEgressIPVersion(t *testing.T) {
+	for _, ok := range []string{"", "ipv4", "ipv6"} {
+		if err := ValidateEgressIPVersion(ok); err != nil {
+			t.Fatalf("valid value %q rejected: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"ipv5", "v4", "4", "ipv44", "any"} {
+		if err := ValidateEgressIPVersion(bad); err == nil {
+			t.Fatalf("invalid value %q accepted", bad)
+		}
+	}
+}

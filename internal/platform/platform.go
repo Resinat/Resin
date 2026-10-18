@@ -40,6 +40,8 @@ type Platform struct {
 	ReverseProxyFixedAccountHeaders  []string
 	AllocationPolicy                 AllocationPolicy
 	PassiveCircuitBreakerDisabled    bool
+	// EgressIPVersion filters nodes by egress IP family: "" = any, "ipv4", "ipv6".
+	EgressIPVersion string
 
 	// Routable view & its lock.
 	// viewMu serializes both FullRebuild and NotifyDirty.
@@ -139,6 +141,17 @@ func (p *Platform) evaluateNode(
 	egressIP := entry.GetEgressIP()
 	if !egressIP.IsValid() {
 		return false
+	}
+
+	// 3b. Egress IP version filter (when configured).
+	if p.EgressIPVersion != "" {
+		is4 := egressIP.Is4() || egressIP.Is4In6()
+		if p.EgressIPVersion == "ipv4" && !is4 {
+			return false
+		}
+		if p.EgressIPVersion == "ipv6" && is4 {
+			return false
+		}
 	}
 
 	// 4. Region filter (when configured).

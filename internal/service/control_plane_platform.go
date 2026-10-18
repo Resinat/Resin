@@ -32,6 +32,7 @@ type PlatformResponse struct {
 	ReverseProxyFixedAccountHeader   string   `json:"reverse_proxy_fixed_account_header"`
 	AllocationPolicy                 string   `json:"allocation_policy"`
 	PassiveCircuitBreakerDisabled    bool     `json:"passive_circuit_breaker_disabled"`
+	EgressIPVersion                  string   `json:"egress_ip_version"`
 	UpdatedAt                        string   `json:"updated_at"`
 }
 
@@ -50,6 +51,7 @@ func platformToResponse(p model.Platform) PlatformResponse {
 		ReverseProxyFixedAccountHeader:   fixedHeader,
 		AllocationPolicy:                 p.AllocationPolicy,
 		PassiveCircuitBreakerDisabled:    p.PassiveCircuitBreakerDisabled,
+		EgressIPVersion:                  p.EgressIPVersion,
 		UpdatedAt:                        time.Unix(0, p.UpdatedAtNs).UTC().Format(time.RFC3339Nano),
 	}
 }
@@ -76,6 +78,7 @@ type platformConfig struct {
 	ReverseProxyFixedAccountHeader   string
 	AllocationPolicy                 string
 	PassiveCircuitBreakerDisabled    bool
+	EgressIPVersion                  string
 }
 
 func normalizePlatformMissAction(raw string) string {
@@ -121,6 +124,7 @@ func platformConfigFromModel(mp model.Platform) platformConfig {
 		ReverseProxyFixedAccountHeader:   normalizeHeaderFieldName(mp.ReverseProxyFixedAccountHeader),
 		AllocationPolicy:                 mp.AllocationPolicy,
 		PassiveCircuitBreakerDisabled:    mp.PassiveCircuitBreakerDisabled,
+		EgressIPVersion:                  mp.EgressIPVersion,
 	}
 }
 
@@ -136,6 +140,7 @@ func (cfg platformConfig) toModel(id string, updatedAtNs int64) model.Platform {
 		ReverseProxyFixedAccountHeader:   cfg.ReverseProxyFixedAccountHeader,
 		AllocationPolicy:                 cfg.AllocationPolicy,
 		PassiveCircuitBreakerDisabled:    cfg.PassiveCircuitBreakerDisabled,
+		EgressIPVersion:                  cfg.EgressIPVersion,
 		UpdatedAtNs:                      updatedAtNs,
 	}
 }
@@ -156,6 +161,7 @@ func (cfg platformConfig) toRuntime(id string) (*platform.Platform, error) {
 		cfg.ReverseProxyFixedAccountHeader,
 		cfg.AllocationPolicy,
 		cfg.PassiveCircuitBreakerDisabled,
+		cfg.EgressIPVersion,
 	), nil
 }
 
@@ -255,6 +261,14 @@ func setPlatformAllocationPolicy(cfg *platformConfig, policy string) *ServiceErr
 	return nil
 }
 
+func setPlatformEgressIPVersion(cfg *platformConfig, version string) *ServiceError {
+	if err := platform.ValidateEgressIPVersion(version); err != nil {
+		return invalidArg(err.Error())
+	}
+	cfg.EgressIPVersion = version
+	return nil
+}
+
 func validatePlatformConfig(cfg *platformConfig, validateRegionFilters bool) *ServiceError {
 	if validateRegionFilters {
 		if err := platform.ValidateRegionFilters(cfg.RegionFilters); err != nil {
@@ -334,6 +348,7 @@ type CreatePlatformRequest struct {
 	ReverseProxyFixedAccountHeader   *string  `json:"reverse_proxy_fixed_account_header"`
 	AllocationPolicy                 *string  `json:"allocation_policy"`
 	PassiveCircuitBreakerDisabled    *bool    `json:"passive_circuit_breaker_disabled"`
+	EgressIPVersion                  *string  `json:"egress_ip_version"`
 }
 
 // CreatePlatform creates a new platform.
@@ -390,6 +405,11 @@ func (s *ControlPlaneService) CreatePlatform(req CreatePlatformRequest) (*Platfo
 	}
 	if req.PassiveCircuitBreakerDisabled != nil {
 		cfg.PassiveCircuitBreakerDisabled = *req.PassiveCircuitBreakerDisabled
+	}
+	if req.EgressIPVersion != nil {
+		if err := setPlatformEgressIPVersion(&cfg, *req.EgressIPVersion); err != nil {
+			return nil, err
+		}
 	}
 	if err := validatePlatformConfig(&cfg, true); err != nil {
 		return nil, err
@@ -508,6 +528,13 @@ func (s *ControlPlaneService) UpdatePlatform(id string, patchJSON json.RawMessag
 	} else if ok {
 		cfg.PassiveCircuitBreakerDisabled = disabled
 	}
+	if version, ok, err := patch.optionalString("egress_ip_version"); err != nil {
+		return nil, err
+	} else if ok {
+		if err := setPlatformEgressIPVersion(&cfg, version); err != nil {
+			return nil, err
+		}
+	}
 	if err := validatePlatformConfig(&cfg, regionFiltersPatched); err != nil {
 		return nil, err
 	}
@@ -583,8 +610,9 @@ type PreviewFilterRequest struct {
 }
 
 type PlatformSpecFilter struct {
-	RegexFilters  []string `json:"regex_filters"`
-	RegionFilters []string `json:"region_filters"`
+	RegexFilters     []string `json:"regex_filters"`
+	RegionFilters    []string `json:"region_filters"`
+	EgressIPVersion  string   `json:"egress_ip_version"`
 }
 
 // NodeSummary is the API response for a node.
@@ -707,6 +735,7 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 
 	var regexFilters node.TagFilter
 	var regionFilters []string
+	var egressIPVersion string
 
 	if hasPlatformID {
 		plat, ok := s.Pool.GetPlatform(*req.PlatformID)
@@ -715,6 +744,7 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 		}
 		regexFilters = plat.RegexFilters
 		regionFilters = plat.RegionFilters
+		egressIPVersion = plat.EgressIPVersion
 	} else {
 		compiled, err := platform.CompileRegexFilters(req.PlatformSpec.RegexFilters)
 		if err != nil {
@@ -722,7 +752,11 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 		}
 		regexFilters = compiled
 		regionFilters = req.PlatformSpec.RegionFilters
+		egressIPVersion = req.PlatformSpec.EgressIPVersion
 		if err := platform.ValidateRegionFilters(regionFilters); err != nil {
+			return nil, invalidArg(err.Error())
+		}
+		if err := platform.ValidateEgressIPVersion(egressIPVersion); err != nil {
 			return nil, invalidArg(err.Error())
 		}
 	}
@@ -742,6 +776,19 @@ func (s *ControlPlaneService) PreviewFilter(req PreviewFilterRequest) ([]NodeSum
 				region = entry.GetRegion(s.GeoIP.Lookup)
 			}
 			if !platform.MatchRegionFilter(region, regionFilters) {
+				return true
+			}
+		}
+		if egressIPVersion != "" {
+			egressIP := entry.GetEgressIP()
+			if !egressIP.IsValid() {
+				return true
+			}
+			is4 := egressIP.Is4() || egressIP.Is4In6()
+			if egressIPVersion == "ipv4" && !is4 {
+				return true
+			}
+			if egressIPVersion == "ipv6" && is4 {
 				return true
 			}
 		}
