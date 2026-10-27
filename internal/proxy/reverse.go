@@ -303,7 +303,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if p.bypass != nil && p.bypass.ShouldBypass(parsed.Host) {
 		transport = p.directHTTPTransport()
 	} else {
-		routed, routeErr := resolveRoutedOutbound(p.router, p.pool, parsed.PlatformName, account, parsed.Host)
+		routed, routeErr := resolveRoutedOutbound(p.router, p.pool, parsed.PlatformName, account, parsed.Host, routeOverride{})
 		if routeErr != nil {
 			lifecycle.setProxyError(routeErr)
 			lifecycle.setHTTPStatus(routeErr.HTTPCode)

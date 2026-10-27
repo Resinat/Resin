@@ -71,12 +71,13 @@ func prepareConnectTunnel(
 	platformName string,
 	account string,
 	target string,
+	override routeOverride,
 ) tunnelPrepareResult {
 	if deps.bypass != nil && deps.bypass.ShouldBypass(target) {
 		return prepareDirectConnectTunnel(ctx, deps, target)
 	}
 
-	routed, routeErr := resolveRoutedOutbound(deps.router, deps.pool, platformName, account, target)
+	routed, routeErr := resolveRoutedOutbound(deps.router, deps.pool, platformName, account, target, override)
 	if routeErr != nil {
 		return tunnelPrepareResult{proxyErr: routeErr}
 	}

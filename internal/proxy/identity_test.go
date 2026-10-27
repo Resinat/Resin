@@ -75,6 +75,27 @@ func TestParseForwardCredentialV1(t *testing.T) {
 	}
 }
 
+func TestParseForwardCredentialV1RouteOverride(t *testing.T) {
+	override, token, plat, account := parseForwardCredentialV1RouteOverride("Node.00112233445566778899aabbccddeeff:tok")
+	if token != "tok" || plat != "" || account != "" {
+		t.Fatalf("got token=%q plat=%q account=%q, want token=%q empty identity", token, plat, account, "tok")
+	}
+	if override.NodeHash != "00112233445566778899aabbccddeeff" {
+		t.Fatalf("node hash override: got %q", override.NodeHash)
+	}
+}
+
+func TestParseForwardCredentialV1RouteOverrideNonNodeCredential(t *testing.T) {
+	override, token, plat, account := parseForwardCredentialV1RouteOverride("Default.user-a:tok")
+	if override.NodeHash != "" {
+		t.Fatalf("unexpected node hash override: %q", override.NodeHash)
+	}
+	if token != "tok" || plat != "Default" || account != "user-a" {
+		t.Fatalf("got token=%q plat=%q account=%q, want tok Default user-a", token, plat, account)
+	}
+}
+
+
 func TestParseForwardCredentialV1WhenAuthDisabled(t *testing.T) {
 	tests := []struct {
 		credential string
