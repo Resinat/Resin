@@ -270,7 +270,7 @@ export function NodesPage() {
   const [sortBy, setSortBy] = useState<NodeSortBy>("tag");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<number>(200);
+  const [pageSize, setPageSize] = useState<number>(20);
   const [selectedNodeHash, setSelectedNodeHash] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pendingEgressHashes, setPendingEgressHashes] = useState<Set<string>>(() => new Set());
