@@ -215,6 +215,11 @@ curl --proxy socks5h://127.0.0.1:2260 \
   https://api.ipify.org
 ```
 
+当认证身份中没有 Platform 时，HTTP 正向代理也可以使用
+`X-Resin-Platform` 请求头提供 Platform。如果 `Proxy-Authorization` 中
+已经包含 Platform，则以认证身份为准。该请求头只用于 Resin 路由，普通
+HTTP 转发前会删除，HTTPS `CONNECT` 只在建立隧道时使用。
+
 #### 方式二：反向代理接入（URL 携带 Account，适合简单使用/手动调试）
 你可以通过替换业务的 BaseURL 为 Resin 反代地址，将请求直接发给 Resin。
 URL 格式进阶为：`http://部署IP:2260/密码/平台.账号/协议/目标地址`：
