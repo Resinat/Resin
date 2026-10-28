@@ -1,0 +1,2 @@
+-- Irreversible migration (see 000009 up). No-op: keep the migrated schema;
+-- restoring the previous regex_filters_json format requires a pre-upgrade backup.
