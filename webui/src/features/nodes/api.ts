@@ -22,6 +22,7 @@ type ApiNodeSummary = Omit<NodeSummary, "tags"> & {
   last_latency_probe_attempt?: string | null;
   last_authority_latency_probe_attempt?: string | null;
   last_egress_update_attempt?: string | null;
+  latencies?: NodeSummary["latencies"] | null;
 };
 
 function normalizeNode(raw: ApiNodeSummary): NodeSummary {
@@ -39,6 +40,7 @@ function normalizeNode(raw: ApiNodeSummary): NodeSummary {
     last_latency_probe_attempt: raw.last_latency_probe_attempt || "",
     last_authority_latency_probe_attempt: raw.last_authority_latency_probe_attempt || "",
     last_egress_update_attempt: raw.last_egress_update_attempt || "",
+    latencies: Array.isArray(raw.latencies) ? raw.latencies : [],
   };
 
   // Backend uses `omitempty`; field missing means "no reference latency".

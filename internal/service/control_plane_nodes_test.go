@@ -298,6 +298,62 @@ func TestGetNode_ReferenceLatencyMsUsesAuthorityAverage(t *testing.T) {
 	}
 }
 
+func TestGetNode_IncludesPerDomainLatencies(t *testing.T) {
+	subMgr := topology.NewSubscriptionManager()
+	pool := newNodeListTestPool(subMgr)
+
+	sub := subscription.NewSubscription("sub-a", "sub-a", "https://example.com/a", true, false)
+	subMgr.Register(sub)
+
+	hash := addRoutableNodeForSubscription(
+		t,
+		pool,
+		sub,
+		[]byte(`{"type":"ss","server":"1.1.1.1","port":443}`),
+		"203.0.113.31",
+	)
+
+	entry, ok := pool.GetEntry(hash)
+	if !ok {
+		t.Fatalf("node %s missing", hash.Hex())
+	}
+	now := time.Date(2026, 6, 5, 1, 2, 3, 4, time.UTC)
+	entry.LatencyTable.LoadEntry("github.com", node.DomainLatencyStats{
+		Ewma:        60 * time.Millisecond,
+		LastUpdated: now,
+	})
+	entry.LatencyTable.LoadEntry("cloudflare.com", node.DomainLatencyStats{
+		Ewma:        40 * time.Millisecond,
+		LastUpdated: now.Add(time.Second),
+	})
+
+	cp := &ControlPlaneService{
+		Pool:   pool,
+		SubMgr: subMgr,
+		GeoIP:  &geoip.Service{},
+	}
+
+	got, err := cp.GetNode(hash.Hex())
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if len(got.Latencies) != 3 {
+		t.Fatalf("latencies len = %d, want 3", len(got.Latencies))
+	}
+	if got.Latencies[0].Domain != "cloudflare.com" || got.Latencies[0].LatencyEWMAMs != 40 {
+		t.Fatalf("first latency = %+v, want cloudflare.com/40", got.Latencies[0])
+	}
+	if got.Latencies[1].Domain != "example.com" || got.Latencies[1].LatencyEWMAMs != 25 {
+		t.Fatalf("second latency = %+v, want example.com/25", got.Latencies[1])
+	}
+	if got.Latencies[2].Domain != "github.com" || got.Latencies[2].LatencyEWMAMs != 60 {
+		t.Fatalf("third latency = %+v, want github.com/60", got.Latencies[2])
+	}
+	if got.Latencies[0].LastUpdated == "" || got.Latencies[1].LastUpdated == "" || got.Latencies[2].LastUpdated == "" {
+		t.Fatalf("last_updated should be present: %+v", got.Latencies)
+	}
+}
+
 func TestListNodes_ProbedSinceUsesLastLatencyProbeAttempt(t *testing.T) {
 	subMgr := topology.NewSubscriptionManager()
 	pool := newNodeListTestPool(subMgr)

@@ -20,7 +20,14 @@ export type NodeSummary = {
   last_latency_probe_attempt?: string;
   last_authority_latency_probe_attempt?: string;
   last_egress_update_attempt?: string;
+  latencies?: NodeLatencySummary[];
   tags: NodeTag[];
+};
+
+export type NodeLatencySummary = {
+  domain: string;
+  latency_ewma_ms: number;
+  last_updated: string;
 };
 
 export type PageResponse<T> = {
