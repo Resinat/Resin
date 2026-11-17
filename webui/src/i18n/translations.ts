@@ -337,6 +337,8 @@ Note: Once enabled, requests without authentication information are rejected ins
   "代理免认证": "No-auth proxy",
   "后端 RESIN_PROXY_TOKEN 为空，正/反向代理无需认证。":
     "Backend RESIN_PROXY_TOKEN is empty; forward/reverse proxy require no authentication.",
+  "Socks5h 代理走明文，无法穿过当前 HTTPS 入口；请改用 HTTP(S) 正向代理或直连 RESIN_PORT。":
+    "SOCKS5 uses plaintext and cannot traverse this HTTPS entry point; use the HTTP(S) forward proxy or connect to RESIN_PORT directly.",
   "curl 示例": "curl example",
   "目标网址": "Target URL",
   "例如 https://api.ipify.org": "e.g. https://api.ipify.org",
