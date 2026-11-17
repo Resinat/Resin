@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,7 @@ import (
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	M "github.com/sagernet/sing/common/metadata"
+	"github.com/sagernet/sing/service"
 
 	mDNS "github.com/miekg/dns"
 )
@@ -559,6 +561,9 @@ func TestSingboxBuilder_ParseExtendedProtocols(t *testing.T) {
 func TestSingboxBuilder_ParseDomainServerProtocols(t *testing.T) {
 	b := newTestSingboxBuilder(t)
 	defer b.Close()
+	// WireGuard resolves peers during Start when its optional stack is built.
+	// Keep this parsing/lifecycle fixture independent of public DNS.
+	service.MustRegister[adapter.DNSRouter](b.ctx, &domainFixtureDNSRouter{DNSRouter: b.dnsRouter})
 
 	cases := []struct {
 		name               string
@@ -632,6 +637,15 @@ func TestSingboxBuilder_ParseDomainServerProtocols(t *testing.T) {
 			}
 		})
 	}
+}
+
+type domainFixtureDNSRouter struct{ adapter.DNSRouter }
+
+func (r *domainFixtureDNSRouter) Lookup(ctx context.Context, domain string, options adapter.DNSQueryOptions) ([]netip.Addr, error) {
+	if domain == "wg.example.com" {
+		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
+	}
+	return r.DNSRouter.Lookup(ctx, domain, options)
 }
 
 func TestSingboxBuilder_UnknownType(t *testing.T) {

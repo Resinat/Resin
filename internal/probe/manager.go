@@ -1,6 +1,7 @@
 package probe
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/routing"
 	"github.com/Resinat/Resin/internal/scanloop"
 	"github.com/Resinat/Resin/internal/topology"
 	"github.com/puzpuzpuz/xsync/v4"
@@ -23,8 +25,10 @@ type Fetcher func(hash node.Hash, url string) (body []byte, latency time.Duratio
 // ProbeConfig configures the ProbeManager.
 // Field names align 1:1 with RuntimeConfig to prevent mis-wiring.
 type ProbeConfig struct {
-	Pool        *topology.GlobalNodePool
-	Concurrency int // number of async probe workers
+	// EnsureOutbound runs in the bounded probe workers, outside subscription locks.
+	EnsureOutbound func(node.Hash)
+	Pool           *topology.GlobalNodePool
+	Concurrency    int // number of async probe workers
 	// QueueCapacity is the per-priority async queue capacity.
 	// If <= 0, defaults to max(1024, Concurrency*4).
 	QueueCapacity int
@@ -53,14 +57,15 @@ type ProbeConfig struct {
 // ProbeManager schedules and executes active probes against nodes in the pool.
 // It holds a direct reference to *topology.GlobalNodePool (no interface).
 type ProbeManager struct {
-	pool        *topology.GlobalNodePool
-	stopCh      chan struct{}
-	stopOnce    sync.Once
-	wg          sync.WaitGroup
-	fetcher     Fetcher
-	workerCount int
-	taskQueue   *probeTaskQueue
-	taskStates  *xsync.Map[probeTaskKey, *probeTaskState]
+	ensureOutbound func(node.Hash)
+	pool           *topology.GlobalNodePool
+	stopCh         chan struct{}
+	stopOnce       sync.Once
+	wg             sync.WaitGroup
+	fetcher        Fetcher
+	workerCount    int
+	taskQueue      *probeTaskQueue
+	taskStates     *xsync.Map[probeTaskKey, *probeTaskState]
 
 	maxEgressTestInterval           func() time.Duration
 	maxLatencyTestInterval          func() time.Duration
@@ -258,6 +263,7 @@ func NewProbeManager(cfg ProbeConfig) *ProbeManager {
 	}
 
 	return &ProbeManager{
+		ensureOutbound:                  cfg.EnsureOutbound,
 		pool:                            cfg.Pool,
 		stopCh:                          make(chan struct{}),
 		fetcher:                         cfg.Fetcher,
@@ -328,6 +334,24 @@ func (m *ProbeManager) TriggerImmediateLatencyProbe(hash node.Hash) {
 	m.enqueueProbe(hash, probeTaskKindLatency, probePriorityNormal)
 }
 
+// TriggerChainRecovery runs only when a transport's global relay set changes
+// from empty to available. Work is deduplicated by the bounded probe queue.
+func (m *ProbeManager) TriggerChainRecovery() {
+	m.pool.RangeNodes(func(hash node.Hash, entry *node.NodeEntry) bool {
+		if entry.RoutingRole() == node.RoleChain && (entry.IsCircuitOpen() || !entry.HasOutbound()) {
+			// A saturated queue must not postpone recovery until the long probe
+			// interval. Keep rejected work eligible for the next periodic scan.
+			if !m.enqueueProbe(hash, probeTaskKindEgress, probePriorityNormal) {
+				entry.LastEgressUpdateAttempt.Store(0)
+			}
+			if !m.enqueueProbe(hash, probeTaskKindLatency, probePriorityNormal) {
+				entry.LastLatencyProbeAttempt.Store(0)
+			}
+		}
+		return true
+	})
+}
+
 // EgressProbeResult holds the results of a synchronous egress probe.
 type EgressProbeResult struct {
 	EgressIP      string  `json:"egress_ip"`
@@ -351,7 +375,10 @@ func (m *ProbeManager) ProbeEgressSync(hash node.Hash) (*EgressProbeResult, erro
 	if !ok {
 		return nil, fmt.Errorf("node not found")
 	}
-	if entry.Outbound.Load() == nil {
+	if m.ensureOutbound != nil {
+		m.ensureOutbound(hash)
+	}
+	if !entry.HasOutbound() {
 		return nil, fmt.Errorf("node outbound not ready")
 	}
 
@@ -402,7 +429,10 @@ func (m *ProbeManager) ProbeLatencySync(hash node.Hash) (*LatencyProbeResult, er
 	if !ok {
 		return nil, fmt.Errorf("node not found")
 	}
-	if entry.Outbound.Load() == nil {
+	if m.ensureOutbound != nil {
+		m.ensureOutbound(hash)
+	}
+	if !entry.HasOutbound() {
 		return nil, fmt.Errorf("node outbound not ready")
 	}
 
@@ -453,7 +483,7 @@ func (m *ProbeManager) scanEgress() {
 			return true // disabled node -> skip periodic probe
 		}
 
-		if entry.Outbound.Load() == nil {
+		if entry.Outbound.Load() == nil && m.ensureOutbound == nil {
 			return true // skip nil outbound
 		}
 
@@ -501,7 +531,7 @@ func (m *ProbeManager) scanLatency() {
 			return true // disabled node -> skip periodic probe
 		}
 
-		if entry.Outbound.Load() == nil {
+		if entry.Outbound.Load() == nil && m.ensureOutbound == nil {
 			return true // skip nil outbound
 		}
 
@@ -534,10 +564,23 @@ func (m *ProbeManager) runProbeWorker() {
 
 func (m *ProbeManager) executeTask(task probeTask) {
 	entry, ok := m.pool.GetEntry(task.key.hash)
-	if !ok || entry.Outbound.Load() == nil {
+	if !ok {
 		return
 	}
 	if entry.IsDisabledBySubscriptions(m.pool.MakeSubLookup()) {
+		return
+	}
+	if m.ensureOutbound != nil {
+		m.ensureOutbound(task.key.hash)
+	}
+	if !entry.HasOutbound() {
+		// A failed initialization still counts as a scheduling attempt. Relay
+		// availability events can retry sooner without a per-tick busy loop.
+		f := node.Feedback{Egress: task.key.kind == probeTaskKindEgress}
+		if !f.Egress {
+			f.Target = m.currentLatencyTestURL()
+		}
+		m.pool.ApplyFeedback(task.key.hash, entry.RoutingVersion(), f)
 		return
 	}
 
@@ -782,39 +825,58 @@ func (m *ProbeManager) probeLatency(hash node.Hash, entry *node.NodeEntry, testU
 }
 
 func (m *ProbeManager) performEgressProbe(hash node.Hash) (netip.Addr, egressProbeErrorStage, error) {
+	entry, ok := m.pool.GetEntry(hash)
+	if !ok {
+		return netip.Addr{}, egressProbeFetchError, fmt.Errorf("node not found")
+	}
+	version := entry.RoutingVersion()
 	body, latency, err := m.fetcher(hash, egressTraceURL)
+	message := ""
+	success := err == nil
+	f := node.Feedback{Egress: true, LastError: &message}
 	if err != nil {
-		m.pool.RecordResult(hash, false)
-		m.pool.UpdateNodeEgressIP(hash, nil, nil)
+		message = err.Error()
+		if !errors.Is(err, routing.ErrNoAvailableRelay) {
+			f.Result = &success
+		}
+		m.pool.ApplyFeedback(hash, version, f)
 		return netip.Addr{}, egressProbeFetchError, err
 	}
-
-	m.pool.RecordResult(hash, true)
-	if latency > 0 {
-		m.pool.RecordLatency(hash, egressTraceDomain, &latency)
-	}
-
+	f.Result = &success
+	f.Target = egressTraceDomain
+	f.Latency = &latency
 	ip, loc, err := ParseCloudflareTrace(body)
+	if err == nil {
+		f.IP = &ip
+		f.Region = loc
+	}
+	m.pool.ApplyFeedback(hash, version, f)
 	if err != nil {
-		m.pool.UpdateNodeEgressIP(hash, nil, nil)
 		return netip.Addr{}, egressProbeParseError, err
 	}
-	m.pool.UpdateNodeEgressIP(hash, &ip, loc)
 	return ip, egressProbeNoError, nil
 }
-
 func (m *ProbeManager) performLatencyProbe(hash node.Hash, testURL string) error {
-	domain := netutil.ExtractDomain(testURL)
-	_, latency, err := m.fetcher(hash, testURL)
-	if err != nil {
-		m.pool.RecordResult(hash, false)
-		m.pool.RecordLatency(hash, domain, nil)
-		return err
+	entry, ok := m.pool.GetEntry(hash)
+	if !ok {
+		return fmt.Errorf("node not found")
 	}
-
-	m.pool.RecordResult(hash, true)
-	m.pool.RecordLatency(hash, domain, &latency)
-	return nil
+	version := entry.RoutingVersion()
+	_, latency, err := m.fetcher(hash, testURL)
+	message := ""
+	success := err == nil
+	f := node.Feedback{Target: netutil.ExtractDomain(testURL), LastError: &message}
+	if err != nil {
+		message = err.Error()
+		if !errors.Is(err, routing.ErrNoAvailableRelay) {
+			f.Result = &success
+		}
+	} else {
+		f.Result = &success
+		f.Latency = &latency
+	}
+	m.pool.ApplyFeedback(hash, version, f)
+	return err
 }
 
 func (m *ProbeManager) currentLatencyTestURL() string {

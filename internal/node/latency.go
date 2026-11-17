@@ -199,6 +199,26 @@ func (t *LatencyTable) Range(fn func(domain string, stats DomainLatencyStats) bo
 // background resources and Close is a no-op.
 func (t *LatencyTable) Close() {}
 
+// Clear invalidates measurements after the node's outbound mode changes.
+func (t *LatencyTable) Clear() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var domains []string
+	for i := range t.authorities {
+		if t.authorities[i].occupied {
+			domains = append(domains, t.authorities[i].domain)
+		}
+		t.authorities[i] = latencySlot{}
+	}
+	for i := range t.regular {
+		if t.regular[i].occupied {
+			domains = append(domains, t.regular[i].domain)
+		}
+		t.regular[i] = latencySlot{}
+	}
+	return domains
+}
+
 func (t *LatencyTable) totalSizeLocked() int {
 	count := 0
 	for i := range t.authorities {

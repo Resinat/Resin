@@ -126,6 +126,8 @@ type Subscription struct {
 	enabled               bool
 	ephemeral             bool
 	incrementalAliveNodes bool
+	chainProxy            bool
+	chainRelay            bool
 	// ephemeralNodeEvictDelayNs is the per-subscription eviction delay for
 	// circuit-broken nodes when Ephemeral is enabled.
 	ephemeralNodeEvictDelayNs int64
@@ -193,6 +195,22 @@ func (s *Subscription) WithOpLock(fn func()) {
 	s.opMu.Lock()
 	defer s.opMu.Unlock()
 	fn()
+}
+
+// ChainConfig returns both mutually exclusive settings from one snapshot.
+func (s *Subscription) ChainConfig() (proxy, relay bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.chainProxy, s.chainRelay
+}
+
+func (s *Subscription) SetChainConfig(proxy, relay bool) {
+	if proxy && relay {
+		panic("subscription: chain_proxy and chain_relay are mutually exclusive")
+	}
+	s.mu.Lock()
+	s.chainProxy, s.chainRelay = proxy, relay
+	s.mu.Unlock()
 }
 
 // URL returns the subscription source URL (thread-safe).

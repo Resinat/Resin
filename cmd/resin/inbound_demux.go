@@ -89,7 +89,6 @@ func (s *inboundDemuxServer) Serve(ln net.Listener) error {
 		}
 		go s.handleAcceptedConn(conn)
 	}
-	return nil
 }
 
 func inboundDemuxAcceptRetryDelay(err error, prev time.Duration) (time.Duration, bool) {

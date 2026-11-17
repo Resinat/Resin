@@ -19,7 +19,8 @@ type ProxyError struct {
 
 // Predefined proxy errors aligned with DESIGN.md error specification.
 var (
-	ErrAuthRequired = &ProxyError{
+	ErrNoAvailableRelay = &ProxyError{HTTPCode: http.StatusServiceUnavailable, ResinError: "NO_AVAILABLE_RELAY", Message: "No healthy compatible chain relay"}
+	ErrAuthRequired     = &ProxyError{
 		HTTPCode:   http.StatusProxyAuthRequired,
 		ResinError: "AUTH_REQUIRED",
 		Message:    "Proxy authentication required",
@@ -101,6 +102,9 @@ func classifyUpstreamError(err error) *ProxyError {
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, routing.ErrNoAvailableRelay) {
+		return ErrNoAvailableRelay
+	}
 	// Client-initiated cancel — not a node failure.
 	if errors.Is(err, context.Canceled) {
 		return nil
@@ -120,6 +124,9 @@ func classifyUpstreamError(err error) *ProxyError {
 func classifyConnectError(err error) *ProxyError {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, routing.ErrNoAvailableRelay) {
+		return ErrNoAvailableRelay
 	}
 	if errors.Is(err, context.Canceled) {
 		return nil

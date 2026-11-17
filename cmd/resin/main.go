@@ -246,10 +246,16 @@ func newTopologyRuntime(
 		return nil, fmt.Errorf("singbox builder: %w", err)
 	}
 	outboundMgr := outbound.NewOutboundManager(pool, singboxBuilder)
+	relaySelector := routing.NewRelaySelector(pool,
+		func() []string { return runtimeConfigSnapshot(runtimeCfg).LatencyAuthorities },
+		func() time.Duration { return time.Duration(runtimeConfigSnapshot(runtimeCfg).P2CLatencyWindow) },
+	)
+	outboundMgr.SetRelayPicker(relaySelector.Pick)
 
 	probeMgr := probe.NewProbeManager(probe.ProbeConfig{
-		Pool:        pool,
-		Concurrency: envCfg.ProbeConcurrency,
+		EnsureOutbound: outboundMgr.EnsureNodeOutbound,
+		Pool:           pool,
+		Concurrency:    envCfg.ProbeConcurrency,
 		Fetcher: func(hash node.Hash, url string) ([]byte, time.Duration, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), envCfg.ProbeTimeout)
 			defer cancel()
@@ -293,6 +299,11 @@ func newTopologyRuntime(
 		// No NotifyNodeDirty here — AddNodeFromSub already notifies all platforms.
 		probeMgr.TriggerImmediateEgressProbe(hash)
 	})
+	pool.SetOnNodeModeChanged(func(hash node.Hash) {
+		probeMgr.TriggerImmediateEgressProbe(hash)
+		probeMgr.TriggerImmediateLatencyProbe(hash)
+	})
+	pool.SetOnRelayAvailable(probeMgr.TriggerChainRecovery)
 	pool.SetOnNodeRemoved(func(hash node.Hash, entry *node.NodeEntry) {
 		markNodeRemovedDirty(engine, hash, entry)
 		outboundMgr.RemoveNodeOutbound(entry)
@@ -364,6 +375,7 @@ func bootstrapTopology(
 		sub.SetSourceType(ms.SourceType)
 		sub.SetContent(ms.Content)
 		sub.SetIncrementalAliveNodes(ms.IncrementalAliveNodes)
+		sub.SetChainConfig(ms.ChainProxy, ms.ChainRelay)
 		sub.SetEphemeralNodeEvictDelayNs(ms.EphemeralNodeEvictDelayNs)
 		sub.CreatedAtNs = ms.CreatedAtNs
 		sub.UpdatedAtNs = ms.UpdatedAtNs
@@ -491,46 +503,14 @@ func newFlushReaders(
 			if err != nil {
 				return nil
 			}
-			entry, ok := pool.GetEntry(h)
-			if !ok {
-				return nil
-			}
-			egressIP := entry.GetEgressIP()
-			egressStr := ""
-			if egressIP.IsValid() {
-				egressStr = egressIP.String()
-			}
-			return &model.NodeDynamic{
-				Hash:                               hash,
-				FailureCount:                       int(entry.FailureCount.Load()),
-				CircuitOpenSince:                   entry.CircuitOpenSince.Load(),
-				EgressIP:                           egressStr,
-				EgressRegion:                       entry.GetEgressRegion(),
-				EgressUpdatedAtNs:                  entry.LastEgressUpdate.Load(),
-				LastLatencyProbeAttemptNs:          entry.LastLatencyProbeAttempt.Load(),
-				LastAuthorityLatencyProbeAttemptNs: entry.LastAuthorityLatencyProbeAttempt.Load(),
-				LastEgressUpdateAttemptNs:          entry.LastEgressUpdateAttempt.Load(),
-			}
+			return pool.SnapshotNodeDynamic(h)
 		},
 		ReadNodeLatency: func(key model.NodeLatencyKey) *model.NodeLatency {
 			h, err := node.ParseHex(key.NodeHash)
 			if err != nil {
 				return nil
 			}
-			entry, ok := pool.GetEntry(h)
-			if !ok || entry.LatencyTable == nil {
-				return nil
-			}
-			stats, ok := entry.LatencyTable.GetDomainStats(key.Domain)
-			if !ok {
-				return nil
-			}
-			return &model.NodeLatency{
-				NodeHash:      key.NodeHash,
-				Domain:        key.Domain,
-				EwmaNs:        int64(stats.Ewma),
-				LastUpdatedNs: stats.LastUpdated.UnixNano(),
-			}
+			return pool.SnapshotNodeLatency(h, key.Domain)
 		},
 		ReadLease: func(key model.LeaseKey) *model.Lease {
 			return router.ReadLease(key)
@@ -725,15 +705,11 @@ func loadBootstrapNodeStatics(
 			log.Printf("[bootstrap] skip node %s: %v", ns.Hash, err)
 			continue
 		}
-		entry := &node.NodeEntry{
-			Hash:       hash,
-			RawOptions: append(json.RawMessage(nil), ns.RawOptions...),
-			CreatedAt:  time.Unix(0, ns.CreatedAtNs),
-		}
+		entry := node.NewNodeEntry(hash, append(json.RawMessage(nil), ns.RawOptions...),
+			time.Unix(0, ns.CreatedAtNs), envCfg.MaxLatencyTableEntries)
 		// Bootstrap default: treat nodes as circuit-open unless a persisted
 		// nodes_dynamic row later overrides this state.
 		entry.CircuitOpenSince.Store(bootstrapNowNs)
-		entry.LatencyTable = node.NewLatencyTable(envCfg.MaxLatencyTableEntries)
 		pool.LoadNodeFromBootstrap(entry)
 		hashes = append(hashes, hash)
 	}
@@ -835,6 +811,7 @@ func restoreBootstrapNodeDynamics(
 		if !ok {
 			continue
 		}
+		entry.RestoreRoutingMode(nd.ChainProxy)
 		entry.FailureCount.Store(int32(nd.FailureCount))
 		entry.CircuitOpenSince.Store(nd.CircuitOpenSince)
 		entry.LastLatencyProbeAttempt.Store(nd.LastLatencyProbeAttemptNs)
@@ -899,6 +876,10 @@ func restoreBootstrapNodeLatencies(
 		authorities := make([]model.NodeLatency, 0, len(rows))
 		regular := make([]model.NodeLatency, 0, len(rows))
 		for _, row := range rows {
+			if row.ChainProxy != (entry.RoutingRole() == node.RoleChain) {
+				engine.MarkNodeLatencyDelete(row.NodeHash, row.Domain)
+				continue
+			}
 			if isAuthority(row.Domain) {
 				authorities = append(authorities, row)
 			} else {
@@ -956,8 +937,6 @@ func bootstrapNodes(
 		return err
 	}
 
-	warmupBootstrapOutbounds(hashes, outboundMgr)
-
 	if err := restoreBootstrapSubscriptionBindings(engine, pool, subManager); err != nil {
 		return err
 	}
@@ -972,5 +951,9 @@ func bootstrapNodes(
 	); err != nil {
 		return err
 	}
+	for _, hash := range hashes {
+		pool.ReconcileNodeRole(hash)
+	}
+	warmupBootstrapOutbounds(hashes, outboundMgr)
 	return nil
 }

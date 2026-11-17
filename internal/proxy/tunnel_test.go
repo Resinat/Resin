@@ -32,7 +32,7 @@ func TestPumpPreparedTunnelReader_FallsBackToFullCloseWhenHalfCloseUnavailable(t
 			clientConn,
 			&preparedTunnel{
 				upstreamConn: upstreamConn,
-				recordResult: func(bool) {},
+				recordResult: func(bool, error) {},
 			},
 			tunnelPumpOptions{},
 		)
@@ -128,7 +128,7 @@ func TestPumpPreparedTunnelReader_ClientReadResetAfterIngressDoesNotFail(t *test
 			proxyClientConn,
 			&preparedTunnel{
 				upstreamConn: proxyUpstreamConn,
-				recordResult: func(bool) {},
+				recordResult: func(bool, error) {},
 			},
 			tunnelPumpOptions{},
 		)

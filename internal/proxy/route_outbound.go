@@ -32,6 +32,16 @@ func resolveRoutedOutbound(
 		return routedOutbound{}, ErrNoAvailableNodes
 	}
 
+	version := result.NodeVersion
+	if ob, ok := (*obPtr).(interface{ RoutingVersion() uint64 }); ok {
+		if ob.RoutingVersion() != version {
+			return routedOutbound{}, ErrNoAvailableNodes
+		}
+	}
+	if version == 0 || version != entry.RoutingVersion() {
+		return routedOutbound{}, ErrNoAvailableNodes
+	}
+
 	return routedOutbound{
 		Route:    result,
 		Outbound: *obPtr,

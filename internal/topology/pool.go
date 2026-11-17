@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/subscription"
@@ -44,6 +43,10 @@ type GlobalNodePool struct {
 	// Health callbacks (optional).
 	onNodeDynamicChanged func(hash node.Hash)                // fired on circuit/failure/egress changes
 	onNodeLatencyChanged func(hash node.Hash, domain string) // fired on latency upserts and evictions
+	onNodeModeChanged    func(hash node.Hash)
+	onRelayAvailable     func()
+	relayViews           *xsync.Map[relayKey, *relaySet]
+	relayMembership      *xsync.Map[node.Hash, []relayKey]
 
 	// Health config
 	maxLatencyTableEntries int
@@ -96,6 +99,8 @@ func NewGlobalNodePool(cfg PoolConfig) *GlobalNodePool {
 		latencyAuthorities:     cfg.LatencyAuthorities,
 		platformByID:           make(map[string]*platform.Platform),
 		platformByName:         make(map[string]*platform.Platform),
+		relayViews:             xsync.NewMap[relayKey, *relaySet](),
+		relayMembership:        xsync.NewMap[node.Hash, []relayKey](),
 	}
 }
 
@@ -117,6 +122,7 @@ func (p *GlobalNodePool) AddNodeFromSub(hash node.Hash, rawOpts json.RawMessage,
 		return entry, xsync.UpdateOp
 	})
 
+	p.reconcileNodeRole(hash, false)
 	if isNew && p.onNodeAdded != nil {
 		p.onNodeAdded(hash)
 	}
@@ -152,6 +158,9 @@ func (p *GlobalNodePool) RemoveNodeFromSub(hash node.Hash, subID string) {
 	}
 	if wasDeleted && p.onNodeRemoved != nil {
 		p.onNodeRemoved(hash, deletedEntry)
+	}
+	if !wasDeleted {
+		p.reconcileNodeRole(hash, false)
 	}
 
 	p.notifyAllPlatformsDirty(hash)
@@ -416,6 +425,7 @@ func (p *GlobalNodePool) MakeHealthyAndEnabledEvaluator() func(entry *node.NodeE
 
 // notifyAllPlatformsDirty tells every registered platform to re-evaluate a node.
 func (p *GlobalNodePool) notifyAllPlatformsDirty(hash node.Hash) {
+	p.refreshRelay(hash)
 	platforms := p.platformSnapshot()
 	if len(platforms) == 0 {
 		return
@@ -450,6 +460,10 @@ func (p *GlobalNodePool) notifyAllPlatformsDirty(hash node.Hash) {
 
 // RebuildAllPlatforms triggers a full rebuild on all registered platforms.
 func (p *GlobalNodePool) RebuildAllPlatforms() {
+	p.RangeNodes(func(hash node.Hash, _ *node.NodeEntry) bool {
+		p.refreshRelay(hash)
+		return true
+	})
 	platforms := p.platformSnapshot()
 	if len(platforms) == 0 {
 		return
@@ -517,57 +531,14 @@ func (p *GlobalNodePool) RangeNodes(fn func(node.Hash, *node.NodeEntry) bool) {
 	p.nodes.Range(fn)
 }
 
-// RecordResult records a probe or passive health-check result.
-// On success, resets FailureCount and clears circuit-breaker.
-// On failure, increments FailureCount and opens circuit-breaker if threshold is reached.
-// Notifies platforms only when circuit state changes (open/recover).
-// Fires OnNodeDynamicChanged only when dynamic fields actually change.
+// Legacy direct callers and versioned request/probe feedback share one mutation
+// path. Only the owning pool serializes mutations; notifications run afterward.
 func (p *GlobalNodePool) RecordResult(hash node.Hash, success bool) {
-	entry, ok := p.nodes.Load(hash)
-	if !ok {
-		return
-	}
-
-	dynamicChanged := false
-	circuitStateChanged := false
-
-	if success {
-		if entry.FailureCount.Swap(0) != 0 {
-			dynamicChanged = true
-		}
-		if entry.CircuitOpenSince.Swap(0) != 0 {
-			dynamicChanged = true
-			circuitStateChanged = true
-		}
-	} else {
-		newCount := entry.FailureCount.Add(1)
-		dynamicChanged = true
-		maxConsecutiveFailures := p.currentMaxConsecutiveFailures()
-		if maxConsecutiveFailures > 0 && int(newCount) >= maxConsecutiveFailures {
-			// Open circuit if not already open.
-			if entry.CircuitOpenSince.CompareAndSwap(0, time.Now().UnixNano()) {
-				circuitStateChanged = true
-			}
-		}
-	}
-
-	if circuitStateChanged {
-		p.notifyAllPlatformsDirty(hash)
-	}
-	if dynamicChanged && p.onNodeDynamicChanged != nil {
-		p.onNodeDynamicChanged(hash)
-	}
+	p.applyFeedback(hash, 0, node.Feedback{Result: &success})
 }
-
-// RecordPassiveResult records health feedback from user proxy traffic.
-// Failed passive traffic is ignored when the originating platform disables
-// passive circuit breaking; successes still count as positive health feedback.
 func (p *GlobalNodePool) RecordPassiveResult(platformID string, hash node.Hash, success bool) {
-	if success || !p.passiveCircuitBreakerDisabled(platformID) {
-		p.RecordResult(hash, success)
-	}
+	p.applyFeedback(hash, 0, node.Feedback{Result: &success, PlatformID: platformID})
 }
-
 func (p *GlobalNodePool) passiveCircuitBreakerDisabled(platformID string) bool {
 	if platformID == "" {
 		return false
@@ -587,105 +558,11 @@ func (p *GlobalNodePool) currentMaxConsecutiveFailures() int {
 	return p.maxConsecutiveFailures()
 }
 
-// RecordLatency records a latency probe attempt for the given node and raw target.
-// rawTarget is normalized through ExtractDomain (eTLD+1). latency may be nil,
-// which means "attempt only" without latency sample writeback.
-func (p *GlobalNodePool) RecordLatency(hash node.Hash, rawTarget string, latency *time.Duration) {
-	entry, ok := p.nodes.Load(hash)
-	if !ok {
-		return
-	}
-
-	domain := netutil.ExtractDomain(rawTarget)
-	isAuthority := p.isAuthorityDomain(domain)
-	nowNs := time.Now().UnixNano()
-	entry.LastLatencyProbeAttempt.Store(nowNs)
-	if isAuthority {
-		entry.LastAuthorityLatencyProbeAttempt.Store(nowNs)
-	}
-	if p.onNodeDynamicChanged != nil {
-		p.onNodeDynamicChanged(hash)
-	}
-
-	if latency == nil || *latency <= 0 || entry.LatencyTable == nil {
-		return
-	}
-
-	var decayWindow time.Duration
-	if p.latencyDecayWindow != nil {
-		decayWindow = p.latencyDecayWindow()
-	}
-	if decayWindow <= 0 {
-		decayWindow = 30 * time.Second // default
-	}
-
-	wasEmpty, evictedDomain, evicted := entry.LatencyTable.UpdateClassified(domain, *latency, decayWindow, isAuthority)
-
-	// If the table transitioned from empty to non-empty, the node might
-	// now satisfy the HasLatency filter — notify platforms.
-	if wasEmpty {
-		p.notifyAllPlatformsDirty(hash)
-	}
-
-	if p.onNodeLatencyChanged != nil {
-		p.onNodeLatencyChanged(hash, domain)
-		if evicted {
-			p.onNodeLatencyChanged(hash, evictedDomain)
-		}
-	}
+func (p *GlobalNodePool) RecordLatency(hash node.Hash, target string, latency *time.Duration) {
+	p.applyFeedback(hash, 0, node.Feedback{Target: target, Latency: latency})
 }
-
-// UpdateNodeEgressIP records an egress probe attempt and optionally updates
-// the node's egress IP and explicit region metadata.
-// Region update rules:
-//   - ip=nil,  loc=nil: keep both IP and region unchanged.
-//   - ip!=nil, loc=nil: keep region if IP unchanged; clear region if IP changed.
-//   - loc!=nil: set region to loc (normalized).
-func (p *GlobalNodePool) UpdateNodeEgressIP(hash node.Hash, ip *netip.Addr, loc *string) {
-	entry, ok := p.nodes.Load(hash)
-	if !ok {
-		return
-	}
-
-	nowNs := time.Now().UnixNano()
-	entry.LastEgressUpdateAttempt.Store(nowNs)
-
-	oldIP := entry.GetEgressIP()
-	oldRegion := entry.GetEgressRegion()
-	ipChanged := false
-
-	if ip != nil {
-		// Record successful egress-IP sample timestamp.
-		entry.LastEgressUpdate.Store(nowNs)
-		if oldIP != *ip {
-			entry.SetEgressIP(*ip)
-			ipChanged = true
-		}
-	}
-
-	regionChanged := false
-	switch {
-	case loc != nil:
-		entry.SetEgressRegion(*loc)
-		regionChanged = oldRegion != entry.GetEgressRegion()
-	case ip == nil:
-		// Attempt-only update: keep region as-is.
-	case !ipChanged:
-		// IP unchanged and no explicit region: keep existing region.
-	default:
-		// IP changed without explicit region: clear stale region metadata.
-		if oldRegion != "" {
-			entry.SetEgressRegion("")
-			regionChanged = true
-		}
-	}
-
-	if ipChanged || regionChanged {
-		p.notifyAllPlatformsDirty(hash)
-	}
-	if p.onNodeDynamicChanged != nil {
-		p.onNodeDynamicChanged(hash)
-	}
+func (p *GlobalNodePool) UpdateNodeEgressIP(hash node.Hash, ip *netip.Addr, region *string) {
+	p.applyFeedback(hash, 0, node.Feedback{Egress: true, IP: ip, Region: region})
 }
 
 func (p *GlobalNodePool) isAuthorityDomain(domain string) bool {

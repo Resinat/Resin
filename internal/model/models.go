@@ -29,6 +29,8 @@ type Subscription struct {
 	Enabled                   bool   `json:"enabled"`
 	Ephemeral                 bool   `json:"ephemeral"`
 	IncrementalAliveNodes     bool   `json:"incremental_alive_nodes"`
+	ChainProxy                bool   `json:"chain_proxy"`
+	ChainRelay                bool   `json:"chain_relay"`
 	EphemeralNodeEvictDelayNs int64  `json:"ephemeral_node_evict_delay_ns"`
 	CreatedAtNs               int64  `json:"created_at_ns"`
 	UpdatedAtNs               int64  `json:"updated_at_ns"`
@@ -66,6 +68,7 @@ type NodeStatic struct {
 
 // NodeDynamic holds the mutable runtime state of a node.
 type NodeDynamic struct {
+	ChainProxy                         bool   `json:"chain_proxy"`
 	Hash                               string `json:"hash"`
 	FailureCount                       int    `json:"failure_count"`
 	CircuitOpenSince                   int64  `json:"circuit_open_since"`
@@ -79,6 +82,7 @@ type NodeDynamic struct {
 
 // NodeLatency holds per-domain latency statistics for a node.
 type NodeLatency struct {
+	ChainProxy    bool   `json:"chain_proxy"`
 	NodeHash      string `json:"node_hash"`
 	Domain        string `json:"domain"`
 	EwmaNs        int64  `json:"ewma_ns"`

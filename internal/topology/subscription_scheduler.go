@@ -428,6 +428,19 @@ func (s *SubscriptionScheduler) SetSubscriptionEnabled(sub *subscription.Subscri
 	}
 }
 
+// RecheckNodes schedules follow-up work after an already-published config
+// change. Callers must release the subscription operation lock first.
+func (s *SubscriptionScheduler) RecheckNodes(hashes []node.Hash) {
+	if s.onSubReenabledNode == nil {
+		return
+	}
+	for _, hash := range hashes {
+		if !s.pool.IsNodeDisabled(hash) {
+			s.onSubReenabledNode(hash)
+		}
+	}
+}
+
 // RenameSubscription updates the subscription name and re-triggers platform
 // re-evaluation for all managed nodes (since tags include the sub name).
 func (s *SubscriptionScheduler) RenameSubscription(sub *subscription.Subscription, newName string) {

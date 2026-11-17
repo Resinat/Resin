@@ -104,6 +104,8 @@ var platformPatchAllowedFields = map[string]bool{
 }
 
 var subscriptionPatchAllowedFields = map[string]bool{
+	"chain_proxy":                true,
+	"chain_relay":                true,
 	"name":                       true,
 	"url":                        true,
 	"content":                    true,

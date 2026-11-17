@@ -10,22 +10,25 @@ import (
 )
 
 type reverseLatencyReporter struct {
-	health HealthRecorder
-	hash   node.Hash
-	domain string
+	health  HealthRecorder
+	hash    node.Hash
+	domain  string
+	version uint64
 
 	requestStart time.Time
 	tlsStartUnix atomic.Int64
 	reported     atomic.Bool
 }
 
-func newReverseLatencyReporter(health HealthRecorder, hash node.Hash, domain string) *reverseLatencyReporter {
-	return &reverseLatencyReporter{
+func newReverseLatencyReporter(health HealthRecorder, hash node.Hash, domain string, version uint64) *reverseLatencyReporter {
+	reporter := &reverseLatencyReporter{
 		health:       health,
 		hash:         hash,
 		domain:       domain,
 		requestStart: time.Now(),
 	}
+	reporter.version = version
+	return reporter
 }
 
 func (r *reverseLatencyReporter) clientTrace() *httptrace.ClientTrace {
@@ -60,5 +63,5 @@ func (r *reverseLatencyReporter) reportSince(start time.Time) {
 	if latency <= 0 {
 		latency = time.Nanosecond
 	}
-	go r.health.RecordLatency(r.hash, r.domain, &latency)
+	go recordLatencyForVersion(r.health, r.hash, r.version, r.domain, &latency)
 }

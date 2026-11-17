@@ -1,30 +1,29 @@
 package proxy
 
 import (
-	"time"
-
+	"errors"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/routing"
+	"time"
 )
 
-// HealthRecorder abstracts passive health feedback reporting.
-// topology.GlobalNodePool satisfies this interface.
+// Feedback always identifies the exact outbound mode used by the request.
 type HealthRecorder interface {
-	RecordResult(hash node.Hash, success bool)
-	RecordLatency(hash node.Hash, rawTarget string, latency *time.Duration)
-}
-
-type passiveHealthRecorder interface {
-	RecordPassiveResult(platformID string, hash node.Hash, success bool)
+	ApplyFeedback(node.Hash, uint64, node.Feedback) bool
 }
 
 func recordPassiveResultAsync(health HealthRecorder, route routing.RouteResult, success bool) {
-	if health == nil {
-		return
+	if health != nil {
+		go health.ApplyFeedback(route.NodeHash, route.NodeVersion, node.Feedback{Result: &success, PlatformID: route.PlatformID})
 	}
-	if recorder, ok := health.(passiveHealthRecorder); ok {
-		go recorder.RecordPassiveResult(route.PlatformID, route.NodeHash, success)
-		return
+}
+func recordPassiveFailureAsync(health HealthRecorder, route routing.RouteResult, err error) {
+	if !errors.Is(err, routing.ErrNoAvailableRelay) {
+		recordPassiveResultAsync(health, route, false)
 	}
-	go health.RecordResult(route.NodeHash, success)
+}
+func recordLatencyForVersion(health HealthRecorder, hash node.Hash, version uint64, domain string, latency *time.Duration) {
+	if health != nil {
+		health.ApplyFeedback(hash, version, node.Feedback{Target: domain, Latency: latency})
+	}
 }

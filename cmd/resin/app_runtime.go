@@ -589,6 +589,9 @@ func (a *resinApp) shutdown(ctx context.Context) {
 	log.Println("Metrics DB closed")
 
 	// 3. Stop infrastructure.
+	if a.topoRuntime.outboundMgr != nil {
+		_ = a.topoRuntime.outboundMgr.Close()
+	}
 	if a.topoRuntime.singboxBuilder != nil {
 		if err := a.topoRuntime.singboxBuilder.Close(); err != nil {
 			log.Printf("SingboxBuilder close error: %v", err)

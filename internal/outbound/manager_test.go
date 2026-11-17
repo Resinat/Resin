@@ -441,3 +441,8 @@ func TestFetchWithUserAgent_UsesCustomHeader(t *testing.T) {
 		t.Fatalf("unexpected user-agent: got %q want %q", gotUA, customUA)
 	}
 }
+
+func (p *mockPool) PublishOutbound(entry *node.NodeEntry, version uint64, previous, next *adapter.Outbound) bool {
+	current, ok := p.GetEntry(entry.Hash)
+	return ok && current == entry && entry.RoutingVersion() == version && entry.Outbound.CompareAndSwap(previous, next)
+}

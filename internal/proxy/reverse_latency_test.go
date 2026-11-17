@@ -51,7 +51,7 @@ func expectNoExtraSample(t *testing.T, ch <-chan time.Duration) {
 
 func TestReverseLatencyReporter_FallbackOnFirstByte(t *testing.T) {
 	rec := &latencySampleRecorder{samples: make(chan time.Duration, 4)}
-	reporter := newReverseLatencyReporter(rec, node.Hash{1}, "example.com")
+	reporter := newReverseLatencyReporter(rec, node.Hash{1}, "example.com", 1)
 	trace := reporter.clientTrace()
 
 	trace.GotFirstResponseByte()
@@ -62,7 +62,7 @@ func TestReverseLatencyReporter_FallbackOnFirstByte(t *testing.T) {
 
 func TestReverseLatencyReporter_TLSPreferredAndSingleReport(t *testing.T) {
 	rec := &latencySampleRecorder{samples: make(chan time.Duration, 4)}
-	reporter := newReverseLatencyReporter(rec, node.Hash{2}, "example.com")
+	reporter := newReverseLatencyReporter(rec, node.Hash{2}, "example.com", 1)
 	trace := reporter.clientTrace()
 
 	trace.TLSHandshakeStart()
@@ -76,7 +76,7 @@ func TestReverseLatencyReporter_TLSPreferredAndSingleReport(t *testing.T) {
 
 func TestReverseLatencyReporter_TLSFailureFallsBack(t *testing.T) {
 	rec := &latencySampleRecorder{samples: make(chan time.Duration, 4)}
-	reporter := newReverseLatencyReporter(rec, node.Hash{3}, "example.com")
+	reporter := newReverseLatencyReporter(rec, node.Hash{3}, "example.com", 1)
 	trace := reporter.clientTrace()
 
 	trace.TLSHandshakeStart()
@@ -85,4 +85,9 @@ func TestReverseLatencyReporter_TLSFailureFallsBack(t *testing.T) {
 
 	expectSample(t, rec.samples)
 	expectNoExtraSample(t, rec.samples)
+}
+
+func (r *latencySampleRecorder) ApplyFeedback(hash node.Hash, _ uint64, f node.Feedback) bool {
+	r.RecordLatency(hash, f.Target, f.Latency)
+	return true
 }

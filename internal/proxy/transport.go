@@ -42,7 +42,12 @@ func normalizeOutboundTransportConfig(cfg OutboundTransportConfig) OutboundTrans
 // are reused and can be evicted on node removal.
 type OutboundTransportPool struct {
 	config     OutboundTransportConfig
-	transports *xsync.Map[node.Hash, *http.Transport]
+	transports *xsync.Map[node.Hash, outboundTransportEntry]
+}
+
+type outboundTransportEntry struct {
+	version   uint64
+	transport *http.Transport
 }
 
 func newOutboundTransportPool() *OutboundTransportPool {
@@ -57,7 +62,7 @@ func newOutboundTransportPoolWithConfig(cfg OutboundTransportConfig) *OutboundTr
 func NewOutboundTransportPool(cfg OutboundTransportConfig) *OutboundTransportPool {
 	return &OutboundTransportPool{
 		config:     normalizeOutboundTransportConfig(cfg),
-		transports: xsync.NewMap[node.Hash, *http.Transport](),
+		transports: xsync.NewMap[node.Hash, outboundTransportEntry](),
 	}
 }
 
@@ -66,27 +71,56 @@ func (p *OutboundTransportPool) Get(
 	hash node.Hash,
 	ob adapter.Outbound,
 	sink MetricsEventSink,
-) *http.Transport {
-	transport, _ := p.transports.LoadOrCompute(hash, func() (*http.Transport, bool) {
-		return p.newReusableOutboundTransport(ob, sink), false
+) (*http.Transport, *ProxyError) {
+	current, cached := p.transports.Load(hash)
+	version := outboundRoutingVersion(ob)
+	// Preserve the lock-free cache hit for the common unchanged-mode path.
+	if cached && current.version >= version {
+		if current.version != version {
+			return nil, ErrNoAvailableNodes
+		}
+		return current.transport, nil
+	}
+	var retired *http.Transport
+	entry, _ := p.transports.Compute(hash, func(current outboundTransportEntry, loaded bool) (outboundTransportEntry, xsync.ComputeOp) {
+		if loaded && current.version >= version {
+			return current, xsync.CancelOp
+		}
+		if loaded {
+			retired = current.transport
+		}
+		return outboundTransportEntry{version: version, transport: p.newReusableOutboundTransport(ob, sink)}, xsync.UpdateOp
 	})
-	return transport
+	if retired != nil {
+		retired.CloseIdleConnections()
+	}
+	if entry.version != version {
+		return nil, ErrNoAvailableNodes
+	}
+	return entry.transport, nil
+}
+
+func outboundRoutingVersion(ob adapter.Outbound) uint64 {
+	if versioned, ok := ob.(interface{ RoutingVersion() uint64 }); ok {
+		return versioned.RoutingVersion()
+	}
+	return 0
 }
 
 // Evict closes idle connections for one node transport and removes it from pool.
 func (p *OutboundTransportPool) Evict(hash node.Hash) {
-	transport, ok := p.transports.LoadAndDelete(hash)
-	if !ok || transport == nil {
+	entry, ok := p.transports.LoadAndDelete(hash)
+	if !ok || entry.transport == nil {
 		return
 	}
-	transport.CloseIdleConnections()
+	entry.transport.CloseIdleConnections()
 }
 
 // CloseAll closes idle connections and clears all pooled transports.
 func (p *OutboundTransportPool) CloseAll() {
-	p.transports.Range(func(_ node.Hash, transport *http.Transport) bool {
-		if transport != nil {
-			transport.CloseIdleConnections()
+	p.transports.Range(func(_ node.Hash, entry outboundTransportEntry) bool {
+		if entry.transport != nil {
+			entry.transport.CloseIdleConnections()
 		}
 		return true
 	})

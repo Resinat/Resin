@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/routing"
 	"github.com/sagernet/sing-box/adapter"
 )
 
@@ -41,14 +43,29 @@ func buildOutboundSafely(builder OutboundBuilder, rawOptions json.RawMessage) (o
 	return builder.Build(rawOptions)
 }
 
-// OutboundManager manages outbound lifecycle and provides unified HTTP execution.
-type OutboundManager struct {
-	pool    PoolAccessor
-	builder OutboundBuilder
+// OutboundPool publishes a built instance under the same per-node operation
+// used for role transitions. Construction and disposal stay outside that lock.
+type OutboundPool interface {
+	PoolAccessor
+	PublishOutbound(*node.NodeEntry, uint64, *adapter.Outbound, *adapter.Outbound) bool
 }
 
-func NewOutboundManager(pool PoolAccessor, builder OutboundBuilder) *OutboundManager {
-	return &OutboundManager{pool: pool, builder: builder}
+// OutboundManager manages outbound lifecycle and provides unified HTTP execution.
+type OutboundManager struct {
+	pool      OutboundPool
+	builder   OutboundBuilder
+	pickRelay func(node.Hash, string) (node.Hash, error)
+	lifecycle atomic.Uint64
+	drained   chan struct{}
+}
+
+func NewOutboundManager(pool OutboundPool, builder OutboundBuilder) *OutboundManager {
+	return &OutboundManager{pool: pool, builder: builder, drained: make(chan struct{})}
+}
+
+// SetRelayPicker must run before starting outbound/probe workers.
+func (m *OutboundManager) SetRelayPicker(pick func(node.Hash, string) (node.Hash, error)) {
+	m.pickRelay = pick
 }
 
 func (m *OutboundManager) isLiveEntry(hash node.Hash, entry *node.NodeEntry) bool {
@@ -56,45 +73,112 @@ func (m *OutboundManager) isLiveEntry(hash node.Hash, entry *node.NodeEntry) boo
 	return ok && current == entry
 }
 
-// EnsureNodeOutbound idempotently creates and stores an outbound for a node.
-// Uses CompareAndSwap(nil, &wrapped) to guarantee only one goroutine's build
-// result is stored. Losers discard their result (stage 6 adds io.Closer release).
-func (m *OutboundManager) EnsureNodeOutbound(hash node.Hash) {
-	entry, ok := m.pool.GetEntry(hash)
-	if !ok {
-		return
-	}
-	// Fast path: already has outbound.
-	if entry.Outbound.Load() != nil {
-		return
-	}
+// EnsureNodeOutbound builds outside pool locks and publishes with CAS. A stale,
+// duplicate, removed or shutdown build is closed instead of being retained.
+const managerClosing = uint64(1) << 63
 
-	ob, err := buildOutboundSafely(m.builder, entry.RawOptions)
-	if err != nil {
-		entry.SetLastError("outbound build: " + err.Error())
-		return
-	}
-
-	// Build can race with node deletion/replacement. If this entry is no longer
-	// the pool's live value for the hash, discard the build result.
-	if !m.isLiveEntry(hash, entry) {
-		closeOutbound(ob)
-		return
-	}
-
-	if !entry.Outbound.CompareAndSwap(nil, &ob) {
-		// Another goroutine won the race. Close the losing build result.
-		closeOutbound(ob)
-		return
-	}
-
-	// Close-and-clear if the node disappeared/replaced right after CAS.
-	if !m.isLiveEntry(hash, entry) {
-		old := entry.Outbound.Swap(nil)
-		if old != nil {
-			closeOutbound(*old)
+func (m *OutboundManager) beginBuild() bool {
+	for {
+		state := m.lifecycle.Load()
+		if state&managerClosing != 0 {
+			return false
+		}
+		if m.lifecycle.CompareAndSwap(state, state+1) {
+			return true
 		}
 	}
+}
+func (m *OutboundManager) endBuild() {
+	if m.lifecycle.Add(^uint64(0)) == managerClosing {
+		close(m.drained)
+	}
+}
+func (m *OutboundManager) isClosed() bool { return m.lifecycle.Load()&managerClosing != 0 }
+func (m *OutboundManager) EnsureNodeOutbound(hash node.Hash) {
+	if !m.beginBuild() {
+		return
+	}
+	defer m.endBuild()
+	entry, ok := m.pool.GetEntry(hash)
+	if !ok || m.isClosed() {
+		return
+	}
+	version := entry.RoutingVersion()
+	previous := entry.Outbound.Load()
+	if previous != nil {
+		if n, ok := (*previous).(*nodeOutbound); !ok || (n.version == version && n.Ready()) {
+			return
+		}
+	}
+	builder := m.builder
+	chain := entry.RoutingRole() == node.RoleChain
+	if chain {
+		withDetour, ok := builder.(detourBuilder)
+		if !ok {
+			m.buildError(entry, version, errors.New("builder does not support chain proxy"))
+			return
+		}
+		d := &chainDialer{Adapter: newChainAdapter(), manager: m, landing: hash}
+		builder = builderFunc(func(raw json.RawMessage) (adapter.Outbound, error) { return withDetour.BuildWithDetour(raw, d) })
+	}
+	native, err := buildOutboundSafely(builder, entry.RawOptions)
+	if err != nil {
+		m.buildError(entry, version, err)
+		return
+	}
+	n := &nodeOutbound{Outbound: native, version: version, chain: chain, networks: relayNetworks(entry.RawOptions, native)}
+	if chain && native.Type() == "wireguard" {
+		n.checkRelay = func() error {
+			if m.pickRelay == nil {
+				return routing.ErrNoAvailableRelay
+			}
+			_, err := m.pickRelay(hash, "udp")
+			return err
+		}
+	}
+	var ob adapter.Outbound = n
+	if m.isClosed() || !m.isLiveEntry(hash, entry) || entry.RoutingVersion() != version || !m.pool.PublishOutbound(entry, version, previous, &ob) {
+		_ = n.Close()
+		return
+	}
+	if previous != nil {
+		closeOutbound(*previous)
+	}
+	if m.isClosed() || !m.isLiveEntry(hash, entry) || entry.RoutingVersion() != version {
+		entry.Outbound.CompareAndSwap(&ob, nil)
+		_ = n.Close()
+		return
+	}
+	m.notifyReady(hash)
+}
+func (m *OutboundManager) buildError(entry *node.NodeEntry, version uint64, err error) {
+	if pool, ok := m.pool.(interface {
+		ApplyFeedback(node.Hash, uint64, node.Feedback) bool
+	}); ok {
+		msg := "outbound build: " + err.Error()
+		pool.ApplyFeedback(entry.Hash, version, node.Feedback{LastError: &msg})
+	} else if m.isLiveEntry(entry.Hash, entry) && entry.RoutingVersion() == version {
+		entry.SetLastError("outbound build: " + err.Error())
+	}
+}
+
+func (m *OutboundManager) notifyReady(hash node.Hash) {
+	if pool, ok := m.pool.(interface{ NotifyNodeDirty(node.Hash) }); ok {
+		pool.NotifyNodeDirty(hash)
+	}
+}
+
+func (m *OutboundManager) Close() error {
+	previous := m.lifecycle.Or(managerClosing)
+	if previous&managerClosing == 0 && previous == 0 {
+		close(m.drained)
+	}
+	<-m.drained
+	m.pool.RangeNodes(func(_ node.Hash, entry *node.NodeEntry) bool {
+		m.RemoveNodeOutbound(entry)
+		return true
+	})
+	return nil
 }
 
 // RemoveNodeOutbound clears a node's outbound reference.
