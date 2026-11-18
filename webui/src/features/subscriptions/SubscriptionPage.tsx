@@ -646,12 +646,14 @@ export function SubscriptionPage() {
           const s = info.row.original;
           return (
             <div className="subscriptions-status-cell">
-              {s.last_error ? (
+              {!displayedEnabledState(s) ? (
+                <Badge variant="muted">{t("已禁用")}</Badge>
+              ) : s.last_error ? (
                 <Badge variant="danger">{t("错误")}</Badge>
               ) : s.last_checked ? (
                 <Badge variant="success">{t("正常")}</Badge>
               ) : (
-                <Badge variant="muted">{t("未检查")}</Badge>
+                <Badge variant="muted">{t("检查中")}</Badge>
               )}
             </div>
           );

@@ -580,7 +580,7 @@ Note: Once enabled, requests without authentication information are rejected ins
   "永久删除当前平台及其配置，操作不可撤销。":
     "Permanently delete this platform and its config. This action cannot be undone.",
   "正常": "Normal",
-  "未检查": "Not checked",
+  "检查中": "Checking",
   "正则": "Regex",
   "中文": "中文",
   "重新整理当前平台可用节点，不会修改配置。":
