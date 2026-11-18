@@ -16,6 +16,7 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
+import { readPageSize, savePageSize } from "../../lib/page-size";
 import { formatGoDuration, formatRelativeTime } from "../../lib/time";
 import { createPlatform, listPlatforms } from "./api";
 import {
@@ -44,7 +45,7 @@ export function PlatformPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<number>(24);
+  const [pageSize, setPageSize] = useState<number>(() => readPageSize("platforms", PAGE_SIZE_OPTIONS, 24));
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const { toasts, showToast, dismissToast } = useToast();
 
@@ -100,6 +101,7 @@ export function PlatformPage() {
   });
 
   const changePageSize = (next: number) => {
+    savePageSize("platforms", next);
     setPageSize(next);
     setPage(0);
   };

@@ -16,6 +16,7 @@ import { useI18n } from "../../i18n";
 import { getCurrentLocale, isEnglishLocale } from "../../i18n/locale";
 import { formatBytes } from "../../lib/bytes";
 import { formatApiErrorMessage } from "../../lib/error-message";
+import { readPageSize, savePageSize } from "../../lib/page-size";
 import { formatDateTime } from "../../lib/time";
 import { getSystemConfig } from "../systemConfig/api";
 import { getRequestLog, getRequestLogPayloads, listRequestLogs } from "./api";
@@ -405,7 +406,10 @@ function splitDateTime(input: string): { date: string; time: string } {
 
 export function RequestLogsPage() {
   const { t } = useI18n();
-  const [filters, setFilters] = useState<FilterDraft>(defaultFilters);
+  const [filters, setFilters] = useState<FilterDraft>(() => ({
+    ...defaultFilters,
+    limit: readPageSize("request-logs", PAGE_SIZE_OPTIONS, defaultFilters.limit),
+  }));
   const [debouncedTextFilters, setDebouncedTextFilters] = useState<DebouncedTextFilters>(() =>
     pickDebouncedTextFilters(defaultFilters),
   );
@@ -538,7 +542,7 @@ export function RequestLogsPage() {
   };
 
   const resetFilters = () => {
-    setFilters(defaultFilters);
+    setFilters((previous) => ({ ...defaultFilters, limit: previous.limit }));
     setDebouncedTextFilters(pickDebouncedTextFilters(defaultFilters));
     setCursorStack([""]);
     setPageIndex(0);
@@ -967,7 +971,10 @@ export function RequestLogsPage() {
           pageSize={filters.limit}
           pageSizeOptions={PAGE_SIZE_OPTIONS}
           disabled={isPageTransitioning}
-          onPageSizeChange={(limit) => updateFilter("limit", limit)}
+          onPageSizeChange={(limit) => {
+            savePageSize("request-logs", limit);
+            updateFilter("limit", limit);
+          }}
           onPrev={movePrev}
           onNext={moveNext}
         />

@@ -19,6 +19,7 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
+import { readPageSize, savePageSize } from "../../lib/page-size";
 import { formatDateTime, formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
   cleanupSubscriptionCircuitOpenNodes,
@@ -83,7 +84,7 @@ type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
 type SubscriptionChainMode = SubscriptionEditForm["chain_mode"];
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
-const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200, 500] as const;
 const LOCAL_SOURCE_UPDATE_INTERVAL = "12h";
 const SUBSCRIPTION_DISABLE_HINT = "禁用订阅后，相关节点不会参与平台路由、健康统计或自动探测。";
 const SUBSCRIPTION_EPHEMERAL_HINT = "临时订阅的非健康节点会在一段时间后被自动删除。订阅本身不会被删除。";
@@ -190,7 +191,7 @@ export function SubscriptionPage() {
   const [enabledFilter, setEnabledFilter] = useState<EnabledFilter>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<number>(20);
+  const [pageSize, setPageSize] = useState<number>(() => readPageSize("subscriptions", PAGE_SIZE_OPTIONS, 50));
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -595,6 +596,7 @@ export function SubscriptionPage() {
   }, [queryClient, showToast, t, updateSubscriptionCache]);
 
   const changePageSize = (next: number) => {
+    savePageSize("subscriptions", next);
     setPageSize(next);
     setPage(0);
   };

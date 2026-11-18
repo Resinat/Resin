@@ -18,6 +18,7 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
+import { readPageSize, savePageSize } from "../../lib/page-size";
 import { formatDateTime, formatGoDuration, formatRelativeTime } from "../../lib/time";
 import {
   clearAllPlatformLeases,
@@ -68,7 +69,7 @@ export function PlatformDetailPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<PlatformDetailTab>("monitor");
   const [leasePage, setLeasePage] = useState(0);
-  const [leasePageSize, setLeasePageSize] = useState<number>(LEASE_PAGE_SIZE_OPTIONS[0]);
+  const [leasePageSize, setLeasePageSize] = useState<number>(() => readPageSize("platform-leases", LEASE_PAGE_SIZE_OPTIONS, LEASE_PAGE_SIZE_OPTIONS[0]));
   const [leaseSearch, setLeaseSearch] = useState("");
   const [debouncedLeaseSearch, setDebouncedLeaseSearch] = useState("");
   const { toasts, showToast, dismissToast } = useToast();
@@ -313,6 +314,7 @@ export function PlatformDetailPage() {
   };
 
   const changeLeasePageSize = (next: number) => {
+    savePageSize("platform-leases", next);
     setLeasePageSize(next);
     setLeasePage(0);
   };

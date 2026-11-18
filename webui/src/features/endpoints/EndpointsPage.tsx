@@ -21,6 +21,7 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
+import { readPageSize, savePageSize } from "../../lib/page-size";
 import { createEndpoint, deleteEndpoint, listEndpoints, updateEndpoint } from "./api";
 import type { Endpoint, EndpointInput } from "./types";
 
@@ -325,7 +326,7 @@ export function EndpointsPage() {
   const queryClient = useQueryClient();
   const { toasts, showToast, dismissToast } = useToast();
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<number>(20);
+  const [pageSize, setPageSize] = useState<number>(() => readPageSize("endpoints", PAGE_SIZE_OPTIONS, 20));
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editingEndpoint, setEditingEndpoint] = useState<Endpoint | null>(null);
   const [pendingEnabledStates, setPendingEnabledStates] = useState<Map<string, boolean>>(
@@ -427,6 +428,7 @@ export function EndpointsPage() {
   };
 
   const changePageSize = (nextPageSize: number) => {
+    savePageSize("endpoints", nextPageSize);
     setPageSize(nextPageSize);
     setPage(0);
   };

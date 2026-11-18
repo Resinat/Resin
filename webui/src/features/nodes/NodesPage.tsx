@@ -14,6 +14,7 @@ import { ToastContainer } from "../../components/ui/Toast";
 import { useToast } from "../../hooks/useToast";
 import { useI18n } from "../../i18n";
 import { formatApiErrorMessage } from "../../lib/error-message";
+import { readPageSize, savePageSize } from "../../lib/page-size";
 import { formatDateTime, formatRelativeTime } from "../../lib/time";
 import { listPlatforms } from "../platforms/api";
 import type { Platform } from "../platforms/types";
@@ -270,7 +271,7 @@ export function NodesPage() {
   const [sortBy, setSortBy] = useState<NodeSortBy>("tag");
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<number>(200);
+  const [pageSize, setPageSize] = useState<number>(() => readPageSize("nodes", PAGE_SIZE_OPTIONS, 200));
   const [selectedNodeHash, setSelectedNodeHash] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [pendingEgressHashes, setPendingEgressHashes] = useState<Set<string>>(() => new Set());
@@ -515,6 +516,7 @@ export function NodesPage() {
   };
 
   const changePageSize = (next: number) => {
+    savePageSize("nodes", next);
     setPageSize(next);
     setPage(0);
   };
