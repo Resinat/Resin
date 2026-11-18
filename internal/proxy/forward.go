@@ -274,6 +274,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err != nil {
+		err = lifecycle.withRelayError(err)
 		proxyErr := classifyUpstreamError(err)
 		if proxyErr == nil {
 			// context.Canceled — skip health recording, close silently.
@@ -302,12 +303,13 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	copiedBytes, copyErr := io.Copy(w, resp.Body)
 	lifecycle.addIngressBytes(copiedBytes)
 	if copyErr != nil {
+		copyErr = lifecycle.withRelayError(copyErr)
 		if shouldRecordForwardCopyFailure(r, copyErr) {
 			lifecycle.setProxyError(ErrUpstreamRequestFailed)
 			lifecycle.setUpstreamError("forward_upstream_to_client_copy", copyErr)
 			lifecycle.setNetOK(false)
 			if hasRoute {
-				recordPassiveResultAsync(p.health, route, false)
+				recordPassiveFailureAsync(p.health, route, copyErr)
 			}
 		}
 		return
@@ -315,7 +317,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Full body transfer succeeded — count as network success even for 5xx HTTP.
 	if hasRoute {
-		recordPassiveResultAsync(p.health, route, true)
+		recordPassiveResultAsync(p.health, route, true, lifecycle.relayInfo())
 	}
 }
 

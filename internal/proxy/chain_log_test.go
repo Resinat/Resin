@@ -89,7 +89,30 @@ func TestChainRequestLogFollowsActualConnection(t *testing.T) {
 	events := newMockEventEmitter()
 	transports := newOutboundTransportPool()
 	defer transports.CloseAll()
-	fp := NewForwardProxy(ForwardProxyConfig{Router: router, Pool: pool, Events: events, TransportPool: transports})
+	recorder := &feedbackCapture{events: make(chan node.Feedback, 32)}
+	fp := NewForwardProxy(ForwardProxyConfig{Router: router, Pool: pool, Health: recorder, Events: events, TransportPool: transports})
+	checkSuccessFeedback := func(want string) {
+		t.Helper()
+		deadline := time.After(time.Second)
+		for {
+			select {
+			case f := <-recorder.events:
+				if f.Result == nil || !*f.Result {
+					continue
+				}
+				got := ""
+				if !f.Relay.Hash.IsZero() {
+					got = f.Relay.Hash.Hex()
+				}
+				if got != want || (want != "" && f.Relay.Version == 0) {
+					t.Fatalf("success used wrong relay identity: got=%+v want=%s", f.Relay, want)
+				}
+				return
+			case <-deadline:
+				t.Fatal("missing successful relay feedback")
+			}
+		}
+	}
 	transport := func() *http.Transport {
 		routed, routeErr := resolveRoutedOutbound(router, pool, "p", "", target.Listener.Addr().String())
 		if routeErr != nil {
@@ -108,7 +131,11 @@ func TestChainRequestLogFollowsActualConnection(t *testing.T) {
 		if w.Code != code {
 			t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 		}
-		return <-events.logCh
+		entry := <-events.logCh
+		if code == http.StatusOK {
+			checkSuccessFeedback(entry.RelayNodeHash)
+		}
+		return entry
 	}
 	check := func(entry RequestLogEntry, relay node.Hash, tag string) {
 		t.Helper()
@@ -143,10 +170,12 @@ func TestChainRequestLogFollowsActualConnection(t *testing.T) {
 	health(ha, false)
 	health(hb, true)
 	// CONNECT and SOCKS5 share this tunnel preparation path.
-	prepared := prepareConnectTunnel(context.Background(), tunnelDeps{router: router, pool: pool}, "p", "", target.Listener.Addr().String())
+	prepared := prepareConnectTunnel(context.Background(), tunnelDeps{router: router, pool: pool, health: recorder}, "p", "", target.Listener.Addr().String())
 	if prepared.session == nil || !prepared.route.ChainProxy || prepared.relay.Hash != hb || prepared.relay.Tag != "relay/B" {
 		t.Fatalf("tunnel lost relay: %+v", prepared)
 	}
+	prepared.session.recordResult(true, nil)
+	checkSuccessFeedback(hb.Hex())
 	prepared.session.upstreamConn.Close()
 	tr.CloseIdleConnections()
 	health(hb, false)
@@ -167,17 +196,17 @@ func TestChainRequestLogFollowsActualConnection(t *testing.T) {
 
 type logTestRelayConn struct {
 	net.Conn
-	info outbound.RelayInfo
+	info node.RelayInfo
 }
 
-func (c *logTestRelayConn) RelayInfo() outbound.RelayInfo { return c.info }
+func (c *logTestRelayConn) RelayInfo() node.RelayInfo { return c.info }
 
 func TestChainLogIgnoresNestedTransportAndClearsUnknownRetry(t *testing.T) {
 	events := newMockEventEmitter()
 	l := newRequestLifecycleFromMetadata(events, "127.0.0.1", "GET", ProxyTypeForward, false)
 	l.setRouteResult(routing.RouteResult{ChainProxy: true})
-	a := outbound.RelayInfo{Hash: node.Hash{1}, Tag: "relay/A"}
-	b := outbound.RelayInfo{Hash: node.Hash{2}, Tag: "relay/B"}
+	a := node.RelayInfo{Hash: node.Hash{1}, Tag: "relay/A"}
+	b := node.RelayInfo{Hash: node.Hash{2}, Tag: "relay/B"}
 	// TLS and traffic accounting preserve the actual connection's identity.
 	l.observeHTTPConn(tls.Client(newCountingConn(&logTestRelayConn{info: a}, newCountingConnTestSink()), &tls.Config{}))
 	trace := newUpstreamRequestTrace()

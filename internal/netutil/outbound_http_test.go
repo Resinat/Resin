@@ -24,7 +24,7 @@ func TestHTTPGetViaOutbound_RequireStatusOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build outbound: %v", err)
 	}
-	_, _, err = HTTPGetViaOutbound(context.Background(), ob, srv.URL, OutboundHTTPOptions{
+	_, err = HTTPGetViaOutbound(context.Background(), ob, srv.URL, OutboundHTTPOptions{
 		RequireStatusOK: true,
 	})
 	if err == nil {
@@ -46,14 +46,14 @@ func TestHTTPGetViaOutbound_AllowNon200(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build outbound: %v", err)
 	}
-	body, _, err := HTTPGetViaOutbound(context.Background(), ob, srv.URL, OutboundHTTPOptions{
+	result, err := HTTPGetViaOutbound(context.Background(), ob, srv.URL, OutboundHTTPOptions{
 		RequireStatusOK: false,
 	})
 	if err != nil {
 		t.Fatalf("expected non-200 response to pass through, got: %v", err)
 	}
-	if string(body) != "probe-body" {
-		t.Fatalf("unexpected body %q", string(body))
+	if string(result.Body) != "probe-body" {
+		t.Fatalf("unexpected body %q", string(result.Body))
 	}
 }
 

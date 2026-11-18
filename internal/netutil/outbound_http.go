@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/Resinat/Resin/internal/node"
 	"github.com/sagernet/sing-box/adapter"
 	M "github.com/sagernet/sing/common/metadata"
 )
@@ -36,6 +38,13 @@ type OutboundHTTPOptions struct {
 	OnConnLifecycle func(op ConnLifecycleOp)
 }
 
+// OutboundHTTPResult retains the actual connection's relay on success and failure.
+type OutboundHTTPResult struct {
+	Body    []byte
+	Latency time.Duration
+	Relay   node.RelayInfo
+}
+
 // HTTPGetViaOutbound executes an HTTP GET through the provided outbound.
 // Timeout and cancellation are controlled solely by ctx.
 func HTTPGetViaOutbound(
@@ -43,14 +52,23 @@ func HTTPGetViaOutbound(
 	outbound adapter.Outbound,
 	url string,
 	opts OutboundHTTPOptions,
-) ([]byte, time.Duration, error) {
+) (result OutboundHTTPResult, err error) {
 	if outbound == nil {
-		return nil, 0, fmt.Errorf("outbound fetch: outbound is nil")
+		return result, fmt.Errorf("outbound fetch: outbound is nil")
 	}
+	var relay atomic.Pointer[node.RelayInfo]
+	var latency atomic.Int64
+	defer func() {
+		result.Latency = time.Duration(latency.Load())
+		if info := relay.Load(); info != nil {
+			result.Relay = *info
+			err = info.WrapError(err)
+		}
+	}()
 
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := outbound.DialContext(ctx, network, M.ParseSocksaddr(addr))
+			conn, err := outbound.DialContext(WithoutHTTPTrace(ctx), network, M.ParseSocksaddr(addr))
 			if err != nil {
 				return nil, err
 			}
@@ -70,7 +88,7 @@ func HTTPGetViaOutbound(
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, 0, err
+		return result, err
 	}
 
 	userAgent := opts.UserAgent
@@ -79,13 +97,17 @@ func HTTPGetViaOutbound(
 	}
 	req.Header.Set("User-Agent", userAgent)
 
-	var start time.Time
-	var latency time.Duration
+	var start atomic.Pointer[time.Time]
 	trace := &httptrace.ClientTrace{
-		TLSHandshakeStart: func() { start = time.Now() },
+		GetConn: func(string) { relay.Store(nil) },
+		GotConn: func(conn httptrace.GotConnInfo) {
+			info := node.RelayInfoFromConn(conn.Conn)
+			relay.Store(&info)
+		},
+		TLSHandshakeStart: func() { now := time.Now(); start.Store(&now) },
 		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
-			if err == nil {
-				latency = time.Since(start)
+			if began := start.Load(); err == nil && began != nil {
+				latency.Store(int64(time.Since(*began)))
 			}
 		},
 	}
@@ -93,20 +115,21 @@ func HTTPGetViaOutbound(
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, 0, err
+		return result, err
 	}
 	defer resp.Body.Close()
 
 	if opts.RequireStatusOK && resp.StatusCode != http.StatusOK {
-		return nil, latency, fmt.Errorf("outbound fetch: unexpected status %d from %s", resp.StatusCode, url)
+		return result, fmt.Errorf("outbound fetch: unexpected status %d from %s", resp.StatusCode, url)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, latency, err
+		return result, err
 	}
 
-	return body, latency, nil
+	result.Body = body
+	return result, nil
 }
 
 // connCloseHook wraps a net.Conn and calls onClose exactly once on Close.
@@ -116,6 +139,8 @@ type connCloseHook struct {
 	closeOnce sync.Once
 	closeErr  error
 }
+
+func (c *connCloseHook) Upstream() any { return c.Conn }
 
 func (c *connCloseHook) Close() error {
 	c.closeOnce.Do(func() {

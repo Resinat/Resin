@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Resinat/Resin/internal/node"
-	"github.com/Resinat/Resin/internal/outbound"
 	"github.com/Resinat/Resin/internal/routing"
 )
 
@@ -19,7 +18,7 @@ type requestLifecycle struct {
 	finished            RequestFinishedEvent
 	log                 RequestLogEntry
 	firstByteDurationNs atomic.Int64
-	relay               atomic.Pointer[outbound.RelayInfo]
+	relay               atomic.Pointer[node.RelayInfo]
 
 	reqBodyCapture  *payloadCaptureReadCloser
 	respBodyCapture *payloadCaptureReadCloser
@@ -188,7 +187,7 @@ func (l *requestLifecycle) setRouteResult(result routing.RouteResult) {
 	l.log.ChainProxy = result.ChainProxy
 }
 
-func (l *requestLifecycle) setRelayInfo(info outbound.RelayInfo) {
+func (l *requestLifecycle) setRelayInfo(info node.RelayInfo) {
 	l.relay.Store(&info)
 }
 
@@ -197,5 +196,16 @@ func (l *requestLifecycle) clearRelayInfo() {
 }
 
 func (l *requestLifecycle) observeHTTPConn(conn net.Conn) {
-	l.setRelayInfo(outbound.RelayInfoFromConn(conn))
+	l.setRelayInfo(node.RelayInfoFromConn(conn))
+}
+
+func (l *requestLifecycle) withRelayError(err error) error {
+	return l.relayInfo().WrapError(err)
+}
+
+func (l *requestLifecycle) relayInfo() node.RelayInfo {
+	if info := l.relay.Load(); info != nil {
+		return *info
+	}
+	return node.RelayInfo{}
 }

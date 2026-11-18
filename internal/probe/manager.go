@@ -18,9 +18,9 @@ import (
 	"github.com/puzpuzpuz/xsync/v4"
 )
 
-// Fetcher executes an HTTP request through the given node, returning
-// response body and TLS handshake latency. This is injectable for testing.
-type Fetcher func(hash node.Hash, url string) (body []byte, latency time.Duration, err error)
+// Fetcher returns the response, latency and observed connection identity.
+// This is injectable for testing.
+type Fetcher func(hash node.Hash, url string) (netutil.OutboundHTTPResult, error)
 
 // ProbeConfig configures the ProbeManager.
 // Field names align 1:1 with RuntimeConfig to prevent mis-wiring.
@@ -830,10 +830,10 @@ func (m *ProbeManager) performEgressProbe(hash node.Hash) (netip.Addr, egressPro
 		return netip.Addr{}, egressProbeFetchError, fmt.Errorf("node not found")
 	}
 	version := entry.RoutingVersion()
-	body, latency, err := m.fetcher(hash, egressTraceURL)
+	result, err := m.fetcher(hash, egressTraceURL)
 	message := ""
 	success := err == nil
-	f := node.Feedback{Egress: true, LastError: &message}
+	f := node.Feedback{Egress: true, LastError: &message, Err: err, Relay: result.Relay}
 	if err != nil {
 		message = err.Error()
 		if !errors.Is(err, routing.ErrNoAvailableRelay) {
@@ -844,8 +844,8 @@ func (m *ProbeManager) performEgressProbe(hash node.Hash) (netip.Addr, egressPro
 	}
 	f.Result = &success
 	f.Target = egressTraceDomain
-	f.Latency = &latency
-	ip, loc, err := ParseCloudflareTrace(body)
+	f.Latency = &result.Latency
+	ip, loc, err := ParseCloudflareTrace(result.Body)
 	if err == nil {
 		f.IP = &ip
 		f.Region = loc
@@ -862,10 +862,10 @@ func (m *ProbeManager) performLatencyProbe(hash node.Hash, testURL string) error
 		return fmt.Errorf("node not found")
 	}
 	version := entry.RoutingVersion()
-	_, latency, err := m.fetcher(hash, testURL)
+	result, err := m.fetcher(hash, testURL)
 	message := ""
 	success := err == nil
-	f := node.Feedback{Target: netutil.ExtractDomain(testURL), LastError: &message}
+	f := node.Feedback{Target: netutil.ExtractDomain(testURL), LastError: &message, Err: err, Relay: result.Relay}
 	if err != nil {
 		message = err.Error()
 		if !errors.Is(err, routing.ErrNoAvailableRelay) {
@@ -873,7 +873,7 @@ func (m *ProbeManager) performLatencyProbe(hash node.Hash, testURL string) error
 		}
 	} else {
 		f.Result = &success
-		f.Latency = &latency
+		f.Latency = &result.Latency
 	}
 	m.pool.ApplyFeedback(hash, version, f)
 	return err

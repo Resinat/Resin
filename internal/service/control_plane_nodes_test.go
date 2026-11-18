@@ -8,6 +8,7 @@ import (
 
 	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/geoip"
+	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/platform"
 	"github.com/Resinat/Resin/internal/probe"
@@ -506,8 +507,8 @@ func TestProbeEgress_ReturnsRegion(t *testing.T) {
 		GeoIP:  &geoip.Service{}, // empty service keeps focus on stored region from loc
 		ProbeMgr: probe.NewProbeManager(probe.ProbeConfig{
 			Pool: pool,
-			Fetcher: func(_ node.Hash, _ string) ([]byte, time.Duration, error) {
-				return []byte("ip=198.51.100.88\nloc=JP"), 20 * time.Millisecond, nil
+			Fetcher: func(_ node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
+				return netutil.OutboundHTTPResult{Body: []byte("ip=198.51.100.88\nloc=JP"), Latency: 20 * time.Millisecond}, nil
 			},
 		}),
 	}

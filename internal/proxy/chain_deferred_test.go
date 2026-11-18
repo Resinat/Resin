@@ -17,6 +17,16 @@ import (
 // Same deferred failure contract as the native HTTP/2 outbound, without its
 // unsynchronized Setup/Read implementation. All Resin copy/feedback code runs.
 func TestDeferredRelayErrorFeedback(t *testing.T) {
+	for _, cause := range []error{
+		routing.ErrNoAvailableRelay,
+		&node.RelayError{Hash: node.Hash{42}, Version: 7, ServerDial: true, Err: errors.New("connection refused")},
+		&node.RelayError{Hash: node.Hash{42}, Version: 7, Err: io.ErrUnexpectedEOF},
+	} {
+		t.Run(cause.Error(), func(t *testing.T) { testDeferredRelayErrorFeedback(t, cause) })
+	}
+}
+
+func testDeferredRelayErrorFeedback(t *testing.T, cause error) {
 	env := newProxyE2EEnv(t)
 	var hash node.Hash
 	env.pool.RangeNodes(func(h node.Hash, _ *node.NodeEntry) bool { hash = h; return false })
@@ -25,7 +35,7 @@ func TestDeferredRelayErrorFeedback(t *testing.T) {
 	ob := &mockOutbound{dialFunc: func(context.Context, string, M.Socksaddr) (net.Conn, error) {
 		client, peer := net.Pipe()
 		go func() { defer peer.Close(); buffer := make([]byte, 1024); _, _ = peer.Read(buffer); close(ready) }()
-		return &deferredRelayConn{Conn: client, ready: ready}, nil
+		return &deferredRelayConn{Conn: client, ready: ready, err: cause}, nil
 	}}
 	wrapped := entry.Outbound.Load()
 	// The fixture retains the real node's protocol metadata while overriding dial.
@@ -50,25 +60,29 @@ func TestDeferredRelayErrorFeedback(t *testing.T) {
 	defer peer.Close()
 	go io.Copy(io.Discard, peer)
 	result := pumpPreparedTunnelReader(client, strings.NewReader("hello"), prepared.session, tunnelPumpOptions{requireBidirectionalTraffic: true})
-	if !errors.Is(result.upstreamErr, routing.ErrNoAvailableRelay) || result.proxyErr != ErrNoAvailableRelay {
+	if !errors.Is(result.upstreamErr, cause) || result.proxyErr != classifyUpstreamError(cause) {
 		t.Fatalf("result: %+v", result)
 	}
 	prepared.session.recordResult(result.netOK, result.upstreamErr)
 	select {
 	case f := <-recorder.events:
-		if f.Result != nil {
-			t.Fatalf("local unavailable relay generated health result: %+v", f)
+		if errors.Is(cause, routing.ErrNoAvailableRelay) || f.Result == nil || *f.Result || !errors.Is(f.Err, cause) {
+			t.Fatalf("lost deferred failure evidence: %+v", f)
 		}
-	case <-time.After(20 * time.Millisecond):
+	case <-time.After(50 * time.Millisecond):
+		if !errors.Is(cause, routing.ErrNoAvailableRelay) {
+			t.Fatal("missing deferred failure feedback")
+		}
 	}
 }
 
 type deferredRelayConn struct {
 	net.Conn
 	ready <-chan struct{}
+	err   error
 }
 
 func (c *deferredRelayConn) Read([]byte) (int, error) {
 	<-c.ready
-	return 0, routing.ErrNoAvailableRelay
+	return 0, c.err
 }

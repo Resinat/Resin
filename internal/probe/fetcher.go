@@ -9,6 +9,7 @@ import (
 	"net/http/httptrace"
 	"time"
 
+	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 )
 
@@ -22,10 +23,10 @@ func DirectFetcher(timeout func() time.Duration) Fetcher {
 		// Disable redirect following for trace endpoint handled below.
 	}
 
-	return func(_ node.Hash, url string) ([]byte, time.Duration, error) {
+	return func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
 		t := timeout()
 		if t <= 0 {
-			return nil, 0, fmt.Errorf("probe: invalid timeout %v", t)
+			return netutil.OutboundHTTPResult{}, fmt.Errorf("probe: invalid timeout %v", t)
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), t)
@@ -43,20 +44,20 @@ func DirectFetcher(timeout func() time.Duration) Fetcher {
 			http.MethodGet, url, nil,
 		)
 		if err != nil {
-			return nil, 0, fmt.Errorf("probe: create request: %w", err)
+			return netutil.OutboundHTTPResult{}, fmt.Errorf("probe: create request: %w", err)
 		}
 
 		requestStart := time.Now()
 		resp, err := transport.RoundTrip(req)
 		if err != nil {
-			return nil, 0, fmt.Errorf("probe: do request: %w", err)
+			return netutil.OutboundHTTPResult{}, fmt.Errorf("probe: do request: %w", err)
 		}
 		requestDone := time.Now()
 		defer resp.Body.Close()
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, 0, fmt.Errorf("probe: read body: %w", err)
+			return netutil.OutboundHTTPResult{}, fmt.Errorf("probe: read body: %w", err)
 		}
 
 		// Prefer TLS handshake latency. If there is no handshake event (for
@@ -71,6 +72,6 @@ func DirectFetcher(timeout func() time.Duration) Fetcher {
 			latency = time.Nanosecond
 		}
 
-		return body, latency, nil
+		return netutil.OutboundHTTPResult{Body: body, Latency: latency}, nil
 	}
 }

@@ -17,14 +17,14 @@ func TestDirectFetcher_HTTPFallbackLatencyNonZero(t *testing.T) {
 	defer srv.Close()
 
 	fetcher := DirectFetcher(func() time.Duration { return time.Second })
-	body, latency, err := fetcher(node.Zero, srv.URL)
+	result, err := fetcher(node.Zero, srv.URL)
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
-	if string(body) != "ok" {
-		t.Fatalf("body: got %q, want %q", string(body), "ok")
+	if string(result.Body) != "ok" {
+		t.Fatalf("body: got %q, want %q", string(result.Body), "ok")
 	}
-	if latency <= 0 {
-		t.Fatalf("latency should be > 0, got %v", latency)
+	if result.Latency <= 0 {
+		t.Fatalf("latency should be > 0, got %v", result.Latency)
 	}
 }

@@ -132,7 +132,7 @@ func TestRecordPassiveResultAsync_UsesPlatformAwareRecorder(t *testing.T) {
 	recordPassiveResultAsync(rec, routing.RouteResult{
 		PlatformID: "plat-1",
 		NodeHash:   h,
-	}, false)
+	}, false, node.RelayInfo{})
 
 	select {
 	case <-rec.done:

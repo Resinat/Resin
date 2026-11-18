@@ -66,6 +66,8 @@ func (e *NodeEntry) UpdateRoutingRole(role RoutingRole) (bool, []string) {
 // attempt; Result=nil means that no health conclusion can be drawn.
 type Feedback struct {
 	Result     *bool
+	Err        error // optional failure evidence; never persisted
+	Relay      RelayInfo
 	Target     string
 	Latency    *time.Duration
 	Egress     bool

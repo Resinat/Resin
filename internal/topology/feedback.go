@@ -1,6 +1,8 @@
 package topology
 
 import (
+	"context"
+	"errors"
 	"time"
 
 	"github.com/Resinat/Resin/internal/model"
@@ -15,7 +17,37 @@ func (p *GlobalNodePool) ApplyFeedback(hash node.Hash, version uint64, f node.Fe
 	if version == 0 {
 		return false
 	}
-	return p.applyFeedback(hash, version, f)
+	if errors.Is(f.Err, context.Canceled) {
+		f.Result = nil
+	}
+	var relay *node.RelayError
+	failedViaRelay := f.Result != nil && !*f.Result &&
+		errors.As(f.Err, &relay)
+	if failedViaRelay && relay.ServerDial {
+		// Keep the landing's probe attempt/error, but not a failure sample.
+		f.Result = nil
+	}
+	applied := p.applyFeedback(hash, version, f)
+	if !applied {
+		return applied
+	}
+	if f.Result != nil && *f.Result && !f.Relay.Hash.IsZero() && f.Relay.Version != 0 {
+		p.ApplyFeedback(f.Relay.Hash, f.Relay.Version, node.Feedback{Result: f.Result, PlatformID: f.PlatformID})
+	}
+	if !failedViaRelay {
+		return applied
+	}
+	if relay.ServerDial {
+		failed, message := false, relay.Error()
+		p.ApplyFeedback(relay.Hash, relay.Version, node.Feedback{
+			Result: &failed, LastError: &message, PlatformID: f.PlatformID,
+		})
+	} else if p.onRelaySuspect != nil {
+		if entry, ok := p.GetEntry(relay.Hash); ok && entry.RoutingVersion() == relay.Version && entry.RoutingRole() == node.RoleRelay {
+			p.onRelaySuspect(relay.Hash)
+		}
+	}
+	return applied
 }
 func (p *GlobalNodePool) applyFeedback(hash node.Hash, version uint64, f node.Feedback) bool {
 	if f.Result != nil && !*f.Result && p.passiveCircuitBreakerDisabled(f.PlatformID) {

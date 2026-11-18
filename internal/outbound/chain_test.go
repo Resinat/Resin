@@ -95,7 +95,11 @@ func TestChainProxyRealRelaySwitchAndRoleChange(t *testing.T) {
 	mgr := NewOutboundManager(pool, builder)
 	defer mgr.Close()
 	selector := routing.NewRelaySelector(pool, nil, nil)
-	mgr.SetRelayPicker(selector.Pick)
+	var picks atomic.Int64
+	mgr.SetRelayPicker(func(landing node.Hash, network string) (node.Hash, error) {
+		picks.Add(1)
+		return selector.Pick(landing, network)
+	})
 	pool.SetOnNodeAdded(mgr.EnsureNodeOutbound)
 	pool.SetOnNodeModeChanged(mgr.EnsureNodeOutbound)
 	add := func(sub *subscription.Subscription, raw json.RawMessage) node.Hash {
@@ -125,10 +129,28 @@ func TestChainProxyRealRelaySwitchAndRoleChange(t *testing.T) {
 		}
 	}
 	fetch()
-	pool.RecordResult(a, false)
+	const stableFetches = 8
 	pool.RecordResult(b, true)
+	picksBefore := picks.Load()
+	for i := 0; i < stableFetches; i++ {
+		fetch()
+	}
+	if picks.Load() != picksBefore || jumpA.hits.Load() != 1+stableFetches || jumpB.hits.Load() != 0 {
+		t.Fatal("healthy binding was reselected when another relay became available")
+	}
+	jumpSub.SetEnabled(false)
+	pool.RebuildAllPlatforms()
+	if _, _, err := mgr.Fetch(context.Background(), h, target.URL); !errors.Is(err, routing.ErrNoAvailableRelay) {
+		t.Fatalf("disabled binding was still usable: %v", err)
+	}
+	if landing.hits.Load() != 1+stableFetches {
+		t.Fatal("disabled relays caused a direct fallback")
+	}
+	jumpSub.SetEnabled(true)
+	pool.RebuildAllPlatforms()
+	pool.RecordResult(a, false)
 	fetch()
-	if jumpA.hits.Load() != 1 || jumpB.hits.Load() != 1 || landing.hits.Load() != 2 {
+	if jumpA.hits.Load() != 1+stableFetches || jumpB.hits.Load() != 1 || landing.hits.Load() != 2+stableFetches {
 		t.Fatalf("hits A=%d B=%d landing=%d", jumpA.hits.Load(), jumpB.hits.Load(), landing.hits.Load())
 	}
 	if _, ok := jumpA.targets.Load(landing.server.Listener.Addr().String()); !ok {
@@ -140,7 +162,7 @@ func TestChainProxyRealRelaySwitchAndRoleChange(t *testing.T) {
 	landSub.SetChainConfig(true, false)
 	pool.ReconcileNodeRole(h)
 	fetch()
-	if jumpA.hits.Load() != 1 || jumpB.hits.Load() != 2 || landing.hits.Load() != 4 {
+	if jumpA.hits.Load() != 1+stableFetches || jumpB.hits.Load() != 2 || landing.hits.Load() != 4+stableFetches {
 		t.Fatal("mode change did not choose the correct native outbound")
 	}
 	if e.Outbound.Load() == stable || string(e.RawOptions) != string(landingRaw) {

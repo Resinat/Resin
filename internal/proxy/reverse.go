@@ -348,6 +348,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 		Transport: transport,
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
+			err = lifecycle.withRelayError(err)
 			proxyErr := classifyUpstreamError(err)
 			if proxyErr == nil {
 				// context.Canceled — no health recording, silently close.
@@ -386,7 +387,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 				lifecycle.setNetOK(true)
 				if hasRoute {
-					recordPassiveResultAsync(p.health, route, true)
+					recordPassiveResultAsync(p.health, route, true, lifecycle.relayInfo())
 				}
 				return nil
 			}
@@ -412,7 +413,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// complexity is not worth it for the current phase.
 			lifecycle.setNetOK(true)
 			if hasRoute {
-				recordPassiveResultAsync(p.health, route, true)
+				recordPassiveResultAsync(p.health, route, true, lifecycle.relayInfo())
 			}
 			return nil
 		},

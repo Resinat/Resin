@@ -256,16 +256,16 @@ func newTopologyRuntime(
 		EnsureOutbound: outboundMgr.EnsureNodeOutbound,
 		Pool:           pool,
 		Concurrency:    envCfg.ProbeConcurrency,
-		Fetcher: func(hash node.Hash, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(hash node.Hash, url string) (netutil.OutboundHTTPResult, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), envCfg.ProbeTimeout)
 			defer cancel()
 			entry, ok := pool.GetEntry(hash)
 			if !ok {
-				return nil, 0, fmt.Errorf("node not found")
+				return netutil.OutboundHTTPResult{}, fmt.Errorf("node not found")
 			}
 			outboundPtr := entry.Outbound.Load()
 			if outboundPtr == nil {
-				return nil, 0, outbound.ErrOutboundNotReady
+				return netutil.OutboundHTTPResult{}, outbound.ErrOutboundNotReady
 			}
 			return netutil.HTTPGetViaOutbound(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
 				RequireStatusOK: false,
@@ -304,6 +304,7 @@ func newTopologyRuntime(
 		probeMgr.TriggerImmediateLatencyProbe(hash)
 	})
 	pool.SetOnRelayAvailable(probeMgr.TriggerChainRecovery)
+	pool.SetOnRelaySuspect(probeMgr.TriggerImmediateLatencyProbe)
 	pool.SetOnNodeRemoved(func(hash node.Hash, entry *node.NodeEntry) {
 		markNodeRemovedDirty(engine, hash, entry)
 		outboundMgr.RemoveNodeOutbound(entry)

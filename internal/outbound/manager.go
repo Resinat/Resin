@@ -11,7 +11,6 @@ import (
 
 	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
-	"github.com/Resinat/Resin/internal/routing"
 	"github.com/sagernet/sing-box/adapter"
 )
 
@@ -48,6 +47,7 @@ func buildOutboundSafely(builder OutboundBuilder, rawOptions json.RawMessage) (o
 type OutboundPool interface {
 	PoolAccessor
 	ResolveNodeDisplayTag(node.Hash) string
+	IsRelayEligible(node.Hash, string) bool
 	PublishOutbound(*node.NodeEntry, uint64, *adapter.Outbound, *adapter.Outbound) bool
 }
 
@@ -113,14 +113,15 @@ func (m *OutboundManager) EnsureNodeOutbound(hash node.Hash) {
 	}
 	builder := m.builder
 	chain := entry.RoutingRole() == node.RoleChain
+	var upstream *chainDialer
 	if chain {
 		withDetour, ok := builder.(detourBuilder)
 		if !ok {
 			m.buildError(entry, version, errors.New("builder does not support chain proxy"))
 			return
 		}
-		d := &chainDialer{Adapter: newChainAdapter(), manager: m, landing: hash}
-		builder = builderFunc(func(raw json.RawMessage) (adapter.Outbound, error) { return withDetour.BuildWithDetour(raw, d) })
+		upstream = &chainDialer{Adapter: newChainAdapter(), manager: m, landing: hash}
+		builder = builderFunc(func(raw json.RawMessage) (adapter.Outbound, error) { return withDetour.BuildWithDetour(raw, upstream) })
 	}
 	native, err := buildOutboundSafely(builder, entry.RawOptions)
 	if err != nil {
@@ -130,10 +131,7 @@ func (m *OutboundManager) EnsureNodeOutbound(hash node.Hash) {
 	n := &nodeOutbound{Outbound: native, version: version, chain: chain, networks: relayNetworks(entry.RawOptions, native)}
 	if chain && native.Type() == "wireguard" {
 		n.checkRelay = func() error {
-			if m.pickRelay == nil {
-				return routing.ErrNoAvailableRelay
-			}
-			_, err := m.pickRelay(hash, "udp")
+			_, _, err := upstream.pick("udp")
 			return err
 		}
 	}
@@ -227,8 +225,9 @@ func (m *OutboundManager) FetchWithUserAgent(
 	if outboundPtr == nil {
 		return nil, 0, ErrOutboundNotReady
 	}
-	return netutil.HTTPGetViaOutbound(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
+	result, err := netutil.HTTPGetViaOutbound(ctx, *outboundPtr, url, netutil.OutboundHTTPOptions{
 		RequireStatusOK: true,
 		UserAgent:       userAgent,
 	})
+	return result.Body, result.Latency, err
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Resinat/Resin/internal/netutil"
+	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/outbound"
 	"github.com/Resinat/Resin/internal/routing"
 	M "github.com/sagernet/sing/common/metadata"
@@ -31,7 +32,7 @@ type preparedTunnel struct {
 
 type tunnelPrepareResult struct {
 	route         routing.RouteResult
-	relay         outbound.RelayInfo
+	relay         node.RelayInfo
 	session       *preparedTunnel
 	proxyErr      *ProxyError
 	upstreamStage string
@@ -109,12 +110,13 @@ func prepareConnectTunnel(
 		}
 	}
 
+	relayInfo := node.RelayInfoFromConn(rawConn)
 	recordResult := func(ok bool, err error) {
 		if deps.health != nil {
 			if ok {
-				recordPassiveResultAsync(deps.health, routed.Route, true)
+				recordPassiveResultAsync(deps.health, routed.Route, true, relayInfo)
 			} else {
-				recordPassiveFailureAsync(deps.health, routed.Route, err)
+				recordPassiveFailureAsync(deps.health, routed.Route, relayInfo.WrapError(err))
 			}
 		}
 	}
@@ -133,7 +135,7 @@ func prepareConnectTunnel(
 
 	return tunnelPrepareResult{
 		route: routed.Route,
-		relay: outbound.RelayInfoFromConn(rawConn),
+		relay: relayInfo,
 		session: &preparedTunnel{
 			upstreamConn: upstreamConn,
 			recordResult: recordResult,

@@ -10,6 +10,7 @@ import (
 	"github.com/sagernet/sing-box/adapter/endpoint"
 	"github.com/sagernet/sing-box/adapter/inbound"
 	sbOutbound "github.com/sagernet/sing-box/adapter/outbound"
+	"github.com/sagernet/sing-box/common/dialer"
 	"github.com/sagernet/sing-box/dns"
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/log"
@@ -146,17 +147,38 @@ func (b *SingboxBuilder) build(rawOptions json.RawMessage, upstream adapter.Outb
 	if err := sJson.UnmarshalContext(b.ctx, rawOptions, &outboundConfig); err != nil {
 		return nil, fmt.Errorf("parse outbound options: %w", err)
 	}
-	if upstream != nil {
-		options, ok := outboundConfig.Options.(option.DialerOptionsWrapper)
-		if !ok {
+	options, canDetour := outboundConfig.Options.(option.DialerOptionsWrapper)
+	observeServer := false
+	if upstream == nil && canDetour && options.TakeDialerOptions().Detour == "" {
+		// Observe server TCP dials through the same scoped detour mechanism.
+		// Packet transports retain their native dialer defaults and lifecycle.
+		switch outboundConfig.Type {
+		case "socks", "http", "ssh", "shadowsocks", "vmess", "vless", "trojan", "anytls":
+			observeServer = true
+		}
+	}
+	if upstream != nil || observeServer {
+		if !canDetour {
 			return nil, fmt.Errorf("outbound %s does not support detour", outboundConfig.Type)
 		}
-		dial := options.TakeDialerOptions()
-		dial.Detour = resinDetourTag
-		options.ReplaceDialerOptions(dial)
 		ctx = service.ContextWithRegistry(ctx, &outboundRegistryScope{
 			local: service.NewRegistry(), parent: service.RegistryFromContext(b.ctx),
 		})
+		dial := options.TakeDialerOptions()
+		if observeServer {
+			service.MustRegister[adapter.DNSRouter](ctx, &serverDNSRouter{DNSRouter: service.FromContext[adapter.DNSRouter](ctx)})
+			server := outboundConfig.Options.(option.ServerOptionsWrapper).TakeServerOptions()
+			base, err := dialer.New(ctx, dial, server.ServerIsDomain())
+			if err != nil {
+				return nil, fmt.Errorf("create server dialer: %w", err)
+			}
+			upstream = &serverDialer{Adapter: newChainAdapter(), Dialer: base}
+			// The wrapped original dialer already resolves the server. Resolving
+			// outside it would lose attribution and change address fallback.
+			dial.DomainResolver = nil
+		}
+		dial.Detour = resinDetourTag
+		options.ReplaceDialerOptions(dial)
 		service.MustRegister[adapter.OutboundManager](ctx, &detourManager{
 			OutboundManager: service.FromContext[adapter.OutboundManager](b.ctx), upstream: upstream,
 		})

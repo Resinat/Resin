@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/subscription"
 	"github.com/Resinat/Resin/internal/testutil"
@@ -40,8 +41,8 @@ func TestProbeEgress_Success(t *testing.T) {
 	traceBody := []byte("fl=123\nip=203.0.113.1\nloc=US\nts=1234567890")
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
-			return traceBody, 42 * time.Millisecond, nil
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{Body: traceBody, Latency: 42 * time.Millisecond}, nil
 		},
 	})
 
@@ -97,8 +98,8 @@ func TestProbeEgress_Failure(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
-			return nil, 0, errors.New("connection refused")
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{}, errors.New("connection refused")
 		},
 	})
 
@@ -132,8 +133,8 @@ func TestProbeEgress_CircuitBreak(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
-			return nil, 0, errors.New("timeout")
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{}, errors.New("timeout")
 		},
 	})
 
@@ -163,8 +164,8 @@ func TestProbeLatency_Success(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
-			return []byte("OK"), 50 * time.Millisecond, nil
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{Body: []byte("OK"), Latency: 50 * time.Millisecond}, nil
 		},
 	})
 
@@ -198,8 +199,8 @@ func TestProbeLatency_Failure(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
-			return nil, 0, errors.New("tls handshake failed")
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{}, errors.New("tls handshake failed")
 		},
 	})
 
@@ -230,8 +231,8 @@ func TestProbeEgress_ZeroLatencyIgnored(t *testing.T) {
 	traceBody := []byte("fl=123\nip=203.0.113.1\nts=1234567890")
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
-			return traceBody, 0, nil
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{Body: traceBody, Latency: 0}, nil
 		},
 	})
 
@@ -266,8 +267,8 @@ func TestProbeEgress_WithoutLoc_ClearsStoredRegion(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
-			return []byte("ip=203.0.113.1"), 10 * time.Millisecond, nil
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{Body: []byte("ip=203.0.113.1"), Latency: 10 * time.Millisecond}, nil
 		},
 	})
 
@@ -297,8 +298,8 @@ func TestProbeLatency_ZeroLatencyIgnored(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
-			return []byte("ok"), 0, nil
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{Body: []byte("ok"), Latency: 0}, nil
 		},
 	})
 
@@ -353,9 +354,9 @@ func TestTriggerImmediateEgressProbe_WithFetcher(t *testing.T) {
 	mgr := NewProbeManager(ProbeConfig{
 		Pool:        pool,
 		Concurrency: 1,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
 			defer called.Done()
-			return []byte("ip=198.51.100.1"), 10 * time.Millisecond, nil
+			return netutil.OutboundHTTPResult{Body: []byte("ip=198.51.100.1"), Latency: 10 * time.Millisecond}, nil
 		},
 	})
 	mgr.Start()
@@ -399,9 +400,9 @@ func TestTriggerImmediateLatencyProbe_WithFetcher(t *testing.T) {
 	mgr := NewProbeManager(ProbeConfig{
 		Pool:        pool,
 		Concurrency: 1,
-		Fetcher: func(_ node.Hash, _ string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
 			defer called.Done()
-			return []byte("ok"), 25 * time.Millisecond, nil
+			return netutil.OutboundHTTPResult{Body: []byte("ok"), Latency: 25 * time.Millisecond}, nil
 		},
 	})
 	mgr.Start()
@@ -440,9 +441,9 @@ func TestScanEgress_SkipsDisabledNodes(t *testing.T) {
 	var calls atomic.Int32
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, _ string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
 			calls.Add(1)
-			return []byte("ip=198.51.100.1"), 10 * time.Millisecond, nil
+			return netutil.OutboundHTTPResult{Body: []byte("ip=198.51.100.1"), Latency: 10 * time.Millisecond}, nil
 		},
 	})
 
@@ -478,9 +479,9 @@ func TestScanLatency_SkipsDisabledNodes(t *testing.T) {
 	var calls atomic.Int32
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, _ string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
 			calls.Add(1)
-			return []byte("ok"), 15 * time.Millisecond, nil
+			return netutil.OutboundHTTPResult{Body: []byte("ok"), Latency: 15 * time.Millisecond}, nil
 		},
 	})
 
@@ -517,9 +518,9 @@ func TestQueuedAsyncProbe_SkipsNodeDisabledBeforeExecution(t *testing.T) {
 	mgr := NewProbeManager(ProbeConfig{
 		Pool:        pool,
 		Concurrency: 1,
-		Fetcher: func(_ node.Hash, _ string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
 			calls.Add(1)
-			return []byte("ip=198.51.100.1"), 10 * time.Millisecond, nil
+			return netutil.OutboundHTTPResult{Body: []byte("ip=198.51.100.1"), Latency: 10 * time.Millisecond}, nil
 		},
 	})
 	defer mgr.Stop()
@@ -558,12 +559,12 @@ func TestProbeManager_StopWaitsImmediateProbe(t *testing.T) {
 	mgr := NewProbeManager(ProbeConfig{
 		Pool:        pool,
 		Concurrency: 1,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
 			if calls.Add(1) == 1 {
 				close(started)
 				<-release
 			}
-			return []byte("ip=203.0.113.1"), 10 * time.Millisecond, nil
+			return netutil.OutboundHTTPResult{Body: []byte("ip=203.0.113.1"), Latency: 10 * time.Millisecond}, nil
 		},
 	})
 	mgr.Start()
@@ -628,9 +629,9 @@ func TestProbeQueue_DequeueChoosesNormalWhenSelectorRequests(t *testing.T) {
 		ChooseNormalWhenBoth: func() bool {
 			return true
 		},
-		Fetcher: func(hash node.Hash, _ string) ([]byte, time.Duration, error) {
+		Fetcher: func(hash node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
 			order <- hash
-			return []byte("ip=198.51.100.20"), 10 * time.Millisecond, nil
+			return netutil.OutboundHTTPResult{Body: []byte("ip=198.51.100.20"), Latency: 10 * time.Millisecond}, nil
 		},
 	})
 	defer mgr.Stop()
@@ -683,9 +684,9 @@ func TestProbeQueue_HighUpgradeOfQueuedNormalRunsFirstWithoutExtraRun(t *testing
 		ChooseNormalWhenBoth: func() bool {
 			return false
 		},
-		Fetcher: func(hash node.Hash, _ string) ([]byte, time.Duration, error) {
+		Fetcher: func(hash node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
 			order <- hash
-			return []byte("ip=198.51.100.21"), 10 * time.Millisecond, nil
+			return netutil.OutboundHTTPResult{Body: []byte("ip=198.51.100.21"), Latency: 10 * time.Millisecond}, nil
 		},
 	})
 	defer mgr.Stop()
@@ -780,13 +781,13 @@ func TestProbeSync_BypassesAsyncWorkerLimit(t *testing.T) {
 	mgr := NewProbeManager(ProbeConfig{
 		Pool:        pool,
 		Concurrency: 1,
-		Fetcher: func(hash node.Hash, _ string) ([]byte, time.Duration, error) {
+		Fetcher: func(hash node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
 			if hash == hashAsync {
 				startedOnce.Do(func() { close(started) })
 				<-release
-				return []byte("ip=198.51.100.31"), 20 * time.Millisecond, nil
+				return netutil.OutboundHTTPResult{Body: []byte("ip=198.51.100.31"), Latency: 20 * time.Millisecond}, nil
 			}
-			return []byte("ip=198.51.100.32"), 5 * time.Millisecond, nil
+			return netutil.OutboundHTTPResult{Body: []byte("ip=198.51.100.32"), Latency: 5 * time.Millisecond}, nil
 		},
 	})
 	mgr.Start()
@@ -834,8 +835,8 @@ func TestProbeLatencySync_ReturnsEWMAFromNormalizedDomain(t *testing.T) {
 
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
-			return []byte("ok"), 80 * time.Millisecond, nil
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{Body: []byte("ok"), Latency: 80 * time.Millisecond}, nil
 		},
 		LatencyTestURL: func() string {
 			return "https://www.gstatic.com/generate_204"
@@ -877,12 +878,12 @@ func TestProbeSync_EmitsProbeEvents(t *testing.T) {
 	var gotKinds []string
 	mgr := NewProbeManager(ProbeConfig{
 		Pool: pool,
-		Fetcher: func(_ node.Hash, url string) ([]byte, time.Duration, error) {
+		Fetcher: func(_ node.Hash, url string) (netutil.OutboundHTTPResult, error) {
 			switch url {
 			case egressTraceURL:
-				return []byte("ip=198.51.100.10"), 20 * time.Millisecond, nil
+				return netutil.OutboundHTTPResult{Body: []byte("ip=198.51.100.10"), Latency: 20 * time.Millisecond}, nil
 			default:
-				return []byte("ok"), 30 * time.Millisecond, nil
+				return netutil.OutboundHTTPResult{Body: []byte("ok"), Latency: 30 * time.Millisecond}, nil
 			}
 		},
 		LatencyTestURL: func() string {

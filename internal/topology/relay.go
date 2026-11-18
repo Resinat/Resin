@@ -18,6 +18,9 @@ func (p *GlobalNodePool) SetOnNodeModeChanged(fn func(node.Hash)) { p.onNodeMode
 
 func (p *GlobalNodePool) SetOnRelayAvailable(fn func()) { p.onRelayAvailable = fn }
 
+// SetOnRelaySuspect must run before starting outbound/probe workers.
+func (p *GlobalNodePool) SetOnRelaySuspect(fn func(node.Hash)) { p.onRelaySuspect = fn }
+
 // ReconcileNodeRole is the one aggregation point for config and binding changes.
 // All still-held subscriptions contribute, including disabled subscriptions.
 func (p *GlobalNodePool) ReconcileNodeRole(hash node.Hash) {

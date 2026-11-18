@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/routing"
 	"github.com/Resinat/Resin/internal/subscription"
@@ -20,8 +21,8 @@ func TestUnavailableRelayDoesNotCountAsNodeFailure(t *testing.T) {
 	e, _ := pool.GetEntry(hash)
 	storeOutbound(e)
 	pool.RecordResult(hash, true)
-	m := NewProbeManager(ProbeConfig{Pool: pool, Fetcher: func(node.Hash, string) ([]byte, time.Duration, error) {
-		return nil, 0, fmt.Errorf("dial: %w", routing.ErrNoAvailableRelay)
+	m := NewProbeManager(ProbeConfig{Pool: pool, Fetcher: func(node.Hash, string) (netutil.OutboundHTTPResult, error) {
+		return netutil.OutboundHTTPResult{}, fmt.Errorf("dial: %w", routing.ErrNoAvailableRelay)
 	}})
 	if err := m.performLatencyProbe(hash, "https://speed.example"); !errors.Is(err, routing.ErrNoAvailableRelay) {
 		t.Fatal(err)
@@ -32,6 +33,40 @@ func TestUnavailableRelayDoesNotCountAsNodeFailure(t *testing.T) {
 	}
 	if e.LastLatencyProbeAttempt.Load() == 0 || e.LastEgressUpdateAttempt.Load() == 0 {
 		t.Fatal("unavailable attempts must retain scheduling timestamps")
+	}
+}
+
+func TestRelayDialFailureProbeOnlyCountsRelay(t *testing.T) {
+	for _, kind := range []string{"egress", "latency"} {
+		t.Run(kind, func(t *testing.T) {
+			pool := topology.NewGlobalNodePool(topology.PoolConfig{MaxConsecutiveFailures: func() int { return 2 }})
+			add := func(server string) *node.NodeEntry {
+				raw := []byte(`{"type":"http","server":"` + server + `"}`)
+				hash := node.HashFromRawOptions(raw)
+				pool.AddNodeFromSub(hash, raw, "s")
+				e, _ := pool.GetEntry(hash)
+				storeOutbound(e)
+				pool.RecordResult(hash, true)
+				return e
+			}
+			landing, relay := add("landing"), add("relay")
+			evidence := &node.RelayError{Hash: relay.Hash, Version: relay.RoutingVersion(), ServerDial: true, Err: errors.New("connection refused")}
+			m := NewProbeManager(ProbeConfig{Pool: pool, Fetcher: func(node.Hash, string) (netutil.OutboundHTTPResult, error) {
+				return netutil.OutboundHTTPResult{}, fmt.Errorf("request: %w", evidence)
+			}})
+			defer m.Stop()
+			if kind == "egress" {
+				_, _, _ = m.performEgressProbe(landing.Hash)
+			} else {
+				_ = m.performLatencyProbe(landing.Hash, "https://speed.example")
+			}
+			if landing.FailureCount.Load() != 0 || relay.FailureCount.Load() != 1 || landing.IsCircuitOpen() {
+				t.Fatalf("probe attributed to wrong node: landing=%d relay=%d", landing.FailureCount.Load(), relay.FailureCount.Load())
+			}
+			if landing.GetLastError() == "" || (kind == "egress" && landing.LastEgressUpdateAttempt.Load() == 0) || (kind == "latency" && landing.LastLatencyProbeAttempt.Load() == 0) {
+				t.Fatal("failed probe lost scheduling or error details")
+			}
+		})
 	}
 }
 
@@ -54,11 +89,11 @@ func TestFirstHealthyRelayImmediatelyRecoversWaitingChain(t *testing.T) {
 		return hash
 	}
 	h, jump := add(landing, "landing"), add(relay, "jump")
-	m := NewProbeManager(ProbeConfig{Pool: pool, Concurrency: 1, Fetcher: func(hash node.Hash, _ string) ([]byte, time.Duration, error) {
+	m := NewProbeManager(ProbeConfig{Pool: pool, Concurrency: 1, Fetcher: func(hash node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
 		if hash != jump && pool.RelayView("", "tcp").Size() == 0 {
-			return nil, 0, routing.ErrNoAvailableRelay
+			return netutil.OutboundHTTPResult{}, routing.ErrNoAvailableRelay
 		}
-		return []byte("ip=203.0.113.1\nloc=US\n"), time.Millisecond, nil
+		return netutil.OutboundHTTPResult{Body: []byte("ip=203.0.113.1\nloc=US\n"), Latency: time.Millisecond}, nil
 	}})
 	pool.SetOnRelayAvailable(m.TriggerChainRecovery)
 	if _, _, err := m.performEgressProbe(h); !errors.Is(err, routing.ErrNoAvailableRelay) {
@@ -119,10 +154,10 @@ func TestProbeFromOldModeCannotRestoreHealth(t *testing.T) {
 	e, _ := pool.GetEntry(hash)
 	storeOutbound(e)
 	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	m := NewProbeManager(ProbeConfig{Pool: pool, Fetcher: func(node.Hash, string) ([]byte, time.Duration, error) {
+	m := NewProbeManager(ProbeConfig{Pool: pool, Fetcher: func(node.Hash, string) (netutil.OutboundHTTPResult, error) {
 		close(started)
 		<-release
-		return []byte("ip=203.0.113.1\nloc=US\n"), time.Millisecond, nil
+		return netutil.OutboundHTTPResult{Body: []byte("ip=203.0.113.1\nloc=US\n"), Latency: time.Millisecond}, nil
 	}})
 	go func() { defer close(done); _, _, _ = m.performEgressProbe(hash) }()
 	<-started

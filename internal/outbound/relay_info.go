@@ -1,6 +1,8 @@
 package outbound
 
 import (
+	"errors"
+	"io"
 	"net"
 	"os"
 
@@ -9,20 +11,28 @@ import (
 	N "github.com/sagernet/sing/common/network"
 )
 
-// RelayInfo is the immutable identity of the relay used by one connection.
-// A zero value means it could not be observed, not that the connection is direct.
-type RelayInfo struct {
-	Hash node.Hash
-	Tag  string
-}
-
 type relayConn struct {
 	net.Conn
-	info RelayInfo
+	info node.RelayInfo
 }
 
-func (c *relayConn) RelayInfo() RelayInfo { return c.info }
-func (c *relayConn) Upstream() any        { return c.Conn }
+func (c *relayConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	return n, c.wrapError(err)
+}
+func (c *relayConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	return n, c.wrapError(err)
+}
+func (c *relayConn) wrapError(err error) error {
+	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	return relayError(c.info.Hash, c.info.Version, err)
+}
+
+func (c *relayConn) RelayInfo() node.RelayInfo { return c.info }
+func (c *relayConn) Upstream() any             { return c.Conn }
 func (c *relayConn) CloseWrite() error {
 	if writer, ok := common.Cast[N.WriteCloser](c.Conn); ok {
 		return writer.CloseWrite()
@@ -34,13 +44,4 @@ func (c *relayConn) CloseRead() error {
 		return reader.CloseRead()
 	}
 	return os.ErrInvalid
-}
-
-// RelayInfoFromConn follows supported connection wrappers, including TLS.
-// Protocols that hide their underlying session deliberately return no identity.
-func RelayInfoFromConn(conn net.Conn) RelayInfo {
-	if marked, ok := common.Cast[interface{ RelayInfo() RelayInfo }](conn); ok {
-		return marked.RelayInfo()
-	}
-	return RelayInfo{}
 }

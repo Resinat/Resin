@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Resinat/Resin/internal/config"
+	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/probe"
 	"github.com/Resinat/Resin/internal/service"
@@ -235,8 +236,8 @@ func TestHandleProbeEgress_ReturnsRegion(t *testing.T) {
 
 	cp.ProbeMgr = probe.NewProbeManager(probe.ProbeConfig{
 		Pool: cp.Pool,
-		Fetcher: func(_ node.Hash, _ string) ([]byte, time.Duration, error) {
-			return []byte("ip=203.0.113.88\nloc=JP"), 25 * time.Millisecond, nil
+		Fetcher: func(_ node.Hash, _ string) (netutil.OutboundHTTPResult, error) {
+			return netutil.OutboundHTTPResult{Body: []byte("ip=203.0.113.88\nloc=JP"), Latency: 25 * time.Millisecond}, nil
 		},
 	})
 

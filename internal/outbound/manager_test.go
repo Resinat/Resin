@@ -133,6 +133,23 @@ type mockPool struct {
 
 func (p *mockPool) ResolveNodeDisplayTag(hash node.Hash) string { return hash.Hex() }
 
+func (p *mockPool) IsRelayEligible(hash node.Hash, network string) bool {
+	e, ok := p.GetEntry(hash)
+	if !ok || e.RoutingRole() != node.RoleRelay || !e.IsHealthy() {
+		return false
+	}
+	ptr := e.Outbound.Load()
+	if ptr == nil {
+		return false
+	}
+	for _, supported := range (*ptr).Network() {
+		if supported == network {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *mockPool) GetEntry(hash node.Hash) (*node.NodeEntry, bool) {
 	v, ok := p.entries.Load(hash)
 	if !ok {

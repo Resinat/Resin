@@ -45,6 +45,7 @@ type GlobalNodePool struct {
 	onNodeLatencyChanged func(hash node.Hash, domain string) // fired on latency upserts and evictions
 	onNodeModeChanged    func(hash node.Hash)
 	onRelayAvailable     func()
+	onRelaySuspect       func(node.Hash)
 	relayViews           *xsync.Map[relayKey, *relaySet]
 	relayMembership      *xsync.Map[node.Hash, []relayKey]
 

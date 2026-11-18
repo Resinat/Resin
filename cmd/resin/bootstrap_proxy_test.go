@@ -12,6 +12,7 @@ import (
 
 	"github.com/Resinat/Resin/internal/config"
 	"github.com/Resinat/Resin/internal/model"
+	"github.com/Resinat/Resin/internal/netutil"
 	"github.com/Resinat/Resin/internal/node"
 	"github.com/Resinat/Resin/internal/outbound"
 	"github.com/Resinat/Resin/internal/platform"
@@ -81,8 +82,8 @@ func TestRestoredNodesServeProxyAndAcceptProbeFeedback(t *testing.T) {
 			if response.Code != http.StatusOK || response.Body.String() != "ok" {
 				t.Fatalf("restored proxy: status=%d body=%s", response.Code, response.Body.String())
 			}
-			probes := probe.NewProbeManager(probe.ProbeConfig{Pool: pool, Fetcher: func(node.Hash, string) ([]byte, time.Duration, error) {
-				return []byte("ip=203.0.113.99\nloc=JP\n"), 9 * time.Millisecond, nil
+			probes := probe.NewProbeManager(probe.ProbeConfig{Pool: pool, Fetcher: func(node.Hash, string) (netutil.OutboundHTTPResult, error) {
+				return netutil.OutboundHTTPResult{Body: []byte("ip=203.0.113.99\nloc=JP\n"), Latency: 9 * time.Millisecond}, nil
 			}})
 			defer probes.Stop()
 			_, err = probes.ProbeEgressSync(hash)
