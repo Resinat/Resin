@@ -2496,6 +2496,38 @@ a {
   gap: 2px;
 }
 
+.logs-node-path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.logs-node-path a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  width: fit-content;
+}
+
+.logs-node-path-chain .logs-node-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.logs-relay-unrecorded {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+}
+
+.logs-relay-info {
+  display: inline-flex;
+  flex-shrink: 0;
+  cursor: help;
+}
+
 .logs-time-cell {
   line-height: 1.2;
 }

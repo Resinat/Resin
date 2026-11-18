@@ -11,6 +11,9 @@ export type RequestLogItem = {
   node_hash: string;
   node_tag: string;
   egress_ip: string;
+  chain_proxy: boolean;
+  relay_node_hash: string;
+  relay_node_tag: string;
   duration_ms: number;
   first_byte_duration_ms: number;
   net_ok: boolean;
