@@ -28,7 +28,7 @@ import {
   refreshSubscription,
   updateSubscription,
 } from "./api";
-import type { Subscription } from "./types";
+import type { PageResponse, Subscription } from "./types";
 
 type EnabledFilter = "all" | "enabled" | "disabled";
 type SubscriptionSourceType = "remote" | "local";
@@ -42,6 +42,12 @@ const SUBSCRIPTION_SOURCE_TABS: Array<{ key: SubscriptionSourceType; label: stri
   { key: "local", label: "本地", hint: "直接填写订阅文本，不经过网络拉取" },
 ];
 
+const SUBSCRIPTION_CHAIN_MODES = [
+  { value: "off", label: "关", shortLabel: "关" },
+  { value: "relay", label: "允许作为线路节点", shortLabel: "线路" },
+  { value: "landing", label: "仅通过线路节点落地", shortLabel: "落地" },
+] as const;
+
 const subscriptionCreateSchema = z.object({
   name: z.string().trim().min(1, "订阅名称不能为空"),
   source_type: z.enum(["remote", "local"]),
@@ -52,6 +58,7 @@ const subscriptionCreateSchema = z.object({
   enabled: z.boolean(),
   ephemeral: z.boolean(),
   incremental_alive_nodes: z.boolean(),
+  chain_mode: z.enum(["off", "relay", "landing"]),
 }).superRefine((value, ctx) => {
   const url = value.url.trim();
   const content = value.content.trim();
@@ -74,12 +81,15 @@ const subscriptionEditSchema = subscriptionCreateSchema;
 
 type SubscriptionCreateForm = z.infer<typeof subscriptionCreateSchema>;
 type SubscriptionEditForm = z.infer<typeof subscriptionEditSchema>;
+type SubscriptionChainMode = SubscriptionEditForm["chain_mode"];
 const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const LOCAL_SOURCE_UPDATE_INTERVAL = "12h";
 const SUBSCRIPTION_DISABLE_HINT = "禁用订阅后，相关节点不会参与平台路由、健康统计或自动探测。";
 const SUBSCRIPTION_EPHEMERAL_HINT = "临时订阅的非健康节点会在一段时间后被自动删除。订阅本身不会被删除。";
 const SUBSCRIPTION_INCREMENTAL_HINT = "开启后刷新时保留当前仍存活的旧节点，仅清理失效旧节点，并合并新订阅内容；关闭后仅保留刷新后的订阅内容。";
+const SUBSCRIPTION_CHAIN_HINT = "线路节点负责中转，落地节点负责最终出口。节点属于多个订阅时，线路节点设置优先。";
+const SUBSCRIPTION_CHAIN_CHANGE_HINT = "修改链式代理角色可能中断已有连接。";
 
 function extractHostname(url: string): string {
   try {
@@ -87,6 +97,56 @@ function extractHostname(url: string): string {
   } catch {
     return url;
   }
+}
+
+function subscriptionChainMode(subscription: Subscription): SubscriptionChainMode {
+  return subscription.chain_relay ? "relay" : subscription.chain_proxy ? "landing" : "off";
+}
+
+function SubscriptionChainSwitch({ subscription, onModeChange }: {
+  subscription: Subscription;
+  onModeChange: (subscription: Subscription, mode: SubscriptionChainMode) => Promise<void>;
+}) {
+  const { t } = useI18n();
+  const mutation = useMutation({
+    mutationFn: (mode: SubscriptionChainMode) => onModeChange(subscription, mode),
+  });
+  const mode = mutation.isPending ? mutation.variables : subscriptionChainMode(subscription);
+
+  return (
+    <fieldset
+      className="subscription-chain-switch"
+      aria-label={`${t("链式代理")} · ${subscription.name}`}
+      aria-busy={mutation.isPending}
+      aria-disabled={mutation.isPending}
+      title={`${t(SUBSCRIPTION_CHAIN_HINT)} ${t(SUBSCRIPTION_CHAIN_CHANGE_HINT)}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (mutation.isPending) event.preventDefault();
+      }}
+      onKeyDown={(event) => {
+        if (mutation.isPending && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(event.key)) {
+          event.preventDefault();
+        }
+      }}
+    >
+      {SUBSCRIPTION_CHAIN_MODES.map((option) => (
+        <label key={option.value} title={t(option.label)}>
+          <input
+            type="radio"
+            name={`subscription-chain-${subscription.id}`}
+            value={option.value}
+            aria-label={t(option.label)}
+            checked={mode === option.value}
+            onChange={() => {
+              if (!mutation.isPending) mutation.mutate(option.value);
+            }}
+          />
+          <span>{t(option.shortLabel)}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
 }
 
 function subscriptionToEditForm(subscription: Subscription): SubscriptionEditForm {
@@ -100,6 +160,7 @@ function subscriptionToEditForm(subscription: Subscription): SubscriptionEditFor
     enabled: subscription.enabled,
     ephemeral: subscription.ephemeral,
     incremental_alive_nodes: subscription.incremental_alive_nodes,
+    chain_mode: subscriptionChainMode(subscription),
   };
 }
 
@@ -193,6 +254,7 @@ export function SubscriptionPage() {
       enabled: true,
       ephemeral: false,
       incremental_alive_nodes: false,
+      chain_mode: "off",
     },
   });
 
@@ -211,6 +273,7 @@ export function SubscriptionPage() {
       enabled: true,
       ephemeral: false,
       incremental_alive_nodes: false,
+      chain_mode: "off",
     },
   });
 
@@ -251,6 +314,18 @@ export function SubscriptionPage() {
     ]);
   };
 
+  const updateSubscriptionCache = useCallback((updated: Subscription) => {
+    queryClient.setQueriesData<PageResponse<Subscription> | Subscription[]>(
+      { queryKey: ["subscriptions"] },
+      (data) => {
+        if (!data) return data;
+        const items = Array.isArray(data) ? data : data.items;
+        const next = items.map((item) => item.id === updated.id ? updated : item);
+        return Array.isArray(data) ? next : { ...data, items: next };
+      },
+    );
+  }, [queryClient]);
+
   const createMutation = useMutation({
     mutationFn: createSubscription,
     onSuccess: async (created) => {
@@ -266,6 +341,7 @@ export function SubscriptionPage() {
         enabled: true,
         ephemeral: false,
         incremental_alive_nodes: false,
+        chain_mode: "off",
       });
       showToast("success", t("订阅 {{name}} 创建成功", { name: created.name }));
     },
@@ -287,6 +363,8 @@ export function SubscriptionPage() {
         enabled: formData.enabled,
         ephemeral: formData.ephemeral,
         incremental_alive_nodes: formData.incremental_alive_nodes,
+        chain_proxy: formData.chain_mode === "landing",
+        chain_relay: formData.chain_mode === "relay",
         ...(formData.source_type === "remote"
           ? { url: formData.url.trim() }
           : { content: formData.content }),
@@ -294,7 +372,8 @@ export function SubscriptionPage() {
       return updateSubscription(selectedSubscription.id, payload);
     },
     onSuccess: async (updated) => {
-      await invalidateSubscriptions();
+      updateSubscriptionCache(updated);
+      await invalidateSubscriptionsAndNodes();
       setSelectedSubscriptionId(updated.id);
       showToast("success", t("订阅 {{name}} 已更新", { name: updated.name }));
     },
@@ -437,6 +516,8 @@ export function SubscriptionPage() {
       enabled: values.enabled,
       ephemeral: values.ephemeral,
       incremental_alive_nodes: values.incremental_alive_nodes,
+      chain_proxy: values.chain_mode === "landing",
+      chain_relay: values.chain_mode === "relay",
       ...(values.source_type === "remote"
         ? { url: values.url.trim() }
         : { content: values.content }),
@@ -494,6 +575,24 @@ export function SubscriptionPage() {
       clearEnabledTogglePending(subscription.id);
     }
   }, [clearEnabledTogglePending, markEnabledTogglePending, toggleSubscriptionEnabledMutateAsync]);
+
+  const handleChainModeChange = useCallback(async (subscription: Subscription, mode: SubscriptionChainMode) => {
+    try {
+      const updated = await updateSubscription(subscription.id, {
+        chain_proxy: mode === "landing",
+        chain_relay: mode === "relay",
+      });
+      updateSubscriptionCache(updated);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["subscriptions"] }),
+        queryClient.invalidateQueries({ queryKey: ["nodes"] }),
+      ]);
+      showToast("success", t("订阅 {{name}} 已更新", { name: updated.name }));
+    } catch (error) {
+      showToast("error", formatApiErrorMessage(error, t));
+      throw error;
+    }
+  }, [queryClient, showToast, t, updateSubscriptionCache]);
 
   const changePageSize = (next: number) => {
     setPageSize(next);
@@ -586,6 +685,13 @@ export function SubscriptionPage() {
         },
       }),
       col.display({
+        id: "chain_mode",
+        header: t("链式代理"),
+        cell: (info) => (
+          <SubscriptionChainSwitch subscription={info.row.original} onModeChange={handleChainModeChange} />
+        ),
+      }),
+      col.display({
         id: "actions",
         header: t("操作"),
         cell: (info) => {
@@ -631,6 +737,7 @@ export function SubscriptionPage() {
       col,
       displayedEnabledState,
       handleDelete,
+      handleChainModeChange,
       handleEnabledChange,
       handleRefresh,
       isDeletePending,
@@ -892,10 +999,7 @@ export function SubscriptionPage() {
                     </div>
                   )}
 
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-sub-ephemeral" style={{ visibility: "hidden" }}>
-                      {t("临时订阅")}
-                    </label>
+                  <div className="subscription-switch-group field-span-2">
                     <div className="subscription-switch-item">
                       <label className="subscription-switch-label" htmlFor="edit-sub-ephemeral">
                         <span>{t("临时订阅")}</span>
@@ -910,12 +1014,6 @@ export function SubscriptionPage() {
                       </label>
                       <Switch id="edit-sub-ephemeral" {...editForm.register("ephemeral")} />
                     </div>
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-sub-incremental-alive-nodes" style={{ visibility: "hidden" }}>
-                      {t("存活节点增量模式")}
-                    </label>
                     <div className="subscription-switch-item">
                       <label className="subscription-switch-label" htmlFor="edit-sub-incremental-alive-nodes">
                         <span>{t("存活节点增量模式")}</span>
@@ -945,6 +1043,32 @@ export function SubscriptionPage() {
                     />
                     {editForm.formState.errors.ephemeral_node_evict_delay?.message ? (
                       <p className="field-error">{t(editForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="field-group">
+                    <label className="field-label field-label-with-info" htmlFor="edit-sub-chain-mode">
+                      <span>{t("链式代理")}</span>
+                      <span
+                        className="subscription-info-icon"
+                        title={`${t(SUBSCRIPTION_CHAIN_HINT)} ${t(SUBSCRIPTION_CHAIN_CHANGE_HINT)}`}
+                        aria-label={`${t(SUBSCRIPTION_CHAIN_HINT)} ${t(SUBSCRIPTION_CHAIN_CHANGE_HINT)}`}
+                        tabIndex={0}
+                      >
+                        <Info size={13} />
+                      </span>
+                    </label>
+                    <Select
+                      id="edit-sub-chain-mode"
+                      invalid={Boolean(editForm.formState.errors.chain_mode)}
+                      {...editForm.register("chain_mode")}
+                    >
+                      {SUBSCRIPTION_CHAIN_MODES.map((option) => (
+                        <option key={option.value} value={option.value}>{t(option.label)}</option>
+                      ))}
+                    </Select>
+                    {editForm.formState.errors.chain_mode?.message ? (
+                      <p className="field-error">{t(editForm.formState.errors.chain_mode.message)}</p>
                     ) : null}
                   </div>
 
@@ -1123,10 +1247,7 @@ export function SubscriptionPage() {
                 </div>
               )}
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="create-sub-ephemeral" style={{ visibility: "hidden" }}>
-                  {t("临时订阅")}
-                </label>
+              <div className="subscription-switch-group field-span-2">
                 <div className="subscription-switch-item">
                   <label className="subscription-switch-label" htmlFor="create-sub-ephemeral">
                     <span>{t("临时订阅")}</span>
@@ -1141,12 +1262,6 @@ export function SubscriptionPage() {
                   </label>
                   <Switch id="create-sub-ephemeral" {...createForm.register("ephemeral")} />
                 </div>
-              </div>
-
-              <div className="field-group">
-                <label className="field-label" htmlFor="create-sub-incremental-alive-nodes" style={{ visibility: "hidden" }}>
-                  {t("存活节点增量模式")}
-                </label>
                 <div className="subscription-switch-item">
                   <label className="subscription-switch-label" htmlFor="create-sub-incremental-alive-nodes">
                     <span>{t("存活节点增量模式")}</span>
@@ -1176,6 +1291,32 @@ export function SubscriptionPage() {
                 />
                 {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
                   <p className="field-error">{t(createForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
+                ) : null}
+              </div>
+
+              <div className="field-group">
+                <label className="field-label field-label-with-info" htmlFor="create-sub-chain-mode">
+                  <span>{t("链式代理")}</span>
+                  <span
+                    className="subscription-info-icon"
+                    title={t(SUBSCRIPTION_CHAIN_HINT)}
+                    aria-label={t(SUBSCRIPTION_CHAIN_HINT)}
+                    tabIndex={0}
+                  >
+                    <Info size={13} />
+                  </span>
+                </label>
+                <Select
+                  id="create-sub-chain-mode"
+                  invalid={Boolean(createForm.formState.errors.chain_mode)}
+                  {...createForm.register("chain_mode")}
+                >
+                  {SUBSCRIPTION_CHAIN_MODES.map((option) => (
+                    <option key={option.value} value={option.value}>{t(option.label)}</option>
+                  ))}
+                </Select>
+                {createForm.formState.errors.chain_mode?.message ? (
+                  <p className="field-error">{t(createForm.formState.errors.chain_mode.message)}</p>
                 ) : null}
               </div>
 
