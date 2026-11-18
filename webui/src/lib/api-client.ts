@@ -1,4 +1,4 @@
-import { getStoredAuthToken } from "../features/auth/auth-store";
+import { getStoredAuthToken, useAuthStore } from "../features/auth/auth-store";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.trim() ?? "";
 
@@ -61,11 +61,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers.set("Content-Type", "application/json; charset=utf-8");
   }
 
-  if (auth) {
-    const resolvedToken = token?.trim() || getStoredAuthToken();
-    if (resolvedToken) {
-      headers.set("Authorization", `Bearer ${resolvedToken}`);
-    }
+  const resolvedToken = auth ? token?.trim() || getStoredAuthToken() : "";
+  if (resolvedToken) {
+    headers.set("Authorization", `Bearer ${resolvedToken}`);
   }
 
   const response = await fetch(buildURL(path), {
@@ -76,6 +74,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   });
 
   if (!response.ok) {
+    // Explicit tokens validate login credentials. Late responses from an old
+    // session must not clear a newer token stored while the request was pending.
+    if (response.status === 401 && token === undefined && resolvedToken && getStoredAuthToken() === resolvedToken) {
+      useAuthStore.getState().clearToken();
+    }
     const parsed = await parseErrorBody(response);
     const code = parsed?.error?.code ?? "HTTP_ERROR";
     const message = parsed?.error?.message ?? response.statusText;
