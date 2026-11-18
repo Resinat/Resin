@@ -232,7 +232,8 @@ Note: Once enabled, requests without authentication information are rejected ins
   "1.2.3.4:8080:user:pass（兼容简写）": "1.2.3.4:8080:user:pass (compat shorthand)",
   "临时订阅": "Temporary Subscription",
   "链式代理": "Proxy chain",
-  "未记录": "Not recorded",
+  "（经过 <node/>）": "(via <node/>)",
+  "（经过链式代理<info/>）": "(via proxy chain<info/>)",
   "链式代理已启用，但本次请求未能记录线路节点。部分协议或连接建立失败时可能出现此情况。":
     "Proxy chaining is enabled, but the relay was not recorded for this request. This can happen with some protocols or when connection setup fails.",
   "线路": "Relay",

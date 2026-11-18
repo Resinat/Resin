@@ -2495,28 +2495,41 @@ a {
   white-space: nowrap;
 }
 
-.logs-node-path a {
+.logs-node-path a,
+.logs-relay-via a {
   color: var(--accent-primary);
   text-decoration: none;
   width: fit-content;
 }
 
-.logs-node-path-chain .logs-node-name {
+.logs-relay-via .logs-node-name {
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.logs-relay-unrecorded {
+.logs-relay-via {
   display: inline-flex;
   align-items: center;
+  white-space: pre;
+}
+
+.logs-cell-stack>.logs-node-egress {
+  display: flex;
+  align-items: center;
   gap: 4px;
+  max-width: none;
+  white-space: nowrap;
+}
+
+.logs-relay-unrecorded {
   color: var(--text-muted);
 }
 
 .logs-relay-info {
   display: inline-flex;
-  flex-shrink: 0;
+  margin-inline-start: 3px;
+  vertical-align: -2px;
   cursor: help;
 }
 
