@@ -31,6 +31,7 @@ type preparedTunnel struct {
 
 type tunnelPrepareResult struct {
 	route         routing.RouteResult
+	relay         outbound.RelayInfo
 	session       *preparedTunnel
 	proxyErr      *ProxyError
 	upstreamStage string
@@ -132,6 +133,7 @@ func prepareConnectTunnel(
 
 	return tunnelPrepareResult{
 		route: routed.Route,
+		relay: outbound.RelayInfoFromConn(rawConn),
 		session: &preparedTunnel{
 			upstreamConn: upstreamConn,
 			recordResult: recordResult,

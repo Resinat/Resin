@@ -131,6 +131,8 @@ type mockPool struct {
 	entries sync.Map // node.Hash -> *node.NodeEntry
 }
 
+func (p *mockPool) ResolveNodeDisplayTag(hash node.Hash) string { return hash.Hex() }
+
 func (p *mockPool) GetEntry(hash node.Hash) (*node.NodeEntry, bool) {
 	v, ok := p.entries.Load(hash)
 	if !ok {

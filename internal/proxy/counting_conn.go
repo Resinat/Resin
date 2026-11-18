@@ -47,6 +47,8 @@ func newCountingConn(conn net.Conn, sink MetricsEventSink) *countingConn {
 	}
 }
 
+func (c *countingConn) Upstream() any { return c.Conn }
+
 func (c *countingConn) Read(b []byte) (int, error) {
 	n, err := c.Conn.Read(b)
 	if n > 0 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"time"
 
 	"github.com/Resinat/Resin/internal/node"
@@ -48,6 +49,20 @@ type OutboundTransportPool struct {
 type outboundTransportEntry struct {
 	version   uint64
 	transport *http.Transport
+}
+
+// Protocols may make their own HTTP requests while dialing. Keep their trace
+// callbacks separate from the outer request while preserving other context data.
+type outboundDialContext struct {
+	context.Context
+}
+
+func (c outboundDialContext) Value(key any) any {
+	value := c.Context.Value(key)
+	if _, ok := value.(*httptrace.ClientTrace); ok {
+		return nil
+	}
+	return value
 }
 
 func newOutboundTransportPool() *OutboundTransportPool {
@@ -130,7 +145,7 @@ func (p *OutboundTransportPool) CloseAll() {
 func (p *OutboundTransportPool) newReusableOutboundTransport(ob adapter.Outbound, sink MetricsEventSink) *http.Transport {
 	return &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := ob.DialContext(ctx, network, M.ParseSocksaddr(addr))
+			conn, err := ob.DialContext(outboundDialContext{ctx}, network, M.ParseSocksaddr(addr))
 			if err != nil {
 				return nil, err
 			}

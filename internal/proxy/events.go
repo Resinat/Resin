@@ -55,6 +55,9 @@ type RequestLogEntry struct {
 	NodeHash            string
 	NodeTag             string // display tag: "<Subscription>/<Tag>" (DESIGN.md §601)
 	EgressIP            string
+	ChainProxy          bool
+	RelayNodeHash       string
+	RelayNodeTag        string
 	DurationNs          int64
 	FirstByteDurationNs int64
 	NetOK               bool

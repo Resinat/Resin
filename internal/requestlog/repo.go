@@ -18,7 +18,7 @@ import (
 	"github.com/Resinat/Resin/internal/state"
 )
 
-const logSummarySelectColumns = "id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, duration_ns, first_byte_duration_ns, net_ok, http_method, http_status, resin_error, upstream_stage, upstream_err_kind, upstream_errno, upstream_err_msg, ingress_bytes, egress_bytes, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated"
+const logSummarySelectColumns = "id, ts_ns, proxy_type, client_ip, platform_id, platform_name, account, target_host, target_url, node_hash, node_tag, egress_ip, chain_proxy, relay_node_hash, relay_node_tag, duration_ns, first_byte_duration_ns, net_ok, http_method, http_status, resin_error, upstream_stage, upstream_err_kind, upstream_errno, upstream_err_msg, ingress_bytes, egress_bytes, payload_present, req_headers_len, req_body_len, resp_headers_len, resp_body_len, req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated"
 
 // Repo manages rolling SQLite databases for request logs.
 // Each DB is named request_logs-<unix_ms>.db and lives in logDir.
@@ -117,13 +117,14 @@ func (r *Repo) InsertBatch(entries []proxy.RequestLogEntry) (int, error) {
 		id, ts_ns, proxy_type, client_ip,
 		platform_id, platform_name, account,
 		target_host, target_url, node_hash, node_tag, egress_ip,
+		chain_proxy, relay_node_hash, relay_node_tag,
 		duration_ns, first_byte_duration_ns, net_ok, http_method, http_status,
 		resin_error, upstream_stage, upstream_err_kind, upstream_errno, upstream_err_msg,
 		ingress_bytes, egress_bytes,
 		payload_present,
 		req_headers_len, req_body_len, resp_headers_len, resp_body_len,
 		req_headers_truncated, req_body_truncated, resp_headers_truncated, resp_body_truncated
-	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return 0, fmt.Errorf("requestlog repo prepare log: %w", err)
 	}
@@ -157,6 +158,7 @@ func (r *Repo) InsertBatch(entries []proxy.RequestLogEntry) (int, error) {
 			id, e.StartedAtNs, int(e.ProxyType), e.ClientIP,
 			e.PlatformID, e.PlatformName, e.Account,
 			e.TargetHost, e.TargetURL, e.NodeHash, e.NodeTag, e.EgressIP,
+			boolToInt(e.ChainProxy), e.RelayNodeHash, e.RelayNodeTag,
 			e.DurationNs, e.FirstByteDurationNs, netOK, e.HTTPMethod, e.HTTPStatus,
 			e.ResinError, e.UpstreamStage, e.UpstreamErrKind, e.UpstreamErrno, e.UpstreamErrMsg,
 			e.IngressBytes, e.EgressBytes,
@@ -215,6 +217,9 @@ type LogSummary struct {
 	NodeHash            string `json:"node_hash"`
 	NodeTag             string `json:"node_tag"`
 	EgressIP            string `json:"egress_ip"`
+	ChainProxy          bool   `json:"chain_proxy"`
+	RelayNodeHash       string `json:"relay_node_hash"`
+	RelayNodeTag        string `json:"relay_node_tag"`
 	DurationNs          int64  `json:"duration_ns"`
 	FirstByteDurationNs int64  `json:"first_byte_duration_ns"`
 	NetOK               bool   `json:"net_ok"`
@@ -668,11 +673,12 @@ type rowScanner interface {
 
 func scanLogSummary(s rowScanner) (LogSummary, error) {
 	var row LogSummary
-	var netOK, payloadPresent, rht, rbt, rsht, rsbt int
+	var netOK, chainProxy, payloadPresent, rht, rbt, rsht, rsbt int
 	err := s.Scan(
 		&row.ID, &row.TsNs, &row.ProxyType, &row.ClientIP,
 		&row.PlatformID, &row.PlatformName, &row.Account,
 		&row.TargetHost, &row.TargetURL, &row.NodeHash, &row.NodeTag, &row.EgressIP,
+		&chainProxy, &row.RelayNodeHash, &row.RelayNodeTag,
 		&row.DurationNs, &row.FirstByteDurationNs, &netOK, &row.HTTPMethod, &row.HTTPStatus,
 		&row.ResinError, &row.UpstreamStage, &row.UpstreamErrKind, &row.UpstreamErrno, &row.UpstreamErrMsg,
 		&row.IngressBytes, &row.EgressBytes,
@@ -684,6 +690,7 @@ func scanLogSummary(s rowScanner) (LogSummary, error) {
 		return LogSummary{}, err
 	}
 	row.NetOK = netOK != 0
+	row.ChainProxy = chainProxy != 0
 	row.PayloadPresent = payloadPresent != 0
 	row.ReqHeadersTruncated = rht != 0
 	row.ReqBodyTruncated = rbt != 0

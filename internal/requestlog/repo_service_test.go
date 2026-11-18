@@ -25,6 +25,9 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 	rows := []proxy.RequestLogEntry{
 		{
 			ID:                  "log-a",
+			ChainProxy:          true,
+			RelayNodeHash:       "relay-hash",
+			RelayNodeTag:        "relay/name",
 			StartedAtNs:         ts,
 			ProxyType:           proxy.ProxyTypeForward,
 			ClientIP:            "10.0.0.1",
@@ -108,6 +111,9 @@ func TestRepo_InsertListGetPayloads(t *testing.T) {
 	}
 	if list[0].ID != "log-a" || list[1].ID != "log-b" {
 		t.Fatalf("list order (ts desc, id asc tie-break): got [%s, %s]", list[0].ID, list[1].ID)
+	}
+	if !list[0].ChainProxy || list[0].RelayNodeHash != "relay-hash" || list[0].RelayNodeTag != "relay/name" || list[1].ChainProxy {
+		t.Fatalf("chain metadata round trip: %+v", list)
 	}
 
 	filtered, hasMore, nextCursor, err := repo.List(ListFilter{PlatformID: "plat-1", Limit: 10})
@@ -378,6 +384,9 @@ func TestRepo_OpenMigratesIndexesInHistoricalDBs(t *testing.T) {
 	historicalPath := repo.activePath
 
 	legacyIndexesDDL := `
+		ALTER TABLE request_logs DROP COLUMN chain_proxy;
+		ALTER TABLE request_logs DROP COLUMN relay_node_hash;
+		ALTER TABLE request_logs DROP COLUMN relay_node_tag;
 		DROP INDEX IF EXISTS idx_request_logs_ts_id;
 		DROP INDEX IF EXISTS idx_request_logs_proxy_type_ts_id;
 		DROP INDEX IF EXISTS idx_request_logs_account_ts_id;
@@ -409,6 +418,14 @@ func TestRepo_OpenMigratesIndexesInHistoricalDBs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = historicalDB.Close() })
 	assertRequestLogIndexes(t, historicalDB)
+	for _, column := range []string{"chain_proxy", "relay_node_hash", "relay_node_tag"} {
+		for _, db := range []*sql.DB{historicalDB, reopened.activeDB} {
+			found, err := hasRequestLogColumn(db, "request_logs", column)
+			if err != nil || !found {
+				t.Fatalf("missing upgraded log column %s: %v", column, err)
+			}
+		}
+	}
 }
 
 func TestRepo_CleanupRetainsConfiguredFileCount(t *testing.T) {

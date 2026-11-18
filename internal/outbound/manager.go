@@ -47,6 +47,7 @@ func buildOutboundSafely(builder OutboundBuilder, rawOptions json.RawMessage) (o
 // used for role transitions. Construction and disposal stay outside that lock.
 type OutboundPool interface {
 	PoolAccessor
+	ResolveNodeDisplayTag(node.Hash) string
 	PublishOutbound(*node.NodeEntry, uint64, *adapter.Outbound, *adapter.Outbound) bool
 }
 

@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS request_logs (
 	node_hash             TEXT NOT NULL DEFAULT '',
 	node_tag              TEXT NOT NULL DEFAULT '',
 	egress_ip             TEXT NOT NULL DEFAULT '',
+	chain_proxy           INTEGER NOT NULL DEFAULT 0,
+	relay_node_hash       TEXT NOT NULL DEFAULT '',
+	relay_node_tag        TEXT NOT NULL DEFAULT '',
 	duration_ns           INTEGER NOT NULL DEFAULT 0,
 	first_byte_duration_ns INTEGER NOT NULL DEFAULT 0,
 	net_ok                INTEGER NOT NULL DEFAULT 0,
@@ -76,8 +79,15 @@ DROP INDEX IF EXISTS idx_request_logs_platform_id;
 const CreateDDL = requestLogTablesDDL + requestLogIndexesDDL
 
 func ensureRequestLogSchema(db *sql.DB) error {
-	if err := ensureRequestLogColumn(db, "request_logs", "first_byte_duration_ns", "first_byte_duration_ns INTEGER NOT NULL DEFAULT 0"); err != nil {
-		return err
+	for _, column := range []struct{ name, ddl string }{
+		{"first_byte_duration_ns", "first_byte_duration_ns INTEGER NOT NULL DEFAULT 0"},
+		{"chain_proxy", "chain_proxy INTEGER NOT NULL DEFAULT 0"},
+		{"relay_node_hash", "relay_node_hash TEXT NOT NULL DEFAULT ''"},
+		{"relay_node_tag", "relay_node_tag TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := ensureRequestLogColumn(db, "request_logs", column.name, column.ddl); err != nil {
+			return err
+		}
 	}
 
 	tx, err := db.Begin()

@@ -66,6 +66,7 @@ type RouteResult struct {
 	NodeTag      string // display tag: "<Subscription>/<Tag>" (DESIGN.md §601)
 	LeaseCreated bool
 	NodeVersion  uint64
+	ChainProxy   bool // snapshot of the actual outbound mode selected for this request
 }
 
 const livePickAttempts = 2 // first pick + one retry

@@ -255,6 +255,8 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	outReq := prepareForwardOutboundRequest(r)
 	upstreamTrace := newUpstreamRequestTrace(lifecycle.markFirstByteReceived)
+	upstreamTrace.onGetConn = lifecycle.clearRelayInfo
+	upstreamTrace.onGotConn = lifecycle.observeHTTPConn
 	outReq = outReq.WithContext(httptrace.WithClientTrace(outReq.Context(), upstreamTrace.clientTrace()))
 	pendingEgressHeaderBytes := headerWireLen(outReq.Header)
 	var egressBodyCounter *countingReadCloser
@@ -345,6 +347,7 @@ func (p *ForwardProxy) handleCONNECT(w http.ResponseWriter, r *http.Request) {
 	)
 	if prepare.route.PlatformID != "" {
 		lifecycle.setRouteResult(prepare.route)
+		lifecycle.setRelayInfo(prepare.relay)
 	}
 	if prepare.session == nil {
 		if prepare.proxyErr != nil {

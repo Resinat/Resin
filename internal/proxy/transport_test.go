@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -56,6 +57,38 @@ func (n *noopOutbound) DialContext(context.Context, string, M.Socksaddr) (net.Co
 
 func (n *noopOutbound) Tag() string  { return "noop" }
 func (n *noopOutbound) Type() string { return "noop" }
+
+func TestOutboundDialPreservesContextWithoutOuterHTTPTrace(t *testing.T) {
+	type contextKey struct{}
+	ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), contextKey{}, "preserved"), time.Second)
+	defer cancel()
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GetConn: func(string) {}})
+	var dialContext context.Context
+	ob := &mockOutbound{dialFunc: func(inner context.Context, _ string, _ M.Socksaddr) (net.Conn, error) {
+		dialContext = inner
+		if httptrace.ContextClientTrace(inner) != nil {
+			t.Error("outer HTTP trace leaked into protocol dial")
+		}
+		if inner.Value(contextKey{}) != "preserved" || inner.Done() != ctx.Done() {
+			t.Error("protocol dial lost request context data or cancellation")
+		}
+		deadline, ok := inner.Deadline()
+		want, _ := ctx.Deadline()
+		if !ok || !deadline.Equal(want) {
+			t.Error("protocol dial lost deadline")
+		}
+		return nil, errors.New("dial failed")
+	}}
+	transport := newOutboundTransportPool().newReusableOutboundTransport(ob, nil)
+	_, _ = transport.DialContext(ctx, "tcp", "example.com:443")
+	cancel()
+	if dialContext == nil || dialContext.Err() != context.Canceled {
+		t.Fatal("dial context did not follow cancellation")
+	}
+	if httptrace.ContextClientTrace(ctx) == nil {
+		t.Fatal("protocol dial modified the original request trace")
+	}
+}
 
 func TestOutboundTransportPool_ReusesByNodeHash(t *testing.T) {
 	pool := newOutboundTransportPool()

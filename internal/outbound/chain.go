@@ -59,6 +59,7 @@ type nodeOutbound struct {
 }
 
 func (n *nodeOutbound) RoutingVersion() uint64  { return n.version }
+func (n *nodeOutbound) ChainProxy() bool        { return n.chain }
 func (n *nodeOutbound) Ready() bool             { return !n.closed.Load() }
 func (n *nodeOutbound) RelayNetworks() []string { return n.networks }
 func (n *nodeOutbound) Close() error {
@@ -100,43 +101,51 @@ type chainDialer struct {
 	landing node.Hash
 }
 
-func (d *chainDialer) pick(network string) (adapter.Outbound, error) {
+func (d *chainDialer) pick(network string) (adapter.Outbound, node.Hash, error) {
 	if d.manager.pickRelay == nil {
-		return nil, routing.ErrNoAvailableRelay
+		return nil, node.Zero, routing.ErrNoAvailableRelay
 	}
 	hash, err := d.manager.pickRelay(d.landing, N.NetworkName(network))
 	if err != nil {
-		return nil, err
+		return nil, node.Zero, err
 	}
 	if hash == d.landing {
-		return nil, routing.ErrNoAvailableRelay
+		return nil, node.Zero, routing.ErrNoAvailableRelay
 	}
 	entry, ok := d.manager.pool.GetEntry(hash)
 	if !ok {
-		return nil, routing.ErrNoAvailableRelay
+		return nil, node.Zero, routing.ErrNoAvailableRelay
 	}
 	ptr := entry.Outbound.Load()
 	if ptr == nil {
-		return nil, routing.ErrNoAvailableRelay
+		return nil, node.Zero, routing.ErrNoAvailableRelay
 	}
 	if entry.RoutingRole() != node.RoleRelay {
-		return nil, routing.ErrNoAvailableRelay
+		return nil, node.Zero, routing.ErrNoAvailableRelay
 	}
 	if n, ok := (*ptr).(*nodeOutbound); ok && n.chain {
-		return nil, routing.ErrNoAvailableRelay
+		return nil, node.Zero, routing.ErrNoAvailableRelay
 	}
 
-	return *ptr, nil
+	return *ptr, hash, nil
 }
 func (d *chainDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
-	ob, err := d.pick(network)
+	ob, hash, err := d.pick(network)
 	if err != nil {
 		return nil, err
 	}
-	return ob.DialContext(ctx, network, destination)
+	if N.NetworkName(network) != N.NetworkTCP {
+		return ob.DialContext(ctx, network, destination)
+	}
+	info := RelayInfo{Hash: hash, Tag: d.manager.pool.ResolveNodeDisplayTag(hash)}
+	conn, err := ob.DialContext(ctx, network, destination)
+	if err != nil {
+		return nil, err
+	}
+	return &relayConn{Conn: conn, info: info}, nil
 }
 func (d *chainDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
-	ob, err := d.pick("udp")
+	ob, _, err := d.pick("udp")
 	if err != nil {
 		return nil, err
 	}

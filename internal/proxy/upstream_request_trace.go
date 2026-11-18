@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"net"
 	"net/http/httptrace"
 	"sync/atomic"
 )
@@ -12,6 +13,8 @@ type upstreamRequestTrace struct {
 	gotConn              atomic.Bool
 	wroteRequest         atomic.Bool
 	gotFirstResponseByte func()
+	onGetConn            func()
+	onGotConn            func(net.Conn)
 }
 
 func newUpstreamRequestTrace(gotFirstResponseByte ...func()) *upstreamRequestTrace {
@@ -24,8 +27,16 @@ func newUpstreamRequestTrace(gotFirstResponseByte ...func()) *upstreamRequestTra
 
 func (t *upstreamRequestTrace) clientTrace() *httptrace.ClientTrace {
 	return &httptrace.ClientTrace{
-		GotConn: func(httptrace.GotConnInfo) {
+		GetConn: func(string) {
+			if t.onGetConn != nil {
+				t.onGetConn()
+			}
+		},
+		GotConn: func(info httptrace.GotConnInfo) {
 			t.gotConn.Store(true)
+			if t.onGotConn != nil {
+				t.onGotConn(info.Conn)
+			}
 		},
 		WroteRequest: func(info httptrace.WroteRequestInfo) {
 			// Only mark as written when transport reports write success.

@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Resinat/Resin/internal/node"
+	"github.com/Resinat/Resin/internal/outbound"
 	"github.com/Resinat/Resin/internal/routing"
 )
 
@@ -17,6 +19,7 @@ type requestLifecycle struct {
 	finished            RequestFinishedEvent
 	log                 RequestLogEntry
 	firstByteDurationNs atomic.Int64
+	relay               atomic.Pointer[outbound.RelayInfo]
 
 	reqBodyCapture  *payloadCaptureReadCloser
 	respBodyCapture *payloadCaptureReadCloser
@@ -68,6 +71,12 @@ func newRequestLifecycle(
 }
 
 func (l *requestLifecycle) finish() {
+	if l.log.ChainProxy {
+		if relay := l.relay.Load(); relay != nil && relay.Hash != node.Zero {
+			l.log.RelayNodeHash = relay.Hash.Hex()
+			l.log.RelayNodeTag = relay.Tag
+		}
+	}
 	if l.reqBodyCapture != nil {
 		l.log.ReqBody = l.reqBodyCapture.Payload()
 		l.log.ReqBodyLen = l.reqBodyCapture.TotalLen()
@@ -176,4 +185,17 @@ func (l *requestLifecycle) setRouteResult(result routing.RouteResult) {
 	l.log.NodeHash = result.NodeHash.Hex()
 	l.log.NodeTag = result.NodeTag
 	l.log.EgressIP = result.EgressIP.String()
+	l.log.ChainProxy = result.ChainProxy
+}
+
+func (l *requestLifecycle) setRelayInfo(info outbound.RelayInfo) {
+	l.relay.Store(&info)
+}
+
+func (l *requestLifecycle) clearRelayInfo() {
+	l.relay.Store(nil)
+}
+
+func (l *requestLifecycle) observeHTTPConn(conn net.Conn) {
+	l.setRelayInfo(outbound.RelayInfoFromConn(conn))
 }

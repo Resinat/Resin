@@ -126,6 +126,7 @@ func (s *Socks5Inbound) ServeConnContext(baseCtx context.Context, conn net.Conn)
 	)
 	if prepare.route.PlatformID != "" {
 		lifecycle.setRouteResult(prepare.route)
+		lifecycle.setRelayInfo(prepare.relay)
 	}
 	if prepare.session == nil {
 		if prepare.proxyErr != nil {

@@ -41,6 +41,9 @@ func resolveRoutedOutbound(
 	if version == 0 || version != entry.RoutingVersion() {
 		return routedOutbound{}, ErrNoAvailableNodes
 	}
+	if chained, ok := (*obPtr).(interface{ ChainProxy() bool }); ok {
+		result.ChainProxy = chained.ChainProxy()
+	}
 
 	return routedOutbound{
 		Route:    result,

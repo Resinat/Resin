@@ -286,6 +286,9 @@ func seedObservabilityData(
 			TargetURL:            "https://example.com/api",
 			NodeHash:             "node-1",
 			NodeTag:              "sub/tag-1",
+			ChainProxy:           true,
+			RelayNodeHash:        "relay-1",
+			RelayNodeTag:         "relay/tag-1",
 			EgressIP:             "8.8.8.8",
 			DurationNs:           int64(45 * time.Millisecond),
 			FirstByteDurationNs:  int64(12 * time.Millisecond),
@@ -1732,6 +1735,9 @@ func TestAPIContract_RequestLogEndpoints(t *testing.T) {
 	}
 	if row["first_byte_duration_ms"] != float64(12) {
 		t.Fatalf("detail first_byte_duration_ms: got %v, want 12", row["first_byte_duration_ms"])
+	}
+	if row["chain_proxy"] != true || row["relay_node_hash"] != "relay-1" || row["relay_node_tag"] != "relay/tag-1" {
+		t.Fatalf("detail chain metadata: %+v", row)
 	}
 	if row["payload_present"] != true {
 		t.Fatalf("payload_present: got %v, want true", row["payload_present"])

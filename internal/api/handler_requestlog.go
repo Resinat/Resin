@@ -291,6 +291,9 @@ type logListItem struct {
 	NodeHash             string `json:"node_hash"`
 	NodeTag              string `json:"node_tag"`
 	EgressIP             string `json:"egress_ip"`
+	ChainProxy           bool   `json:"chain_proxy"`
+	RelayNodeHash        string `json:"relay_node_hash"`
+	RelayNodeTag         string `json:"relay_node_tag"`
 	DurationMs           int64  `json:"duration_ms"`
 	FirstByteDurationMs  int64  `json:"first_byte_duration_ms"`
 	NetOK                bool   `json:"net_ok"`
@@ -328,6 +331,9 @@ func toLogListItem(s requestlog.LogSummary) logListItem {
 		NodeHash:             s.NodeHash,
 		NodeTag:              s.NodeTag,
 		EgressIP:             s.EgressIP,
+		ChainProxy:           s.ChainProxy,
+		RelayNodeHash:        s.RelayNodeHash,
+		RelayNodeTag:         s.RelayNodeTag,
 		DurationMs:           s.DurationNs / 1e6,
 		FirstByteDurationMs:  s.FirstByteDurationNs / 1e6,
 		NetOK:                s.NetOK,
