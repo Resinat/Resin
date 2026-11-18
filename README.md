@@ -26,6 +26,7 @@ It helps shield your services from unstable underlying proxy nodes by aggregatin
 
 - **Massive-scale management**: Easily handles 100k+ proxy nodes with native high-concurrency performance.
 - **Smart scheduling and circuit breaking**: Fully automated **passive + active** health checks, outbound IP probing, and latency analysis to remove bad nodes precisely. Uses P2C plus domain-aware latency-weighted scoring for optimal node selection.
+- **Smart proxy chaining**: Automatically matches exit nodes with suitable relays, so you don't have to configure each proxy chain individually.
 - **Business-friendly sticky proxying**: Keeps the same business account bound to a stable outbound IP. If a node fails, Resin seamlessly switches to another node with the same IP.
 - **Multiple access modes**: Supports HTTP forward proxy, SOCKS5 forward proxy, and URL-based reverse proxy for different clients and integration styles.
 - **Multiple inbound endpoints**: Add hot-reloaded listening ports in the WebUI and independently control admin-console, HTTP forward, HTTP reverse, and SOCKS5 access on each port.
