@@ -8,3 +8,4 @@ webui/dist
 .vscode
 *.log
 .data/
+.devcontainer/
