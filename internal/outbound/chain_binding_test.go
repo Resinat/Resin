@@ -66,6 +66,51 @@ func TestChainBindingReusesHealthyRelay(t *testing.T) {
 	}
 }
 
+func TestBoundRelaySnapshotDoesNotSelectOrRetainInvalidBinding(t *testing.T) {
+	for _, reason := range []string{"unhealthy", "role", "removed", "replaced", "incompatible", "closed"} {
+		t.Run(reason, func(t *testing.T) {
+			pool := new(mockPool)
+			relay := addBindingRelay(pool, "relay", "tcp")
+			manager := NewOutboundManager(pool, &testutil.StubOutboundBuilder{})
+			defer manager.Close()
+			picks := 0
+			manager.SetRelayPicker(func(node.Hash, string) (node.Hash, error) {
+				picks++
+				return relay.Hash, nil
+			})
+			d := &chainDialer{manager: manager, landing: node.Hash{99}}
+			n := &nodeOutbound{upstream: d}
+			if !n.BoundRelay().IsZero() || picks != 0 {
+				t.Fatal("reading an unassigned relay selected a candidate")
+			}
+			if _, _, err := d.pick("tcp"); err != nil {
+				t.Fatal(err)
+			}
+			if n.BoundRelay() != relay.Hash || picks != 1 {
+				t.Fatal("reading an assigned relay changed the binding")
+			}
+			switch reason {
+			case "unhealthy":
+				relay.CircuitOpenSince.Store(1)
+			case "role":
+				relay.UpdateRoutingRole(node.RoleOrdinary)
+			case "removed":
+				pool.removeEntry(relay.Hash)
+			case "replaced":
+				addBindingRelay(pool, "relay", "tcp")
+			case "incompatible":
+				var ob adapter.Outbound = &bindingTestOutbound{Outbound: testutil.NewNoopOutbound(), networks: []string{"udp"}}
+				relay.Outbound.Store(&ob)
+			case "closed":
+				n.closed.Store(true)
+			}
+			if !n.BoundRelay().IsZero() || picks != 1 {
+				t.Fatal("invalid binding was shown or snapshot reselected a candidate")
+			}
+		})
+	}
+}
+
 func TestChainBindingReplacesInvalidRelay(t *testing.T) {
 	for _, reason := range []string{"unhealthy", "role", "removed", "same hash replaced", "incompatible"} {
 		t.Run(reason, func(t *testing.T) {

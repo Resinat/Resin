@@ -593,6 +593,9 @@ type NodeSummary struct {
 	CreatedAt                        string    `json:"created_at"`
 	Enabled                          bool      `json:"enabled"`
 	DisplayTag                       string    `json:"display_tag,omitempty"`
+	ChainProxy                       bool      `json:"chain_proxy"`
+	RelayNodeHash                    string    `json:"relay_node_hash,omitempty"`
+	RelayNodeTag                     string    `json:"relay_node_tag,omitempty"`
 	HasOutbound                      bool      `json:"has_outbound"`
 	LastError                        string    `json:"last_error,omitempty"`
 	CircuitOpenSince                 *string   `json:"circuit_open_since"`
@@ -625,6 +628,7 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 		NodeHash:     h.Hex(),
 		CreatedAt:    entry.CreatedAt.UTC().Format(time.RFC3339Nano),
 		Enabled:      true,
+		ChainProxy:   entry.RoutingRole() == node.RoleChain,
 		HasOutbound:  entry.HasOutbound(),
 		LastError:    entry.GetLastError(),
 		FailureCount: int(entry.FailureCount.Load()),
@@ -633,6 +637,19 @@ func (s *ControlPlaneService) nodeEntryToSummary(h node.Hash, entry *node.NodeEn
 	if s != nil && s.Pool != nil {
 		ns.Enabled = !s.Pool.IsNodeDisabled(h)
 		ns.DisplayTag = s.Pool.ResolveNodeDisplayTag(h)
+	}
+	if ns.ChainProxy {
+		if ptr := entry.Outbound.Load(); ptr != nil {
+			if bound, ok := (*ptr).(interface {
+				RoutingVersion() uint64
+				BoundRelay() node.Hash
+			}); ok && bound.RoutingVersion() == entry.RoutingVersion() {
+				if relay := bound.BoundRelay(); !relay.IsZero() {
+					ns.RelayNodeHash = relay.Hex()
+					ns.RelayNodeTag = s.Pool.ResolveNodeDisplayTag(relay)
+				}
+			}
+		}
 	}
 
 	if cos := entry.CircuitOpenSince.Load(); cos > 0 {

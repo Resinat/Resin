@@ -1742,6 +1742,8 @@ Query：
 
 支持的 `sort_by`：`tag`、`created_at`、`failure_count`、`region`。其中 `tag` 表示按照节点 tag 排序。如果有多个 tag，按照所属 subscription 创建最早的那个。同 subscription 选字典序最小的。默认按 `tag` `asc` 排序。
 
+`chain_proxy` 表示节点的当前角色是否为链式落地；`relay_node_hash`、`relay_node_tag` 表示当前有效绑定的线路，未分配或绑定失效时省略。读取节点信息只观察绑定，不触发线路分配。
+
 Response：
 ```json
 {

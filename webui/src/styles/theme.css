@@ -2356,6 +2356,10 @@ a {
 
 .nodes-tag-cell small {
   color: var(--text-muted);
+  max-width: 240px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .nodes-row-actions {

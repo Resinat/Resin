@@ -56,12 +56,28 @@ type nodeOutbound struct {
 	networks   []string
 	closed     atomic.Bool
 	checkRelay func() error
+	upstream   *chainDialer
 }
 
 func (n *nodeOutbound) RoutingVersion() uint64  { return n.version }
 func (n *nodeOutbound) ChainProxy() bool        { return n.chain }
 func (n *nodeOutbound) Ready() bool             { return !n.closed.Load() }
 func (n *nodeOutbound) RelayNetworks() []string { return n.networks }
+
+// BoundRelay observes the existing binding without selecting or dialing a relay.
+func (n *nodeOutbound) BoundRelay() node.Hash {
+	if n.closed.Load() || n.upstream == nil {
+		return node.Zero
+	}
+	bound := n.upstream.relay.Load()
+	if bound == nil {
+		return node.Zero
+	}
+	if _, ok := n.upstream.relayOutbound(bound.entry, bound.network); !ok {
+		return node.Zero
+	}
+	return bound.entry.Hash
+}
 func (n *nodeOutbound) Close() error {
 	if !n.closed.Swap(true) {
 		closeOutbound(n.Outbound)
@@ -107,7 +123,8 @@ type chainDialer struct {
 // Each publication has its own identity, even when a relay is selected again.
 // An old CAS must not mistake a newer A binding for the earlier A binding.
 type relayBinding struct {
-	entry *node.NodeEntry
+	entry   *node.NodeEntry
+	network string
 }
 
 func (d *chainDialer) pick(network string) (adapter.Outbound, node.Hash, error) {
@@ -131,7 +148,7 @@ func (d *chainDialer) pick(network string) (adapter.Outbound, node.Hash, error) 
 		if !ok {
 			return nil, node.Zero, routing.ErrNoAvailableRelay
 		}
-		if d.relay.CompareAndSwap(bound, &relayBinding{entry: entry}) {
+		if d.relay.CompareAndSwap(bound, &relayBinding{entry: entry, network: network}) {
 			return ob, hash, nil
 		}
 		// A concurrent dial published its choice first. Reuse that binding

@@ -9,6 +9,9 @@ export type NodeSummary = {
   created_at: string;
   enabled: boolean;
   display_tag?: string;
+  chain_proxy: boolean;
+  relay_node_hash?: string;
+  relay_node_tag?: string;
   has_outbound: boolean;
   last_error?: string;
   circuit_open_since?: string;

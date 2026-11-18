@@ -532,11 +532,21 @@ export function NodesPage() {
           <span>{sortIndicator(sortBy === "tag", sortOrder)}</span>
         </button>
       ),
-      cell: (info) => (
-        <div className="nodes-tag-cell">
-          <span title={info.getValue() as string}>{info.getValue() as string}</span>
-        </div>
-      ),
+      cell: (info) => {
+        const node = info.row.original;
+        const relayName = node.relay_node_tag || node.relay_node_hash;
+        return (
+          <div className="nodes-tag-cell">
+            <span title={info.getValue() as string}>{info.getValue() as string}</span>
+            {node.chain_proxy && (
+              <small title={relayName || t("未分配")}>
+                {t("线路：")}
+                {relayName || <em>{t("未分配")}</em>}
+              </small>
+            )}
+          </div>
+        );
+      },
     }),
     col.accessor("region", {
       header: () => (

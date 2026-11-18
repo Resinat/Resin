@@ -237,6 +237,8 @@ Note: Once enabled, requests without authentication information are rejected ins
   "链式代理已启用，但本次请求未能记录线路节点。部分协议或连接建立失败时可能出现此情况。":
     "Proxy chaining is enabled, but the relay was not recorded for this request. This can happen with some protocols or when connection setup fails.",
   "线路": "Relay",
+  "线路：": "Relay: ",
+  "未分配": "Unassigned",
   "落地": "Exit",
   "允许作为线路节点": "Allow use as a relay node",
   "仅通过线路节点落地": "Exit only through relay nodes",
