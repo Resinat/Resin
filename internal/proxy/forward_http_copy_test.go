@@ -88,7 +88,7 @@ func TestForwardBodyFailureRetainsActualRelay(t *testing.T) {
 				continue // latency-attempt feedback
 			}
 			var relay *node.RelayError
-			if *f.Result || !errors.Is(f.Err, io.ErrUnexpectedEOF) || !errors.As(f.Err, &relay) || relay.ServerDial || relay.Hash != info.Hash || relay.Version != info.Version {
+			if *f.Result || !errors.Is(f.Err, io.ErrUnexpectedEOF) || !errors.As(f.Err, &relay) || relay.ServerDial || relay.Hash != info.Hash || relay.Version != info.Version || f.Relay != info {
 				t.Fatalf("body failure lost connection identity: %+v", f)
 			}
 			return

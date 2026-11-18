@@ -52,7 +52,6 @@ func (m *detourManager) Outbound(tag string) (adapter.Outbound, bool) {
 type nodeOutbound struct {
 	adapter.Outbound
 	version    uint64
-	chain      bool
 	networks   []string
 	closed     atomic.Bool
 	checkRelay func() error
@@ -60,7 +59,7 @@ type nodeOutbound struct {
 }
 
 func (n *nodeOutbound) RoutingVersion() uint64  { return n.version }
-func (n *nodeOutbound) ChainProxy() bool        { return n.chain }
+func (n *nodeOutbound) ChainProxy() bool        { return n.upstream != nil }
 func (n *nodeOutbound) Ready() bool             { return !n.closed.Load() }
 func (n *nodeOutbound) RelayNetworks() []string { return n.networks }
 
@@ -73,7 +72,7 @@ func (n *nodeOutbound) BoundRelay() node.Hash {
 	if bound == nil {
 		return node.Zero
 	}
-	if _, ok := n.upstream.relayOutbound(bound.entry, bound.network); !ok {
+	if _, ok := n.upstream.boundOutbound(bound, bound.network); !ok {
 		return node.Zero
 	}
 	return bound.entry.Hash
@@ -93,7 +92,16 @@ func (n *nodeOutbound) DialContext(ctx context.Context, network string, destinat
 			return nil, err
 		}
 	}
-	return n.Outbound.DialContext(ctx, network, destination)
+	if n.upstream == nil {
+		return n.Outbound.DialContext(ctx, network, destination)
+	}
+	attempt := new(chainAttempt)
+	ctx = context.WithValue(ctx, chainAttemptKey{}, attempt)
+	conn, err := n.Outbound.DialContext(ctx, network, destination)
+	if bound := attempt.binding.Load(); bound != nil {
+		err = (node.RelayInfo{Binding: bound}).WrapError(err)
+	}
+	return conn, err
 }
 func (n *nodeOutbound) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
 	if n.closed.Load() {
@@ -104,7 +112,16 @@ func (n *nodeOutbound) ListenPacket(ctx context.Context, destination M.Socksaddr
 			return nil, err
 		}
 	}
-	return n.Outbound.ListenPacket(ctx, destination)
+	if n.upstream == nil {
+		return n.Outbound.ListenPacket(ctx, destination)
+	}
+	attempt := new(chainAttempt)
+	ctx = context.WithValue(ctx, chainAttemptKey{}, attempt)
+	conn, err := n.Outbound.ListenPacket(ctx, destination)
+	if bound := attempt.binding.Load(); bound != nil {
+		err = (node.RelayInfo{Binding: bound}).WrapError(err)
+	}
+	return conn, err
 }
 
 type builderFunc func(json.RawMessage) (adapter.Outbound, error)
@@ -120,41 +137,82 @@ type chainDialer struct {
 	relay atomic.Pointer[relayBinding]
 }
 
-// Each publication has its own identity, even when a relay is selected again.
-// An old CAS must not mistake a newer A binding for the earlier A binding.
+// One immutable publication identifies both the selection and its lifetime.
 type relayBinding struct {
-	entry   *node.NodeEntry
-	network string
+	owner             *chainDialer
+	entry             *node.NodeEntry
+	network           string
+	landingGeneration uint64
+	relayGeneration   uint64
 }
 
-func (d *chainDialer) pick(network string) (adapter.Outbound, node.Hash, error) {
+func (b *relayBinding) Invalidate() { b.owner.relay.CompareAndSwap(b, nil) }
+
+func (b *relayBinding) hash() node.Hash {
+	if b != nil {
+		return b.entry.Hash
+	}
+	return node.Zero
+}
+
+func (d *chainDialer) pick(network string) (adapter.Outbound, *relayBinding, error) {
 	network = N.NetworkName(network)
 	for attempt := 0; attempt < 3; attempt++ {
 		bound := d.relay.Load()
 		if bound != nil {
-			if ob, ok := d.relayOutbound(bound.entry, network); ok {
-				return ob, bound.entry.Hash, nil
+			if ob, ok := d.boundOutbound(bound, network); ok {
+				return ob, bound, nil
 			}
 		}
+		landingGeneration := d.landingGeneration()
 		if d.manager.pickRelay == nil {
-			return nil, node.Zero, routing.ErrNoAvailableRelay
+			return nil, nil, routing.ErrNoAvailableRelay
 		}
 		hash, err := d.manager.pickRelay(d.landing, network)
 		if err != nil {
-			return nil, node.Zero, err
+			return nil, nil, err
 		}
 		entry, _ := d.manager.pool.GetEntry(hash)
+		var relayGeneration uint64
+		if entry != nil {
+			relayGeneration = entry.CircuitGeneration.Load()
+		}
 		ob, ok := d.relayOutbound(entry, network)
 		if !ok {
-			return nil, node.Zero, routing.ErrNoAvailableRelay
+			return nil, nil, routing.ErrNoAvailableRelay
 		}
-		if d.relay.CompareAndSwap(bound, &relayBinding{entry: entry, network: network}) {
-			return ob, hash, nil
+		next := &relayBinding{
+			owner: d, entry: entry, network: network,
+			landingGeneration: landingGeneration, relayGeneration: relayGeneration,
+		}
+		if landingGeneration != d.landingGeneration() {
+			continue
+		}
+		if d.relay.CompareAndSwap(bound, next) {
+			return ob, next, nil
 		}
 		// A concurrent dial published its choice first. Reuse that binding
 		// instead of dialing our independently selected candidate.
 	}
-	return nil, node.Zero, routing.ErrNoAvailableRelay
+	return nil, nil, routing.ErrNoAvailableRelay
+}
+
+func (d *chainDialer) landingGeneration() uint64 {
+	if entry, ok := d.manager.pool.GetEntry(d.landing); ok {
+		return entry.CircuitGeneration.Load()
+	}
+	return 0
+}
+
+func (d *chainDialer) boundOutbound(bound *relayBinding, network string) (adapter.Outbound, bool) {
+	ob, ok := d.relayOutbound(bound.entry, network)
+	if !ok {
+		return nil, false
+	}
+	if bound.landingGeneration != d.landingGeneration() || bound.relayGeneration != bound.entry.CircuitGeneration.Load() {
+		return nil, false
+	}
+	return ob, true
 }
 
 func (d *chainDialer) relayOutbound(entry *node.NodeEntry, network string) (adapter.Outbound, bool) {
@@ -166,32 +224,48 @@ func (d *chainDialer) relayOutbound(entry *node.NodeEntry, network string) (adap
 	if ptr == nil || entry.RoutingRole() != node.RoleRelay {
 		return nil, false
 	}
-	if n, ok := (*ptr).(*nodeOutbound); ok && n.chain {
+	if n, ok := (*ptr).(*nodeOutbound); ok && n.ChainProxy() {
 		return nil, false
 	}
 	return *ptr, true
 }
 func (d *chainDialer) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
-	ob, hash, err := d.pick(network)
+	ob, bound, err := d.pick(network)
 	if err != nil {
 		return nil, err
 	}
-	if N.NetworkName(network) != N.NetworkTCP {
-		conn, err := ob.DialContext(ctx, network, destination)
-		return conn, relayError(hash, outboundVersion(ob), err)
+	hash := bound.hash()
+	info := node.RelayInfo{Hash: hash, Tag: d.manager.pool.ResolveNodeDisplayTag(hash), Version: outboundVersion(ob), Binding: bound}
+	if attempt, ok := ctx.Value(chainAttemptKey{}).(*chainAttempt); ok {
+		attempt.binding.Store(bound)
 	}
-	info := node.RelayInfo{Hash: hash, Tag: d.manager.pool.ResolveNodeDisplayTag(hash), Version: outboundVersion(ob)}
 	conn, err := ob.DialContext(ctx, network, destination)
+	if N.NetworkName(network) != N.NetworkTCP {
+		return conn, info.WrapError(relayError(hash, outboundVersion(ob), err))
+	}
 	if err != nil {
-		return nil, relayError(hash, outboundVersion(ob), err)
+		return nil, info.WrapError(relayError(hash, outboundVersion(ob), err))
 	}
 	return &relayConn{Conn: conn, info: info}, nil
 }
 func (d *chainDialer) ListenPacket(ctx context.Context, destination M.Socksaddr) (net.PacketConn, error) {
-	ob, hash, err := d.pick("udp")
+	ob, bound, err := d.pick("udp")
 	if err != nil {
 		return nil, err
 	}
+	hash := bound.hash()
+	info := node.RelayInfo{Hash: hash, Tag: d.manager.pool.ResolveNodeDisplayTag(hash), Version: outboundVersion(ob), Binding: bound}
+	if attempt, ok := ctx.Value(chainAttemptKey{}).(*chainAttempt); ok {
+		attempt.binding.Store(bound)
+	}
 	conn, err := ob.ListenPacket(ctx, destination)
-	return conn, relayError(hash, outboundVersion(ob), err)
+	return conn, info.WrapError(relayError(hash, outboundVersion(ob), err))
+}
+
+type chainAttemptKey struct{}
+
+// Only a detour dial made with this call's context supplies failure metadata.
+// Reusing a hidden native session does not identify a new relay binding.
+type chainAttempt struct {
+	binding atomic.Pointer[relayBinding]
 }

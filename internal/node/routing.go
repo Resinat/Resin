@@ -49,6 +49,7 @@ func (e *NodeEntry) UpdateRoutingRole(role RoutingRole) (bool, []string) {
 		e.SetLastError("")
 		e.FailureCount.Store(0)
 		e.CircuitOpenSince.Store(time.Now().UnixNano())
+		e.CircuitGeneration.Add(1)
 		e.egressIP.Store(nil)
 		e.LastEgressUpdate.Store(0)
 		e.LastLatencyProbeAttempt.Store(0)

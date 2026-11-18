@@ -1,11 +1,109 @@
 package proxy
 
 import (
+	"context"
 	"io"
 	"net"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Resinat/Resin/internal/node"
+	M "github.com/sagernet/sing/common/metadata"
 )
+
+type tunnelTestBinding struct{ invalidations atomic.Int32 }
+
+func (b *tunnelTestBinding) Invalidate() { b.invalidations.Add(1) }
+
+func awaitTunnelResultFeedback(t *testing.T, recorder *feedbackCapture) node.Feedback {
+	t.Helper()
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case f := <-recorder.events:
+			if f.Result != nil {
+				return f
+			}
+		case <-deadline:
+			t.Fatal("missing tunnel result feedback")
+		}
+	}
+}
+
+func TestPreparedTunnelZeroTrafficFailureRetainsBinding(t *testing.T) {
+	for _, name := range []string{"binding_only", "known_relay"} {
+		t.Run(name, func(t *testing.T) {
+			env := newProxyE2EEnv(t)
+			binding := new(tunnelTestBinding)
+			info := node.RelayInfo{Binding: binding}
+			if name == "known_relay" {
+				info.Hash, info.Version = node.Hash{42}, 7
+			}
+			setProxyE2EOutboundDialFunc(t, env, func(context.Context, string, M.Socksaddr) (net.Conn, error) {
+				conn, peer := net.Pipe()
+				_ = peer.Close()
+				return &logTestRelayConn{Conn: conn, info: info}, nil
+			})
+			recorder := &feedbackCapture{events: make(chan node.Feedback, 8)}
+			// CONNECT and SOCKS share the prepared session's recordResult callback.
+			prepared := prepareConnectTunnel(context.Background(), tunnelDeps{router: env.router, pool: env.pool, health: recorder}, "plat", "", "example.com:443")
+			if prepared.session == nil {
+				t.Fatalf("prepare failed: %+v", prepared)
+			}
+			defer prepared.session.upstreamConn.Close()
+
+			// Another request opens the landing circuit after this connection was made.
+			for range 3 {
+				env.pool.RecordResult(prepared.route.NodeHash, false)
+			}
+			entry, _ := env.pool.GetEntry(prepared.route.NodeHash)
+			if !entry.IsCircuitOpen() {
+				t.Fatal("landing circuit must be open before recording the tunnel result")
+			}
+
+			client, peer := net.Pipe()
+			defer client.Close()
+			defer peer.Close()
+			result := pumpPreparedTunnelReader(client, strings.NewReader(""), prepared.session, tunnelPumpOptions{requireBidirectionalTraffic: true})
+			if result.netOK || result.upstreamErr != nil || result.upstreamStage != "connect_zero_traffic" || result.ingressBytes != 0 || result.egressBytes != 0 {
+				t.Fatalf("expected zero-traffic failure without a network error: %+v", result)
+			}
+			prepared.session.recordResult(result.netOK, result.upstreamErr)
+			f := awaitTunnelResultFeedback(t, recorder)
+			if *f.Result || f.Err != nil || f.Relay != info {
+				t.Fatalf("nil-error failure lost connection binding or invented an error: %+v", f)
+			}
+			if !env.pool.ApplyFeedback(prepared.route.NodeHash, prepared.route.NodeVersion, f) {
+				t.Fatal("pool rejected tunnel failure feedback")
+			}
+			if got := binding.invalidations.Load(); got != 1 {
+				t.Fatalf("binding invalidations: got %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestPrepareTunnelDialFailurePreservesBindingEvidence(t *testing.T) {
+	env := newProxyE2EEnv(t)
+	binding := new(tunnelTestBinding)
+	info := node.RelayInfo{Hash: node.Hash{42}, Version: 7, Binding: binding}
+	cause := &node.RelayError{Hash: info.Hash, Version: info.Version, ServerDial: true, Err: io.ErrUnexpectedEOF}
+	dialErr := info.WrapError(cause)
+	setProxyE2EOutboundDialFunc(t, env, func(context.Context, string, M.Socksaddr) (net.Conn, error) {
+		return nil, dialErr
+	})
+	recorder := &feedbackCapture{events: make(chan node.Feedback, 8)}
+	prepared := prepareConnectTunnel(context.Background(), tunnelDeps{router: env.router, pool: env.pool, health: recorder}, "plat", "", "example.com:443")
+	if prepared.session != nil || prepared.upstreamErr != dialErr {
+		t.Fatalf("expected immediate dial failure: %+v", prepared)
+	}
+	f := awaitTunnelResultFeedback(t, recorder)
+	if *f.Result || f.Err != dialErr || f.Relay != (node.RelayInfo{}) || node.BindingFromError(f.Err) != binding {
+		t.Fatalf("dial failure replaced lower-level evidence with connection metadata: %+v", f)
+	}
+}
 
 func TestPumpPreparedTunnelReader_FallsBackToFullCloseWhenHalfCloseUnavailable(t *testing.T) {
 	clientBase, clientPeer := net.Pipe()

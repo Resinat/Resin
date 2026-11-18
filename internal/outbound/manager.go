@@ -128,7 +128,7 @@ func (m *OutboundManager) EnsureNodeOutbound(hash node.Hash) {
 		m.buildError(entry, version, err)
 		return
 	}
-	n := &nodeOutbound{Outbound: native, version: version, chain: chain, networks: relayNetworks(entry.RawOptions, native), upstream: upstream}
+	n := &nodeOutbound{Outbound: native, version: version, networks: relayNetworks(entry.RawOptions, native), upstream: upstream}
 	if chain && native.Type() == "wireguard" {
 		n.checkRelay = func() error {
 			_, _, err := upstream.pick("udp")

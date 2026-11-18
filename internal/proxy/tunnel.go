@@ -100,7 +100,7 @@ func prepareConnectTunnel(
 			}
 		}
 		if deps.health != nil {
-			recordPassiveFailureAsync(deps.health, routed.Route, err)
+			recordPassiveFailureAsync(deps.health, routed.Route, err, node.RelayInfo{})
 		}
 		return tunnelPrepareResult{
 			route:         routed.Route,
@@ -116,7 +116,7 @@ func prepareConnectTunnel(
 			if ok {
 				recordPassiveResultAsync(deps.health, routed.Route, true, relayInfo)
 			} else {
-				recordPassiveFailureAsync(deps.health, routed.Route, relayInfo.WrapError(err))
+				recordPassiveFailureAsync(deps.health, routed.Route, relayInfo.WrapError(err), relayInfo)
 			}
 		}
 	}

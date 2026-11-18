@@ -43,13 +43,13 @@ func TestChainBindingReusesHealthyRelay(t *testing.T) {
 	var calls atomic.Int64
 	manager.SetRelayPicker(func(node.Hash, string) (node.Hash, error) { calls.Add(1); return selected.Load().Hash, nil })
 	d := &chainDialer{manager: manager, landing: node.Hash{99}}
-	if _, hash, err := d.pick("tcp"); err != nil || hash != a.Hash {
-		t.Fatalf("initial binding: %s %v", hash, err)
+	if _, hash, err := d.pick("tcp"); err != nil || hash.hash() != a.Hash {
+		t.Fatalf("initial binding: %s %v", hash.hash(), err)
 	}
 	selected.Store(b)
 	for i := 0; i < 32; i++ {
-		if _, hash, err := d.pick("tcp4"); err != nil || hash != a.Hash {
-			t.Fatalf("healthy binding changed: %s %v", hash, err)
+		if _, hash, err := d.pick("tcp4"); err != nil || hash.hash() != a.Hash {
+			t.Fatalf("healthy binding changed: %s %v", hash.hash(), err)
 		}
 	}
 	// A failed end-to-end dial is not evidence that the relay is unhealthy.
@@ -61,8 +61,8 @@ func TestChainBindingReusesHealthyRelay(t *testing.T) {
 	}
 	// Each landing owns its binding; a second instance can select B.
 	other := &chainDialer{manager: manager, landing: node.Hash{100}}
-	if _, hash, err := other.pick("tcp"); err != nil || hash != b.Hash {
-		t.Fatalf("independent landing: %s %v", hash, err)
+	if _, hash, err := other.pick("tcp"); err != nil || hash.hash() != b.Hash {
+		t.Fatalf("independent landing: %s %v", hash.hash(), err)
 	}
 }
 
@@ -143,12 +143,12 @@ func TestChainBindingReplacesInvalidRelay(t *testing.T) {
 			}
 			selected.Store(expected)
 			ob, hash, err := d.pick(network)
-			if err != nil || hash != expected.Hash || ob != *expected.Outbound.Load() || d.relay.Load().entry != expected {
-				t.Fatalf("invalid %s binding retained: %s %v", reason, hash, err)
+			if err != nil || hash.hash() != expected.Hash || ob != *expected.Outbound.Load() || d.relay.Load().entry != expected {
+				t.Fatalf("invalid %s binding retained: %s %v", reason, hash.hash(), err)
 			}
 			selected.Store(a)
-			if _, hash, err := d.pick("tcp"); err != nil || hash != expected.Hash {
-				t.Fatalf("new healthy binding was not retained: %s %v", hash, err)
+			if _, hash, err := d.pick("tcp"); err != nil || hash.hash() != expected.Hash {
+				t.Fatalf("new healthy binding was not retained: %s %v", hash.hash(), err)
 			}
 			if calls.Load() != 2 {
 				t.Fatalf("selection calls=%d want 2", calls.Load())
@@ -185,7 +185,7 @@ func TestChainBindingConcurrentFirstDialsUseOnePublishedChoice(t *testing.T) {
 	}
 	results := make(chan result, count)
 	for i := 0; i < count; i++ {
-		go func() { _, hash, err := d.pick("tcp"); results <- result{hash, err} }()
+		go func() { _, hash, err := d.pick("tcp"); results <- result{hash.hash(), err} }()
 	}
 	// Hold all independently chosen candidates until every dial has reached the
 	// selector. Only the CAS winner may determine the relay used by these dials.
@@ -234,8 +234,8 @@ func TestChainBindingUnavailableRelayDoesNotFallBackToDirect(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.CircuitOpenSince.Store(1)
-	if ob, hash, err := d.pick("tcp"); ob != nil || !hash.IsZero() || !errors.Is(err, routing.ErrNoAvailableRelay) {
-		t.Fatalf("unavailable binding: %v %s %v", ob, hash, err)
+	if ob, hash, err := d.pick("tcp"); ob != nil || !hash.hash().IsZero() || !errors.Is(err, routing.ErrNoAvailableRelay) {
+		t.Fatalf("unavailable binding: %v %s %v", ob, hash.hash(), err)
 	}
 }
 
@@ -276,8 +276,8 @@ func TestWireguardPrecheckAndTransportShareRelayBinding(t *testing.T) {
 	}
 	selected = b
 	d := builder.upstream.(*chainDialer)
-	if _, hash, err := d.pick("udp"); err != nil || hash != a.Hash {
-		t.Fatalf("transport ignored precheck binding: %s %v", hash, err)
+	if _, hash, err := d.pick("udp"); err != nil || hash.hash() != a.Hash {
+		t.Fatalf("transport ignored precheck binding: %s %v", hash.hash(), err)
 	}
 	if err := n.checkRelay(); err != nil {
 		t.Fatal(err)
@@ -313,8 +313,8 @@ func TestChainBindingLateSelectionCannotOverwriteReboundRelay(t *testing.T) {
 		}
 	})
 	d := &chainDialer{manager: manager, landing: node.Hash{99}}
-	if _, hash, err := d.pick("tcp"); err != nil || hash != a.Hash {
-		t.Fatalf("initial binding: %s %v", hash, err)
+	if _, hash, err := d.pick("tcp"); err != nil || hash.hash() != a.Hash {
+		t.Fatalf("initial binding: %s %v", hash.hash(), err)
 	}
 	initial := d.relay.Load()
 	a.CircuitOpenSince.Store(1)
@@ -323,19 +323,19 @@ func TestChainBindingLateSelectionCannotOverwriteReboundRelay(t *testing.T) {
 		err  error
 	}
 	done := make(chan result, 1)
-	go func() { _, hash, err := d.pick("tcp"); done <- result{hash, err} }()
+	go func() { _, hash, err := d.pick("tcp"); done <- result{hash.hash(), err} }()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("late selector did not start")
 	}
-	if _, hash, err := d.pick("tcp"); err != nil || hash != b.Hash {
-		t.Fatalf("first replacement: %s %v", hash, err)
+	if _, hash, err := d.pick("tcp"); err != nil || hash.hash() != b.Hash {
+		t.Fatalf("first replacement: %s %v", hash.hash(), err)
 	}
 	a.CircuitOpenSince.Store(0)
 	b.CircuitOpenSince.Store(1)
-	if _, hash, err := d.pick("tcp"); err != nil || hash != a.Hash {
-		t.Fatalf("second replacement: %s %v", hash, err)
+	if _, hash, err := d.pick("tcp"); err != nil || hash.hash() != a.Hash {
+		t.Fatalf("second replacement: %s %v", hash.hash(), err)
 	}
 	rebound := d.relay.Load()
 	if rebound == initial {

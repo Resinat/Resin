@@ -50,6 +50,11 @@ func (p *GlobalNodePool) ApplyFeedback(hash node.Hash, version uint64, f node.Fe
 	return applied
 }
 func (p *GlobalNodePool) applyFeedback(hash node.Hash, version uint64, f node.Feedback) bool {
+	failed := (f.Result != nil && !*f.Result || f.Err != nil) && !errors.Is(f.Err, context.Canceled)
+	binding := node.BindingFromError(f.Err)
+	if binding == nil {
+		binding = f.Relay.Binding
+	}
 	if f.Result != nil && !*f.Result && p.passiveCircuitBreakerDisabled(f.PlatformID) {
 		f.Result = nil
 	}
@@ -61,6 +66,7 @@ func (p *GlobalNodePool) applyFeedback(hash node.Hash, version uint64, f node.Fe
 		decay = p.latencyDecayWindow()
 	}
 	applied, dynamic, dirty := false, false, false
+	revokeBinding := false
 	var domains []string
 	p.nodes.Compute(hash, func(e *node.NodeEntry, loaded bool) (*node.NodeEntry, xsync.ComputeOp) {
 		if !loaded || (version != 0 && e.RoutingVersion() != version) {
@@ -76,7 +82,9 @@ func (p *GlobalNodePool) applyFeedback(hash node.Hash, version uint64, f node.Fe
 				count := e.FailureCount.Add(1)
 				dynamic = true
 				if threshold > 0 && int(count) >= threshold {
-					e.CircuitOpenSince.CompareAndSwap(0, time.Now().UnixNano())
+					if e.CircuitOpenSince.CompareAndSwap(0, time.Now().UnixNano()) {
+						e.CircuitGeneration.Add(1)
+					}
 				}
 			}
 			dirty = before != e.IsCircuitOpen()
@@ -116,8 +124,12 @@ func (p *GlobalNodePool) applyFeedback(hash node.Hash, version uint64, f node.Fe
 		if f.LastError != nil {
 			e.SetLastError(*f.LastError)
 		}
+		revokeBinding = failed && binding != nil && e.IsCircuitOpen()
 		return e, xsync.CancelOp
 	})
+	if revokeBinding {
+		binding.Invalidate()
+	}
 	if dirty {
 		p.notifyAllPlatformsDirty(hash)
 	}

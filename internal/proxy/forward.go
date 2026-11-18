@@ -287,7 +287,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		lifecycle.setUpstreamError("forward_roundtrip", err)
 		lifecycle.setHTTPStatus(proxyErr.HTTPCode)
 		if hasRoute {
-			recordPassiveFailureAsync(p.health, route, err)
+			recordPassiveFailureAsync(p.health, route, err, lifecycle.relayInfo())
 		}
 		writeProxyError(w, proxyErr)
 		return
@@ -309,7 +309,7 @@ func (p *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			lifecycle.setUpstreamError("forward_upstream_to_client_copy", copyErr)
 			lifecycle.setNetOK(false)
 			if hasRoute {
-				recordPassiveFailureAsync(p.health, route, copyErr)
+				recordPassiveFailureAsync(p.health, route, copyErr, lifecycle.relayInfo())
 			}
 		}
 		return

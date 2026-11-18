@@ -362,7 +362,7 @@ func (p *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			lifecycle.setNetOK(false)
 			lifecycle.setHTTPStatus(proxyErr.HTTPCode)
 			if hasRoute {
-				recordPassiveFailureAsync(p.health, route, err)
+				recordPassiveFailureAsync(p.health, route, err, lifecycle.relayInfo())
 			}
 			writeProxyError(rw, proxyErr)
 		},

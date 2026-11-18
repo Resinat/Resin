@@ -19,10 +19,10 @@ func recordPassiveResultAsync(health HealthRecorder, route routing.RouteResult, 
 		go health.ApplyFeedback(route.NodeHash, route.NodeVersion, node.Feedback{Result: &success, PlatformID: route.PlatformID, Relay: relay})
 	}
 }
-func recordPassiveFailureAsync(health HealthRecorder, route routing.RouteResult, err error) {
+func recordPassiveFailureAsync(health HealthRecorder, route routing.RouteResult, err error, relay node.RelayInfo) {
 	if health != nil && !errors.Is(err, routing.ErrNoAvailableRelay) && !errors.Is(err, context.Canceled) {
 		failed := false
-		go health.ApplyFeedback(route.NodeHash, route.NodeVersion, node.Feedback{Result: &failed, Err: err, PlatformID: route.PlatformID})
+		go health.ApplyFeedback(route.NodeHash, route.NodeVersion, node.Feedback{Result: &failed, Err: err, PlatformID: route.PlatformID, Relay: relay})
 	}
 }
 func recordLatencyForVersion(health HealthRecorder, hash node.Hash, version uint64, domain string, latency *time.Duration) {

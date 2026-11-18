@@ -70,7 +70,7 @@ func TestDeferredNoRelayDoesNotTripLandingCircuit(t *testing.T) {
 	// Verify that this known local error does not generate async health feedback.
 	recorder := &feedbackCapture{events: make(chan node.Feedback, 4)}
 	route := routing.RouteResult{NodeHash: hash, NodeVersion: entry.RoutingVersion()}
-	recordPassiveFailureAsync(recorder, route, result.upstreamErr)
+	recordPassiveFailureAsync(recorder, route, result.upstreamErr, prepared.relay)
 	select {
 	case f := <-recorder.events:
 		t.Fatalf("NoRelay produced health feedback: %+v", f)
