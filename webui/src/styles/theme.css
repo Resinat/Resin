@@ -709,21 +709,21 @@ a {
   gap: 12px;
 }
 
-.platform-detail-tabs {
+.segmented-control {
   display: inline-flex;
   align-self: flex-start;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  margin: 0 0 4px;
   padding: 4px;
+  border: 0;
   border-radius: 12px;
   background: rgba(30, 60, 100, 0.05);
-  margin-bottom: 4px;
   max-width: 100%;
-  overflow-x: auto;
-  scrollbar-width: thin;
 }
 
-.platform-detail-tab {
+.segmented-control-option {
   border: none;
   border-radius: 8px;
   background: transparent;
@@ -732,33 +732,63 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   white-space: nowrap;
   font-size: 14px;
   font-weight: 600;
   line-height: 1.2;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.platform-detail-tab:hover:not(.platform-detail-tab-active) {
+.segmented-control label {
+  position: relative;
+  cursor: pointer;
+}
+
+.segmented-control input[type="radio"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.segmented-control:not([aria-disabled="true"]) button.segmented-control-option:hover:not([aria-selected="true"]):not([aria-pressed="true"]),
+.segmented-control:not([aria-disabled="true"]) label:hover input:not(:checked) + .segmented-control-option {
   color: #1d4d91;
   background: rgba(30, 60, 100, 0.06);
 }
 
-.platform-detail-tab span {
-  display: inline-block;
-}
-
-.platform-detail-tab-active {
+.segmented-control-option[aria-selected="true"],
+.segmented-control-option[aria-pressed="true"],
+.segmented-control input:checked + .segmented-control-option {
   color: #0f417d;
   background: #ffffff;
   font-weight: 700;
   box-shadow: 0 1px 3px rgba(30, 60, 100, 0.08), 0 1px 2px rgba(30, 60, 100, 0.04);
 }
 
-.platform-detail-tab:focus-visible {
+.segmented-control-option:focus-visible,
+.segmented-control input:focus-visible + .segmented-control-option {
   outline: none;
   box-shadow: 0 0 0 2px rgba(20, 112, 255, 0.3);
+}
+
+.segmented-control[aria-disabled="true"] {
+  opacity: 0.65;
+}
+
+.segmented-control[aria-disabled="true"] label,
+.segmented-control[aria-disabled="true"] .segmented-control-option {
+  cursor: wait;
+}
+
+.platform-detail-tabs {
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .platform-detail-panel {
@@ -1630,8 +1660,9 @@ a {
 
 .subscription-chain-switch {
   display: inline-grid;
+  align-items: stretch;
   grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
+  gap: 2px;
   width: max-content;
   height: 32px;
   min-width: 108px;
@@ -1639,58 +1670,19 @@ a {
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: 7px;
-  background: rgba(37, 72, 120, 0.04);
 }
 
-.subscription-chain-switch label {
-  position: relative;
-  cursor: pointer;
-}
-
-.subscription-chain-switch input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: inherit;
-}
-
-.subscription-chain-switch span {
-  display: grid;
-  place-items: center;
+.subscription-chain-switch .segmented-control-option {
+  display: flex;
   height: 100%;
   padding: 0 2px;
   border-radius: 4px;
-  color: var(--text-muted);
   font-size: 12px;
   font-weight: 600;
-  white-space: nowrap;
-  transition: background-color 140ms ease, color 140ms ease;
 }
 
-.subscription-chain-switch:not([aria-disabled="true"]) label:hover span {
-  background: var(--primary-soft);
-}
-
-.subscription-chain-switch input:checked + span {
+.subscription-chain-switch input:checked + .segmented-control-option {
   color: var(--primary-strong);
-  background: var(--surface-strong);
-  box-shadow: 0 1px 3px rgba(37, 72, 120, 0.14);
-}
-
-.subscription-chain-switch input:focus-visible + span {
-  outline: 2px solid var(--primary);
-  outline-offset: 1px;
-}
-
-.subscription-chain-switch[aria-disabled="true"] {
-  opacity: 0.65;
-}
-
-.subscription-chain-switch[aria-disabled="true"] label {
-  cursor: wait;
 }
 
 .platform-card-grid {
@@ -2589,49 +2581,12 @@ a {
 }
 
 .logs-payload-tabs {
-  display: inline-flex;
-  align-self: flex-start;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 12px;
-  background: rgba(30, 60, 100, 0.05);
-  margin-bottom: 4px;
-  max-width: 100%;
 }
 
 .payload-tab {
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: #5e6f89;
   padding: 6px 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
   font-size: 13px;
-  font-weight: 600;
-  line-height: 1.2;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.payload-tab:hover:not(.payload-tab-active) {
-  color: #1d4d91;
-  background: rgba(30, 60, 100, 0.06);
-}
-
-.payload-tab-active {
-  color: #0f417d;
-  background: #ffffff;
-  font-weight: 700;
-  box-shadow: 0 1px 3px rgba(30, 60, 100, 0.08), 0 1px 2px rgba(30, 60, 100, 0.04);
-}
-
-.payload-tab:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(20, 112, 255, 0.3);
 }
 
 .logs-payload-box {

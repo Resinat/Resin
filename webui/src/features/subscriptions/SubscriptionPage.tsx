@@ -116,7 +116,7 @@ function SubscriptionChainSwitch({ subscription, onModeChange }: {
 
   return (
     <fieldset
-      className="subscription-chain-switch"
+      className="segmented-control subscription-chain-switch"
       aria-label={`${t("链式代理")} · ${subscription.name}`}
       aria-busy={mutation.isPending}
       aria-disabled={mutation.isPending}
@@ -143,7 +143,7 @@ function SubscriptionChainSwitch({ subscription, onModeChange }: {
               if (!mutation.isPending) mutation.mutate(option.value);
             }}
           />
-          <span>{t(option.shortLabel)}</span>
+          <span className="segmented-control-option">{t(option.shortLabel)}</span>
         </label>
       ))}
     </fieldset>
@@ -1180,7 +1180,7 @@ export function SubscriptionPage() {
 
               <div className="field-group field-span-2">
                 <label className="field-label">{t("订阅来源")}</label>
-                <div className="platform-detail-tabs" role="tablist" aria-label={t("订阅来源类型")}>
+                <div className="segmented-control platform-detail-tabs" role="tablist" aria-label={t("订阅来源类型")}>
                   {SUBSCRIPTION_SOURCE_TABS.map((tab) => {
                     const selected = createSourceType === tab.key;
                     return (
@@ -1189,7 +1189,7 @@ export function SubscriptionPage() {
                         type="button"
                         role="tab"
                         aria-selected={selected}
-                        className={`platform-detail-tab ${selected ? "platform-detail-tab-active" : ""}`}
+                        className="segmented-control-option platform-detail-tab"
                         title={t(tab.hint)}
                         onClick={() => createForm.setValue("source_type", tab.key, { shouldDirty: true, shouldValidate: true })}
                       >

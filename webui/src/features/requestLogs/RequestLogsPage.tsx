@@ -1163,7 +1163,7 @@ export function RequestLogsPage() {
                   <p className="muted" style={{ fontSize: "13px" }}>{t("该条日志未记录报文内容。")}</p>
                 ) : (
                   <section className="logs-payload-section">
-                    <div className="logs-payload-tabs">
+                    <div className="segmented-control logs-payload-tabs">
                       {PAYLOAD_TABS.map((tab) => {
                         const labelMap: Record<PayloadTab, string> = {
                           request: t("请求"),
@@ -1180,7 +1180,8 @@ export function RequestLogsPage() {
                           <button
                             key={tab}
                             type="button"
-                            className={`payload-tab ${payloadTab === tab ? "payload-tab-active" : ""}`}
+                            className="segmented-control-option payload-tab"
+                            aria-pressed={payloadTab === tab}
                             onClick={() => setPayloadTab(tab)}
                           >
                             <span>{labelMap[tab]}</span>
