@@ -72,6 +72,10 @@ func HTTPGetViaOutbound(
 			if err != nil {
 				return nil, err
 			}
+			// Target TLS setup precedes GotConn and may fail. Retain the actual
+			// proxy connection's identity as soon as its dial has completed.
+			info := node.RelayInfoFromConn(conn)
+			relay.Store(&info)
 			if opts.OnConnLifecycle != nil {
 				opts.OnConnLifecycle(ConnLifecycleOpen)
 				return &connCloseHook{Conn: conn, onClose: func() { opts.OnConnLifecycle(ConnLifecycleClose) }}, nil
