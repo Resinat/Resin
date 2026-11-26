@@ -74,6 +74,16 @@ function currentProxyEndpoint(fallbackPort: number): ProxyEndpoint {
   };
 }
 
+// The forward-proxy scheme must match how the client reaches the resin data
+// plane, not the scheme used by the page. When the WebUI is published behind a
+// TLS terminator (e.g. stunnel/nginx in front of RESIN_PORT), the browser talks
+// HTTPS to that port, so a plaintext `http://` proxy URL pointing at the same
+// host:port is rejected (the TLS listener resets the connection). Mirror the
+// page scheme so `https://` proxy URLs are emitted for TLS-served deployments.
+function forwardProxyScheme(endpoint: ProxyEndpoint): string {
+  return endpoint.scheme === "https" ? "https" : "http";
+}
+
 function currentScheme(): string {
   if (typeof window === "undefined" || !window.location.protocol) {
     return "http";
@@ -214,7 +224,8 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
     const forwardCredential = forwardToken ? `${identityRaw}:${forwardToken}` : identityRaw;
     const userInfo = forwardToken ? `${identityEnc}:${encodeSegment(forwardToken)}` : identityEnc;
 
-    const httpForward = `http://${userInfo}@${host}`;
+    const fwdScheme = forwardProxyScheme(endpoint);
+    const httpForward = `${fwdScheme}://${userInfo}@${host}`;
     const socksForward = `socks5h://${userInfo}@${host}`;
 
     const reverseTokenSeg = proxyTokenSet ? encodeSegment(tokenRaw || TOKEN_PLACEHOLDER) : "";
@@ -226,7 +237,7 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
     const curlForward = [
       "curl",
       "-x",
-      shellQuote(`http://${host}`),
+      shellQuote(`${fwdScheme}://${host}`),
       "-U",
       shellQuote(forwardCredential),
       shellQuote("https://api.ipify.org"),
@@ -234,12 +245,15 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
     const curlReverse = reverseUrl ? `curl ${shellQuote(reverseUrl)}` : "";
 
     return { httpForward, socksForward, reverseUrl, curlForward, curlReverse };
-  }, [platformName, account, token, proxyTokenSet, host, scheme, target]);
+  }, [platformName, account, token, proxyTokenSet, endpoint, host, scheme, target]);
 
   const copyLabel = t("复制");
   const copiedLabel = t("已复制");
   const tokenMissing = proxyTokenSet && !token.trim();
   const tokenInputValue = proxyTokenSet ? token : "";
+  // SOCKS5 has no TLS layer: when the page is served over https the same
+  // host:port is a TLS terminator, so the plaintext SOCKS5 URL cannot connect.
+  const socksUnreachableOverHttps = scheme === "https";
 
   return (
     <section className="platform-detail-tabpanel platform-access-section">
@@ -305,6 +319,7 @@ export function PlatformAccessPanel({ platformName }: PlatformAccessPanelProps) 
         <CopyField
           label={t("SOCKS5 正向代理")}
           value={urls.socksForward}
+          hint={socksUnreachableOverHttps ? t("Socks5h 代理走明文，无法穿过当前 HTTPS 入口；请改用 HTTP(S) 正向代理或直连 RESIN_PORT。") : undefined}
           copyLabel={copyLabel}
           copiedLabel={copiedLabel}
         />
