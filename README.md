@@ -1,4 +1,4 @@
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md)
 
 <div align="center">
   <img src="webui/public/vite.svg" width="48" alt="Resin Logo" />
