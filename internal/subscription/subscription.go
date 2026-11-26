@@ -101,7 +101,7 @@ func (mn *ManagedNodes) RangeNodes(fn func(node.Hash, ManagedNode) bool) {
 // Subscription represents a subscription's runtime state.
 // It has two synchronization layers:
 //   - mu protects mutable config fields
-//     (url/updateInterval/name/enabled/ephemeral/ephemeralNodeEvictDelayNs).
+//     (including fetch settings, routing policy, name, enabled, and eviction).
 //   - opMu serializes high-level operations (update/rename/eviction/delete)
 //     on the same subscription instance.
 //
@@ -121,13 +121,14 @@ type Subscription struct {
 	sourceType string
 	content    string
 	// updateIntervalNs is the configured subscription refresh interval.
-	updateIntervalNs      int64
-	name                  string
-	enabled               bool
-	ephemeral             bool
-	incrementalAliveNodes bool
-	chainProxy            bool
-	chainRelay            bool
+	updateIntervalNs       int64
+	name                   string
+	enabled                bool
+	defaultRoutingDisabled bool
+	ephemeral              bool
+	incrementalAliveNodes  bool
+	chainProxy             bool
+	chainRelay             bool
 	// ephemeralNodeEvictDelayNs is the per-subscription eviction delay for
 	// circuit-broken nodes when Ephemeral is enabled.
 	ephemeralNodeEvictDelayNs int64
@@ -304,6 +305,19 @@ func (s *Subscription) Enabled() bool {
 func (s *Subscription) SetEnabled(v bool) {
 	s.mu.Lock()
 	s.enabled = v
+	s.mu.Unlock()
+}
+
+// DefaultRoutingDisabled requires an explicit positive platform regex match.
+func (s *Subscription) DefaultRoutingDisabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.defaultRoutingDisabled
+}
+
+func (s *Subscription) SetDefaultRoutingDisabled(v bool) {
+	s.mu.Lock()
+	s.defaultRoutingDisabled = v
 	s.mu.Unlock()
 }
 

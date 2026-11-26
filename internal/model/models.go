@@ -27,6 +27,7 @@ type Subscription struct {
 	Content                   string `json:"content"`
 	UpdateIntervalNs          int64  `json:"update_interval_ns"`
 	Enabled                   bool   `json:"enabled"`
+	DefaultRoutingDisabled    bool   `json:"default_routing_disabled"`
 	Ephemeral                 bool   `json:"ephemeral"`
 	IncrementalAliveNodes     bool   `json:"incremental_alive_nodes"`
 	ChainProxy                bool   `json:"chain_proxy"`

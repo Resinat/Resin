@@ -36,6 +36,7 @@ type SubscriptionResponse struct {
 	ChainRelay              bool   `json:"chain_relay"`
 	EphemeralNodeEvictDelay string `json:"ephemeral_node_evict_delay"`
 	Enabled                 bool   `json:"enabled"`
+	DefaultRoutingDisabled  bool   `json:"default_routing_disabled"`
 	CreatedAt               string `json:"created_at"`
 	LastChecked             string `json:"last_checked,omitempty"`
 	LastUpdated             string `json:"last_updated,omitempty"`
@@ -81,6 +82,7 @@ func (s *ControlPlaneService) subToResponse(sub *subscription.Subscription) Subs
 		ChainRelay:              chainRelay,
 		EphemeralNodeEvictDelay: time.Duration(sub.EphemeralNodeEvictDelayNs()).String(),
 		Enabled:                 sub.Enabled(),
+		DefaultRoutingDisabled:  sub.DefaultRoutingDisabled(),
 		CreatedAt:               time.Unix(0, sub.CreatedAtNs).UTC().Format(time.RFC3339Nano),
 	}
 	if lc := sub.LastCheckedNs.Load(); lc > 0 {
@@ -127,6 +129,7 @@ type CreateSubscriptionRequest struct {
 	Content                 *string `json:"content"`
 	UpdateInterval          *string `json:"update_interval"`
 	Enabled                 *bool   `json:"enabled"`
+	DefaultRoutingDisabled  *bool   `json:"default_routing_disabled"`
 	Ephemeral               *bool   `json:"ephemeral"`
 	IncrementalAliveNodes   *bool   `json:"incremental_alive_nodes"`
 	ChainProxy              *bool   `json:"chain_proxy"`
@@ -204,6 +207,10 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	defaultRoutingDisabled := false
+	if req.DefaultRoutingDisabled != nil {
+		defaultRoutingDisabled = *req.DefaultRoutingDisabled
+	}
 	ephemeral := false
 	if req.Ephemeral != nil {
 		ephemeral = *req.Ephemeral
@@ -245,6 +252,7 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 		Content:                   content,
 		UpdateIntervalNs:          int64(updateInterval),
 		Enabled:                   enabled,
+		DefaultRoutingDisabled:    defaultRoutingDisabled,
 		Ephemeral:                 ephemeral,
 		IncrementalAliveNodes:     incrementalAliveNodes,
 		ChainProxy:                chainProxy,
@@ -262,6 +270,7 @@ func (s *ControlPlaneService) CreateSubscription(req CreateSubscriptionRequest) 
 	sub.SetSourceType(sourceType)
 	sub.SetContent(content)
 	sub.SetIncrementalAliveNodes(incrementalAliveNodes)
+	sub.SetDefaultRoutingDisabled(defaultRoutingDisabled)
 	sub.SetChainConfig(chainProxy, chainRelay)
 	sub.SetEphemeralNodeEvictDelayNs(int64(ephemeralNodeEvictDelay))
 	sub.CreatedAtNs = now
@@ -405,6 +414,14 @@ func (s *ControlPlaneService) updateSubscriptionLocked(sub *subscription.Subscri
 		newEnabled = b
 	}
 
+	oldDefaultRoutingDisabled := sub.DefaultRoutingDisabled()
+	newDefaultRoutingDisabled := oldDefaultRoutingDisabled
+	if b, ok, err := patch.optionalBool("default_routing_disabled"); err != nil {
+		return nil, err
+	} else if ok {
+		newDefaultRoutingDisabled = b
+	}
+
 	newEphemeral := sub.Ephemeral()
 	if b, ok, err := patch.optionalBool("ephemeral"); err != nil {
 		return nil, err
@@ -453,6 +470,7 @@ func (s *ControlPlaneService) updateSubscriptionLocked(sub *subscription.Subscri
 		Content:                   newContent,
 		UpdateIntervalNs:          newInterval,
 		Enabled:                   newEnabled,
+		DefaultRoutingDisabled:    newDefaultRoutingDisabled,
 		Ephemeral:                 newEphemeral,
 		IncrementalAliveNodes:     newIncrementalAliveNodes,
 		ChainProxy:                newChainProxy,
@@ -481,11 +499,12 @@ func (s *ControlPlaneService) updateSubscriptionLocked(sub *subscription.Subscri
 	sub.SetChainConfig(newChainProxy, newChainRelay)
 	sub.SetName(newName)
 	sub.SetEnabled(newEnabled)
+	sub.SetDefaultRoutingDisabled(newDefaultRoutingDisabled)
 	sub.SetEphemeralNodeEvictDelayNs(newEphemeralNodeEvictDelay)
 	sub.UpdatedAtNs = now
 
 	effects.chainChanged = oldChainProxy != newChainProxy || oldChainRelay != newChainRelay
-	effects.viewsChanged = nameChanged || enabledChanged
+	effects.viewsChanged = nameChanged || enabledChanged || oldDefaultRoutingDisabled != newDefaultRoutingDisabled
 	effects.refresh = urlChanged || contentChanged
 
 	r := s.subToResponse(sub)

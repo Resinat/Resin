@@ -14,12 +14,17 @@ func TestSubscriptionChainMigrationAndConstraints(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Recreate a real pre-feature version and upgrade its existing row.
-	down, err := migrationsFS.ReadFile("migrations/state/000010_subscription_chain_proxy.down.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := repo.db.Exec(string(down)); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{
+		"000011_subscription_default_routing.down.sql",
+		"000010_subscription_chain_proxy.down.sql",
+	} {
+		down, err := migrationsFS.ReadFile("migrations/state/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repo.db.Exec(string(down)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if _, err := repo.db.Exec("UPDATE schema_migrations SET version = 9"); err != nil {
 		t.Fatal(err)

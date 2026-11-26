@@ -376,6 +376,7 @@ func bootstrapTopology(
 		sub.SetSourceType(ms.SourceType)
 		sub.SetContent(ms.Content)
 		sub.SetIncrementalAliveNodes(ms.IncrementalAliveNodes)
+		sub.SetDefaultRoutingDisabled(ms.DefaultRoutingDisabled)
 		sub.SetChainConfig(ms.ChainProxy, ms.ChainRelay)
 		sub.SetEphemeralNodeEvictDelayNs(ms.EphemeralNodeEvictDelayNs)
 		sub.CreatedAtNs = ms.CreatedAtNs

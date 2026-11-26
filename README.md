@@ -201,7 +201,7 @@ First, understand two core concepts:
 
 ### 🎯 Core Concepts: Platform and Account
 
-- **Platform**: An isolated node pool. You can build it with filters (for example, only US nodes). Resin provides a default `Default` platform containing all available nodes.
+- **Platform**: An isolated node pool. You can build it with filters (for example, only US nodes). The built-in `Default` platform accepts all available nodes that allow default routing by default.
 - **Account**: A unique business identity (for example `Tom` or `user_1`). For requests carrying an Account, Resin anchors traffic to a dedicated high-quality outbound node. If that node fails, Resin retries seamlessly and switches to another node with the same IP.
 
 ### Sticky proxy access formats

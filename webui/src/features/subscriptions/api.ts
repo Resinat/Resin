@@ -21,6 +21,7 @@ function normalizeSubscription(raw: ApiSubscription): Subscription {
     ...raw,
     source_type: raw.source_type ?? "remote",
     content: raw.content ?? "",
+    default_routing_disabled: raw.default_routing_disabled === true,
     last_checked: raw.last_checked || "",
     last_updated: raw.last_updated || "",
     last_error: raw.last_error || "",

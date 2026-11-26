@@ -59,6 +59,7 @@ const subscriptionCreateSchema = z.object({
   enabled: z.boolean(),
   ephemeral: z.boolean(),
   incremental_alive_nodes: z.boolean(),
+  default_routing_disabled: z.boolean(),
   chain_mode: z.enum(["off", "relay", "landing"]),
 }).superRefine((value, ctx) => {
   const url = value.url.trim();
@@ -87,6 +88,7 @@ const EMPTY_SUBSCRIPTIONS: Subscription[] = [];
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 200, 500] as const;
 const LOCAL_SOURCE_UPDATE_INTERVAL = "12h";
 const SUBSCRIPTION_DISABLE_HINT = "禁用订阅后，相关节点不会参与平台路由、健康统计或自动探测。";
+const SUBSCRIPTION_DEFAULT_ROUTING_HINT = "默认不被平台路由，只有平台明确在正则过滤规则匹配到此订阅的节点才接受路由。";
 const SUBSCRIPTION_EPHEMERAL_HINT = "临时订阅的非健康节点会在一段时间后被自动删除。订阅本身不会被删除。";
 const SUBSCRIPTION_INCREMENTAL_HINT = "开启后刷新时保留当前仍存活的旧节点，仅清理失效旧节点，并合并新订阅内容；关闭后仅保留刷新后的订阅内容。";
 const SUBSCRIPTION_CHAIN_HINT = "线路节点负责中转，落地节点负责最终出口。节点属于多个订阅时，线路节点设置优先。";
@@ -161,6 +163,7 @@ function subscriptionToEditForm(subscription: Subscription): SubscriptionEditFor
     enabled: subscription.enabled,
     ephemeral: subscription.ephemeral,
     incremental_alive_nodes: subscription.incremental_alive_nodes,
+    default_routing_disabled: subscription.default_routing_disabled,
     chain_mode: subscriptionChainMode(subscription),
   };
 }
@@ -255,6 +258,7 @@ export function SubscriptionPage() {
       enabled: true,
       ephemeral: false,
       incremental_alive_nodes: false,
+      default_routing_disabled: false,
       chain_mode: "off",
     },
   });
@@ -274,6 +278,7 @@ export function SubscriptionPage() {
       enabled: true,
       ephemeral: false,
       incremental_alive_nodes: false,
+      default_routing_disabled: false,
       chain_mode: "off",
     },
   });
@@ -312,6 +317,8 @@ export function SubscriptionPage() {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["subscriptions"] }),
       queryClient.invalidateQueries({ queryKey: ["nodes"] }),
+      queryClient.invalidateQueries({ queryKey: ["platforms"] }),
+      queryClient.invalidateQueries({ queryKey: ["platform"] }),
     ]);
   };
 
@@ -342,6 +349,7 @@ export function SubscriptionPage() {
         enabled: true,
         ephemeral: false,
         incremental_alive_nodes: false,
+        default_routing_disabled: false,
         chain_mode: "off",
       });
       showToast("success", t("订阅 {{name}} 创建成功", { name: created.name }));
@@ -364,6 +372,7 @@ export function SubscriptionPage() {
         enabled: formData.enabled,
         ephemeral: formData.ephemeral,
         incremental_alive_nodes: formData.incremental_alive_nodes,
+        default_routing_disabled: formData.default_routing_disabled,
         chain_proxy: formData.chain_mode === "landing",
         chain_relay: formData.chain_mode === "relay",
         ...(formData.source_type === "remote"
@@ -517,6 +526,7 @@ export function SubscriptionPage() {
       enabled: values.enabled,
       ephemeral: values.ephemeral,
       incremental_alive_nodes: values.incremental_alive_nodes,
+      default_routing_disabled: values.default_routing_disabled,
       chain_proxy: values.chain_mode === "landing",
       chain_relay: values.chain_mode === "relay",
       ...(values.source_type === "remote"
@@ -959,32 +969,15 @@ export function SubscriptionPage() {
                   </div>
 
                   {editSourceType === "remote" ? (
-                    <>
-                      <div className="field-group field-span-2">
-                        <label className="field-label" htmlFor="edit-sub-interval">
-                          {t("更新间隔")}
-                        </label>
-                        <Input
-                          id="edit-sub-interval"
-                          placeholder={t("例如 12h")}
-                          invalid={Boolean(editForm.formState.errors.update_interval)}
-                          {...editForm.register("update_interval")}
-                        />
-                        {editForm.formState.errors.update_interval?.message ? (
-                          <p className="field-error">{t(editForm.formState.errors.update_interval.message)}</p>
-                        ) : null}
-                      </div>
-
-                      <div className="field-group field-span-2">
-                        <label className="field-label" htmlFor="edit-sub-url">
-                          {t("订阅链接")}
-                        </label>
-                        <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
-                        {editForm.formState.errors.url?.message ? (
-                          <p className="field-error">{t(editForm.formState.errors.url.message)}</p>
-                        ) : null}
-                      </div>
-                    </>
+                    <div className="field-group field-span-2">
+                      <label className="field-label" htmlFor="edit-sub-url">
+                        {t("订阅链接")}
+                      </label>
+                      <Input id="edit-sub-url" invalid={Boolean(editForm.formState.errors.url)} {...editForm.register("url")} />
+                      {editForm.formState.errors.url?.message ? (
+                        <p className="field-error">{t(editForm.formState.errors.url.message)}</p>
+                      ) : null}
+                    </div>
                   ) : (
                     <div className="field-group field-span-2">
                       <label className="field-label" htmlFor="edit-sub-content">
@@ -1003,7 +996,39 @@ export function SubscriptionPage() {
                     </div>
                   )}
 
-                  <div className="subscription-switch-group field-span-2">
+                  <div className="subscription-options-grid field-span-2">
+                    {editSourceType === "remote" ? (
+                      <div className="field-group">
+                        <label className="field-label" htmlFor="edit-sub-interval">
+                          {t("更新间隔")}
+                        </label>
+                        <Input
+                          id="edit-sub-interval"
+                          placeholder={t("例如 12h")}
+                          invalid={Boolean(editForm.formState.errors.update_interval)}
+                          {...editForm.register("update_interval")}
+                        />
+                        {editForm.formState.errors.update_interval?.message ? (
+                          <p className="field-error">{t(editForm.formState.errors.update_interval.message)}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <div className={editSourceType === "local" ? "subscription-switch-item field-span-2" : "subscription-switch-item"}>
+                      <label className="subscription-switch-label" htmlFor="edit-sub-incremental-alive-nodes">
+                        <span>{t("存活节点增量模式")}</span>
+                        <span
+                          className="subscription-info-icon"
+                          title={t(SUBSCRIPTION_INCREMENTAL_HINT)}
+                          aria-label={t(SUBSCRIPTION_INCREMENTAL_HINT)}
+                          tabIndex={0}
+                        >
+                          <Info size={13} />
+                        </span>
+                      </label>
+                      <Switch id="edit-sub-incremental-alive-nodes" {...editForm.register("incremental_alive_nodes")} />
+                    </div>
+
                     <div className="subscription-switch-item">
                       <label className="subscription-switch-label" htmlFor="edit-sub-ephemeral">
                         <span>{t("临时订阅")}</span>
@@ -1018,62 +1043,63 @@ export function SubscriptionPage() {
                       </label>
                       <Switch id="edit-sub-ephemeral" {...editForm.register("ephemeral")} />
                     </div>
+
+                    <div className="field-group">
+                      <label className="field-label" htmlFor="edit-sub-ephemeral-evict-delay">
+                        {t("临时节点驱逐延迟")}
+                      </label>
+                      <Input
+                        id="edit-sub-ephemeral-evict-delay"
+                        placeholder={t("例如 72h")}
+                        invalid={Boolean(editForm.formState.errors.ephemeral_node_evict_delay)}
+                        disabled={!editEphemeral}
+                        {...editForm.register("ephemeral_node_evict_delay")}
+                      />
+                      {editForm.formState.errors.ephemeral_node_evict_delay?.message ? (
+                        <p className="field-error">{t(editForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
+                      ) : null}
+                    </div>
+
                     <div className="subscription-switch-item">
-                      <label className="subscription-switch-label" htmlFor="edit-sub-incremental-alive-nodes">
-                        <span>{t("存活节点增量模式")}</span>
+                      <label className="subscription-switch-label" htmlFor="edit-sub-default-routing-disabled">
+                        <span>{t("默认不被平台路由")}</span>
                         <span
                           className="subscription-info-icon"
-                          title={t(SUBSCRIPTION_INCREMENTAL_HINT)}
-                          aria-label={t(SUBSCRIPTION_INCREMENTAL_HINT)}
+                          title={t(SUBSCRIPTION_DEFAULT_ROUTING_HINT)}
+                          aria-label={t(SUBSCRIPTION_DEFAULT_ROUTING_HINT)}
                           tabIndex={0}
                         >
                           <Info size={13} />
                         </span>
                       </label>
-                      <Switch id="edit-sub-incremental-alive-nodes" {...editForm.register("incremental_alive_nodes")} />
+                      <Switch id="edit-sub-default-routing-disabled" {...editForm.register("default_routing_disabled")} />
                     </div>
-                  </div>
 
-                  <div className="field-group">
-                    <label className="field-label" htmlFor="edit-sub-ephemeral-evict-delay">
-                      {t("临时节点驱逐延迟")}
-                    </label>
-                    <Input
-                      id="edit-sub-ephemeral-evict-delay"
-                      placeholder={t("例如 72h")}
-                      invalid={Boolean(editForm.formState.errors.ephemeral_node_evict_delay)}
-                      disabled={!editEphemeral}
-                      {...editForm.register("ephemeral_node_evict_delay")}
-                    />
-                    {editForm.formState.errors.ephemeral_node_evict_delay?.message ? (
-                      <p className="field-error">{t(editForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="field-group">
-                    <label className="field-label field-label-with-info" htmlFor="edit-sub-chain-mode">
-                      <span>{t("链式代理")}</span>
-                      <span
-                        className="subscription-info-icon"
-                        title={`${t(SUBSCRIPTION_CHAIN_HINT)} ${t(SUBSCRIPTION_CHAIN_CHANGE_HINT)}`}
-                        aria-label={`${t(SUBSCRIPTION_CHAIN_HINT)} ${t(SUBSCRIPTION_CHAIN_CHANGE_HINT)}`}
-                        tabIndex={0}
+                    <div className="field-group">
+                      <label className="field-label field-label-with-info" htmlFor="edit-sub-chain-mode">
+                        <span>{t("链式代理")}</span>
+                        <span
+                          className="subscription-info-icon"
+                          title={`${t(SUBSCRIPTION_CHAIN_HINT)} ${t(SUBSCRIPTION_CHAIN_CHANGE_HINT)}`}
+                          aria-label={`${t(SUBSCRIPTION_CHAIN_HINT)} ${t(SUBSCRIPTION_CHAIN_CHANGE_HINT)}`}
+                          tabIndex={0}
+                        >
+                          <Info size={13} />
+                        </span>
+                      </label>
+                      <Select
+                        id="edit-sub-chain-mode"
+                        invalid={Boolean(editForm.formState.errors.chain_mode)}
+                        {...editForm.register("chain_mode")}
                       >
-                        <Info size={13} />
-                      </span>
-                    </label>
-                    <Select
-                      id="edit-sub-chain-mode"
-                      invalid={Boolean(editForm.formState.errors.chain_mode)}
-                      {...editForm.register("chain_mode")}
-                    >
-                      {SUBSCRIPTION_CHAIN_MODES.map((option) => (
-                        <option key={option.value} value={option.value}>{t(option.label)}</option>
-                      ))}
-                    </Select>
-                    {editForm.formState.errors.chain_mode?.message ? (
-                      <p className="field-error">{t(editForm.formState.errors.chain_mode.message)}</p>
-                    ) : null}
+                        {SUBSCRIPTION_CHAIN_MODES.map((option) => (
+                          <option key={option.value} value={option.value}>{t(option.label)}</option>
+                        ))}
+                      </Select>
+                      {editForm.formState.errors.chain_mode?.message ? (
+                        <p className="field-error">{t(editForm.formState.errors.chain_mode.message)}</p>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="platform-config-actions">
@@ -1203,36 +1229,19 @@ export function SubscriptionPage() {
               </div>
 
               {createSourceType === "remote" ? (
-                <>
-                  <div className="field-group field-span-2">
-                    <label className="field-label" htmlFor="create-sub-interval">
-                      {t("更新间隔")}
-                    </label>
-                    <Input
-                      id="create-sub-interval"
-                      placeholder={t("例如 12h")}
-                      invalid={Boolean(createForm.formState.errors.update_interval)}
-                      {...createForm.register("update_interval")}
-                    />
-                    {createForm.formState.errors.update_interval?.message ? (
-                      <p className="field-error">{t(createForm.formState.errors.update_interval.message)}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="field-group field-span-2">
-                    <label className="field-label" htmlFor="create-sub-url">
-                      {t("订阅链接")}
-                    </label>
-                    <Input
-                      id="create-sub-url"
-                      invalid={Boolean(createForm.formState.errors.url)}
-                      {...createForm.register("url")}
-                    />
-                    {createForm.formState.errors.url?.message ? (
-                      <p className="field-error">{t(createForm.formState.errors.url.message)}</p>
-                    ) : null}
-                  </div>
-                </>
+                <div className="field-group field-span-2">
+                  <label className="field-label" htmlFor="create-sub-url">
+                    {t("订阅链接")}
+                  </label>
+                  <Input
+                    id="create-sub-url"
+                    invalid={Boolean(createForm.formState.errors.url)}
+                    {...createForm.register("url")}
+                  />
+                  {createForm.formState.errors.url?.message ? (
+                    <p className="field-error">{t(createForm.formState.errors.url.message)}</p>
+                  ) : null}
+                </div>
               ) : (
                 <div className="field-group field-span-2">
                   <label className="field-label" htmlFor="create-sub-content">
@@ -1251,7 +1260,39 @@ export function SubscriptionPage() {
                 </div>
               )}
 
-              <div className="subscription-switch-group field-span-2">
+              <div className="subscription-options-grid field-span-2">
+                {createSourceType === "remote" ? (
+                  <div className="field-group">
+                    <label className="field-label" htmlFor="create-sub-interval">
+                      {t("更新间隔")}
+                    </label>
+                    <Input
+                      id="create-sub-interval"
+                      placeholder={t("例如 12h")}
+                      invalid={Boolean(createForm.formState.errors.update_interval)}
+                      {...createForm.register("update_interval")}
+                    />
+                    {createForm.formState.errors.update_interval?.message ? (
+                      <p className="field-error">{t(createForm.formState.errors.update_interval.message)}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className={createSourceType === "local" ? "subscription-switch-item field-span-2" : "subscription-switch-item"}>
+                  <label className="subscription-switch-label" htmlFor="create-sub-incremental-alive-nodes">
+                    <span>{t("存活节点增量模式")}</span>
+                    <span
+                      className="subscription-info-icon"
+                      title={t(SUBSCRIPTION_INCREMENTAL_HINT)}
+                      aria-label={t(SUBSCRIPTION_INCREMENTAL_HINT)}
+                      tabIndex={0}
+                    >
+                      <Info size={13} />
+                    </span>
+                  </label>
+                  <Switch id="create-sub-incremental-alive-nodes" {...createForm.register("incremental_alive_nodes")} />
+                </div>
+
                 <div className="subscription-switch-item">
                   <label className="subscription-switch-label" htmlFor="create-sub-ephemeral">
                     <span>{t("临时订阅")}</span>
@@ -1266,62 +1307,63 @@ export function SubscriptionPage() {
                   </label>
                   <Switch id="create-sub-ephemeral" {...createForm.register("ephemeral")} />
                 </div>
+
+                <div className="field-group">
+                  <label className="field-label" htmlFor="create-sub-ephemeral-evict-delay">
+                    {t("临时节点驱逐延迟")}
+                  </label>
+                  <Input
+                    id="create-sub-ephemeral-evict-delay"
+                    placeholder={t("例如 72h")}
+                    invalid={Boolean(createForm.formState.errors.ephemeral_node_evict_delay)}
+                    disabled={!createEphemeral}
+                    {...createForm.register("ephemeral_node_evict_delay")}
+                  />
+                  {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
+                    <p className="field-error">{t(createForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
+                  ) : null}
+                </div>
+
                 <div className="subscription-switch-item">
-                  <label className="subscription-switch-label" htmlFor="create-sub-incremental-alive-nodes">
-                    <span>{t("存活节点增量模式")}</span>
+                  <label className="subscription-switch-label" htmlFor="create-sub-default-routing-disabled">
+                    <span>{t("默认不被平台路由")}</span>
                     <span
                       className="subscription-info-icon"
-                      title={t(SUBSCRIPTION_INCREMENTAL_HINT)}
-                      aria-label={t(SUBSCRIPTION_INCREMENTAL_HINT)}
+                      title={t(SUBSCRIPTION_DEFAULT_ROUTING_HINT)}
+                      aria-label={t(SUBSCRIPTION_DEFAULT_ROUTING_HINT)}
                       tabIndex={0}
                     >
                       <Info size={13} />
                     </span>
                   </label>
-                  <Switch id="create-sub-incremental-alive-nodes" {...createForm.register("incremental_alive_nodes")} />
+                  <Switch id="create-sub-default-routing-disabled" {...createForm.register("default_routing_disabled")} />
                 </div>
-              </div>
 
-              <div className="field-group">
-                <label className="field-label" htmlFor="create-sub-ephemeral-evict-delay">
-                  {t("临时节点驱逐延迟")}
-                </label>
-                <Input
-                  id="create-sub-ephemeral-evict-delay"
-                  placeholder={t("例如 72h")}
-                  invalid={Boolean(createForm.formState.errors.ephemeral_node_evict_delay)}
-                  disabled={!createEphemeral}
-                  {...createForm.register("ephemeral_node_evict_delay")}
-                />
-                {createForm.formState.errors.ephemeral_node_evict_delay?.message ? (
-                  <p className="field-error">{t(createForm.formState.errors.ephemeral_node_evict_delay.message)}</p>
-                ) : null}
-              </div>
-
-              <div className="field-group">
-                <label className="field-label field-label-with-info" htmlFor="create-sub-chain-mode">
-                  <span>{t("链式代理")}</span>
-                  <span
-                    className="subscription-info-icon"
-                    title={t(SUBSCRIPTION_CHAIN_HINT)}
-                    aria-label={t(SUBSCRIPTION_CHAIN_HINT)}
-                    tabIndex={0}
+                <div className="field-group">
+                  <label className="field-label field-label-with-info" htmlFor="create-sub-chain-mode">
+                    <span>{t("链式代理")}</span>
+                    <span
+                      className="subscription-info-icon"
+                      title={t(SUBSCRIPTION_CHAIN_HINT)}
+                      aria-label={t(SUBSCRIPTION_CHAIN_HINT)}
+                      tabIndex={0}
+                    >
+                      <Info size={13} />
+                    </span>
+                  </label>
+                  <Select
+                    id="create-sub-chain-mode"
+                    invalid={Boolean(createForm.formState.errors.chain_mode)}
+                    {...createForm.register("chain_mode")}
                   >
-                    <Info size={13} />
-                  </span>
-                </label>
-                <Select
-                  id="create-sub-chain-mode"
-                  invalid={Boolean(createForm.formState.errors.chain_mode)}
-                  {...createForm.register("chain_mode")}
-                >
-                  {SUBSCRIPTION_CHAIN_MODES.map((option) => (
-                    <option key={option.value} value={option.value}>{t(option.label)}</option>
-                  ))}
-                </Select>
-                {createForm.formState.errors.chain_mode?.message ? (
-                  <p className="field-error">{t(createForm.formState.errors.chain_mode.message)}</p>
-                ) : null}
+                    {SUBSCRIPTION_CHAIN_MODES.map((option) => (
+                      <option key={option.value} value={option.value}>{t(option.label)}</option>
+                    ))}
+                  </Select>
+                  {createForm.formState.errors.chain_mode?.message ? (
+                    <p className="field-error">{t(createForm.formState.errors.chain_mode.message)}</p>
+                  ) : null}
+                </div>
               </div>
 
               <div className="detail-actions" style={{ justifyContent: "flex-end" }}>

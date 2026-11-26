@@ -303,6 +303,7 @@ Platform 应该向外提供一个脏更新的接口，用来通知脏节点。�
 	* 节点引用变更：当节点的 SubscriptionIDs 发生变化，可能会影响 MatchTagFilter 的结果（因为 Tag 集合变了）。属于脏更新。
 	* 熔断触发 / 恢复：属于脏更新。	
 	* Platform 过滤器配置变更：全量重建。
+	* 订阅改名、启用状态或 `DefaultRoutingDisabled` 变更：全量重建，更新 API 返回前完成。
 
 ### 订阅
 Resin 从订阅中获取节点配置。
@@ -315,6 +316,7 @@ Resin 从订阅中获取节点配置。
 * Ephemeral：是否为临时订阅。临时订阅指的是，当节点被连续熔断超过该订阅的 EphemeralNodeEvictDelay 时间后，会从订阅中物理移除该节点（从而全局池的引用减 1）。
 * EphemeralNodeEvictDelay：临时节点驱逐延迟（每个订阅独立配置）。仅对 Ephemeral=True 的订阅生效。默认 72 小时。
 * Enabled：订阅是否启用。当订阅被禁用，会重建各 Platform 的可路由池，而不会把节点从全局池删除。
+* DefaultRoutingDisabled：默认不被平台路由，对应 API 字段 `default_routing_disabled`，默认 false，匹配规则见“节点标签过滤规则”。仅影响平台路由资格，不影响订阅刷新、健康统计或自动探测。
 * ChainProxy / ChainRelay：链式代理落地、线路标记，默认均为 false；同一订阅不可同时为 true，对应 API 字段 `chain_proxy`、`chain_relay`。
 * CreatedAt：订阅创建时间
 * LastChecked：订阅的最后检查时间
@@ -401,8 +403,9 @@ Platform 过滤时，通过 `NodeEntry.MatchTagFilter` 方法，反向查询 Ref
 * `*` 前缀为 MUST，所有 MUST 都必须命中。
 * `!` 前缀为 MUST_NOT，任意 MUST_NOT 命中即排除整个节点。
 
-正向条件必须由同一个 Enabled Tag 满足：所有 MUST 均命中，且 ANY 为空或至少一个 ANY 命中。MUST_NOT 检查节点的所有 Enabled Tag。没有正向规则时，任何拥有 Enabled Subscription 且未被排除的节点都满足标签过滤。
+只有启用且仍持有该节点（未淘汰）的订阅贡献 Tag 和路由许可。正向条件必须由同一个 Tag 满足：所有 MUST 均命中，且 ANY 为空或至少一个 ANY 命中。MUST_NOT 检查这些订阅的所有 Tag，任一命中仍排除整个节点。
 
+任一有效持有订阅的 `DefaultRoutingDisabled=false` 即可允许默认路由；若全部为 true，则需有同一个 Tag 满足全部正向条件，且至少一个非空白的 ANY 或 MUST 正则实际命中。空规则列表、空白正则、仅含排除规则均不算明确匹配，`.*` 算。此判断适用于所有 Platform（包括 Default）及筛选预览，其他过滤条件仍须满足。
 
 ### 由热路径 / 冷路径决定的设计决策
 节点的路由是系统的热路径。不应在路由阶段现场执行节点池全量筛选；节点的增删、Platform 过滤器修改属于冷路径。
@@ -644,7 +647,7 @@ Resin 项目中所有的数据库都设计为单写，不会有多进程写入�
 #### state.db
 * system_config(config_json, version, updated_at_ns)
 * platforms(id PK, name UNIQUE, sticky_ttl_ns, regex_filters_json, region_filters_json, reverse_proxy_miss_action, reverse_proxy_empty_account_behavior, reverse_proxy_fixed_account_header, allocation_policy, passive_circuit_breaker_disabled, updated_at_ns)
-* subscriptions(id PK, name, url, update_interval_ns, enabled, ephemeral, chain_proxy, chain_relay, created_at_ns, updated_at_ns)
+* subscriptions(id PK, name, url, update_interval_ns, enabled, default_routing_disabled, ephemeral, chain_proxy, chain_relay, created_at_ns, updated_at_ns)
 * account_header_rules(url_prefix PK, headers_json, updated_at_ns)
 
 > 订阅的 LastCheck、LastError、LastUpdate 不进行持久化。因为启动时总是会更新一次。
@@ -1442,6 +1445,7 @@ API 阻塞到重建完成为止。
   "chain_relay": false,
   "ephemeral_node_evict_delay": "72h",
   "enabled": true,
+  "default_routing_disabled": false,
   "created_at": "2026-02-10T12:00:00Z",
   "last_checked": "2026-02-10T12:10:00Z",
   "last_updated": "2026-02-10T12:09:58Z",
@@ -1474,6 +1478,7 @@ Body：
   "url": "https://example.com/sub",
   "update_interval": "5m",
   "enabled": true,
+  "default_routing_disabled": false,
   "ephemeral": false,
   "chain_proxy": false,
   "chain_relay": false,
@@ -1492,9 +1497,9 @@ Body：
 字段要求：
 
 * 必填字段：`name`，以及按 `source_type` 决定的源字段（`remote` 需要 `url`，`local` 需要 `content`）。
-* 可选字段：`source_type`、`url`、`content`、`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`、`chain_proxy`、`chain_relay`
+* 可选字段：`source_type`、`url`、`content`、`update_interval`、`enabled`、`default_routing_disabled`、`ephemeral`、`ephemeral_node_evict_delay`、`chain_proxy`、`chain_relay`
 * 不可传字段：`id`、`node_count`、`healthy_node_count`、`created_at`、`last_checked`、`last_updated`、`last_error`
-* 默认值：`update_interval="5m"`、`enabled=true`、`ephemeral=false`、`ephemeral_node_evict_delay="72h"`、`chain_proxy=false`、`chain_relay=false`
+* 默认值：`update_interval="5m"`、`enabled=true`、`default_routing_disabled=false`、`ephemeral=false`、`ephemeral_node_evict_delay="72h"`、`chain_proxy=false`、`chain_relay=false`
 
 关键校验（最小集）：
 
@@ -1532,7 +1537,7 @@ Body（partial patch 示例）：
 字段要求：
 
 * 必填字段：无
-* 可改字段：`name`、`url`、`content`、`update_interval`、`enabled`、`ephemeral`、`ephemeral_node_evict_delay`、`chain_proxy`、`chain_relay`
+* 可改字段：`name`、`url`、`content`、`update_interval`、`enabled`、`default_routing_disabled`、`ephemeral`、`ephemeral_node_evict_delay`、`chain_proxy`、`chain_relay`
 * 不可改字段：`id`、`source_type`、`node_count`、`healthy_node_count`、`created_at`、`last_checked`、`last_updated`、`last_error`
 
 关键校验：与“创建订阅”一致。
@@ -2543,7 +2548,7 @@ WebUI 分为登录态与控制台态。未登录时进入登录页；登录后�
 
 订阅支持配置链式代理角色，规则见“链式代理”章节。
 
-点击“新建”弹出订阅创建表单，包含名称、更新间隔、订阅来源（远程 URL / 本地内容）、临时订阅开关、临时节点驱逐延迟、启用开关。
+点击“新建”弹出订阅创建表单，包含名称、更新间隔、订阅来源（远程 URL / 本地内容）、临时订阅开关、临时节点驱逐延迟、默认不被平台路由开关、启用开关。
 
 点击表格行会打开订阅 Drawer，内含订阅配置编辑（基础信息、错误状态）与运维操作（手动刷新、清理失效节点、删除订阅）。
 

@@ -298,25 +298,25 @@ func (p *GlobalNodePool) platformSnapshot() []*platform.Platform {
 
 // MakeSubLookup builds the SubLookupFunc closure for MatchRegexs / tag resolution.
 func (p *GlobalNodePool) MakeSubLookup() node.SubLookupFunc {
-	return func(subID string, hash node.Hash) (string, bool, []string, bool) {
+	return func(subID string, hash node.Hash) (string, bool, []string, bool, bool) {
 		// Compatibility fallback for test wiring that omits SubLookup.
 		// We cannot resolve subscription metadata, so treat the reference as
 		// "present+enabled" without tags.
 		if p.subLookup == nil {
-			return "", true, nil, true
+			return "", true, nil, false, true
 		}
 
 		sub := p.subLookup(subID)
 		if sub == nil {
-			return "", false, nil, false
+			return "", false, nil, false, false
 		}
 
 		managed, ok := sub.ManagedNodes().LoadNode(hash)
 		if !ok || managed.Evicted {
-			return "", false, nil, false
+			return "", false, nil, false, false
 		}
 		tags := managed.Tags
-		return sub.Name(), sub.Enabled(), tags, true
+		return sub.Name(), sub.Enabled(), tags, sub.DefaultRoutingDisabled(), true
 	}
 }
 

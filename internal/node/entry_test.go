@@ -56,14 +56,14 @@ func TestNodeEntry_MatchRegexs_EmptyRegex_RequiresEnabledSubscriptionWhenLookupP
 	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-disabled")
 
-	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
+	lookup := func(subID string, hash Hash) (string, bool, []string, bool, bool) {
 		switch subID {
 		case "sub-disabled":
-			return "SubDisabled", false, []string{"node-a"}, true
+			return "SubDisabled", false, []string{"node-a"}, false, true
 		case "sub-enabled":
-			return "SubEnabled", true, []string{"node-b"}, true
+			return "SubEnabled", true, []string{"node-b"}, false, true
 		default:
-			return "", false, nil, false
+			return "", false, nil, false, false
 		}
 	}
 
@@ -82,11 +82,11 @@ func TestNodeEntry_MatchRegexs_Basic(t *testing.T) {
 	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
-	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
+	lookup := func(subID string, hash Hash) (string, bool, []string, bool, bool) {
 		if subID == "sub-1" {
-			return "MySub", true, []string{"us-node", "fast"}, true
+			return "MySub", true, []string{"us-node", "fast"}, false, true
 		}
-		return "", false, nil, false
+		return "", false, nil, false, false
 	}
 
 	// Match "MySub/us-node" — should match regex "us".
@@ -107,8 +107,8 @@ func TestNodeEntry_MatchRegexs_AllRegexesMustMatch(t *testing.T) {
 	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
-	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
-		return "Provider", true, []string{"us-fast-1"}, true
+	lookup := func(subID string, hash Hash) (string, bool, []string, bool, bool) {
+		return "Provider", true, []string{"us-fast-1"}, false, true
 	}
 
 	// Both "us" and "fast" match "Provider/us-fast-1".
@@ -135,8 +135,8 @@ func TestNodeEntry_MatchRegexs_DisabledSubSkipped(t *testing.T) {
 	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
-	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
-		return "MySub", false, []string{"us-node"}, true // disabled
+	lookup := func(subID string, hash Hash) (string, bool, []string, bool, bool) {
+		return "MySub", false, []string{"us-node"}, false, true // disabled
 	}
 
 	regexes := []*regexp.Regexp{regexp.MustCompile("us")}
@@ -151,14 +151,14 @@ func TestNodeEntry_MatchRegexs_MultiSub(t *testing.T) {
 	e.AddSubscriptionID("sub-1")
 	e.AddSubscriptionID("sub-2")
 
-	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
+	lookup := func(subID string, hash Hash) (string, bool, []string, bool, bool) {
 		switch subID {
 		case "sub-1":
-			return "Provider-A", true, []string{"eu-node"}, true
+			return "Provider-A", true, []string{"eu-node"}, false, true
 		case "sub-2":
-			return "Provider-B", true, []string{"us-node"}, true
+			return "Provider-B", true, []string{"us-node"}, false, true
 		}
-		return "", false, nil, false
+		return "", false, nil, false, false
 	}
 
 	// Match "us" — should match via sub-2.
@@ -173,8 +173,8 @@ func TestNodeEntry_MatchTagFilter_AnyRulesAreORed(t *testing.T) {
 	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
-	lookup := func(string, Hash) (string, bool, []string, bool) {
-		return "Provider", true, []string{"jp-node"}, true
+	lookup := func(string, Hash) (string, bool, []string, bool, bool) {
+		return "Provider", true, []string{"jp-node"}, false, true
 	}
 	filter := TagFilter{Any: []*regexp.Regexp{
 		regexp.MustCompile("hk"),
@@ -190,8 +190,8 @@ func TestNodeEntry_MatchTagFilter_PositiveRulesRequireSameTag(t *testing.T) {
 	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
-	lookup := func(string, Hash) (string, bool, []string, bool) {
-		return "Provider", true, []string{"us-basic", "eu-fast"}, true
+	lookup := func(string, Hash) (string, bool, []string, bool, bool) {
+		return "Provider", true, []string{"us-basic", "eu-fast"}, false, true
 	}
 	filter := TagFilter{
 		Any:  []*regexp.Regexp{regexp.MustCompile("us")},
@@ -207,8 +207,8 @@ func TestNodeEntry_MatchTagFilter_MustNotRejectsAcrossAllTags(t *testing.T) {
 	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
-	lookup := func(string, Hash) (string, bool, []string, bool) {
-		return "Provider", true, []string{"us-fast", "expired-alias"}, true
+	lookup := func(string, Hash) (string, bool, []string, bool, bool) {
+		return "Provider", true, []string{"us-fast", "expired-alias"}, false, true
 	}
 	filter := TagFilter{
 		Any:     []*regexp.Regexp{regexp.MustCompile("us")},
@@ -225,8 +225,8 @@ func TestNodeEntry_MatchTagFilter_OnlyMustNot(t *testing.T) {
 	e := NewNodeEntry(h, nil, time.Now(), 0)
 	e.AddSubscriptionID("sub-1")
 
-	lookup := func(string, Hash) (string, bool, []string, bool) {
-		return "Provider", true, nil, true
+	lookup := func(string, Hash) (string, bool, []string, bool, bool) {
+		return "Provider", true, nil, false, true
 	}
 	filter := TagFilter{MustNot: []*regexp.Regexp{regexp.MustCompile("expired")}}
 	if !e.MatchTagFilter(filter, lookup) {
@@ -240,14 +240,14 @@ func TestNodeEntry_HasEnabledSubscription(t *testing.T) {
 	e.AddSubscriptionID("sub-disabled")
 	e.AddSubscriptionID("sub-enabled")
 
-	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
+	lookup := func(subID string, hash Hash) (string, bool, []string, bool, bool) {
 		switch subID {
 		case "sub-disabled":
-			return "SubDisabled", false, []string{"node-a"}, true
+			return "SubDisabled", false, []string{"node-a"}, false, true
 		case "sub-enabled":
-			return "SubEnabled", true, []string{"node-b"}, true
+			return "SubEnabled", true, []string{"node-b"}, false, true
 		default:
-			return "", false, nil, false
+			return "", false, nil, false, false
 		}
 	}
 
@@ -265,11 +265,11 @@ func TestNodeEntry_IsDisabledBySubscriptions_AllDisabledOrMissing(t *testing.T) 
 	e.AddSubscriptionID("sub-disabled")
 	e.AddSubscriptionID("sub-missing")
 
-	lookup := func(subID string, hash Hash) (string, bool, []string, bool) {
+	lookup := func(subID string, hash Hash) (string, bool, []string, bool, bool) {
 		if subID == "sub-disabled" {
-			return "SubDisabled", false, []string{"node-a"}, true
+			return "SubDisabled", false, []string{"node-a"}, false, true
 		}
-		return "", false, nil, false
+		return "", false, nil, false, false
 	}
 
 	if e.HasEnabledSubscription(lookup) {

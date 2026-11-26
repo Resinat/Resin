@@ -13,6 +13,7 @@ export type Subscription = {
   chain_relay: boolean;
   ephemeral_node_evict_delay: string;
   enabled: boolean;
+  default_routing_disabled: boolean;
   created_at: string;
   last_checked?: string;
   last_updated?: string;
@@ -33,6 +34,7 @@ export type SubscriptionCreateInput = {
   content?: string;
   update_interval?: string;
   enabled?: boolean;
+  default_routing_disabled?: boolean;
   ephemeral?: boolean;
   incremental_alive_nodes?: boolean;
   chain_proxy?: boolean;
@@ -46,6 +48,7 @@ export type SubscriptionUpdateInput = {
   content?: string;
   update_interval?: string;
   enabled?: boolean;
+  default_routing_disabled?: boolean;
   ephemeral?: boolean;
   incremental_alive_nodes?: boolean;
   chain_proxy?: boolean;

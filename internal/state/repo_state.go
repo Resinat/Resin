@@ -310,8 +310,8 @@ func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
 
 	_, err := r.db.Exec(`
 			INSERT INTO subscriptions (id, name, source_type, url, content, update_interval_ns, enabled,
-			                           ephemeral, incremental_alive_nodes, ephemeral_node_evict_delay_ns, created_at_ns, updated_at_ns, chain_proxy, chain_relay)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			                           ephemeral, incremental_alive_nodes, ephemeral_node_evict_delay_ns, created_at_ns, updated_at_ns, chain_proxy, chain_relay, default_routing_disabled)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				name               = excluded.name,
 				source_type        = excluded.source_type,
@@ -323,10 +323,11 @@ func (r *StateRepo) UpsertSubscription(s model.Subscription) error {
 				incremental_alive_nodes = excluded.incremental_alive_nodes,
 				chain_proxy = excluded.chain_proxy,
 				chain_relay = excluded.chain_relay,
+				default_routing_disabled = excluded.default_routing_disabled,
 				ephemeral_node_evict_delay_ns = excluded.ephemeral_node_evict_delay_ns,
 				updated_at_ns      = excluded.updated_at_ns
 		`, s.ID, s.Name, s.SourceType, s.URL, s.Content, s.UpdateIntervalNs, s.Enabled,
-		s.Ephemeral, s.IncrementalAliveNodes, s.EphemeralNodeEvictDelayNs, s.CreatedAtNs, s.UpdatedAtNs, s.ChainProxy, s.ChainRelay)
+		s.Ephemeral, s.IncrementalAliveNodes, s.EphemeralNodeEvictDelayNs, s.CreatedAtNs, s.UpdatedAtNs, s.ChainProxy, s.ChainRelay, s.DefaultRoutingDisabled)
 	return err
 }
 
@@ -349,7 +350,7 @@ func (r *StateRepo) DeleteSubscription(id string) error {
 // ListSubscriptions returns all subscriptions.
 func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 	rows, err := r.db.Query(`SELECT id, name, source_type, url, content, update_interval_ns, enabled,
-		ephemeral, incremental_alive_nodes, ephemeral_node_evict_delay_ns, created_at_ns, updated_at_ns, chain_proxy, chain_relay FROM subscriptions`)
+		ephemeral, incremental_alive_nodes, ephemeral_node_evict_delay_ns, created_at_ns, updated_at_ns, chain_proxy, chain_relay, default_routing_disabled FROM subscriptions`)
 	if err != nil {
 		return nil, err
 	}
@@ -359,7 +360,7 @@ func (r *StateRepo) ListSubscriptions() ([]model.Subscription, error) {
 	for rows.Next() {
 		var s model.Subscription
 		if err := rows.Scan(&s.ID, &s.Name, &s.SourceType, &s.URL, &s.Content, &s.UpdateIntervalNs, &s.Enabled,
-			&s.Ephemeral, &s.IncrementalAliveNodes, &s.EphemeralNodeEvictDelayNs, &s.CreatedAtNs, &s.UpdatedAtNs, &s.ChainProxy, &s.ChainRelay); err != nil {
+			&s.Ephemeral, &s.IncrementalAliveNodes, &s.EphemeralNodeEvictDelayNs, &s.CreatedAtNs, &s.UpdatedAtNs, &s.ChainProxy, &s.ChainRelay, &s.DefaultRoutingDisabled); err != nil {
 			return nil, err
 		}
 		if s.SourceType == "" {

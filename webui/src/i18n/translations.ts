@@ -623,6 +623,9 @@ Note: Once enabled, requests without authentication information are rejected ins
     "After disabling a subscription, related nodes will not participate in platform routing, health statistics, or automatic probing.",
   "临时订阅的非健康节点会在一段时间后被自动删除。订阅本身不会被删除。":
     "Unhealthy nodes in temporary subscriptions will be auto-removed after a delay. The subscription itself will not be deleted.",
+  "默认不被平台路由": "Exclude from Platform Routing by Default",
+  "默认不被平台路由，只有平台明确在正则过滤规则匹配到此订阅的节点才接受路由。":
+    "Excluded from platform routing by default. Nodes are eligible only when explicitly matched by the platform’s regex filter rules.",
   "存活节点增量模式": "Incremental Alive Nodes",
   "开启后刷新时保留当前仍存活的旧节点，仅清理失效旧节点，并合并新订阅内容；关闭后仅保留刷新后的订阅内容。":
     "When enabled, refresh keeps existing old nodes that are still alive, removes only stale old nodes, and merges the new subscription content. When disabled, only the refreshed subscription content is kept.",

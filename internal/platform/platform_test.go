@@ -27,8 +27,8 @@ func makeFullyRoutableEntry(hash node.Hash, subIDs ...string) *node.NodeEntry {
 	return e
 }
 
-func alwaysLookup(subID string, hash node.Hash) (string, bool, []string, bool) {
-	return "TestSub", true, []string{"us-node", "fast"}, true
+func alwaysLookup(subID string, hash node.Hash) (string, bool, []string, bool, bool) {
+	return "TestSub", true, []string{"us-node", "fast"}, false, true
 }
 
 func usGeoLookup(addr netip.Addr) string { return "us" }

@@ -226,7 +226,7 @@ func TestChooseSameIPRotationCandidate_PicksLowestLatency(t *testing.T) {
 	plat.NotifyDirty(
 		currentHash,
 		pool.GetEntry,
-		func(_ string, _ node.Hash) (string, bool, []string, bool) { return "", true, nil, true },
+		func(_ string, _ node.Hash) (string, bool, []string, bool, bool) { return "", true, nil, false, true },
 		func(_ netip.Addr) string { return "" },
 	)
 
@@ -263,7 +263,7 @@ func TestRouteRequest_SameIPRotationMissRecreatesLease(t *testing.T) {
 	plat.NotifyDirty(
 		currentHash,
 		pool.GetEntry,
-		func(_ string, _ node.Hash) (string, bool, []string, bool) { return "", true, nil, true },
+		func(_ string, _ node.Hash) (string, bool, []string, bool, bool) { return "", true, nil, false, true },
 		func(_ netip.Addr) string { return "" },
 	)
 

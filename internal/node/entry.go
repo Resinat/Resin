@@ -13,9 +13,9 @@ import (
 )
 
 // SubLookupFunc resolves a subscription ID + node hash to the subscription's
-// name, enabled status, and the tags for that node in that subscription.
+// name, enabled status, tags, and default routing restriction.
 // Returns ok=false if the subscription does not exist.
-type SubLookupFunc func(subID string, hash Hash) (name string, enabled bool, tags []string, ok bool)
+type SubLookupFunc func(subID string, hash Hash) (name string, enabled bool, tags []string, defaultRoutingDisabled bool, ok bool)
 
 // TagFilter is a compiled set of line-oriented tag regex rules.
 // Any rules are ORed, Must rules are ANDed, and any MustNot match rejects the node.
@@ -130,7 +130,7 @@ func (e *NodeEntry) SubscriptionCount() int {
 // Tags are tested in the format "<subscriptionName>/<tag>".
 // For an empty regex list:
 //   - if subLookup is nil, it matches everything (compatibility fallback);
-//   - otherwise, it matches only when at least one enabled subscription exists.
+//   - otherwise, it requires an enabled subscription allowing default routing.
 func (e *NodeEntry) MatchRegexs(regexes []*regexp.Regexp, subLookup SubLookupFunc) bool {
 	return e.MatchTagFilter(TagFilter{Must: regexes}, subLookup)
 }
@@ -138,6 +138,8 @@ func (e *NodeEntry) MatchRegexs(regexes []*regexp.Regexp, subLookup SubLookupFun
 // MatchTagFilter tests the node's enabled-subscription tags against a compiled filter.
 // Positive rules must be satisfied by one "<subscriptionName>/<tag>" candidate.
 // MustNot rules inspect every candidate and reject the whole node on any match.
+// An enabled subscription must allow default routing, or a non-empty positive
+// rule must explicitly match. Empty and exclusion-only filters do not opt in.
 func (e *NodeEntry) MatchTagFilter(filter TagFilter, subLookup SubLookupFunc) bool {
 	if subLookup == nil {
 		return filter.Empty()
@@ -152,33 +154,36 @@ func (e *NodeEntry) MatchTagFilter(filter TagFilter, subLookup SubLookupFunc) bo
 		return false
 	}
 
-	hasEnabledSubscription := false
+	hasDefaultRoutingSubscription := false
 	hasPositiveRules := len(filter.Any) > 0 || len(filter.Must) > 0
 	matchedPositive := false
+	matchedExplicitPositive := false
 
 	for _, subID := range subs {
-		name, enabled, tags, ok := subLookup(subID, e.Hash)
+		name, enabled, tags, defaultRoutingDisabled, ok := subLookup(subID, e.Hash)
 		if !ok || !enabled {
 			continue
 		}
-		hasEnabledSubscription = true
+		if !defaultRoutingDisabled {
+			hasDefaultRoutingSubscription = true
+		}
 		for _, tag := range tags {
 			candidate := name + "/" + tag
 			if matchesAny(candidate, filter.MustNot) {
 				return false
 			}
-			if !matchedPositive &&
-				matchesAll(candidate, filter.Must) &&
-				(len(filter.Any) == 0 || matchesAny(candidate, filter.Any)) {
-				matchedPositive = true
+			if !matchedPositive || (!hasDefaultRoutingSubscription && !matchedExplicitPositive) {
+				matched, explicit := matchPositiveRules(candidate, filter, !hasDefaultRoutingSubscription)
+				matchedPositive = matchedPositive || matched
+				matchedExplicitPositive = matchedExplicitPositive || explicit
 			}
 		}
 	}
 
 	if !hasPositiveRules {
-		return hasEnabledSubscription
+		return hasDefaultRoutingSubscription
 	}
-	return matchedPositive
+	return matchedPositive && (hasDefaultRoutingSubscription || matchedExplicitPositive)
 }
 
 // HasEnabledSubscription reports whether the node currently has at least one
@@ -197,7 +202,7 @@ func (e *NodeEntry) HasEnabledSubscription(subLookup SubLookupFunc) bool {
 	e.mu.RUnlock()
 
 	for _, subID := range subs {
-		_, enabled, _, ok := subLookup(subID, e.Hash)
+		_, enabled, _, _, ok := subLookup(subID, e.Hash)
 		if ok && enabled {
 			return true
 		}
@@ -212,14 +217,33 @@ func (e *NodeEntry) IsDisabledBySubscriptions(subLookup SubLookupFunc) bool {
 	return !e.HasEnabledSubscription(subLookup)
 }
 
-// matchesAll returns true if s matches every regex in the list.
-func matchesAll(s string, regexes []*regexp.Regexp) bool {
-	for _, re := range regexes {
+// matchPositiveRules preserves the ANY/MUST semantics. When requireExplicit is
+// true, it also checks for a non-blank match; otherwise ANY stops at its first hit.
+func matchPositiveRules(s string, filter TagFilter, requireExplicit bool) (matched, explicit bool) {
+	for _, re := range filter.Must {
 		if !re.MatchString(s) {
-			return false
+			return false, false
+		}
+		if requireExplicit {
+			explicit = explicit || strings.TrimSpace(re.String()) != ""
 		}
 	}
-	return true
+	if len(filter.Any) == 0 {
+		return true, explicit
+	}
+	for _, re := range filter.Any {
+		if re.MatchString(s) {
+			if !requireExplicit {
+				return true, false
+			}
+			matched = true
+			explicit = explicit || strings.TrimSpace(re.String()) != ""
+			if explicit {
+				return true, true
+			}
+		}
+	}
+	return matched, matched && explicit
 }
 
 // matchesAny returns true if s matches at least one regex in the list.
